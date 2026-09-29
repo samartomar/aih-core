@@ -10,14 +10,15 @@ import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJso
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { lockTarget, ownershipPath, protectState, readOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership } from './internal/state.js';
-import { captureRecipeReference, captureInlineMaterials, type CapturedRecipeReference } from './internal/material.js';
+import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
+  type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
-import type { Authorization, CheckResult, Effective, HostControls, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewOperation, RunResult } from './host-types.js';
+import type { Authorization, CheckResult, Effective, HostControls, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -112,15 +113,18 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
   return { process: { executable: resolvedExecutable, args, cwd: cwd.absolute, cwdPins: pathPins(cwd.absolute), env, stdin,
     timeoutMs, maxOutputBytes, acceptedExitCodes: invocation.acceptedExitCodes },
     review: { executable: executable?.path ?? (materialId ? `material:${materialId}` : `unavailable:${'name' in invocation.executable ? invocation.executable.name : ''}`),
-      args: args.map(arg => JSON.stringify(redactExact(arg, privateValues)).slice(0, 4096)), cwd: safeText(cwd.absolute, privateValues),
-      env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, JSON.stringify(redactExact(value, privateValues)).slice(0, 4096)])),
-      stdinProtected: stdin !== undefined,
+      ...(executable ? { executableSha256: executable.sha256 } : materialBytes ? { executableSha256: sha256(materialBytes) } : {}),
+      args: args.map(arg => JSON.stringify(redactExact(arg, privateValues))), cwd: safeText(cwd.absolute, privateValues),
+      env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, JSON.stringify(redactExact(value, privateValues))])),
+      stdinProtected: stdin !== undefined, ...(stdin === undefined ? {} : { stdinSha256: sha256(stdin), stdinBytes: Buffer.byteLength(stdin) }),
       timeoutMs: { value: timeoutMs, origin: invocation.timeoutMs === undefined ? 'default' : 'explicit' },
-      maxOutputBytes: { value: maxOutputBytes, origin: invocation.maxOutputBytes === undefined ? 'default' : 'explicit' } } };
+      maxOutputBytes: { value: maxOutputBytes, origin: invocation.maxOutputBytes === undefined ? 'default' : 'explicit' },
+      acceptedExitCodes: [...invocation.acceptedExitCodes] } };
 }
-async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
+async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
+    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
   if ('reference' in selection.recipe) {
-    const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal });
+    const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });
     const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
     if (!validateRecipe(recipe).valid) throw new Error('recipe-invalid');
     const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => a.id.localeCompare(b.id));
@@ -130,7 +134,7 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   }
   const recipe = selection.recipe.inline;
   if (recipe.materials.some(item => !('source' in item))) throw new Error('material-source-missing');
-  const captured = await captureInlineMaterials(recipe.materials.filter(item => 'source' in item), roots, { signal });
+  const captured = await captureInlineMaterials(recipe.materials.filter(item => 'source' in item), roots, { signal, budget });
   return { recipe, recipeSha256: digest(recipe), material: captured };
 }
 
@@ -198,6 +202,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const validation = validatePolicy(request.policy);
     if (!validation.valid) { result.diagnostics = validation.diagnostics; return finish(); }
     const policy = clone(request.policy);
+    const captureBudget = createMaterialCaptureBudget();
+    for (const selection of policy.selections) {
+      if ('reference' in selection.recipe) captureBudget.declareReference(selection.recipe.reference);
+      else captureBudget.declareInline(selection.recipe.inline.materials);
+    }
+    captureBudget.seal();
     const resolutions = clone(request.resolutions ?? []);
     if (!Array.isArray(resolutions) || new Set(resolutions.map(item => `${item.selectionId}/${item.operationId}`)).size !== resolutions.length)
       throw new Error('resolution-invalid');
@@ -223,10 +233,20 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const ownership = new Map<string, { value: Ownership; digest: string | null }>();
     const captures: { recheck(): Promise<boolean> }[] = [];
     const selectionOps = new Map<string, string[]>();
+    const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
-      const { recipe, recipeSha256, material } = await captureSelection(selection, controls.materialRoots ?? {}, controls.signal);
+      let captured: Awaited<ReturnType<typeof captureSelection>>;
+      try { captured = await captureSelection(selection, controls.materialRoots ?? {}, captureBudget, controls.signal); }
+      catch (error) {
+        if (!(error instanceof MaterialCaptureError) || !['archive-download-failed', 'archive-incomplete',
+          'local-file-unavailable', 'local-root-unavailable', 'acquisition-deadline'].includes(error.reason)) throw error;
+        omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', error.reason,
+          `Selected material for ${safeText(selection.id, privateValues)} is unavailable.`));
+        unavailableSelections.add(selection.id); selectionOps.set(selection.id, []); continue;
+      }
+      const { recipe, recipeSha256, material } = captured;
       captures.push(material);
       const recipeValidation = validateRecipe(recipe);
       if (!recipeValidation.valid) { result.diagnostics = recipeValidation.diagnostics; return finish(); }
@@ -250,7 +270,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const priorSelections = selection.requires.flatMap(id => selectionOps.get(id) ?? []);
       const currentIds: string[] = [];
       const checkMap = new Map(recipe.checks.map(check => [check.id, check]));
-      let prerequisite: string | undefined;
+      let prerequisite: string | undefined = selection.requires.some(id => unavailableSelections.has(id)) ? 'selection-unavailable' : undefined;
       for (const [index, requirement] of recipe.prerequisites.entries()) {
         const outcome = requirement.kind === 'platform' ?
           requirement.os === process.platform && requirement.architectures.includes(process.arch) ? 'available' : 'platform-unavailable' :
@@ -262,7 +282,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const id = `${selection.id}/${op.id}`; currentIds.push(id);
         const requires = [...priorSelections, ...op.requires.map(required => `${selection.id}/${required}`)];
         const selectedChecks = op.checks.map(checkId => checkMap.get(checkId)!);
-        const checks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id));
+        const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id));
+        const checks = preparedChecks.map(item => item.prepared);
         let root: string | undefined; let path: string | undefined; let before: Buffer | null | undefined;
         let after: Buffer | null | undefined; let pins: PathPin[] | undefined; let mode: number | undefined;
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
@@ -292,9 +313,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             if (!after) throw new Error('material-missing');
           } else if (op.kind === 'config.entries') {
             const entries = op.entries.map(entry => entry.action === 'set' ? { ...entry, value: resolveSlot(entry.value, bound) } : entry);
+            details = { format: op.format, entries: entries.map(entry => entry.action === 'set' ?
+              { path: entry.path, action: entry.action, value: redactExact(canonicalJson(entry.value), privateValues) } :
+              { path: entry.path, action: entry.action }) };
             try { after = renderConfigEntries(op.format, before, entries); }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else if (op.kind === 'text.block') {
+            details = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker,
+              blockAction: op.action, ...(op.content ? { content: redactExact(resolveString(op.content, bound), privateValues) } : {}) };
             try { after = renderTextBlock(before, { blockId: op.blockId, startMarker: op.startMarker,
               endMarker: op.endMarker, action: op.action, ...(op.content ? { content: resolveString(op.content, bound) } : {}) }); }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
@@ -319,8 +345,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           if (resolution === 'adopt' && (!same || before === null || managed)) throw new Error('resolution-invalid');
           if (effect === 'conflict') conflicts.push({ ...diagnostic('STATE_CONFLICT', editConflict ?? 'existing-content',
             'Existing, edited or unsupported content requires an exact reviewed resolution or a narrower edit.'), path: safeText(path, privateValues) });
-          details = { target: safeText(target.absolute, privateValues),
-            ...(op.kind === 'file.write' && op.material ? { material: op.material } : {}),
+          details = { ...details, target: safeText(target.absolute, privateValues),
+            ...(op.kind === 'file.write' && op.material ? { material: op.material,
+              materialSha256: sha256(after!), materialBytes: after!.byteLength } : {}),
             ...(op.kind === 'file.write' && op.content ? { content: 'input' in op.content && recipe.inputs[op.content.input]?.sensitive ?
               '[REDACTED]' : redactExact(resolveString(op.content, bound), privateValues) } : {}),
             mode, ...(editConflict ? { reason: editConflict } : {}) };
@@ -329,7 +356,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
         if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
         const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
-          effects: effect, ownership: ownerState, requires, checks: checks.map(check => check.id), details };
+          effects: effect, ownership: ownerState, requires, checks: preparedChecks.map(item => item.review), details };
         steps.push({ review, root, path, ownerKey, before, after, mode, pins, managementId: selection.managementId,
           recipeIdentity, checks, process: preparedProcess, unavailable, resolution });
       }
@@ -354,17 +381,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       result.prepared = prepared;
     }
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'preparation-failed';
+    const reason = error instanceof MaterialCaptureError ? error.reason : error instanceof Error ? error.message : 'preparation-failed';
     result.status = reason === 'cancelled' ? 'cancelled' : 'invalid';
-    result.diagnostics = [diagnostic(reason === 'cancelled' ? 'CANCELLED' : 'INPUT_INVALID',
+    const unavailable = ['archive-download-failed', 'archive-decompression-failed', 'archive-incomplete',
+      'local-file-unavailable', 'local-root-unavailable', 'acquisition-deadline'].includes(reason);
+    result.diagnostics = [diagnostic(reason === 'cancelled' ? 'CANCELLED' : unavailable ? 'PREREQUISITE_UNAVAILABLE' : 'INPUT_INVALID',
       /^[a-z-]{1,64}$/.test(reason) ? reason : 'preparation-failed', 'Preparation could not admit the requested work.')];
   }
   return finish();
   function finish(): PreparationResult {
     const record = { ...result, prepared: undefined,
       review: result.review ? { ...result.review, operations: result.review.operations.map(op => ({ ...op,
-        details: { ...op.details, content: '[OMITTED]', args: op.details.args?.map(() => '[OMITTED]'),
-          env: op.details.env ? Object.fromEntries(Object.keys(op.details.env).map(key => [key, '[OMITTED]'])) : undefined } })) } : undefined };
+        checks: op.checks.map(check => ({ ...check, details: historyDetails(check.details) })),
+        details: historyDetails(op.details) })) } : undefined };
     result.record = writeHistory(runId, historySafe(record, project), logging);
     if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
       'Routine history could not be saved; the returned outcomes remain available.'));
@@ -372,14 +401,24 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
   }
 }
 
+function historyDetails(details: ReviewOperation['details']): ReviewOperation['details'] {
+  return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',
+    entries: details.entries?.map(entry => ({ ...entry, ...(entry.value === undefined ? {} : { value: '[OMITTED]' }) })),
+    args: details.args?.map(() => '[OMITTED]'),
+    env: details.env ? Object.fromEntries(Object.keys(details.env).map(key => [key, '[OMITTED]'])) : undefined };
+}
 function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: string, selectionKey: string,
-    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], selectionId: string): PreparedCheck {
+    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], selectionId: string): { prepared: PreparedCheck; review: ReviewCheck } {
   const id = `${selectionId}/${check.id}`;
   if (check.kind === 'file.sha256') {
     const target = resolvePath(check.target, check.target.root === 'project' ? 'project' : 'user', bound, project, selectionKey);
-    return { id, kind: check.kind, path: target.absolute, sha256: check.sha256 };
+    return { prepared: { id, kind: check.kind, path: target.absolute, sha256: check.sha256 },
+      review: { id, purpose: safeText(check.purpose, privateValues), kind: check.kind,
+        details: { target: safeText(target.absolute, privateValues), content: `sha256:${check.sha256}` } } };
   }
-  return { id, kind: check.kind, process: resolveProcess(check, bound, project, selectionKey, material, privateValues).process };
+  const resolved = resolveProcess(check, bound, project, selectionKey, material, privateValues);
+  return { prepared: { id, kind: check.kind, process: resolved.process },
+    review: { id, purpose: safeText(check.purpose, privateValues), kind: check.kind, details: resolved.review } };
 }
 
 export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}): Promise<RunResult> {
@@ -393,6 +432,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     if (!state) throw new Error('handle-unavailable');
     result.inputs = state.review.inputs;
+    result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',
       verification: { status: 'unverified', reason: 'no-supplied-check' } }));
     result.checks = state.steps.flatMap(step => step.checks.map(check => ({ id: check.id, operationId: step.review.id,
@@ -429,7 +469,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const step of state.steps) assertStep(step);
     for (const [root, ownership] of state.ownership)
       if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
-    const unresolved = state.steps.some(step => step.review.effects === 'conflict' || step.review.effects === 'unavailable');
+    const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
+      step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');
     const mutatingRoots = [...new Set(state.steps.filter(step => step.path &&
       (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt')).map(step => step.root!))].sort();
@@ -527,7 +568,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
             const checkIndex = result.checks.findIndex(item => item.operationId === step.review.id && item.id === check.id);
             result.checks[checkIndex] = checkResult;
             if (checkResult.status !== 'passed') checkFailed = true;
-            if (checkResult.terminationUnconfirmed) stop = true;
+            if (checkResult.terminationUnconfirmed) {
+              stop = true;
+              for (const remaining of result.checks.filter(item => item.operationId === step.review.id && item.status === 'skipped'))
+                remaining.reason = 'termination-unresolved';
+              break;
+            }
             if (controls.signal?.aborted) { operation.verification = { status: 'unavailable', reason: 'cancelled' }; throw new Error('cancelled'); }
           }
           operation.verification = { status: checkFailed ? 'failed' : 'passed', reason: checkFailed ? 'check-not-passed' : 'supplied-checks-passed' };
@@ -540,7 +586,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       outcomes.set(step.review.id, okay);
       if (!okay && !allowPartial) stop = true;
     }
-    result.completion = result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
+    result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'execution-failed';

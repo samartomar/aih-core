@@ -125,6 +125,93 @@ function checkedReference(value: unknown): CheckedReference {
   return { source, path, sha256: value.sha256,
     byteLength: value.byteLength, materials };
 }
+function referenceDeclaredBytes(reference: CheckedReference): number {
+  const paths = new Set([reference.path]);
+  let total = reference.byteLength;
+  for (const material of reference.materials) if (!paths.has(material.path)) {
+    paths.add(material.path);
+    total += material.byteLength;
+  }
+  return total;
+}
+type CheckedInline = InlineMaterialDescriptor[];
+function checkedInlineMaterials(value: unknown): { materials: CheckedInline; bytes: number } {
+  if (!Array.isArray(value) || value.length > MATERIAL_LIMITS.regularMembers) fail('invalid-inline-materials');
+  const materials: CheckedInline = value.map(item => {
+    if (!exact(item, ['id', 'path', 'sha256', 'byteLength', 'source'])) fail('invalid-inline-material');
+    const member = memberDescriptor({ id: item.id, path: item.path, sha256: item.sha256,
+      byteLength: item.byteLength });
+    return { ...member, source: checkedSource(item.source) };
+  });
+  const ids = new Set<string>();
+  const paths = new Map<string, string>();
+  const archives = new Map<string, string>();
+  let bytes = 0;
+  for (const [index, item] of materials.entries()) {
+    if (ids.has(item.id)) fail('duplicate-material-id');
+    if (index > 0 && materials[index - 1]!.id >= item.id) fail('unsorted-materials');
+    ids.add(item.id);
+    const sourceKey = item.source.kind === 'archive' ? `archive:${item.source.url}` : `local:${item.source.input}`;
+    const key = `${sourceKey}\0${item.path}`;
+    const identity = `${item.sha256}:${item.byteLength}`;
+    const previous = paths.get(key);
+    if (previous !== undefined && previous !== identity) fail('inconsistent-material-path');
+    paths.set(key, identity);
+    if (previous === undefined) bytes += item.byteLength;
+    if (item.source.kind === 'archive') {
+      const archiveIdentity = `${item.source.sha256}:${item.source.byteLength}`;
+      const prior = archives.get(item.source.url);
+      if (prior !== undefined && prior !== archiveIdentity) fail('inconsistent-archive-source');
+      archives.set(item.source.url, archiveIdentity);
+    }
+  }
+  if (bytes > MATERIAL_LIMITS.capturedBytes) fail('captured-byte-limit');
+  return { materials, bytes };
+}
+function referenceDeclaration(reference: CheckedReference): string {
+  return JSON.stringify(['reference', sourceDeclaration(reference.source), reference.path, reference.sha256,
+    reference.byteLength, reference.materials.map(item => [item.id, item.path, item.sha256, item.byteLength])]);
+}
+function sourceDeclaration(source: MaterialRecipeReference['source']): unknown {
+  return source.kind === 'local' ? ['local', source.input] :
+    ['archive', source.url, source.sha256, source.byteLength];
+}
+function inlineDeclaration(materials: CheckedInline): string {
+  return JSON.stringify(['inline', materials.map(item =>
+    [item.id, item.path, item.sha256, item.byteLength, sourceDeclaration(item.source)])]);
+}
+
+/** Register every selection, seal once, then pass this budget to each capture in the same preparation. */
+export class MaterialCaptureBudget {
+  private sealed = false;
+  private total = 0;
+  private readonly declarations = new Map<string, number>();
+  get declaredBytes(): number { return this.total; }
+  private declare(key: string, bytes: number): void {
+    if (this.sealed) fail('capture-budget-sealed');
+    if (bytes > MATERIAL_LIMITS.capturedBytes - this.total) fail('captured-byte-limit');
+    this.total += bytes;
+    this.declarations.set(key, (this.declarations.get(key) ?? 0) + 1);
+  }
+  declareReference(reference: MaterialRecipeReference): void {
+    const checked = checkedReference(reference);
+    this.declare(referenceDeclaration(checked), referenceDeclaredBytes(checked));
+  }
+  declareInline(materials: unknown): void {
+    const checked = checkedInlineMaterials(materials);
+    this.declare(inlineDeclaration(checked.materials), checked.bytes);
+  }
+  seal(): void { if (this.sealed) fail('capture-budget-sealed'); this.sealed = true; }
+  claimReference(reference: CheckedReference): void { this.claim(referenceDeclaration(reference)); }
+  claimInline(materials: CheckedInline): void { this.claim(inlineDeclaration(materials)); }
+  private claim(key: string): void {
+    if (!this.sealed) fail('capture-budget-unsealed');
+    const remaining = this.declarations.get(key) ?? 0;
+    if (!remaining) fail('capture-not-declared');
+    this.declarations.set(key, remaining - 1);
+  }
+}
+export function createMaterialCaptureBudget(): MaterialCaptureBudget { return new MaterialCaptureBudget(); }
 function checkBytes(bytes: Buffer | undefined, sha256: string, length: number, reason: string): Buffer {
   if (!bytes || bytes.length !== length || hash(bytes) !== sha256) fail(reason);
   return bytes;
@@ -401,9 +488,10 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
 
 /** Captures one reference without installing packages, extracting to a host path, or executing source bytes. */
 export async function captureRecipeReference(referenceInput: MaterialRecipeReference,
-  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal } = {}): Promise<CapturedRecipeReference> {
+  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget } = {}): Promise<CapturedRecipeReference> {
   const reference = checkedReference(referenceInput);
   if (options.signal?.aborted) fail('cancelled');
+  options.budget?.claimReference(reference);
   const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
   const pins = new Map<string, { sha256: string; byteLength: number }>();
   pins.set(reference.path, { sha256: reference.sha256, byteLength: reference.byteLength });
@@ -464,15 +552,10 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
 
 /** Captures explicit inline member descriptors; no current-directory fallback is permitted. */
 export async function captureInlineMaterials(materialsInput: InlineMaterialDescriptor[],
-  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal } = {}): Promise<CapturedInlineMaterials> {
-  if (!Array.isArray(materialsInput) || materialsInput.length > MATERIAL_LIMITS.regularMembers) fail('invalid-inline-materials');
+  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget } = {}): Promise<CapturedInlineMaterials> {
   if (options.signal?.aborted) fail('cancelled');
-  const materials = materialsInput.map(value => {
-    if (!exact(value, ['id', 'path', 'sha256', 'byteLength', 'source'])) fail('invalid-inline-material');
-    const descriptor = memberDescriptor({ id: value.id, path: value.path, sha256: value.sha256,
-      byteLength: value.byteLength });
-    return { ...descriptor, source: checkedSource(value.source) };
-  });
+  const { materials } = checkedInlineMaterials(materialsInput);
+  options.budget?.claimInline(materials);
   const ids = new Set<string>();
   const pathIdentities = new Map<string, string>();
   const archiveSources = new Map<string, { source: Extract<MaterialRecipeReference['source'], { kind: 'archive' }>;

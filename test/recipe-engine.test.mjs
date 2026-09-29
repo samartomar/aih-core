@@ -62,6 +62,12 @@ test('public Prepare/Apply edits JSONC, TOML and text blocks without changing ne
   const prepared = await prepare(request(project, policy, resolutions), controls);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   assert.deepEqual(prepared.review.operations.map(item => item.effects), ['replace-file', 'replace-file', 'replace-file']);
+  assert.deepEqual(prepared.review.operations[0].details.entries,
+    [{ path: ['nested', 'mode'], action: 'set', value: '"new"' }]);
+  assert.deepEqual(prepared.review.operations[1].details.entries,
+    [{ path: ['client', 'mode'], action: 'set', value: '"new"' }]);
+  assert.equal(prepared.review.operations[2].details.content, 'Managed guidance.\n');
+  assert.equal(prepared.review.operations[2].details.startMarker, '<!-- AIH START managed-note -->');
   assert.equal(readFileSync(join(project, 'settings.jsonc'), 'utf8'), initial.jsonc.toString());
   const result = await apply(prepared.prepared, authorize(prepared), controls);
   assert.equal(result.completion, 'complete', JSON.stringify(result));
@@ -86,6 +92,11 @@ test('failed required process check blocks a dependent while explicit partial ap
     cwd: target('work'), env: {}, acceptedExitCodes: [0], timeoutMs: 5000, maxOutputBytes: 1024 };
   const prepared = await prepare(request(project, document([a, b, c], [check])), controls);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.review.operations[0].checks[0].purpose, 'Required process verification');
+  assert.equal(prepared.review.operations[0].checks[0].details.executable, process.execPath);
+  assert.equal(prepared.review.operations[0].checks[0].details.executableSha256.length, 64);
+  assert.deepEqual(prepared.review.operations[0].checks[0].details.acceptedExitCodes, [0]);
+  assert.deepEqual(prepared.review.operations[0].checks[0].details.args, ['"-e"', '"process.exit(5)"']);
   const result = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), controls);
   assert.equal(result.completion, 'incomplete', JSON.stringify(result));
   const byId = Object.fromEntries(result.operations.map(item => [item.id, item]));
@@ -96,6 +107,7 @@ test('failed required process check blocks a dependent while explicit partial ap
   assert.equal(byId['fixture/c'].application, 'applied');
   assert.deepEqual(result.checks.map(item => ({ id: item.id, status: item.status })),
     [{ id: 'fixture/verify-a', status: 'failed' }]);
+  assert.equal(result.checks[0].effectsUncertain, true);
   assert.equal(existsSync(join(project, 'A.md')), true);
   assert.equal(existsSync(join(project, 'B.md')), false);
   assert.equal(readFileSync(join(project, 'C.md'), 'utf8'), 'C');
@@ -115,6 +127,8 @@ test('opaque process requires reviewed approval and reports deadline with uncert
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   assert.equal(prepared.review.operations[0].effects, 'opaque-process');
   assert.equal(prepared.review.operations[0].details.timeoutMs.value, 2000);
+  assert.deepEqual(prepared.review.operations[0].details.acceptedExitCodes, [0]);
+  assert.equal(prepared.review.operations[0].details.executableSha256.length, 64);
   assert.equal(existsSync(sentinel), false);
   const refused = await apply(prepared.prepared, undefined, controls);
   assert.equal(refused.completion, 'rejected');

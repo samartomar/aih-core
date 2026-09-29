@@ -38,6 +38,17 @@ test('TOML changes one scalar while preserving comments and rejects ambiguous st
     [{ path: ['client', 'mode'], action: 'set', value: 'y' }]), /unsupported-toml-syntax/);
 });
 
+test('TOML refuses a scalar key colliding with an existing table or implicit parent', () => {
+  assert.throws(() => renderConfigEntries('toml', Buffer.from('[a]\nvalue = 1\n'),
+    [{ path: ['a'], action: 'set', value: 'scalar' }]), /unsupported-toml-path/);
+  assert.throws(() => renderConfigEntries('toml', Buffer.from('[a.b]\nvalue = 1\n'),
+    [{ path: ['a'], action: 'set', value: 'scalar' }]), /unsupported-toml-path/);
+  assert.throws(() => renderConfigEntries('toml', Buffer.from('[a]\n[a.b]\nvalue = 1\n'),
+    [{ path: ['a', 'b'], action: 'set', value: 'scalar' }]), /unsupported-toml-path/);
+  assert.throws(() => renderConfigEntries('toml', Buffer.from('a = "scalar"\n[a]\nvalue = 1\n'),
+    [{ path: ['a', 'value'], action: 'set', value: 2 }]), /unsupported-toml-path/);
+});
+
 test('text block preserves unrelated bytes and rejects duplicate or malformed markers', () => {
   const edit = { blockId: 'guidance', startMarker: '<!-- START guidance -->',
     endMarker: '<!-- END guidance -->', action: 'set', content: 'new text\n' };

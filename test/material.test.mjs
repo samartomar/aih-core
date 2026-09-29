@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { captureInlineMaterials, captureRecipeReference, MATERIAL_LIMITS } from '../dist/internal/material.js';
+import { captureInlineMaterials, captureRecipeReference, createMaterialCaptureBudget, MATERIAL_LIMITS } from '../dist/internal/material.js';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const recipe = materials => Buffer.from(JSON.stringify({
@@ -163,4 +163,66 @@ test('inline members use explicit local and archive sources with shared immutabl
       assert.equal(await capture.recheck(), false);
     });
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('sealed preparation budget rejects aggregate declarations above 512 MiB before acquisition', () => {
+  const budget = createMaterialCaptureBudget();
+  const members = offset => Array.from({ length: 17 }, (_, index) => ({
+    id: `member-${String(index + offset).padStart(3, '0')}`,
+    path: `member-${index + offset}.bin`, sha256: 'a'.repeat(64),
+    byteLength: MATERIAL_LIMITS.memberBytes, source: { kind: 'local', input: 'source' }
+  }));
+  budget.declareInline(members(0));
+  assert.equal(budget.declaredBytes, 17 * MATERIAL_LIMITS.memberBytes);
+  assert.throws(() => budget.declareInline(members(17)), /captured-byte-limit/);
+  budget.seal();
+  assert.throws(() => budget.declareInline([]), /capture-budget-sealed/);
+});
+
+test('sealed budget claims only the exact declared closure before source IO', async () => {
+  const data = Buffer.from('safe');
+  const packed = archive([{ path: 'safe.bin', bytes: data }]);
+  const source = { kind: 'archive', url: 'https://example.test/material.tar.gz',
+    sha256: sha(packed), byteLength: packed.length };
+  const declared = [{ ...member('safe', 'safe.bin', data), source }];
+  const budget = createMaterialCaptureBudget();
+  budget.declareInline(declared);
+  await withArchive(packed, async requests => {
+    await assert.rejects(captureInlineMaterials(declared, {}, { budget }), /capture-budget-unsealed/);
+    assert.equal(requests(), 0);
+    budget.seal();
+    const changed = structuredClone(declared);
+    changed[0].sha256 = '0'.repeat(64);
+    await assert.rejects(captureInlineMaterials(changed, {}, { budget }), /capture-not-declared/);
+    assert.equal(requests(), 0);
+    const capture = await captureInlineMaterials(declared, {}, { budget });
+    assert.deepEqual(capture.readMaterial('safe'), data);
+    assert.equal(requests(), 1);
+    await assert.rejects(captureInlineMaterials(declared, {}, { budget }), /capture-not-declared/);
+    assert.equal(requests(), 1);
+  });
+  assert.throws(() => createMaterialCaptureBudget().declareInline([
+    { id: 'missing-source', path: 'x', sha256: '0'.repeat(64), byteLength: 1 }
+  ]), /invalid-inline-material/);
+});
+
+test('reference declarations share the aggregate budget and require exact preflight', async () => {
+  const bytes = recipe([]);
+  const reference = localReference(bytes);
+  const budget = createMaterialCaptureBudget();
+  budget.declareReference(reference);
+  assert.equal(budget.declaredBytes, bytes.length);
+  budget.seal();
+  const changed = { ...reference, sha256: 'f'.repeat(64) };
+  await assert.rejects(captureRecipeReference(changed, {}, { budget }), /capture-not-declared/);
+  await assert.rejects(captureRecipeReference(reference, {}, { budget }), /local-root-unavailable/);
+  const mixed = createMaterialCaptureBudget();
+  mixed.declareInline(Array.from({ length: 31 }, (_, index) => ({
+    id: `member-${String(index).padStart(3, '0')}`, path: `member-${index}.bin`,
+    sha256: 'a'.repeat(64), byteLength: MATERIAL_LIMITS.memberBytes,
+    source: { kind: 'local', input: 'source' }
+  })));
+  assert.throws(() => mixed.declareReference({ ...reference, byteLength: MATERIAL_LIMITS.recipeBytes,
+    materials: [{ id: 'extra', path: 'extra.bin', sha256: 'b'.repeat(64), byteLength: MATERIAL_LIMITS.memberBytes }] }),
+  /captured-byte-limit/);
 });

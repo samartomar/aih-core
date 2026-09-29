@@ -134,6 +134,9 @@ function tomlLines(text: string): { lines: TomlLine[]; tables: Map<string, { fir
     const following = lines.find(line => line.start > region.first && line.text.trim().startsWith('['));
     region.last = following?.start ?? text.length;
   }
+  for (const assignment of assignments.keys())
+    if ([...tables.keys()].some(tableName => tableName &&
+      (tableName === assignment || tableName.startsWith(`${assignment}.`)))) fail('unsupported-toml-path');
   return { lines, tables, assignments };
 }
 function tomlEdit(before: Buffer | null, entries: ConfigEntry[]): Buffer {
@@ -145,6 +148,8 @@ function tomlEdit(before: Buffer | null, entries: ConfigEntry[]): Buffer {
     const table = entry.path.slice(0, -1).join('.');
     const full = table ? `${table}.${key}` : key;
     const parsed = tomlLines(text);
+    if ([...parsed.tables.keys()].some(name => name && (name === full || name.startsWith(`${full}.`))))
+      fail('unsupported-toml-path');
     const current = parsed.assignments.get(full);
     if (entry.action === 'remove') {
       if (current) {

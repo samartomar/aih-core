@@ -76,3 +76,41 @@ test('unsupported existing TOML becomes an explicit edit conflict', async () => 
   assert.equal(prepared.diagnostics[0].code, 'STATE_CONFLICT');
   assert.equal(readFileSync(join(project, 'settings.toml'), 'utf8'), '[client]\nmode = "a"\nmode = "b"\n');
 });
+
+test('unavailable referenced material omits only its selection under explicit partial approval', async () => {
+  const project = mkdtempSync(join(scratch, 'partial-material-'));
+  const independent = op('file.write', 'project', 'independent.txt', { content: { literal: 'independent' } });
+  const document = policy(independent);
+  document.selections.unshift({ id: 'missing', managementId: 'missing', scope: 'project', configuration: {}, requires: [],
+    recipe: { reference: { source: { kind: 'local', input: 'missing-root' }, path: 'recipe.json',
+      sha256: '0'.repeat(64), byteLength: 1, materials: [] } } });
+  const p = await prepare({ useCase: 'policy', policy: document, target: { project } },
+    { logging: 'off', materialRoots: { 'missing-root': join(project, 'absent-source') } });
+  assert.equal(p.status, 'partial', JSON.stringify(p.diagnostics));
+  assert.equal(p.review.omissions[0].reason, 'local-root-unavailable');
+  const withoutPartial = await apply(p.prepared, approve(p), { logging: 'off' });
+  assert.equal(withoutPartial.completion, 'rejected');
+  assert.equal(existsSync(join(project, 'independent.txt')), false);
+  const result = await apply(p.prepared, { ...approve(p), allowPartial: true }, { logging: 'off' });
+  assert.equal(result.completion, 'incomplete', JSON.stringify(result));
+  assert.equal(result.diagnostics[0].reason, 'local-root-unavailable');
+  assert.equal(readFileSync(join(project, 'independent.txt'), 'utf8'), 'independent');
+});
+
+test('Prepare rejects a multi-selection closure above the shared limit before reading sources', async () => {
+  const project = mkdtempSync(join(scratch, 'aggregate-material-'));
+  const members = Array.from({ length: 17 }, (_, index) => {
+    const id = `payload-${String(index).padStart(2, '0')}`;
+    return { id, path: `${id}.bin`, sha256: '0'.repeat(64), byteLength: 16 * 1024 * 1024 };
+  });
+  const reference = { source: { kind: 'local', input: 'absent' }, path: 'recipe.json',
+    sha256: '0'.repeat(64), byteLength: 1, materials: members };
+  const selections = ['first', 'second'].map(id => ({ id, managementId: id,
+    scope: 'project', configuration: {}, requires: [], recipe: { reference } }));
+  const p = await prepare({ useCase: 'policy', policy: {
+    schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections
+  }, target: { project } }, { logging: 'off' });
+  assert.equal(p.status, 'invalid');
+  assert.equal(p.diagnostics[0].reason, 'captured-byte-limit');
+  assert.equal(p.prepared, undefined);
+});

@@ -24,11 +24,17 @@ export interface ReviewOperation {
   id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'text.block' | 'file.remove' | 'process.run'; scope: 'project' | 'user';
   effects: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'opaque-process' | 'unavailable';
   ownership: 'managed' | 'unowned';
-  requires: string[]; checks: string[];
+  requires: string[]; checks: ReviewCheck[];
   details: { target?: string; content?: string; mode?: number; executable?: string; args?: string[];
-    cwd?: string; env?: Record<string, string>; stdinProtected?: boolean; material?: string;
-    timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; declaredEffects?: string[]; reason?: string };
+    cwd?: string; env?: Record<string, string>; stdinProtected?: boolean; stdinSha256?: string; stdinBytes?: number; material?: string;
+    materialSha256?: string; materialBytes?: number; executableSha256?: string;
+    timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; acceptedExitCodes?: number[];
+    declaredEffects?: string[]; reason?: string;
+    format?: 'json' | 'jsonc' | 'toml'; entries?: { path: string[]; action: 'set' | 'remove'; value?: string }[];
+    blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove' };
 }
+export interface ReviewCheck { id: string; purpose: string; kind: 'file.sha256' | 'process.exit';
+  details: ReviewOperation['details'] }
 export interface PreparedReview {
   schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy'; mode: 'vibe';
   target: { scope: 'project'; project: string };

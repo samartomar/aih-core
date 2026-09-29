@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { pathPins, pinsMatch } from './host-files.js';
+import { sha256 } from './host-files.js';
+import { readRegularFileWithStats } from './fsxn.js';
 import type { PathPin } from './host-files.js';
 
-export interface ResolvedExecutable { path: string; pins: PathPin[] }
+export interface ResolvedExecutable { path: string; pins: PathPin[]; sha256: string }
 export interface ProcessResult {
   status: 'passed' | 'failed' | 'unavailable' | 'cancelled'; reason: string;
   exitCode?: number; effectsUncertain: boolean; terminationUnconfirmed: boolean;
@@ -26,7 +28,10 @@ export function resolveExecutable(name: string): ResolvedExecutable | undefined 
     try {
       accessSync(path, constants.X_OK);
       const pins = pathPins(path);
-      if (pins.at(-1)?.identity !== 'absent') return { path, pins };
+      if (pins.at(-1)?.identity !== 'absent') {
+        const captured = readRegularFileWithStats(path, { maxBytes: 512 * 1024 * 1024 });
+        if (captured && pinsMatch(pins)) return { path, pins, sha256: sha256(captured.contents) };
+      }
     } catch { /* Try the next explicit PATH candidate. */ }
   }
   return undefined;
@@ -38,7 +43,10 @@ export async function runApprovedProcess(request: {
   signal?: AbortSignal;
 }): Promise<ProcessResult> {
   if (request.signal?.aborted) return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false, terminationUnconfirmed: false };
-  if (!pinsMatch(request.executable.pins)) return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
+  const live = pinsMatch(request.executable.pins) ?
+    readRegularFileWithStats(request.executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
+  if (!live || sha256(live.contents) !== request.executable.sha256 || !pinsMatch(request.executable.pins))
+    return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
   return new Promise(resolve => {
     let child: ReturnType<typeof spawn>;
     let byteCount = 0; let settled = false; let closing = false; let forcedReason: string | undefined;
@@ -68,8 +76,8 @@ export async function runApprovedProcess(request: {
     child.once('close', code => {
       if (request.signal?.aborted) { finish('cancelled', 'cancelled', code ?? undefined, true); return; }
       if (forcedReason) { finish('failed', forcedReason, code ?? undefined, true); return; }
-      finish(code !== null && request.acceptedExitCodes.includes(code) ? 'passed' : 'failed',
-        code !== null && request.acceptedExitCodes.includes(code) ? 'exit-accepted' : 'exit-code', code ?? undefined, code === null);
+      const accepted = code !== null && request.acceptedExitCodes.includes(code);
+      finish(accepted ? 'passed' : 'failed', accepted ? 'exit-accepted' : 'exit-code', code ?? undefined, !accepted);
     });
     request.signal?.addEventListener('abort', abort, { once: true });
     if (request.signal?.aborted) abort();
