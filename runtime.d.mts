@@ -21,18 +21,30 @@ export type SuppliedCaResult = { valid: false; diagnostics: CaDiagnostic[]; asse
 export declare function validateSuppliedCa(bytes: Uint8Array, options?: { now?: number }): SuppliedCaResult;
 export declare function composeExistingTrust(existing: Uint8Array | undefined, additions: string,
   options?: { includeNodeDefaults?: boolean }): string | undefined;
-export declare function renderRepair(request: { id: 'node-npm-ca'; targets: ('node' | 'npm')[];
-  bundlePath: string; bundleSha256: string; fingerprints: string[]; offline: boolean }): object;
+export declare function getRepairRecipe(recipeRef: string): object | undefined;
+export declare function assessRepairCandidate(request: { id: string; inputs: Record<string, string | boolean | number> },
+  controls?: { signal?: AbortSignal; budgetMs?: number }): Promise<
+    { kind: 'unresolved'; reason: string; probes: number; elapsedMs?: number } |
+    { kind: 'system-ca'; origins: string[]; probes: number; elapsedMs: number } |
+    { kind: 'extra-ca'; origins: string[]; certs: { fingerprint: string; pem: string }[];
+      probes: number; elapsedMs: number }>;
+export declare function renderRepair(request: { id: string; variantRef: string;
+  bundlePath?: string; bundleSha256?: string; fingerprints?: string[]; origins?: string[] }):
+  { status: 'invalid'; diagnostics: { code: string; reason: string; message: string }[] } |
+  { status: 'completed'; bindings: Record<string, string> };
 export declare function prepareRepairDefinition(request: { id: string; variantRef: string;
   targets: string[]; files: Record<string, Uint8Array>;
   ordinaryInputs?: Record<string, string | boolean | number>; existing?: Uint8Array;
+  candidate?: { kind: 'system-ca'; origins: string[] } | { kind: 'extra-ca'; origins: string[];
+    certs: { fingerprint: string; pem: string }[] };
   managedPath?: string; offline?: boolean; validateOnly?: boolean }):
-  { status: 'invalid' | 'blocked'; diagnostics: { code: string; reason: string; message: string; block?: number }[] } |
+  { status: 'invalid' | 'blocked'; assessedBlocks?: number; assessmentLimit?: string;
+    diagnostics: { code: string; reason: string; message: string; block?: number; offset?: number; guidance?: string }[] } |
   { status: 'completed'; fingerprints: string[]; evaluatedAt: string; count: number; duplicates: number;
-    bundle?: string; recipe?: object };
-export declare function repairObservationRequests(request: { id: string; targets: string[] }):
+    bundle?: string; bindings?: Record<string, string> };
+export declare function repairObservationRequests(request: { id: string; targets: string[]; variantRef?: string }):
   { id: string; operationId: string; executable: string; args: string[]; timeoutMs: number; maxOutputBytes: number }[];
-export declare function assessRepairObservations(request: { id: string; managedPath: string;
+export declare function assessRepairObservations(request: { id: string; managedPath: string; variantRef?: string;
   observations: { id: string; output: string }[] }):
   { id: string; operationId: string; raw: string; expectedRaw: string; conflict: boolean;
     observedValue: string | null; reason: string }[];

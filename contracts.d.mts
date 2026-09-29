@@ -7,7 +7,9 @@ export declare const contractSupport: {
 };
 export declare const repairIndex: readonly { id: string; description: string;
   schema: 'urn:aihq:harness:repair:1.0.0'; scope: 'user'; managementId: string; materialName: string;
-  variants: readonly { os: string; architectures: readonly string[]; recipeRef: string }[];
+  candidateDiagnostic?: string;
+  variants: readonly { os: string; architectures: readonly string[]; targets: readonly string[];
+    network: 'declared' | 'off'; candidate?: 'system-ca' | 'extra-ca'; recipeRef: string; transformId: string }[];
   targets: readonly string[]; inputs: Readonly<Record<string, { type: 'file' | 'string' | 'boolean' | 'number';
     required: boolean; description: string; maxLength?: number }>>;
   limits: { sourceBytes: number; certificateBlocks: number; blockBytes: number };

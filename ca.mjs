@@ -20,57 +20,60 @@ export function validateSuppliedCa(bytes, options = {}) {
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
   catch { return { valid: false, diagnostics: [problem('utf8-invalid')], assessedBlocks: 0 }; }
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const bomBytes = text.charCodeAt(0) === 0xfeff ? 3 : 0;
+  if (bomBytes) text = text.slice(1);
+  const issue = (reason, block, offset) => problem(reason, block,
+    offset === undefined ? undefined : bomBytes + Buffer.byteLength(text.slice(0, offset), 'utf8'));
   if (!text.trim()) return { valid: false, diagnostics: [problem('source-empty')], assessedBlocks: 0 };
   const now = options.now ?? Date.now();
   if (!Number.isFinite(now)) return { valid: false, diagnostics: [problem('evaluation-time')], assessedBlocks: 0 };
   const seen = new Set(); const certificates = [];
-  let blocks = 0; let offset = 0; let structural = false;
+  let blocks = 0; let offset = 0; let assessmentLimit;
   while (offset < text.length) {
     while (offset < text.length && whitespace.test(text[offset])) offset++;
     if (offset === text.length) break;
     const begin = '-----BEGIN CERTIFICATE-----';
     if (!text.startsWith(begin, offset)) {
       const match = /^-----BEGIN ([^\r\n]{1,80})-----/.exec(text.slice(offset));
-      diagnostics.push(problem(match ? 'block-label' : 'pem-envelope', blocks + 1, offset));
-      structural = true; break;
+      diagnostics.push(issue(match ? 'block-label' : 'pem-envelope', blocks + 1, offset));
+      assessmentLimit = 'structure'; break;
     }
     const start = offset; offset += begin.length;
     const end = text.indexOf('-----END CERTIFICATE-----', offset);
-    if (end < 0) { diagnostics.push(problem('pem-end-missing', blocks + 1, start)); structural = true; break; }
+    if (end < 0) { diagnostics.push(issue('pem-end-missing', blocks + 1, start)); assessmentLimit = 'structure'; break; }
     const close = end + '-----END CERTIFICATE-----'.length;
-    blocks++;
-    if (blocks > MAX_BLOCKS) {
-      diagnostics.push(problem('block-count-limit', blocks, start)); structural = true; break;
+    if (blocks === MAX_BLOCKS) {
+      diagnostics.push(issue('block-count-limit', blocks + 1, start)); assessmentLimit = 'block-count-limit'; break;
     }
     if (Buffer.byteLength(text.slice(start, close)) > MAX_BLOCK) {
-      diagnostics.push(problem('block-byte-limit', blocks, start)); structural = true; break;
+      diagnostics.push(issue('block-byte-limit', blocks + 1, start)); assessmentLimit = 'block-byte-limit'; break;
     }
+    blocks++;
     const payload = text.slice(offset, end);
     offset = close;
     if (payload.includes('-----BEGIN') || payload.includes('-----END')) {
-      diagnostics.push(problem('pem-nested', blocks, start)); structural = true; continue;
+      diagnostics.push(issue('pem-nested', blocks, start)); continue;
     }
     if (/[^A-Za-z0-9+/= \t\r\n]/.test(payload)) {
-      diagnostics.push(problem('base64-character', blocks, start)); continue;
+      diagnostics.push(issue('base64-character', blocks, start)); continue;
     }
     const encoded = payload.replace(/[ \t\r\n]/g, '');
     if (!encoded || encoded.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-      diagnostics.push(problem('base64-invalid', blocks, start)); continue;
+      diagnostics.push(issue('base64-invalid', blocks, start)); continue;
     }
     const der = Buffer.from(encoded, 'base64');
     if (der.toString('base64') !== encoded) {
-      diagnostics.push(problem('base64-noncanonical', blocks, start)); continue;
+      diagnostics.push(issue('base64-noncanonical', blocks, start)); continue;
     }
     let cert;
     try { cert = new X509Certificate(der); }
-    catch { diagnostics.push(problem('x509-invalid', blocks, start)); continue; }
-    if (!cert.raw.equals(der)) { diagnostics.push(problem('x509-extra-data', blocks, start)); continue; }
-    if (!cert.ca) diagnostics.push(problem('not-ca', blocks, start));
+    catch { diagnostics.push(issue('x509-invalid', blocks, start)); continue; }
+    if (!cert.raw.equals(der)) { diagnostics.push(issue('x509-extra-data', blocks, start)); continue; }
+    if (!cert.ca) diagnostics.push(issue('not-ca', blocks, start));
     const from = Date.parse(cert.validFrom); const to = Date.parse(cert.validTo);
-    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) diagnostics.push(problem('date-invalid', blocks, start));
-    else if (now < from) diagnostics.push(problem('not-yet-valid', blocks, start));
-    else if (now > to) diagnostics.push(problem('expired', blocks, start));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) diagnostics.push(issue('date-invalid', blocks, start));
+    else if (now < from) diagnostics.push(issue('not-yet-valid', blocks, start));
+    else if (now > to) diagnostics.push(issue('expired', blocks, start));
     const fingerprint = createHash('sha256').update(der).digest('hex');
     if (!seen.has(fingerprint)) {
       seen.add(fingerprint);
@@ -78,9 +81,9 @@ export function validateSuppliedCa(bytes, options = {}) {
         validFrom: cert.validFrom, validTo: cert.validTo, pem: cert.toString() });
     }
   }
-  if (!blocks && !structural) diagnostics.push(problem('pem-envelope'));
+  if (!blocks && !assessmentLimit) diagnostics.push(issue('pem-envelope'));
   return diagnostics.length ? { valid: false, diagnostics, assessedBlocks: blocks,
-    ...(structural ? { assessmentLimit: 'structure' } : {}) } :
+    ...(assessmentLimit ? { assessmentLimit } : {}) } :
     { valid: true, diagnostics: [], assessedBlocks: blocks, duplicates: blocks - certificates.length,
       certificates, material: certificates.map(cert => cert.pem.trimEnd()).join('\n') + '\n', evaluatedAt: new Date(now).toISOString() };
 }

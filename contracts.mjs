@@ -15,11 +15,12 @@ export const repairIndex = Object.freeze([Object.freeze({
   id: 'node-npm-ca', description: 'Add supplied CA certificates to user-scope Node and npm trust',
   schema: 'urn:aihq:harness:repair:1.0.0', scope: 'user',
   managementId: 'node-npm-trust', materialName: 'trust.pem',
-  variants: Object.freeze([
-    { os: 'win32', architectures: ['x64', 'arm64'], recipeRef: 'node-npm-ca/windows' },
-    { os: 'darwin', architectures: ['arm64', 'x64'], recipeRef: 'node-npm-ca/macos' },
-    { os: 'linux', architectures: ['x64', 'arm64'], recipeRef: 'node-npm-ca/linux' }
-  ]),
+  variants: Object.freeze(['win32', 'darwin', 'linux'].flatMap(os =>
+    [['node'], ['npm'], ['node', 'npm']].flatMap(targets =>
+      ['declared', 'off'].map(network => Object.freeze({ os,
+        architectures: Object.freeze(os === 'darwin' ? ['arm64', 'x64'] : ['x64', 'arm64']),
+        targets: Object.freeze(targets), network,
+        recipeRef: `node-npm-ca/${os}/${targets.join('+')}/${network}`, transformId: 'node-npm-ca-bindings' }))))),
   targets: Object.freeze(['node', 'npm']),
   inputs: Object.freeze({ caFile: Object.freeze({ type: 'file', required: true, description: 'Certificate-only PEM file' }) }),
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
@@ -27,10 +28,28 @@ export const repairIndex = Object.freeze([Object.freeze({
     { target: 'node', operationId: 'node-config', checkId: 'node-tls' },
     { target: 'npm', operationId: 'npm-config', checkId: 'npm-behavior' }
   ])
+}), Object.freeze({
+  id: 'node-os-trust', description: 'Use a bounded OS-trusted candidate for user-scope Node TLS',
+  schema: 'urn:aihq:harness:repair:1.0.0', scope: 'user',
+  candidateDiagnostic: 'node-os-trust',
+  managementId: 'node-os-trust', materialName: 'trust.pem',
+  variants: Object.freeze(['win32', 'darwin', 'linux'].flatMap(os =>
+    ['system-ca', 'extra-ca'].map(candidate => Object.freeze({ os,
+      architectures: Object.freeze(['x64', 'arm64']), targets: Object.freeze(['node']),
+      network: 'declared', candidate,
+      recipeRef: `node-os-trust/${os}/${candidate}`, transformId: 'node-os-trust-bindings' })))),
+  targets: Object.freeze(['node']),
+  inputs: Object.freeze({ originId: Object.freeze({ type: 'string', required: true, maxLength: 64,
+    description: 'Installed selector for the effective HTTPS npm registry: npm-registry' }) }),
+  limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
+  offlineVerification: Object.freeze([])
 })]);
 export const verificationKeys = Object.freeze([]);
 export const helperMetadata = Object.freeze({
-  repairs: Object.freeze([{ id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] }]),
+  repairs: Object.freeze([
+    { id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] },
+    { id: 'node-os-trust', helper: 'renderRepair', targets: ['node'] }
+  ]),
   diagnostics: Object.freeze([
     { id: 'existing-tools', kind: 'diagnostic', purpose: 'Inspect installed tools and their declared TLS origins',
       targets: ['node', 'npm', 'git', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro'],
@@ -54,3 +73,9 @@ export const targets = Object.freeze([
   { id: 'kimi', label: 'Kimi Code', binaries: ['kimi'], configDirs: ['.kimi-code'], origins: [] },
   { id: 'kiro', label: 'Kiro', binaries: ['kiro-cli'], configDirs: ['.kiro'], origins: ['https://kiro.dev'] }
 ]);
+for (const target of targets) {
+  Object.freeze(target.binaries);
+  Object.freeze(target.configDirs);
+  Object.freeze(target.origins);
+  Object.freeze(target);
+}

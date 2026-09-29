@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 import tls from 'node:tls';
-import { validateSuppliedCa, composeExistingTrust, prepareRepairDefinition } from '../runtime.mjs';
+import { validateSuppliedCa, composeExistingTrust, prepareRepairDefinition, getRepairRecipe } from '../runtime.mjs';
 import { repairIndex } from '../contracts.mjs';
 
 const fixture = name => readFileSync(new URL(`./fixtures/${name}.pem`, import.meta.url));
@@ -64,7 +64,10 @@ test('inclusive byte, block and count limits are enforced before deduplication',
   assert.equal(accepted.valid, true);
   assert.equal(accepted.assessedBlocks, 256);
   assert.equal(accepted.duplicates, 255);
-  assert.equal(check(many + one).diagnostics[0].reason, 'block-count-limit');
+  const excess = check(many + one);
+  assert.equal(excess.diagnostics[0].reason, 'block-count-limit');
+  assert.equal(excess.assessedBlocks, 256);
+  assert.equal(excess.assessmentLimit, 'block-count-limit');
 });
 
 test('validity interval endpoints are inclusive and malformed text never becomes a subset', () => {
@@ -77,6 +80,8 @@ test('validity interval endpoints are inclusive and malformed text never becomes
   assert.equal(check(Buffer.from([0xef, 0xbb, 0xbf, ...root])).valid, true);
   assert.equal(check(Buffer.from([0xc3, 0x28])).diagnostics[0].reason, 'utf8-invalid');
   assert.equal(check(root + '-----BEGIN CERTIFICATE-----\nYWJj').assessmentLimit, 'structure');
+  const bomTrailing = check(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), root, Buffer.from('unexpected')]));
+  assert.equal(bomTrailing.diagnostics.at(-1).offset, 3 + root.length);
 });
 
 test('npm bundle retains Node default roots alongside the supplied CA', () => {
@@ -88,14 +93,29 @@ test('npm bundle retains Node default roots alongside the supplied CA', () => {
 
 test('published platform variant selects fixed repair and declares skipped offline Node TLS', () => {
   const definition = repairIndex[0];
-  const variant = definition.variants.find(item => item.os === process.platform && item.architectures.includes(process.arch));
+  const variant = definition.variants.find(item => item.os === process.platform && item.architectures.includes(process.arch) &&
+    item.targets.length === 1 && item.targets[0] === 'node' && item.network === 'off');
   assert.ok(variant);
   const rendered = prepareRepairDefinition({ id: definition.id, variantRef: variant.recipeRef,
     targets: ['node'], files: { caFile: root }, managedPath: 'C:/fixture/trust.pem', offline: true });
   assert.equal(rendered.status, 'completed');
-  assert.deepEqual(rendered.recipe.operations.find(item => item.id === 'node-config').checks, ['node-behavior']);
+  const recipe = getRepairRecipe(variant.recipeRef);
+  assert.deepEqual(recipe.operations.find(item => item.id === 'node-config').checks, ['node-behavior']);
+  assert.deepEqual(Object.keys(rendered.bindings).sort(), Object.keys(recipe.inputs).filter(key => key !== 'bundle').sort());
   assert.deepEqual(definition.offlineVerification.find(item => item.target === 'node'),
     { target: 'node', operationId: 'node-config', checkId: 'node-tls' });
   assert.equal(prepareRepairDefinition({ id: definition.id, variantRef: 'unpublished',
     targets: ['node'], files: { caFile: root }, validateOnly: true }).status, 'invalid');
+});
+
+test('POSIX shipped variants contain only their fixed user profile graphs', () => {
+  for (const [os, profile] of [['linux', '.profile'], ['darwin', '.zprofile']]) {
+    const variant = repairIndex[0].variants.find(item => item.os === os &&
+      item.targets.length === 1 && item.targets[0] === 'node' && item.network === 'off');
+    assert.ok(variant);
+    const recipe = getRepairRecipe(variant.recipeRef);
+    assert.deepEqual(recipe.operations.map(item => item.id), ['material', 'node-config']);
+    assert.equal(recipe.operations[1].target.segments[0].literal, profile);
+    assert.deepEqual(recipe.operations[1].requires, ['material']);
+  }
 });

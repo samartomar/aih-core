@@ -8,12 +8,16 @@ import { isProxy } from 'node:util/types';
 import tls from 'node:tls';
 import { contractSupport, helperMetadata, repairIndex, targets } from './contracts.mjs';
 import { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
+import { candidateOrigins, selectTrustCandidateWith } from './candidate.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 
 const literal = value => ({ literal: value });
 const userTarget = (...segments) => ({ root: 'userHome', segments: segments.map(literal) });
 const stateTarget = name => ({ root: 'userState', segments: [literal(name)] });
-const cwdTarget = userTarget('.aih');
+const cwdTarget = { root: 'userHome', segments: [] };
+const materialDigestScript = "const fs=require('node:fs'),c=require('node:crypto');" +
+  "const data=fs.readFileSync(process.argv[1]);" +
+  "process.exit(c.createHash('sha256').update(data).digest('hex')===process.argv[2]?0:1)";
 const nodeCheckScript = "const tls=require('node:tls'),c=require('node:crypto');" +
   "const wanted=new Set(process.argv[1].split(','));" +
   "const got=new Set(tls.getCACertificates('extra').map(p=>new c.X509Certificate(p).fingerprint256.replaceAll(':','').toLowerCase()));" +
@@ -23,18 +27,37 @@ const nodeTlsScript =
   "const s=tls.connect({host:'registry.npmjs.org',port:443,servername:'registry.npmjs.org',timeout:15000,rejectUnauthorized:true}," +
   "()=>{const ok=s.authorized;s.end();process.exit(ok?0:1)});" +
   "s.on('error',()=>process.exit(1));s.on('timeout',()=>{s.destroy();process.exit(1)})";
+const selectedOriginsTlsScript = "const tls=require('node:tls');let origins;" +
+  "try{origins=JSON.parse(process.argv[1])}catch{process.exit(1)};" +
+  "if(!Array.isArray(origins)||!origins.length||origins.length>6)process.exit(1);" +
+  "(async()=>{for(const origin of origins){const u=new URL(origin);" +
+  "if(u.protocol!=='https:'||u.origin!==origin)process.exit(1);" +
+  "const ok=await new Promise(resolve=>{const s=tls.connect({host:u.hostname,port:Number(u.port||443)," +
+  "servername:u.hostname,timeout:15000,rejectUnauthorized:true},()=>{const a=s.authorized;s.end();resolve(a)});" +
+  "s.on('error',()=>resolve(false));s.on('timeout',()=>{s.destroy();resolve(false)})});" +
+  "if(!ok)process.exit(1)}process.exit(0)})()";
 const npmCheckScript = "const fs=require('node:fs'),cp=require('node:child_process');" +
   "const expected=process.argv[1],config=process.argv[2],offline=process.argv[3]==='1';" +
+  "const deadline=Date.now()+23000;const remaining=limit=>{const left=deadline-Date.now();if(left<=0)process.exit(1);return Math.min(limit,left)};" +
+  "if(process.env.NODE_TLS_REJECT_UNAUTHORIZED&&!['1'].includes(process.env.NODE_TLS_REJECT_UNAUTHORIZED))process.exit(1);" +
   "const text=fs.readFileSync(config,'utf8');const lines=text.split(/\\r?\\n/).filter(x=>/^\\s*cafile\\s*=/.test(x));" +
   "if(!lines.length||lines.at(-1).split('=').slice(1).join('=').trim()!==expected)process.exit(1);" +
   "if(offline)process.exit(3);" +
   "const file=process.platform==='win32'?'npm.cmd':'npm';" +
-  "const env={...process.env,NPM_CONFIG_USERCONFIG:config};" +
+  "const env={...process.env,NPM_CONFIG_USERCONFIG:config,NODE_TLS_REJECT_UNAUTHORIZED:'1'};" +
+  "delete env.NODE_EXTRA_CA_CERTS;" +
   "const configured=cp.spawnSync(file,['config','get','cafile']," +
-  "{shell:process.platform==='win32',env,timeout:10000,maxBuffer:4096,windowsHide:true});" +
+  "{shell:process.platform==='win32',env,timeout:remaining(7000),maxBuffer:4096,windowsHide:true});" +
   "if(configured.status!==0||configured.stdout.toString().trim()!==expected)process.exit(1);" +
-  "const run=cp.spawnSync(file,['ping','--fetch-retries=0','--fetch-timeout=15000']," +
-  "{shell:process.platform==='win32',env,timeout:20000,maxBuffer:4096,windowsHide:true});" +
+  "const strict=cp.spawnSync(file,['config','get','strict-ssl']," +
+  "{shell:process.platform==='win32',env,timeout:remaining(7000),maxBuffer:4096,windowsHide:true});" +
+  "if(strict.status!==0||strict.stdout.toString().trim()!=='true')process.exit(1);" +
+  "const registry=cp.spawnSync(file,['config','get','registry']," +
+  "{shell:process.platform==='win32',env,timeout:remaining(7000),maxBuffer:4096,windowsHide:true});" +
+  "if(registry.status!==0)process.exit(1);" +
+  "try{if(new URL(registry.stdout.toString().trim()).protocol!=='https:')process.exit(1)}catch{process.exit(1)};" +
+  "const run=cp.spawnSync(file,['ping','--fetch-retries=0','--fetch-timeout=12000']," +
+  "{shell:process.platform==='win32',env,timeout:remaining(15000),maxBuffer:4096,windowsHide:true});" +
   "process.exit(run.status===0?0:1)";
 const windowsEnvCheckScript = "const cp=require('node:child_process'),p=require('node:path');" +
   "const script=\"$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
@@ -48,9 +71,11 @@ const windowsSetxScript = "const cp=require('node:child_process'),p=require('nod
   "const r=cp.spawnSync(file,['NODE_EXTRA_CA_CERTS',process.argv[1]]," +
   "{shell:false,timeout:10000,maxBuffer:4096,windowsHide:true});" +
   "process.exit(r.status===0?0:1)";
+const windowsSystemSetxScript = windowsSetxScript.replaceAll('NODE_EXTRA_CA_CERTS', 'NODE_USE_SYSTEM_CA');
+const windowsSystemEnvCheckScript = windowsEnvCheckScript.replaceAll('NODE_EXTRA_CA_CERTS', 'NODE_USE_SYSTEM_CA');
 
-/** Return only a fixed installed recipe; Core supplies and pins the reviewed material. */
-export function renderRepair(request) {
+/** Build the finite shipped graphs once, from installed content only. */
+function buildShippedRecipe(request, platform) {
   if (!request || Object.getPrototypeOf(request) !== Object.prototype ||
       Reflect.ownKeys(request).some(key => !['id', 'targets', 'bundlePath', 'bundleSha256', 'fingerprints', 'offline'].includes(key)) ||
       request.id !== 'node-npm-ca' || !Array.isArray(request.targets) ||
@@ -67,11 +92,11 @@ export function renderRepair(request) {
   const checks = [{ id: 'material-digest', purpose: 'Check persisted material bytes', kind: 'file.sha256',
     target: stateTarget('trust.pem'), sha256: request.bundleSha256 }];
   if (request.targets.includes('node')) {
-    const path = process.platform === 'win32' ? ['Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'] :
-      process.platform === 'darwin' ? ['.zprofile'] : ['.profile'];
-    const assignment = process.platform === 'win32' ? `$env:NODE_EXTRA_CA_CERTS = '${request.bundlePath.replaceAll("'", "''")}'` :
+    const path = platform === 'win32' ? ['Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'] :
+      platform === 'darwin' ? ['.zprofile'] : ['.profile'];
+    const assignment = platform === 'win32' ? `$env:NODE_EXTRA_CA_CERTS = '${request.bundlePath.replaceAll("'", "''")}'` :
       `export NODE_EXTRA_CA_CERTS=${"'" + request.bundlePath.replaceAll("'", "'\\''") + "'"}`;
-    if (process.platform === 'win32') {
+    if (platform === 'win32') {
       if (request.bundlePath.includes('%') || request.bundlePath.length > 1024) throw new Error('setx-value-unsupported');
       operations.push({ id: 'node-persist', purpose: 'Persist NODE_EXTRA_CA_CERTS for future Windows user processes',
         kind: 'process.run', scope: 'user', executable: { name: process.execPath },
@@ -85,9 +110,9 @@ export function renderRepair(request) {
     }
     operations.push({ id: 'node-config', purpose: 'Persist Node extra CA path for future user shell sessions',
       kind: 'text.block', scope: 'user', target: userTarget(...path), blockId: 'node-ca',
-      startMarker: process.platform === 'win32' ? '# BEGIN AIHQ NODE CA' : '# BEGIN AIHQ NODE CA',
+      startMarker: '# BEGIN AIHQ NODE CA',
       endMarker: '# END AIHQ NODE CA', action: 'set', content: literal(assignment),
-      requires: [process.platform === 'win32' ? 'node-persist' : 'material'],
+      requires: [platform === 'win32' ? 'node-persist' : 'material'],
       checks: request.offline ? ['node-behavior'] : ['node-behavior', 'node-tls'] });
     checks.push({ id: 'node-behavior', purpose: 'Check Node loaded the selected extra CAs', kind: 'process.exit',
       executable: { name: process.execPath }, args: [literal('-e'), literal(nodeCheckScript),
@@ -107,7 +132,7 @@ export function renderRepair(request) {
     if (!request.offline) checks.push({ id: 'npm-behavior', purpose: 'Check npm uses the selected cafile and reaches its registry',
       kind: 'process.exit', executable: { name: process.execPath },
       args: [literal('-e'), literal(npmCheckScript), literal(request.bundlePath), literal(join(homedir(), '.npmrc')),
-        literal(request.offline ? '1' : '0')], cwd: cwdTarget, env: { NODE_TLS_REJECT_UNAUTHORIZED: literal('1') },
+        literal(request.offline ? '1' : '0')], cwd: cwdTarget, env: {},
       timeoutMs: 25000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
   }
   return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'node-npm-ca',
@@ -116,16 +141,171 @@ export function renderRepair(request) {
     materials: [], targets: ['user'], prerequisites: [], operations, checks };
 }
 
+const shippedRecipes = new Map();
+for (const variant of repairIndex[0].variants) {
+  const recipe = buildShippedRecipe({ id: 'node-npm-ca', targets: [...variant.targets],
+    bundlePath: 'C:/AIHQ_RECIPE_PLACEHOLDER', bundleSha256: '0'.repeat(64),
+    fingerprints: ['0'.repeat(64)], offline: variant.network === 'off' }, variant.os);
+  recipe.inputs = {
+    bundle: { type: 'string', required: true, sensitive: true, maxLength: 16 * 1024 * 1024 },
+    bundlePath: { type: 'string', required: true, maxLength: 4096 },
+    bundleSha256: { type: 'string', required: true, maxLength: 64 },
+    fingerprintCsv: { type: 'string', required: true, maxLength: 16_384 },
+    nodeAssignment: { type: 'string', required: true, maxLength: 8192 },
+    npmAssignment: { type: 'string', required: true, maxLength: 8192 },
+    npmConfigPath: { type: 'string', required: true, maxLength: 4096 }
+  };
+  recipe.checks[0] = { id: 'material-digest', purpose: 'Check persisted material bytes', kind: 'process.exit',
+    executable: { name: process.execPath }, args: [literal('-e'), literal(materialDigestScript),
+      { input: 'bundlePath' }, { input: 'bundleSha256' }], cwd: cwdTarget, env: {},
+    timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] };
+  for (const operation of recipe.operations) {
+    if (operation.id === 'node-persist') operation.args[2] = { input: 'bundlePath' };
+    if (operation.id === 'node-config') operation.content = { input: 'nodeAssignment' };
+    if (operation.id === 'npm-config') operation.content = { input: 'npmAssignment' };
+  }
+  for (const check of recipe.checks) {
+    if (check.id === 'node-user-env') check.args[2] = { input: 'bundlePath' };
+    if (check.id === 'node-behavior') {
+      check.args[2] = { input: 'fingerprintCsv' };
+      check.env.NODE_EXTRA_CA_CERTS = { input: 'bundlePath' };
+    }
+    if (check.id === 'node-tls') check.env.NODE_EXTRA_CA_CERTS = { input: 'bundlePath' };
+    if (check.id === 'npm-behavior') {
+      check.args[2] = { input: 'bundlePath' };
+      check.args[3] = { input: 'npmConfigPath' };
+    }
+  }
+  shippedRecipes.set(variant.recipeRef, recipe);
+}
+for (const variant of repairIndex[1].variants) {
+  if (variant.candidate === 'extra-ca') {
+    const base = shippedRecipes.get(`node-npm-ca/${variant.os}/node/declared`);
+    const recipe = structuredClone(base);
+    recipe.id = 'node-os-trust';
+    recipe.description = 'User-scope Node extra CA repair from a bounded OS-trusted candidate';
+    recipe.inputs.originsJson = { type: 'string', required: true, maxLength: 12288 };
+    const check = recipe.checks.find(item => item.id === 'node-tls');
+    check.purpose = 'Check Node TLS reaches every reviewed origin with the selected OS-trusted CA';
+    check.args = [literal('-e'), literal(selectedOriginsTlsScript), { input: 'originsJson' }];
+    check.env.NODE_USE_SYSTEM_CA = literal('0');
+    shippedRecipes.set(variant.recipeRef, recipe);
+    continue;
+  }
+  const profilePath = variant.os === 'win32' ? ['Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'] :
+    variant.os === 'darwin' ? ['.zprofile'] : ['.profile'];
+  const operations = [];
+  const checks = [];
+  if (variant.os === 'win32') {
+    operations.push({ id: 'node-persist', purpose: 'Persist NODE_USE_SYSTEM_CA for future Windows user processes',
+      kind: 'process.run', scope: 'user', executable: { name: process.execPath },
+      args: [literal('-e'), literal(windowsSystemSetxScript), literal('1')], cwd: cwdTarget, env: {},
+      timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0],
+      effects: ['HKCU\\Environment\\NODE_USE_SYSTEM_CA'], requires: [], checks: ['node-user-env'] });
+    checks.push({ id: 'node-user-env', purpose: 'Check Windows user environment enables Node system CAs',
+      kind: 'process.exit', executable: { name: process.execPath },
+      args: [literal('-e'), literal(windowsSystemEnvCheckScript), literal('1')], cwd: cwdTarget,
+      env: {}, timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+  }
+  operations.push({ id: 'node-config', purpose: 'Persist Node system CA selection for future user shell sessions',
+    kind: 'text.block', scope: 'user', target: userTarget(...profilePath), blockId: 'node-system-ca',
+    startMarker: '# BEGIN AIHQ NODE SYSTEM CA', endMarker: '# END AIHQ NODE SYSTEM CA',
+    action: 'set', content: { input: 'nodeAssignment' },
+    requires: variant.os === 'win32' ? ['node-persist'] : [], checks: ['node-tls'] });
+  checks.push({ id: 'node-tls', purpose: 'Check Node TLS reaches every reviewed origin with system CAs',
+    kind: 'process.exit', executable: { name: process.execPath },
+    args: [literal('-e'), literal(selectedOriginsTlsScript), { input: 'originsJson' }], cwd: cwdTarget,
+    env: { NODE_USE_SYSTEM_CA: literal('1'), NODE_EXTRA_CA_CERTS: literal(''),
+      NODE_TLS_REJECT_UNAUTHORIZED: literal('1') },
+    timeoutMs: 25000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+  shippedRecipes.set(variant.recipeRef, { schema: 'urn:aihq:core:recipe:1.0.0', id: 'node-os-trust',
+    description: 'User-scope Node system CA repair from bounded OS trust diagnosis',
+    inputs: { nodeAssignment: { type: 'string', required: true, maxLength: 8192 },
+      originsJson: { type: 'string', required: true, maxLength: 12288 } },
+    materials: [], targets: ['user'], prerequisites: [], operations, checks });
+}
+
+/** The graph is selected from installed content; callers receive a detached copy. */
+export function getRepairRecipe(recipeRef) {
+  const recipe = shippedRecipes.get(recipeRef);
+  return recipe ? structuredClone(recipe) : undefined;
+}
+
+/** This transform supplies literal bindings only; it cannot alter an operation graph. */
+export function renderRepair(request) {
+  const definition = repairIndex.find(item => item.id === request?.id);
+  const variant = definition?.variants.find(item => item.recipeRef === request.variantRef &&
+    item.os === process.platform && item.architectures.includes(process.arch));
+  if (request?.id === 'node-os-trust') {
+    const origins = candidateOrigins(request.origins);
+    if (!variant || !origins || !shippedRecipes.has(variant.recipeRef))
+      return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'repair-bindings', message: 'Invalid OS trust bindings.' }] };
+    const assignment = variant.os === 'win32' ? "$env:NODE_USE_SYSTEM_CA = '1'" : "export NODE_USE_SYSTEM_CA='1'";
+    if (variant.candidate === 'system-ca') return { status: 'completed',
+      bindings: { nodeAssignment: assignment, originsJson: JSON.stringify(origins) } };
+    const rendered = renderRepair({ ...request, id: 'node-npm-ca',
+      variantRef: `node-npm-ca/${variant.os}/node/declared` });
+    if (rendered.status !== 'completed') return rendered;
+    return { status: 'completed', bindings: { ...rendered.bindings, originsJson: JSON.stringify(origins) } };
+  }
+  if (!variant || !shippedRecipes.has(variant.recipeRef) ||
+      typeof request.bundlePath !== 'string' || !request.bundlePath || /[\r\n\0]/.test(request.bundlePath) ||
+      typeof request.bundleSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(request.bundleSha256) ||
+      !Array.isArray(request.fingerprints) || !request.fingerprints.length ||
+      request.fingerprints.some(value => typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)))
+    return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'repair-bindings', message: 'Invalid repair bindings.' }] };
+  if (variant.os === 'win32' && (request.bundlePath.includes('%') || request.bundlePath.length > 1024))
+    return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'setx-value-unsupported', message: 'Windows user environment cannot hold this path.' }] };
+  const nodeAssignment = variant.os === 'win32' ? `$env:NODE_EXTRA_CA_CERTS = '${request.bundlePath.replaceAll("'", "''")}'` :
+    `export NODE_EXTRA_CA_CERTS=${"'" + request.bundlePath.replaceAll("'", "'\\''") + "'"}`;
+  return { status: 'completed', bindings: {
+    bundlePath: request.bundlePath, bundleSha256: request.bundleSha256,
+    fingerprintCsv: request.fingerprints.join(','), nodeAssignment,
+    npmAssignment: `cafile=${request.bundlePath}`, npmConfigPath: join(homedir(), '.npmrc') } };
+}
+
 /** Installed vendor logic consumes bounded snapshots; it never reads or mutates the host. */
 export function prepareRepairDefinition(request) {
   const definition = repairIndex.find(item => item.id === request?.id);
+  if (request?.id === 'node-os-trust') {
+    const variant = definition?.variants.find(item => item.recipeRef === request.variantRef &&
+      item.os === process.platform && item.architectures.includes(process.arch));
+    const origins = candidateOrigins(request.candidate?.origins);
+    if (!variant || !origins || variant.candidate !== request.candidate?.kind ||
+        request.targets?.length !== 1 || request.targets[0] !== 'node' ||
+        request.offline || !request.candidate || !['system-ca', 'extra-ca'].includes(request.candidate.kind))
+      return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'candidate-invalid',
+        message: 'A verified OS trust candidate is required.' }] };
+    const fingerprints = request.candidate.kind === 'extra-ca' ? request.candidate.certs.map(item => item.fingerprint) : [];
+    if (request.validateOnly) return { status: 'completed', fingerprints,
+      evaluatedAt: new Date().toISOString(), count: fingerprints.length, duplicates: 0 };
+    let bundle;
+    if (request.candidate.kind === 'extra-ca') {
+      bundle = composeExistingTrust(request.existing, request.candidate.certs.map(item => item.pem).join('\n'),
+        { includeNodeDefaults: false });
+      if (bundle === undefined || Buffer.byteLength(bundle) > 16 * 1024 * 1024)
+        return { status: 'blocked', diagnostics: [{ code: 'STATE_CONFLICT', reason: 'existing-trust-uncomposable',
+          message: 'Existing managed trust cannot be safely composed.' }] };
+    }
+    const rendered = renderRepair({ id: request.id, variantRef: request.variantRef, origins,
+      ...(bundle ? { bundlePath: request.managedPath, bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+        fingerprints } : {}) });
+    if (rendered.status !== 'completed') return rendered;
+    return { status: 'completed', bindings: rendered.bindings, ...(bundle ? { bundle } : {}),
+      fingerprints, evaluatedAt: new Date().toISOString(), count: fingerprints.length, duplicates: 0 };
+  }
   if (!request || !definition || request.id !== 'node-npm-ca' ||
       !definition.variants.some(item => item.recipeRef === request.variantRef &&
-        item.os === process.platform && item.architectures.includes(process.arch)) || !request.files ||
+        item.os === process.platform && item.architectures.includes(process.arch) &&
+        item.targets.length === request.targets?.length && item.targets.every(target => request.targets.includes(target)) &&
+        (request.validateOnly || item.network === (request.offline ? 'off' : 'declared'))) || !request.files ||
       !Object.hasOwn(request.files, 'caFile') || !(request.files.caFile instanceof Uint8Array))
     return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'repair-input', message: 'Unsupported repair input.' }] };
   const accepted = validateSuppliedCa(request.files.caFile);
-  if (!accepted.valid) return { status: 'invalid', diagnostics: accepted.diagnostics };
+  if (!accepted.valid) return { status: 'invalid', assessedBlocks: accepted.assessedBlocks,
+    ...(accepted.assessmentLimit ? { assessmentLimit: accepted.assessmentLimit } : {}),
+    diagnostics: accepted.diagnostics.map(item => ({ ...item,
+      guidance: 'Accepted input is CA-only PEM/Base-64 X.509 text without keys or tool output. Export DER or container certificates to CA-only PEM with an approved local tool, then prepare again.' })) };
   if (request.validateOnly) return { status: 'completed', fingerprints: accepted.certificates.map(item => item.fingerprint),
     evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
   const bundle = composeExistingTrust(request.existing, accepted.material,
@@ -135,27 +315,31 @@ export function prepareRepairDefinition(request) {
   if (Buffer.byteLength(bundle) > 16 * 1024 * 1024) return { status: 'blocked', diagnostics: [{ code: 'STATE_CONFLICT',
     reason: 'managed-material-limit', message: 'Managed trust would exceed its bound.' }] };
   const sha256 = createHash('sha256').update(bundle).digest('hex');
-  const recipe = renderRepair({ id: request.id, targets: request.targets, bundlePath: request.managedPath,
-    bundleSha256: sha256, fingerprints: accepted.certificates.map(item => item.fingerprint), offline: request.offline });
-  return { status: 'completed', recipe, bundle, fingerprints: accepted.certificates.map(item => item.fingerprint),
+  const transformed = renderRepair({ id: request.id, variantRef: request.variantRef, bundlePath: request.managedPath,
+    bundleSha256: sha256, fingerprints: accepted.certificates.map(item => item.fingerprint) });
+  if (transformed.status !== 'completed') return transformed;
+  return { status: 'completed', bindings: transformed.bindings, bundle,
+    fingerprints: accepted.certificates.map(item => item.fingerprint),
     evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
 }
 
 /** Fixed, read-only host observations selected by the installed repair definition. */
 export function repairObservationRequests(request) {
-  if (request.id !== 'node-npm-ca') throw new Error('repair-unsupported');
+  if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
   if (process.platform !== 'win32' || !request.targets.includes('node')) return [];
+  const system = request.id === 'node-os-trust' && request.variantRef?.endsWith('/system-ca');
   return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(process.env.SystemRoot || 'C:\\Windows',
     'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-      "$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
+      `$v=[Environment]::GetEnvironmentVariable('${system ? 'NODE_USE_SYSTEM_CA' : 'NODE_EXTRA_CA_CERTS'}','User');` +
       "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}"],
     timeoutMs: 10000, maxOutputBytes: 4096 }];
 }
 
 /** Interpret the fixed probe's output and its reviewed target transition. */
 export function assessRepairObservations(request) {
-  if (request.id !== 'node-npm-ca') throw new Error('repair-unsupported');
+  if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
+  const expected = request.id === 'node-os-trust' && request.variantRef?.endsWith('/system-ca') ? '1' : request.managedPath;
   return request.observations.map(item => {
     if (item.id !== 'node-user-env') throw new Error('observation-unsupported');
     let current = null;
@@ -166,10 +350,10 @@ export function assessRepairObservations(request) {
       if ('VALUE:' + Buffer.from(current).toString('base64') !== item.output) throw new Error('user-environment-invalid');
     }
     return { id: item.id, operationId: 'node-persist', raw: item.output,
-      expectedRaw: 'VALUE:' + Buffer.from(request.managedPath).toString('base64'),
-      conflict: current !== null && current !== request.managedPath,
+      expectedRaw: 'VALUE:' + Buffer.from(expected).toString('base64'),
+      conflict: current !== null && current !== expected,
       observedValue: current, reason: current === null ? 'absent' :
-        current === request.managedPath ? 'already-selected' : 'replace-reviewed' };
+        current === expected ? 'already-selected' : 'replace-reviewed' };
   });
 }
 
@@ -250,7 +434,8 @@ function curlEnvironment() {
   return env;
 }
 
-async function runProcess(file, args, deadline, ceiling, signal, maxBytes = profile.outputBytes, env = process.env) {
+async function runProcess(file, args, deadline, ceiling, signal, maxBytes = profile.outputBytes, env = process.env,
+    collectOutput = false) {
   const stopAt = Math.min(deadline, performance.now() + ceiling);
   if (!remaining(stopAt)) return { kind: 'limit', reason: 'deadline' };
   if (isCancelled(signal)) return { kind: 'cancelled' };
@@ -269,6 +454,7 @@ async function runProcess(file, args, deadline, ceiling, signal, maxBytes = prof
       } else child = spawn(file, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env });
     } catch (error) { resolveResult({ kind: isMissing(error) ? 'missing' : 'unavailable', reason: 'probe-invocation' }); return; }
     let done = false; let bytes = 0; let overflow = false; let timedOut = false; let cancelled = false;
+    const output = [];
     let cleanupTimer;
     const finish = value => { if (done) return; done = true; clearTimeout(timer); clearTimeout(cleanupTimer); signal?.removeEventListener('abort', abort);
       resolveResult(value); };
@@ -284,17 +470,18 @@ async function runProcess(file, args, deadline, ceiling, signal, maxBytes = prof
     const timer = setTimeout(() => { timedOut = true; stop('deadline'); }, remaining(stopAt));
     signal?.addEventListener('abort', abort, { once: true });
     if (isCancelled(signal)) abort();
-    const capture = chunk => {
+    const capture = (chunk, stdout) => {
       bytes += chunk.length;
       if (bytes > maxBytes) { overflow = true; stop('output-bytes'); return; }
+      if (stdout && collectOutput) output.push(chunk);
     };
-    child.stdout.on('data', capture); child.stderr.on('data', capture);
+    child.stdout.on('data', chunk => capture(chunk, true)); child.stderr.on('data', chunk => capture(chunk, false));
     child.on('error', error => finish(performance.now() >= stopAt ? { kind: 'limit', reason: 'deadline' } :
       { kind: isMissing(error) ? 'missing' : 'unavailable', reason: 'probe-invocation' }));
     child.on('close', code => finish(cancelled ? { kind: 'cancelled' } :
       timedOut || performance.now() >= stopAt ? { kind: 'limit', reason: 'deadline' } :
       overflow ? { kind: 'limit', reason: 'output-bytes' } :
-      { kind: 'complete', code }));
+      { kind: 'complete', code, ...(collectOutput ? { stdout: Buffer.concat(output).toString('utf8') } : {}) }));
   });
 }
 
@@ -323,6 +510,90 @@ async function tlsProbe(origin, deadline, signal) {
     socket.on('timeout', () => finish({ kind: 'limit', reason: 'deadline' }));
     if (isCancelled(signal)) abort();
   });
+}
+
+/** Diagnose an OS-trusted Node candidate with fixed probe kinds and no repair effects. */
+export async function assessNodeTrustCandidate(request, controls = {}) {
+  if (request?.originId !== 'npm-registry' || controls?.budgetMs !== undefined &&
+      (!Number.isSafeInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > 120000))
+    return { kind: 'unresolved', reason: 'origin-invalid', probes: 0 };
+  const started = performance.now();
+  const npm = executable('npm');
+  if (!npm) return { kind: 'unresolved', reason: 'executable-missing', probes: 0 };
+  const configured = await runProcess(npm, ['config', 'get', 'registry'],
+    started + Math.min(120000, controls.budgetMs ?? 120000), 10000, controls.signal,
+    4096, process.env, true);
+  if (configured.kind !== 'complete' || configured.code !== 0 || typeof configured.stdout !== 'string')
+    return { kind: 'unresolved', reason: configured.reason ?? 'config-unavailable', probes: 0 };
+  let registry;
+  try { registry = new URL(configured.stdout.trim()); }
+  catch { return { kind: 'unresolved', reason: 'config-invalid', probes: 0 }; }
+  if (registry.protocol !== 'https:' || registry.username || registry.password ||
+      configured.stdout.trim().length > 2048)
+    return { kind: 'unresolved', reason: 'config-invalid', probes: 0 };
+  const origins = candidateOrigins([registry.origin]);
+  if (!origins) return { kind: 'unresolved', reason: 'config-invalid', probes: 0 };
+  const probe = async (kind, origin, roots, timeoutMs, signal) => {
+    if (kind === 'os') {
+      const curl = executable('curl');
+      if (!curl || process.platform === 'win32' && !/\.exe$/i.test(curl))
+        return { kind: 'unavailable', reason: 'executable-missing' };
+      const result = await runProcess(curl, ['--disable', '--head', '--silent', '--show-error',
+        '--proto', '=https', '--max-redirs', '0', '--connect-timeout', '20', '--max-time', '20', origin],
+      performance.now() + timeoutMs, timeoutMs, signal, 65536, curlEnvironment());
+      return result.kind === 'complete' ? result.code === 0 ? { kind: 'passed' } :
+        { kind: 'failed', reason: 'os-tls-failed' } : { kind: 'unavailable', reason: result.reason ?? 'probe-invocation' };
+    }
+    return new Promise(resolveResult => {
+      let socket, timer, finished = false;
+      const url = new URL(origin);
+      const finish = value => { if (finished) return; finished = true; clearTimeout(timer);
+        signal?.removeEventListener('abort', abort); socket?.destroy(); resolveResult(value); };
+      const abort = () => finish({ kind: 'unavailable', reason: 'cancelled' });
+      if (signal?.aborted) return abort();
+      try {
+        const options = { host: url.hostname, port: Number(url.port || 443), servername: url.hostname,
+          rejectUnauthorized: kind !== 'capture', timeout: Math.min(timeoutMs, 20000) };
+        if (kind === 'system-ca') options.ca = [...tls.rootCertificates, ...tls.getCACertificates('system')];
+        if (kind === 'extra-ca') options.ca = [...tls.rootCertificates, ...roots];
+        socket = tls.connect(options, () => {
+          if (kind === 'capture') {
+            const chain = [], seen = new Set();
+            let cert = socket.getPeerCertificate(true);
+            for (let i = 0; cert?.raw && i < 8; i++) {
+              const key = cert.raw.toString('base64');
+              if (seen.has(key)) break;
+              seen.add(key); chain.push(cert.raw);
+              if (!cert.issuerCertificate || cert.issuerCertificate === cert) break;
+              cert = cert.issuerCertificate;
+            }
+            return finish({ kind: 'captured', chain });
+          }
+          finish(socket.authorized ? { kind: 'passed' } : { kind: 'failed', reason: 'certificate-chain' });
+        });
+      } catch { return finish({ kind: 'unavailable', reason: 'probe-invocation' }); }
+      timer = setTimeout(() => finish({ kind: 'unavailable', reason: 'deadline' }), timeoutMs);
+      signal?.addEventListener('abort', abort, { once: true });
+      socket.on('error', error => finish({ kind: 'failed', reason: [
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'CERT_HAS_EXPIRED', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY'
+      ].includes(error.code) ? 'certificate-chain' : 'connection-failed' }));
+      socket.on('timeout', () => finish({ kind: 'unavailable', reason: 'deadline' }));
+    });
+  };
+  const remainingBudget = Math.floor(Math.min(120000, controls.budgetMs ?? 120000) - (performance.now() - started));
+  if (remainingBudget < 1) return { kind: 'unresolved', reason: 'deadline', probes: 0 };
+  const result = await selectTrustCandidateWith(origins, { probe,
+    systemRoots: async () => {
+      try { return { kind: 'completed', roots: tls.getCACertificates('system') }; }
+      catch { return { kind: 'unavailable', reason: 'root-inventory' }; }
+    } }, { ...controls, budgetMs: remainingBudget });
+  return { ...result, elapsedMs: Math.ceil(performance.now() - started) };
+}
+
+export async function assessRepairCandidate(request, controls = {}) {
+  if (request?.id !== 'node-os-trust') return { kind: 'unresolved', reason: 'candidate-unsupported', probes: 0 };
+  return assessNodeTrustCandidate({ originId: request.inputs?.originId }, controls);
 }
 
 function configuredOrigins(selected, home, project) {
