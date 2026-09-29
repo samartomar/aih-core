@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:execution-policy:1.0.0",
+  "title": "Core execution policy (initial development slice)",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "mode", "selections"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:execution-policy:1.0.0" }, "mode": { "const": "vibe" },
+    "metadata": { "type": "object" },
+    "selections": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "managementId", "scope", "configuration", "requires", "recipe"],
+        "properties": {
+          "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+          "managementId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+          "scope": { "enum": ["project", "user"] }, "configuration": { "type": "object" },
+          "requires": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/ids" },
+          "recipe": {
+            "type": "object", "additionalProperties": false, "required": ["inline"],
+            "properties": { "inline": { "$ref": "urn:aihq:core:recipe:1.0.0" } }
+          }
+        }
+      }
+    }
+  }
+}

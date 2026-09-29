@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:run-result:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:run-result:1.0.0"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "useCase": {
+      "const": "policy"
+    },
+    "completion": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "cancelled",
+        "rejected"
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "package": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        }
+      },
+      "required": [
+        "policySha256",
+        "package"
+      ]
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "enum": [
+            "interactive",
+            "automation"
+          ]
+        },
+        "allowPartial": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "boolean"
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "origin",
+        "allowPartial"
+      ]
+    },
+    "effectiveOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "enum": [
+                "on",
+                "off"
+              ]
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "logging"
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "application": {
+            "enum": [
+              "not-attempted",
+              "already-satisfied",
+              "applied",
+              "failed"
+            ]
+          },
+          "verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "unverified"
+              },
+              "reason": {
+                "const": "no-supplied-check"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "effectsUncertain": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "application",
+          "verification"
+        ]
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "encountered": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ]
+      }
+    },
+    "record": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "written"
+            },
+            "reference": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reference"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "disabled"
+            },
+            "reason": {
+              "const": "logging-off"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "reason": {
+              "enum": [
+                "record-limit",
+                "record-write"
+              ]
+            },
+            "diagnosticId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason",
+            "diagnosticId"
+          ]
+        }
+      ]
+    },
+    "recovery": {
+      "type": "string"
+    },
+    "followUp": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "runId",
+    "useCase",
+    "completion",
+    "effectiveOptions",
+    "operations",
+    "checks",
+    "diagnostics",
+    "record",
+    "followUp"
+  ]
+}

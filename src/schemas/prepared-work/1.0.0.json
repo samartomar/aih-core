@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:prepared-work:1.0.0"
+    },
+    "useCase": {
+      "const": "policy"
+    },
+    "mode": {
+      "const": "vibe"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "const": "project"
+        },
+        "project": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "project"
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "package": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        }
+      },
+      "required": [
+        "policySha256",
+        "package"
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "kind": {
+            "const": "file.write"
+          },
+          "scope": {
+            "const": "project"
+          },
+          "effects": {
+            "enum": [
+              "create-file",
+              "already-satisfied",
+              "conflict"
+            ]
+          },
+          "ownership": {
+            "enum": [
+              "managed",
+              "unowned"
+            ]
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "target": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 511
+              }
+            },
+            "required": [
+              "target",
+              "content",
+              "mode"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "purpose",
+          "kind",
+          "scope",
+          "effects",
+          "ownership",
+          "requires",
+          "checks",
+          "details"
+        ]
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "encountered": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ]
+      }
+    },
+    "omissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "encountered": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ]
+      }
+    },
+    "effectiveOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "enum": [
+                "on",
+                "off"
+              ]
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "origin"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "origin": {
+                "enum": [
+                  "default",
+                  "explicit",
+                  "private"
+                ]
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          }
+        }
+      },
+      "required": [
+        "logging",
+        "inputs"
+      ]
+    },
+    "reviewDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schema",
+    "useCase",
+    "mode",
+    "target",
+    "inputs",
+    "operations",
+    "observations",
+    "conflicts",
+    "omissions",
+    "effectiveOptions",
+    "reviewDigest"
+  ]
+}
