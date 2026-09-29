@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -83,6 +83,18 @@ test('source change after review rejects before any import effect', async () => 
   assert.equal(result.diagnostics[0].code, 'REVIEW_STALE');
   assert.equal(existsSync(join(home, '.aih')), false);
 });
+
+test('macOS temp home alias binds managed material to the canonical policy selection',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const source = join(scratch, 'alias-root.pem'); writeFileSync(source, root);
+    const prepared = await prepare(offlineNpm(source), { logging: 'off' });
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+    const key = createHash('sha256').update(`${realpathSync.native(home)}\0user\0node-npm-trust`).digest('hex');
+    assert.ok(prepared.review.operations.find(op => op.id === 'trust/material').details.target.includes(key));
+    const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+    assert.equal(result.checks.find(check => check.id === 'trust/material-digest').status, 'passed');
+    assert.equal(result.checks.find(check => check.id === 'trust/npm-behavior').reason, 'offline');
+  });
 
 test('valid import creates stable material and reports offline npm verification', async () => {
   const source = join(scratch, 'valid.pem'); writeFileSync(source, root);

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
+import { pathPins, pinsMatch, type PathPin } from './host-files.js';
 
 export const MATERIAL_LIMITS = Object.freeze({
   compressedBytes: 64 * 1024 * 1024,
@@ -234,14 +235,17 @@ function declaredClosure(recipe: Buffer, members: readonly MaterialMemberDescrip
 }
 
 type FileIdentity = { dev: bigint; ino: bigint; size: bigint; mtimeNs: bigint };
-function localRoot(root: unknown): string {
+type LocalRoot = { canonical: string; pins: PathPin[] };
+function localRoot(root: unknown): LocalRoot {
   if (typeof root !== 'string' || !isAbsolute(root)) fail('invalid-local-root');
-  let stat: ReturnType<typeof lstatSync>;
-  try { stat = lstatSync(root); } catch { fail('local-root-unavailable'); }
-  if (!stat.isDirectory() || stat.isSymbolicLink()) fail('unsafe-local-root');
-  const canonical = realpathSync(root);
-  if (resolve(root) !== canonical) fail('unsafe-local-root');
-  return canonical;
+  try { if (!statSync(root).isDirectory()) fail('unsafe-local-root'); }
+  catch (error) { if (error instanceof MaterialCaptureError) throw error; fail('local-root-unavailable'); }
+  let pins: PathPin[];
+  try { pins = pathPins(root); } catch { fail('unsafe-local-root'); }
+  if (!pinsMatch(pins)) fail('unsafe-local-root');
+  const canonical = realpathSync.native(root);
+  if (!pinsMatch(pins)) fail('unsafe-local-root');
+  return { canonical, pins };
 }
 function readLocal(root: string, path: string, expectedLength: number, deadline: number, signal?: AbortSignal): { bytes: Buffer; identity: FileIdentity } {
   const segments = path.split('/');
@@ -497,7 +501,7 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
   pins.set(reference.path, { sha256: reference.sha256, byteLength: reference.byteLength });
   for (const member of reference.materials) pins.set(member.path, { sha256: member.sha256, byteLength: member.byteLength });
   let captured: Map<string, Buffer>;
-  let root: string | undefined;
+  let root: LocalRoot | undefined;
   let identities: Map<string, FileIdentity> | undefined;
   if (reference.source.kind === 'archive') {
     const archive = await download(reference.source, deadline, options.signal);
@@ -509,11 +513,12 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
     for (const [path, pin] of pins) {
       if (performance.now() > deadline) fail('acquisition-deadline');
       let file: { bytes: Buffer; identity: FileIdentity };
-      try { file = readLocal(root, path, pin.byteLength, deadline, options.signal); }
+      try { file = readLocal(root.canonical, path, pin.byteLength, deadline, options.signal); }
       catch (error) { if (error instanceof MaterialCaptureError) throw error; fail('local-file-unavailable'); }
       checkBytes(file.bytes, pin.sha256, pin.byteLength, 'member-identity-mismatch');
       captured.set(path, file.bytes); identities.set(path, file.identity);
     }
+    if (!pinsMatch(root.pins)) fail('unsafe-local-root');
   }
   const recipe = checkBytes(captured.get(reference.path), reference.sha256, reference.byteLength, 'recipe-identity-mismatch');
   declaredClosure(recipe, reference.materials);
@@ -531,16 +536,18 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
     recheck: async () => {
       if (options.signal?.aborted) return false;
       if (root !== undefined && identities !== undefined) {
+        if (!pinsMatch(root.pins)) return false;
         const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
         for (const [path, pin] of pins) {
           try {
-            const file = readLocal(root, path, pin.byteLength, deadline, options.signal);
+            const file = readLocal(root.canonical, path, pin.byteLength, deadline, options.signal);
             const identity = identities.get(path)!;
             if (file.identity.dev !== identity.dev || file.identity.ino !== identity.ino ||
                 file.identity.size !== identity.size || file.identity.mtimeNs !== identity.mtimeNs ||
                 hash(file.bytes) !== pin.sha256) return false;
           } catch { return false; }
         }
+        if (!pinsMatch(root.pins)) return false;
       }
       return [...pins].every(([path, pin]) => {
         const bytes = privateBytes.get(path);
@@ -560,7 +567,7 @@ export async function captureInlineMaterials(materialsInput: InlineMaterialDescr
   const pathIdentities = new Map<string, string>();
   const archiveSources = new Map<string, { source: Extract<MaterialRecipeReference['source'], { kind: 'archive' }>;
     pins: Map<string, { sha256: string; byteLength: number }> }>();
-  const localSources = new Map<string, { root: string; pins: Map<string, { sha256: string; byteLength: number }> }>();
+  const localSources = new Map<string, { root: LocalRoot; pins: Map<string, { sha256: string; byteLength: number }> }>();
   let total = 0;
   for (const [index, item] of materials.entries()) {
     if (ids.has(item.id)) fail('duplicate-material-id');
@@ -590,7 +597,7 @@ export async function captureInlineMaterials(materialsInput: InlineMaterialDescr
     }
   }
   const captured = new Map<string, Buffer>();
-  const localProofs: { root: string; path: string; pin: { sha256: string; byteLength: number }; identity: FileIdentity }[] = [];
+  const localProofs: { root: LocalRoot; path: string; pin: { sha256: string; byteLength: number }; identity: FileIdentity }[] = [];
   for (const [url, group] of archiveSources) {
     const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
     const packed = await download(group.source, deadline, options.signal);
@@ -601,12 +608,13 @@ export async function captureInlineMaterials(materialsInput: InlineMaterialDescr
     const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
     for (const [path, pin] of group.pins) {
       let file: { bytes: Buffer; identity: FileIdentity };
-      try { file = readLocal(group.root, path, pin.byteLength, deadline, options.signal); }
+      try { file = readLocal(group.root.canonical, path, pin.byteLength, deadline, options.signal); }
       catch (error) { if (error instanceof MaterialCaptureError) throw error; fail('local-file-unavailable'); }
       checkBytes(file.bytes, pin.sha256, pin.byteLength, 'member-identity-mismatch');
       captured.set(`local:${input}\0${path}`, Buffer.from(file.bytes));
       localProofs.push({ root: group.root, path, pin, identity: file.identity });
     }
+    if (!pinsMatch(group.root.pins)) fail('unsafe-local-root');
   }
   const descriptors = Object.freeze(materials.map(({ id, path, sha256, byteLength }) =>
     Object.freeze({ id, path, sha256, byteLength })));
@@ -624,12 +632,14 @@ export async function captureInlineMaterials(materialsInput: InlineMaterialDescr
       const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
       for (const proof of localProofs) {
         try {
-          const file = readLocal(proof.root, proof.path, proof.pin.byteLength, deadline, options.signal);
+          if (!pinsMatch(proof.root.pins)) return false;
+          const file = readLocal(proof.root.canonical, proof.path, proof.pin.byteLength, deadline, options.signal);
           if (file.identity.dev !== proof.identity.dev || file.identity.ino !== proof.identity.ino ||
               file.identity.size !== proof.identity.size || file.identity.mtimeNs !== proof.identity.mtimeNs ||
               hash(file.bytes) !== proof.pin.sha256) return false;
         } catch { return false; }
       }
+      if (localProofs.some(proof => !pinsMatch(proof.root.pins))) return false;
       return materials.every(item => {
         const key = keys.get(item.id)!;
         const bytes = captured.get(key);

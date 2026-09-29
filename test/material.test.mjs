@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -76,6 +76,19 @@ test('local capture pins recipe and named material; returned byte copies cannot 
     assert.deepEqual(capture.readMaterial('helper'), helper);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('macOS system temp alias admits a local root without admitting a selected root symlink',
+  { skip: process.platform !== 'darwin' }, async () => {
+    const root = mkdtempSync(join('/var/tmp', 'aih-material-alias-'));
+    const actual = join(root, 'actual'); mkdirSync(actual);
+    const bytes = recipe([]); writeFileSync(join(actual, 'recipe.json'), bytes);
+    try {
+      const captured = await captureRecipeReference(localReference(bytes), { source: actual });
+      assert.equal(await captured.recheck(), true);
+      const link = join(root, 'linked'); symlinkSync(actual, link, 'dir');
+      await assert.rejects(captureRecipeReference(localReference(bytes), { source: link }), /unsafe-local-root/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 
 test('local capture rejects altered bytes, absent roots and incomplete recipe closure', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-material-'));

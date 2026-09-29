@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -37,7 +37,7 @@ test('managed removal keeps the original bytes in private recovery', async () =>
   assert.equal(result.completion, 'complete', JSON.stringify(result));
   assert.equal(existsSync(join(project, 'owned.txt')), false);
   const manifest = JSON.parse(readFileSync(join(process.env.USERPROFILE, '.aih/core', result.recovery), 'utf8'));
-  assert.equal(manifest.operations[0].root, project);
+  assert.equal(manifest.operations[0].root, realpathSync.native(project));
   assert.equal(readFileSync(join(process.env.USERPROFILE, '.aih/core', manifest.operations[0].snapshot), 'utf8'), 'original\n');
 });
 

@@ -10,7 +10,7 @@ import { validateRecipe } from './contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
-import { pathPins, pinsMatch, sha256 } from './internal/host-files.js';
+import { pathPins, pinsMatch, projectRoot, sha256 } from './internal/host-files.js';
 import { stateRoot, writeHistory } from './internal/state.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
 import type { Diagnostic, Recipe } from './types.js';
@@ -185,7 +185,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         assessedBlocks: initial.assessedBlocks,
         ...(initial.assessmentLimit === undefined ? {} : { assessmentLimit: initial.assessmentLimit }),
         ...(item.guidance === undefined ? {} : { guidance: item.guidance }) })), record: disabled }, controls);
-    const home = homedir();
+    const home = projectRoot(homedir());
     const selectionKey = sha256(`${home}\0user\0${definition.managementId}`);
     const managedPath = join(stateRoot(), 'content', selectionKey, definition.materialName);
     const observations = assessRepairObservations({ id: selected.id, managedPath, variantRef: variant.recipeRef,
