@@ -126,7 +126,7 @@ export function stageOwnership(target: string, runId: string, update: Ownership)
   const path = ownershipPath(target);
   const record = Buffer.from(JSON.stringify(update));
   if (record.length > 1_048_576) throw new Error('state-unwritable');
-  const staged = `ownership/.pending-${runId}.json`;
+  const staged = `ownership/.pending-${runId}-${sha256(target)}.json`;
   protectState([path, staged, `recovery/${runId}`]);
   const files = stateFiles(); let stagedWritten = false;
   try {

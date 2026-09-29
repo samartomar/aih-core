@@ -45,7 +45,7 @@ const digest = (value: unknown): string => sha256(canonicalJson(value));
 const diagnostic = (code: string, reason: string, message: string): Diagnostic => ({ code, reason, message });
 const loggingOption = (controls: HostControls): Effective<'on' | 'off'> => ({ value: controls.logging ?? 'on', origin: controls.logging === undefined ? 'default' : 'explicit' });
 
-function dataObject(value: unknown, keys: string[]): void {
+export function dataObject(value: unknown, keys: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value) || isProxy(value) ||
       ![null, Object.prototype].includes(Object.getPrototypeOf(value))) throw new Error('request-object');
   for (const key of Reflect.ownKeys(value)) {
@@ -53,7 +53,7 @@ function dataObject(value: unknown, keys: string[]): void {
     if (typeof key !== 'string' || !keys.includes(key) || !d?.enumerable || !('value' in d)) throw new Error('request-field');
   }
 }
-function validateControls(controls: HostControls): void {
+export function validateControls(controls: HostControls): void {
   dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots']);
   if (controls.logging !== undefined && !['on', 'off'].includes(controls.logging)) throw new Error('logging');
   if (controls.signal !== undefined && !(controls.signal instanceof AbortSignal)) throw new Error('signal');
@@ -433,7 +433,8 @@ function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: 
     review: { id, purpose: safeText(check.purpose, privateValues), kind: check.kind, details: resolved.review } };
 }
 
-export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}): Promise<RunResult> {
+export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {},
+    preEffectCheck?: () => void): Promise<RunResult> {
   const runId = randomUUID(); let state: PreparedState | undefined; let started = false;
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
@@ -471,7 +472,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       let pinsOkay = pinsMatch(step.pins ?? []);
       if (!pinsOkay && isManagedContentRoot(step.root) &&
           step.before === null && live.state === 'absent' &&
-          step.pins?.some(pin => pin.path === stateRoot() && pin.identity === 'absent')) {
+          step.pins?.some(pin => pin.identity === 'absent' &&
+            pathPins(stateRoot()).some(parent => parent.path === pin.path))) {
         protectState(); step.pins = pathPins(join(step.root, ...step.path.split('/'))); pinsOkay = true;
       }
       if (!pinsOkay || live.state === 'unreadable' ||
@@ -481,6 +483,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const step of state.steps) assertStep(step);
     for (const [root, ownership] of state.ownership)
       if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
+    preEffectCheck?.();
     const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');
@@ -529,6 +532,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
+        preEffectCheck?.();
         started = true;
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
@@ -538,6 +542,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         }
         if (processResult.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
       } else if (step.path && step.root) {
+        preEffectCheck?.();
         started = true;
         try {
           const tx = transaction(step.root);
@@ -611,6 +616,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (reason === 'cancelled') for (const check of result.checks)
       if (check.status === 'skipped' && check.reason === 'not-attempted') check.reason = 'cancelled';
     const code = reason === 'cancelled' ? 'CANCELLED' : reason === 'review-stale' || reason === 'handle-unavailable' ? 'REVIEW_STALE' :
+      reason === 'certificate-invalid' ? 'INPUT_INVALID' :
       reason === 'approval-required' || reason === 'partial-approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
       reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';

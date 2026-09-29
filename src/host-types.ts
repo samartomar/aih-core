@@ -36,9 +36,10 @@ export interface ReviewOperation {
 export interface ReviewCheck { id: string; purpose: string; kind: 'file.sha256' | 'process.exit';
   details: ReviewOperation['details'] }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy'; mode: 'vibe';
-  target: { scope: 'project'; project: string };
-  inputs: { policySha256: string; package: { name: string; version: string } };
+  schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'standalone';
+  target: { scope: 'project' | 'user'; project: string };
+  inputs: { policySha256: string; package: { name: string; version: string } } |
+    { sourceSha256: string; certificates: string[]; helperSha256: string; package: { name: string; version: string } };
   operations: ReviewOperation[];
   observations: { id: string; reason: string }[];
   conflicts: Diagnostic[]; omissions: Diagnostic[];
@@ -58,7 +59,7 @@ export interface OperationResult {
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
-  schema: 'urn:aihq:core:run-result:1.0.0'; runId: string; useCase: 'policy';
+  schema: 'urn:aihq:core:run-result:1.0.0'; runId: string; useCase: 'policy' | 'repair';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };

@@ -8,17 +8,17 @@
       "const": "urn:aihq:core:prepared-work:1.0.0"
     },
     "useCase": {
-      "const": "policy"
+      "enum": ["policy", "repair"]
     },
     "mode": {
-      "const": "vibe"
+      "enum": ["vibe", "standalone"]
     },
     "target": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "scope": {
-          "const": "project"
+          "enum": ["project", "user"]
         },
         "project": {
           "type": "string"
@@ -37,6 +37,9 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "helperSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "certificates": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
         "package": {
           "type": "object",
           "additionalProperties": false,
@@ -54,9 +57,11 @@
           ]
         }
       },
-      "required": [
-        "policySha256",
-        "package"
+      "required": ["package"],
+      "oneOf": [
+        { "properties": { "policySha256": {} }, "required": ["policySha256"] },
+        { "properties": { "sourceSha256": {}, "helperSha256": {}, "certificates": {} },
+          "required": ["sourceSha256", "helperSha256", "certificates"] }
       ]
     },
     "operations": {

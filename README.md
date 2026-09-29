@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority, standalone executable repair definitions and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node filesystem, process, network or installation effects. It can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -39,7 +39,34 @@ import { inspect } from '@aihq/core';
 const result = await inspect({ targets: ['node', 'npm'], network: 'off' });
 ```
 
-`network` defaults to `declared`; `off` retains local observations and marks network checks as skipped. Configured MCP endpoint probes require a separate opt-in, and offline mode suppresses them too. Results distinguish a requested missing executable, an unselected absent tool, a failed performed check and an unavailable or skipped check. `effectiveOptions` records each default or explicit choice. `repairChoices` currently provides manual guidance; selectable repair recipes arrive in later slices. A result does not authorize installation or repair.
+`network` defaults to `declared`; `off` retains local observations and marks network checks as skipped. Configured MCP endpoint probes require a separate opt-in, and offline mode suppresses them too. Results distinguish a requested missing executable, an unselected absent tool, a failed performed check and an unavailable or skipped check. `effectiveOptions` records each default or explicit choice. A result does not authorize installation or repair.
+
+## Repair Node/npm trust
+
+The installed `@aihq/harness` package supplies `node-npm-ca`. Save `{"node-npm-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`, then preview and authorize selected user-scope targets:
+
+```sh
+aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json
+aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply
+# For explicitly authorized automation:
+aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --yes --json
+```
+
+The API uses the same path:
+
+```js
+const preparation = await prepare({ useCase: 'repair', repairs: [{
+  id: 'node-npm-ca', targets: ['node', 'npm'], inputs: { caFile: absolutePemPath }
+}] });
+// Show preparation.review, then obtain explicit authorization.
+const result = await apply(preparation.prepared, {
+  approved: true, origin: 'interactive', reviewDigest: preparation.review.reviewDigest
+});
+```
+
+Input must be a complete certificate-only PEM: at most 1 MiB total, 256 blocks and 64 KiB per block. Every certificate must parse as one CA certificate valid at preparation and application time. One bad block rejects the entire import without touching existing trust or configuration. Accepted certificates are copied to Core-managed user material; later source changes do not rotate that copy. Existing managed certificates are retained byte-for-byte, including expired certificates. Unowned or changed destinations need an exact reviewed resolution through `--resolutions`; a generic `--allow-partial` does not grant replacement authority. No system trust store or installer is changed.
+
+Node's user shell profile receives `NODE_EXTRA_CA_CERTS`. On Windows, a reviewed user-environment update also persists the value for future user processes, and its check must pass before the profile reference is written. The Node check starts a new Node process, confirms the selected CA identities loaded, and attempts a TLS connection to the public npm registry unless `--offline` was selected. Existing processes may need restarting to inherit the user environment. npm receives a user `.npmrc` `cafile`; the managed bundle includes Node's default roots because npm replaces its default trust when `cafile` is set. Its online check queries npm configuration and pings the registry selected by npm's configuration. `--offline` suppresses live TLS verification for either target and reports its repair as incomplete. A successful public-registry check does not prove the supplied CA resolved a different endpoint's trust failure.
 
 ## One complete authoring example
 

@@ -31,11 +31,14 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
         '@aihq/harness': `file:${join(root, harnessPacked.filename)}` } }));
     npm(['install', '--ignore-scripts', '--no-audit', '--no-fund'], consumer);
     writeFileSync(join(consumer, 'policy.json'), JSON.stringify(policy()));
+    writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';
       import { readFileSync } from 'node:fs';
+      import { resolve } from 'node:path';
       import { prepare, apply, inspect } from '@aihq/core';
       import { parsePolicy, contractSupport } from '@aihq/core/contracts';
+      import { repairIndex } from '@aihq/harness/contracts';
       import { Ajv2020 } from 'ajv/dist/2020.js';
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts) {
@@ -53,6 +56,14 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
       const result = await apply(p.prepared,{approved:true,origin:'automation',reviewDigest:p.review.reviewDigest},{logging:'off'});
       assert.equal(result.completion,'complete');
       assert.equal(ajv.validate(result.schema,result),true,JSON.stringify(ajv.errors));
+      assert.equal(repairIndex[0].id,'node-npm-ca');
+      const repair = await prepare({useCase:'repair',repairs:[{id:'node-npm-ca',targets:['npm'],
+        inputs:{caFile:resolve('ca.pem')}}],network:'off'},{logging:'off'});
+      assert.equal(repair.status,'ready',JSON.stringify(repair.diagnostics));
+      assert.equal(ajv.validate(repair.review.schema,repair.review),true,JSON.stringify(ajv.errors));
+      const repaired = await apply(repair.prepared,{approved:true,origin:'automation',reviewDigest:repair.review.reviewDigest},{logging:'off'});
+      assert.equal(repaired.completion,'incomplete');
+      assert.equal(ajv.validate(repaired.schema,repaired),true,JSON.stringify(ajv.errors));
       console.log('packed API and schema check passed');
     `);
     const output = execFileSync(process.execPath, ['run.mjs'], { cwd: consumer, env: { ...env, TEST_PROJECT: project }, encoding: 'utf8', timeout: 20_000 });
