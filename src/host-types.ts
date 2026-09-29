@@ -1,11 +1,15 @@
 import type { Diagnostic, ExecutionPolicy, Json } from './types.js';
 declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
-export interface PolicyRequest { useCase: 'policy'; policy: ExecutionPolicy; target: { project: string } }
+export interface PolicyRequest {
+  useCase: 'policy'; policy: ExecutionPolicy; target: { project: string };
+  resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
+}
 export interface HostControls {
   signal?: AbortSignal;
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
+  materialRoots?: Record<string, string>;
 }
 export interface Authorization {
   reviewDigest: string;
@@ -17,11 +21,13 @@ export interface Effective<T> { value: T; origin: 'default' | 'explicit' }
 export type RecordStatus = { status: 'written'; reference: string } | { status: 'disabled'; reason: 'logging-off' } |
   { status: 'failed'; reason: 'record-limit' | 'record-write'; diagnosticId: string };
 export interface ReviewOperation {
-  id: string; purpose: string; kind: 'file.write'; scope: 'project';
-  effects: 'create-file' | 'already-satisfied' | 'conflict';
+  id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'text.block' | 'file.remove' | 'process.run'; scope: 'project' | 'user';
+  effects: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'opaque-process' | 'unavailable';
   ownership: 'managed' | 'unowned';
-  requires: string[]; checks: never[];
-  details: { target: string; content: string; mode: number };
+  requires: string[]; checks: string[];
+  details: { target?: string; content?: string; mode?: number; executable?: string; args?: string[];
+    cwd?: string; env?: Record<string, string>; stdinProtected?: boolean; material?: string;
+    timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; declaredEffects?: string[]; reason?: string };
 }
 export interface PreparedReview {
   schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy'; mode: 'vibe';
@@ -40,15 +46,17 @@ export interface PreparationResult {
 }
 export interface OperationResult {
   id: string; application: 'not-attempted' | 'already-satisfied' | 'applied' | 'failed';
-  verification: { status: 'unverified'; reason: 'no-supplied-check' };
+  verification: { status: 'unverified' | 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string };
   reason?: string; effectsUncertain?: boolean;
 }
+export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
+  effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
   schema: 'urn:aihq:core:run-result:1.0.0'; runId: string; useCase: 'policy';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };
   effectiveOptions: { logging: Effective<'on' | 'off'> };
-  operations: OperationResult[]; checks: never[]; diagnostics: Diagnostic[];
+  operations: OperationResult[]; checks: CheckResult[]; diagnostics: Diagnostic[];
   record: RecordStatus; recovery?: string; followUp: string[];
 }

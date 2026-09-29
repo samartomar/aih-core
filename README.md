@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection of existing tools and Vibe policies containing inline `file.write` recipes for project files. File delivery creates absent files, recognizes matching files without adopting them, and blocks conflicting content. Repair execution, Enterprise authority, referenced materials, other operations, replacement/adoption and lifecycle reconciliation arrive in subsequent delivery slices. Unsupported requests are rejected; this artifact is not the completed product release. The included schemas describe this slice of the approved first-release formats and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority, standalone executable repair definitions and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node filesystem, process, network or installation effects. It can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -19,7 +19,7 @@ The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node fi
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
 
-JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, input definitions and bindings. These checks do not grant organization authority or permission to execute.
+JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, check/material references, input definitions and bindings. These checks do not grant organization authority or permission to execute.
 
 ## Inspect existing tools
 
@@ -80,6 +80,16 @@ aih policy policy.json --project /absolute/project --apply --yes --json
 
 Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
 
+An author may use `config.entries` for selected JSON/JSONC or unambiguous scalar TOML keys, `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
+
+Referenced recipes bind a strict recipe JSON member and its complete named material closure by byte length and SHA-256. A caller supplies selected local source handles with `controls.materialRoots` or `--material-root id=/absolute/path`; archive sources require an explicit HTTPS URL and pinned compressed bytes. Acquisition never runs package scripts or helpers. The CLI also accepts `--resolutions file.json` for exact observed replacement/adoption choices, for example:
+
+```json
+{"resolutions":[{"selectionId":"guidance","operationId":"write","choice":"replace","observedSha256":"<64 lowercase hex characters>"}]}
+```
+
+The host rechecks those observations at Apply. `allowPartial` cannot override a conflict or a failed dependency; it permits only already reviewed independent work.
+
 A UI-owned backend can use the same policy and engine:
 
 ```js
@@ -113,15 +123,15 @@ Sensitive inputs declare `sensitive: true`, omit the portable value/default, and
 
 Reported operation and input IDs use `selectionId/localId`; `/` cannot occur in an authored ID. For CLI private-input mappings, percent-encode a dot inside either component as `%2E`, preserving the one literal separator dot: `team%2Eguidance.text%2Econtent=ENV_NAME`.
 
-`apply` requires `approved: true`, `origin` and the review's `reviewDigest`. `allowPartial` defaults to false and its default/explicit origin is recorded. This slice blocks a conflicting file request entirely; it does not use that flag to bypass conflicts. Cancellation is supplied as `controls.signal` or SIGINT. Results distinguish `applied`, `already-satisfied`, `failed`, and `not-attempted`; verification is independently `unverified` when no check was supplied.
+`apply` requires `approved: true`, `origin` and the review's `reviewDigest`. `allowPartial` defaults to false and its default/explicit origin is recorded. Cancellation is supplied as `controls.signal` or SIGINT. Results distinguish `applied`, `already-satisfied`, `failed`, and `not-attempted`; verification independently records passed, failed, unavailable or unverified checks.
 
 Target paths are explicitly scoped and reject traversal, links, unsafe host filenames and Core's reserved state paths. Existing matching unowned bytes remain unowned. This is guarded local file handling, not a sandbox against arbitrary concurrently privileged software.
 
 ## State and recovery
 
-Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records remain.
+Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records remain.
 
-New project files use reviewed mode 0600 and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected project directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest describes observed/intended bytes for manual inspection; it is never a resumable plan. There is no automatic history expiry or cleanup.
+New files use reviewed mode 0600 by default and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest points to private original-file snapshots for manual inspection; it is never a resumable plan. There is no automatic history expiry or cleanup.
 
 Strict document admission limits each document to 1,000,000 UTF-8 bytes and depth 32. Duplicate decoded keys, non-NFC/malformed strings, nonfinite/negative-zero/unsafe integer values, number tokens that lose their value, accessors, cycles and non-data objects reject. Canonical JSON uses UTF-16 key ordering, authored array order, UTF-8 and no whitespace. This restricted profile is not unrestricted RFC 8785.
 

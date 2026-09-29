@@ -72,16 +72,14 @@
             "type": "string"
           },
           "kind": {
-            "const": "file.write"
+            "enum": ["file.write", "config.entries", "text.block", "file.remove", "process.run"]
           },
           "scope": {
-            "const": "project"
+            "enum": ["project", "user"]
           },
           "effects": {
             "enum": [
-              "create-file",
-              "already-satisfied",
-              "conflict"
+              "create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "opaque-process", "unavailable"
             ]
           },
           "ownership": {
@@ -97,8 +95,7 @@
             }
           },
           "checks": {
-            "type": "array",
-            "maxItems": 0
+            "type": "array", "items": { "type": "string" }
           },
           "details": {
             "type": "object",
@@ -114,13 +111,19 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 511
-              }
+              },
+              "executable": { "type": "string" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "cwd": { "type": "string" },
+              "env": { "type": "object", "additionalProperties": { "type": "string" } },
+              "stdinProtected": { "type": "boolean" },
+              "material": { "type": "string" },
+              "timeoutMs": { "$ref": "#/$defs/effectiveInteger" },
+              "maxOutputBytes": { "$ref": "#/$defs/effectiveInteger" },
+              "declaredEffects": { "type": "array", "items": { "type": "string" } },
+              "reason": { "type": "string" }
             },
-            "required": [
-              "target",
-              "content",
-              "mode"
-            ]
+            "required": []
           }
         },
         "required": [
@@ -281,6 +284,10 @@
       "pattern": "^[a-f0-9]{64}$"
     }
   },
+  "$defs": { "effectiveInteger": { "type": "object", "additionalProperties": false,
+    "required": ["value", "origin"], "properties": {
+      "value": { "type": "integer", "minimum": 1 }, "origin": { "enum": ["default", "explicit"] }
+    } } },
   "required": [
     "schema",
     "useCase",

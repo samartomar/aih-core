@@ -30,26 +30,59 @@ export interface TargetPath {
   root: 'project' | 'userHome' | 'userState';
   segments: Slot[];
 }
-export interface FileOperation {
+export interface OperationBase {
   id: string;
   purpose: string;
-  kind: 'file.write';
   scope: 'project' | 'user';
-  target: TargetPath;
-  content: Slot;
   requires: string[];
-  checks: never[];
+  checks: string[];
 }
+export interface FileOperation extends OperationBase {
+  kind: 'file.write'; target: TargetPath; content?: Slot; material?: string; mode?: number;
+}
+export interface ConfigEntrySet { path: string[]; action: 'set'; value: Slot }
+export interface ConfigEntryRemove { path: string[]; action: 'remove' }
+export interface ConfigOperation extends OperationBase {
+  kind: 'config.entries'; target: TargetPath; format: 'json' | 'jsonc' | 'toml';
+  entries: (ConfigEntrySet | ConfigEntryRemove)[];
+}
+export interface TextBlockOperation extends OperationBase {
+  kind: 'text.block'; target: TargetPath; blockId: string;
+  startMarker: string; endMarker: string; action: 'set' | 'remove'; content?: Slot;
+}
+export interface RemoveOperation extends OperationBase {
+  kind: 'file.remove'; target: TargetPath;
+}
+export type Executable = { name: string } | { material: string };
+export interface ProcessInvocation {
+  executable: Executable; args: Slot[]; cwd: TargetPath; env: Record<string, Slot>;
+  stdin?: Slot; timeoutMs?: number; maxOutputBytes?: number; acceptedExitCodes: number[];
+}
+export interface ProcessOperation extends OperationBase, ProcessInvocation {
+  kind: 'process.run'; effects: string[];
+}
+export type Operation = FileOperation | ConfigOperation | TextBlockOperation | RemoveOperation | ProcessOperation;
+export interface FileCheck { id: string; purpose: string; kind: 'file.sha256'; target: TargetPath; sha256: string }
+export interface ProcessCheck extends ProcessInvocation { id: string; purpose: string; kind: 'process.exit' }
+export type RecipeCheck = FileCheck | ProcessCheck;
+export type MaterialSource = { kind: 'archive'; url: string; sha256: string; byteLength: number } | { kind: 'local'; input: string };
+export interface MaterialIdentity { id: string; sha256: string; byteLength: number }
+export interface MaterialMember extends MaterialIdentity { path: string }
+export interface InlineMaterial extends MaterialMember { source: MaterialSource }
+export interface MaterialRecipeReference {
+  source: MaterialSource; path: string; sha256: string; byteLength: number; materials: MaterialMember[];
+}
+export type Prerequisite = { kind: 'platform'; os: string; architectures: string[] } | { kind: 'executable'; name: string };
 export interface Recipe {
   schema: 'urn:aihq:core:recipe:1.0.0';
   id: string;
   description: string;
   inputs: Record<string, InputSpec>;
-  materials: never[];
+  materials: (InlineMaterial | MaterialIdentity)[];
   targets: ('project' | 'user')[];
-  prerequisites: never[];
-  operations: FileOperation[];
-  checks: never[];
+  prerequisites: Prerequisite[];
+  operations: Operation[];
+  checks: RecipeCheck[];
 }
 export interface Selection {
   id: string;
@@ -57,7 +90,7 @@ export interface Selection {
   scope: 'project' | 'user';
   configuration: Record<string, Json>;
   requires: string[];
-  recipe: { inline: Recipe };
+  recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
 }
 export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0';

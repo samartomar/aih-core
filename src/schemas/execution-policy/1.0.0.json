@@ -17,10 +17,25 @@
           "managementId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
           "scope": { "enum": ["project", "user"] }, "configuration": { "type": "object" },
           "requires": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/ids" },
-          "recipe": {
-            "type": "object", "additionalProperties": false, "required": ["inline"],
-            "properties": { "inline": { "$ref": "urn:aihq:core:recipe:1.0.0" } }
-          }
+          "recipe": { "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["inline"], "properties": { "inline": { "$ref": "urn:aihq:core:recipe:1.0.0" } } },
+            { "type": "object", "additionalProperties": false, "required": ["reference"], "properties": { "reference": {
+              "type": "object", "additionalProperties": false,
+              "required": ["source", "path", "sha256", "byteLength", "materials"],
+              "properties": {
+                "source": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/source" },
+                "path": { "type": "string", "minLength": 1 },
+                "sha256": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/sha256" },
+                "byteLength": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+                "materials": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+                  "required": ["id", "path", "sha256", "byteLength"], "properties": {
+                    "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" }, "path": { "type": "string", "minLength": 1 },
+                    "sha256": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/sha256" },
+                    "byteLength": { "type": "integer", "minimum": 0, "maximum": 16777216 }
+                  } } }
+              }
+            } } }
+          ] }
         }
       }
     }

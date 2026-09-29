@@ -139,11 +139,9 @@
             "additionalProperties": false,
             "properties": {
               "status": {
-                "const": "unverified"
+                "enum": ["unverified", "passed", "failed", "unavailable", "skipped"]
               },
-              "reason": {
-                "const": "no-supplied-check"
-              }
+              "reason": { "type": "string" }
             },
             "required": [
               "status",
@@ -166,7 +164,12 @@
     },
     "checks": {
       "type": "array",
-      "maxItems": 0
+      "items": { "type": "object", "additionalProperties": false,
+        "required": ["id", "operationId", "status", "reason"],
+        "properties": { "id": { "type": "string" }, "operationId": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "unavailable", "skipped"] }, "reason": { "type": "string" },
+          "effectsUncertain": { "type": "boolean" }, "terminationUnconfirmed": { "type": "boolean" } }
+      }
     },
     "diagnostics": {
       "type": "array",
