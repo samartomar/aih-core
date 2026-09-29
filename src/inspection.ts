@@ -2,8 +2,8 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { isProxy } from 'node:util/types';
-import { contractSupport, helperMetadata, targets } from '@aihq/harness/contracts';
-import { diagnose } from '@aihq/harness/runtime';
+import { contractSupport, helperMetadata } from '@aihq/harness/contracts';
+import { diagnose, validDiagnosticTargets } from '@aihq/harness/runtime';
 import type { Diagnostic } from './types.js';
 import type { Effective } from './host-types.js';
 
@@ -44,20 +44,6 @@ function plain(value: unknown, keys: string[]): boolean {
     return typeof key === 'string' && keys.includes(key) && descriptor?.enumerable && 'value' in descriptor;
   });
 }
-function validTargets(value: unknown): value is string[] {
-  if (!Array.isArray(value) || isProxy(value) || value.length < 1 || value.length > targets.length) return false;
-  if (Reflect.ownKeys(value).some(key => key !== 'length' &&
-      (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length))) return false;
-  const ids: string[] = [];
-  for (let index = 0; index < value.length; index++) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-    if (!descriptor || !('value' in descriptor) || typeof descriptor.value !== 'string' ||
-        !targets.some(target => target.id === descriptor.value)) return false;
-    ids.push(descriptor.value);
-  }
-  return new Set(ids).size === ids.length;
-}
-
 function installedPackage(): { name: string; version: string } {
   const require = createRequire(import.meta.url);
   const manifest = JSON.parse(readFileSync(require.resolve('@aihq/harness/package.json'), 'utf8')) as Record<string, unknown>;
@@ -108,10 +94,16 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
   const base: InspectResult = { status: 'invalid', package: identity, tools: [], observations: [], checks: [],
     repairChoices: [], diagnostics: [], effectiveOptions: options,
     limits: { budgetMs: options.budgetMs.value, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }, followUp: [] };
+  const safeOptions: InspectResult['effectiveOptions'] = {
+    targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
+    probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: profile.phaseMs, origin: 'default' }
+  };
   const fail = (reason: string): InspectResult => ({
-    ...base, diagnostics: [{ code: 'INPUT_INVALID', reason, message: 'Use published targets and bounded inspection options.' }]
+    ...base, effectiveOptions: safeOptions,
+    limits: { budgetMs: profile.phaseMs, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes },
+    diagnostics: [{ code: 'INPUT_INVALID', reason, message: 'Use published targets and bounded inspection options.' }]
   });
-  if (request.targets !== undefined && !validTargets(request.targets))
+  if (!validDiagnosticTargets(request.targets))
     return fail('target');
   if (request.network !== undefined && (typeof request.network !== 'string' || !['declared', 'off'].includes(request.network))) return fail('network');
   if (request.probeConfiguredMcp !== undefined && typeof request.probeConfiguredMcp !== 'boolean') return fail('probe-configured-mcp');

@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
+import childProcess from 'node:child_process';
+import tls from 'node:tls';
 import { inspect } from '../dist/index.js';
+import { diagnose } from '@aihq/harness/runtime';
 
 test('inspection uses installed Harness and distinguishes runnable, requested absent and unselected absent', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-inspect-'));
@@ -66,6 +71,7 @@ test('invalid targets and budgets run no diagnostics', async () => {
   const accessor = await inspect({ targets });
   assert.equal(accessor.status, 'invalid');
   assert.deepEqual(accessor.checks, []);
+  assert.equal(JSON.stringify(accessor).includes('getter executed'), false);
 });
 
 test('configured MCP HTTPS probes require separate opt-in and offline mode suppresses them without starting commands', async () => {
@@ -139,4 +145,148 @@ test('CLI and API expose the same bounded offline inspection without a policy or
     assert.equal(existsSync(join(home, '.aih')), false);
     assert.deepEqual(readdirSync(project), []);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the selected executable wins over a same-named command in cwd', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-inspect-shadow-'));
+  const bin = join(root, 'selected folder'); const cwd = join(root, 'shadow'); const home = join(root, 'home');
+  for (const dir of [bin, cwd, home]) mkdirSync(dir);
+  const name = process.platform === 'win32' ? 'claude.cmd' : 'claude';
+  const selected = join(bin, name); const shadow = join(cwd, name); const sentinel = join(root, 'shadow-ran');
+  const original = { cwd: process.cwd(), PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  try {
+    writeFileSync(selected, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+    writeFileSync(shadow, process.platform === 'win32' ? `@echo off\r\necho bad > "${sentinel}"\r\nexit /b 9\r\n` :
+      `#!/bin/sh\nprintf bad > "${sentinel}"\nexit 9\n`);
+    if (process.platform !== 'win32') { chmodSync(selected, 0o755); chmodSync(shadow, 0o755); }
+    process.env.PATH = bin; process.env.HOME = home; process.env.USERPROFILE = home; process.chdir(cwd);
+    const result = await inspect({ targets: ['claude'], network: 'off' });
+    assert.equal(result.checks.find(check => check.id === 'claude/version').outcome, 'passed', JSON.stringify(result));
+    assert.equal(existsSync(sentinel), false);
+  } finally {
+    process.chdir(original.cwd); Object.assign(process.env, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('raw version output is never displayed and malformed opted-in MCP config is unavailable', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-inspect-output-'));
+  const bin = join(root, 'bin'); const home = join(root, 'home'); const project = join(root, 'project');
+  for (const dir of [bin, home, project]) mkdirSync(dir);
+  const name = join(bin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+  const original = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  try {
+    writeFileSync(name, process.platform === 'win32' ? '@echo off\r\necho fixture-secret-version\r\nexit /b 0\r\n' :
+      '#!/bin/sh\nprintf fixture-secret-version\nexit 0\n');
+    if (process.platform !== 'win32') chmodSync(name, 0o755);
+    process.env.PATH = bin; process.env.HOME = home; process.env.USERPROFILE = home;
+    writeFileSync(join(project, '.mcp.json'), '{bad');
+    const malformed = await inspect({ targets: ['claude'], network: 'off', probeConfiguredMcp: true, project });
+    assert.equal(malformed.status, 'incomplete');
+    assert.equal(malformed.checks.find(check => check.id === 'mcp/configuration/config-invalid').outcome, 'unavailable');
+    assert.equal(JSON.stringify(malformed).includes('fixture-secret-version'), false);
+    rmSync(join(project, '.mcp.json')); mkdirSync(join(project, '.mcp.json'));
+    const unreadable = await inspect({ targets: ['claude'], network: 'off', probeConfiguredMcp: true, project });
+    assert.equal(unreadable.status, 'incomplete');
+    assert.equal(unreadable.checks.find(check => check.id === 'mcp/configuration/config-unavailable').outcome, 'unavailable');
+  } finally {
+    Object.assign(process.env, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('direct Harness requests reject hostile arrays without running toJSON or accessors', async () => {
+  const request = targets => ({ requestId: 'fixture', targets, network: 'off' });
+  const cases = [];
+  const accessor = ['node']; Object.defineProperty(accessor, 'extra', { get() { throw new Error('accessor ran'); } }); cases.push(accessor);
+  const cycle = ['node']; cycle.extra = cycle; cases.push(cycle);
+  const toJson = ['node']; toJson.toJSON = () => { throw new Error('toJSON ran'); }; cases.push(toJson);
+  cases.push(new Proxy(['node'], { get() { throw new Error('proxy ran'); } }));
+  for (const targets of cases) {
+    const result = await diagnose(request(targets));
+    assert.equal(result.status, 'invalid');
+    assert.deepEqual(result.checks, []);
+  }
+});
+
+test('declared network is bounded, curl ignores config and TLS failure is interpreted only with OS evidence', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-inspect-transport-'));
+  const bin = join(root, 'bin'); const home = join(root, 'home'); mkdirSync(bin); mkdirSync(home);
+  for (const name of ['npm', 'curl']) writeFileSync(join(bin, process.platform === 'win32' ? name + (name === 'curl' ? '.exe' : '.cmd') : name), '');
+  const original = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE,
+    SSLKEYLOGFILE: process.env.SSLKEYLOGFILE, CURL_CA_BUNDLE: process.env.CURL_CA_BUNDLE,
+    spawn: childProcess.spawn, connect: tls.connect };
+  const calls = [];
+  const fakeSpawn = (file, args, options) => {
+    calls.push({ file, args, options });
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.kill = () => { queueMicrotask(() => child.emit('close', null)); return true; };
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  };
+  try {
+    process.env.PATH = bin; process.env.HOME = home; process.env.USERPROFILE = home;
+    process.env.SSLKEYLOGFILE = join(root, 'keylog'); process.env.CURL_CA_BUNDLE = join(root, 'ca.pem');
+    childProcess.spawn = fakeSpawn; syncBuiltinESMExports();
+    tls.connect = (_options, callback) => {
+      const socket = new EventEmitter(); socket.destroy = () => {}; socket.authorized = false;
+      queueMicrotask(() => socket.emit('error', Object.assign(new Error('private'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' })));
+      return socket;
+    };
+    const result = await diagnose({ requestId: 'fixture', targets: ['npm'], network: 'declared' });
+    assert.equal(result.checks.find(check => check.id === 'npm/tls/os/registry.npmjs.org').outcome, 'passed');
+    assert.equal(result.checks.find(check => check.id === 'npm/tls/node/registry.npmjs.org').reason, 'node-certificate-chain');
+    const curl = calls.find(call => call.args[0] === '--disable');
+    assert.ok(curl, JSON.stringify(calls.map(call => call.args)));
+    assert.equal(curl.options.env.SSLKEYLOGFILE, undefined);
+    assert.equal(curl.options.env.CURL_CA_BUNDLE, undefined);
+    assert.equal(existsSync(join(root, 'keylog')), false);
+    tls.connect = (_options, callback) => {
+      const socket = new EventEmitter(); socket.destroy = () => {};
+      queueMicrotask(() => socket.emit('error', Object.assign(new Error('private'), { code: 'ECONNREFUSED' })));
+      return socket;
+    };
+    const refused = await diagnose({ requestId: 'refused', targets: ['npm'], network: 'declared' });
+    assert.equal(refused.checks.find(check => check.id === 'npm/tls/node/registry.npmjs.org').reason, 'connection-failed');
+    assert.equal(refused.repairChoices.some(choice => choice.reason === 'node-certificate-chain'), false);
+    tls.connect = (_options, callback) => {
+      const socket = new EventEmitter(); socket.destroy = () => {}; socket.authorized = true;
+      setTimeout(callback, 150);
+      return socket;
+    };
+    const late = await diagnose({ requestId: 'late', targets: ['npm'], network: 'declared' }, { budgetMs: 100 });
+    const nodeCheck = late.checks.find(check => check.id === 'npm/tls/node/registry.npmjs.org');
+    assert.equal(nodeCheck.outcome, 'unavailable');
+    assert.equal(nodeCheck.reason, 'deadline');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(nodeCheck.outcome, 'unavailable');
+    childProcess.spawn = () => {
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => { queueMicrotask(() => child.emit('close', null)); return true; };
+      setTimeout(() => child.emit('close', 0), 80);
+      return child;
+    };
+    syncBuiltinESMExports();
+    const elapsed = await diagnose({ requestId: 'elapsed', targets: ['node'], network: 'off' }, { budgetMs: 20 });
+    assert.equal(elapsed.checks.find(check => check.id === 'node/version').reason, 'deadline');
+    childProcess.spawn = () => {
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => true; // Deliberately never emits close.
+      return child;
+    };
+    syncBuiltinESMExports();
+    const controller = new AbortController();
+    const interrupted = diagnose({ requestId: 'interrupted', targets: ['node'], network: 'off' }, { signal: controller.signal });
+    setTimeout(() => controller.abort(), 10);
+    const cancelled = await interrupted;
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.checks.find(check => check.id === 'node/version').reason, 'cancelled');
+    assert.equal(cancelled.diagnostics.some(item => item.reason === 'termination-unresolved'), true);
+  } finally {
+    childProcess.spawn = original.spawn; syncBuiltinESMExports(); tls.connect = original.connect;
+    Object.assign(process.env, { PATH: original.PATH, HOME: original.HOME, USERPROFILE: original.USERPROFILE });
+    if (original.SSLKEYLOGFILE === undefined) delete process.env.SSLKEYLOGFILE; else process.env.SSLKEYLOGFILE = original.SSLKEYLOGFILE;
+    if (original.CURL_CA_BUNDLE === undefined) delete process.env.CURL_CA_BUNDLE; else process.env.CURL_CA_BUNDLE = original.CURL_CA_BUNDLE;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
