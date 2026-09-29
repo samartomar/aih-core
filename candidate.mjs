@@ -26,9 +26,10 @@ export function candidateOrigins(values) {
 
 function parsedRoots(pems, now) {
   if (!Array.isArray(pems) || pems.length > MAX_ROOTS) return { reason: 'root-count' };
+  if (pems.some(pem => typeof pem !== 'string' || Buffer.byteLength(pem) > MAX_ROOT_BYTES))
+    return { reason: 'root-bytes' };
   const byFingerprint = new Map();
   for (const pem of pems) {
-    if (typeof pem !== 'string' || Buffer.byteLength(pem) > MAX_ROOT_BYTES) continue;
     try {
       const cert = new X509Certificate(pem);
       const from = Date.parse(cert.validFrom), to = Date.parse(cert.validTo);
@@ -41,16 +42,17 @@ function parsedRoots(pems, now) {
 }
 
 function parseChain(raw) {
-  if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_CHAIN) return undefined;
-  let bytes = 0;
+  if (!Array.isArray(raw) || raw.length < 1) return { reason: 'peer-output-invalid' };
+  if (raw.length > MAX_CHAIN) return { reason: 'peer-count' };
+  let outputBytes = 2;
   const chain = [];
   for (const value of raw) {
-    if (!(value instanceof Uint8Array)) return undefined;
-    bytes += value.byteLength;
-    if (bytes > MAX_CAPTURE_BYTES) return undefined;
-    try { chain.push(new X509Certificate(value)); } catch { return undefined; }
+    if (!(value instanceof Uint8Array)) return { reason: 'peer-output-invalid' };
+    outputBytes += Buffer.byteLength(Buffer.from(value).toString('base64')) + 3;
+    if (outputBytes > MAX_CAPTURE_BYTES) return { reason: 'output-bytes' };
+    try { chain.push(new X509Certificate(value)); } catch { return { reason: 'peer-output-invalid' }; }
   }
-  return chain;
+  return { chain };
 }
 
 function unions(groups) {
@@ -94,12 +96,17 @@ export async function selectTrustCandidateWith(originsInput, dependencies, contr
   const remaining = () => deadline - performance.now();
   const stop = () => controls.signal?.aborted ? 'cancelled' : remaining() <= 0 ? 'deadline' :
     probes >= MAX_PROBES ? 'candidate-count' : undefined;
+  const late = () => controls.signal?.aborted ? 'cancelled' : remaining() <= 0 ? 'deadline' : undefined;
   const attempt = async (kind, origin, roots = []) => {
     const reason = stop();
     if (reason) return { kind: 'unavailable', reason };
     probes++;
-    try { return await dependencies.probe(kind, origin, roots, Math.min(25000, remaining()), controls.signal); }
-    catch { return { kind: 'unavailable', reason: 'probe-invocation' }; }
+    try {
+      const result = await dependencies.probe(kind, origin, roots, Math.min(25000, remaining()), controls.signal);
+      const reason = late();
+      return reason ? { kind: 'unavailable', reason } : result;
+    }
+    catch { return { kind: 'unavailable', reason: late() ?? 'probe-invocation' }; }
   };
   const unresolved = reason => ({ kind: 'unresolved', reason, probes, elapsedMs: Math.ceil(performance.now() - started) });
   for (const origin of origins) {
@@ -115,20 +122,22 @@ export async function selectTrustCandidateWith(originsInput, dependencies, contr
     if (result.kind === 'unavailable') return unresolved(result.reason);
     if (result.kind !== 'passed') systemPasses = false;
   }
+  if (systemPasses && late()) return unresolved(late());
   if (systemPasses) return { kind: 'system-ca', origins, probes,
     elapsedMs: Math.ceil(performance.now() - started) };
   const chains = [];
   for (const origin of origins) {
     const result = await attempt('capture', origin);
     if (result.kind !== 'captured') return unresolved(result.reason ?? 'peer-capture');
-    const chain = parseChain(result.chain);
-    if (!chain) return unresolved('peer-output-invalid');
-    chains.push(chain);
+    const parsed = parseChain(result.chain);
+    if (parsed.reason) return unresolved(parsed.reason);
+    chains.push(parsed.chain);
   }
   if (stop()) return unresolved(stop());
   let inventory;
   try { inventory = await dependencies.systemRoots(remaining(), controls.signal); }
-  catch { return unresolved('root-inventory'); }
+  catch { return unresolved(late() ?? 'root-inventory'); }
+  if (late()) return unresolved(late());
   if (!inventory || inventory.kind !== 'completed') return unresolved(inventory?.reason ?? 'root-inventory');
   const parsed = parsedRoots(inventory.roots, Date.now());
   if (parsed.reason) return unresolved(parsed.reason);
@@ -140,6 +149,7 @@ export async function selectTrustCandidateWith(originsInput, dependencies, contr
     });
   });
   const choices = unions(groups);
+  if (late()) return unresolved(late());
   if (choices.reason) return unresolved(choices.reason);
   for (const choice of choices.values) {
     let passes = true;
@@ -148,6 +158,7 @@ export async function selectTrustCandidateWith(originsInput, dependencies, contr
       if (result.kind === 'unavailable') return unresolved(result.reason);
       if (result.kind !== 'passed') passes = false;
     }
+    if (passes && late()) return unresolved(late());
     if (passes) return { kind: 'extra-ca', origins, certs: choice.map(root => ({
       fingerprint: root.fingerprint, pem: root.pem })), probes,
       elapsedMs: Math.ceil(performance.now() - started) };

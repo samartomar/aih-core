@@ -59,6 +59,53 @@ test('root ceiling and unavailable inventory remain distinct unresolved assessme
   const unavailable = await selectTrustCandidateWith([one], { probe,
     systemRoots: async () => ({ kind: 'unavailable', reason: 'root-inventory' }) });
   assert.equal(unavailable.reason, 'root-inventory');
+  const oversized = await selectTrustCandidateWith([one], { probe,
+    systemRoots: async () => ({ kind: 'completed', roots: [rootA, 'X'.repeat(65537)] }) });
+  assert.equal(oversized.reason, 'root-bytes');
+  const overlongChain = await selectTrustCandidateWith([one], {
+    probe: async kind => kind === 'node' ? { kind: 'failed', reason: 'certificate-chain' } :
+      kind === 'system-ca' ? { kind: 'failed', reason: 'certificate-chain' } :
+        kind === 'capture' ? { kind: 'captured', chain: Array(9).fill(raw(leafA)) } : { kind: 'passed' },
+    systemRoots: async () => { throw Error('overlong chain must not reach root inventory'); }
+  });
+  assert.equal(overlongChain.reason, 'peer-count');
+});
+
+test('late probe and late root inventory cannot turn an expired assessment into success', async () => {
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const lateProbe = await selectTrustCandidateWith([one], {
+    probe: async kind => {
+      if (kind === 'node') return { kind: 'failed', reason: 'certificate-chain' };
+      if (kind === 'system-ca') await delay(30);
+      return { kind: 'passed' };
+    }, systemRoots: async () => { throw Error('inventory must not run'); }
+  }, { budgetMs: 10 });
+  assert.equal(lateProbe.kind, 'unresolved');
+  assert.equal(lateProbe.reason, 'deadline');
+  const lateInventory = await selectTrustCandidateWith([one], {
+    probe: async kind => kind === 'node' || kind === 'system-ca' ?
+      { kind: 'failed', reason: 'certificate-chain' } : kind === 'capture' ?
+        { kind: 'captured', chain: [raw(leafA)] } : { kind: 'passed' },
+    systemRoots: async () => { await delay(30); return { kind: 'completed', roots: [rootA] }; }
+  }, { budgetMs: 10 });
+  assert.equal(lateInventory.kind, 'unresolved');
+  assert.equal(lateInventory.reason, 'deadline');
+});
+
+test('cancellation during a pending system probe stays cancelled after its late success', async () => {
+  const controller = new AbortController();
+  const result = await selectTrustCandidateWith([one], {
+    probe: async kind => {
+      if (kind === 'node') return { kind: 'failed', reason: 'certificate-chain' };
+      if (kind === 'system-ca') {
+        setTimeout(() => controller.abort(), 5);
+        await new Promise(resolve => setTimeout(resolve, 30));
+      }
+      return { kind: 'passed' };
+    }, systemRoots: async () => { throw Error('inventory must not run'); }
+  }, { signal: controller.signal, budgetMs: 1000 });
+  assert.equal(result.kind, 'unresolved');
+  assert.equal(result.reason, 'cancelled');
 });
 
 test('finite system and extra recipes bind the selected OS candidate without changing graphs', () => {

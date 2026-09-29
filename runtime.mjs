@@ -524,7 +524,8 @@ export async function assessNodeTrustCandidate(request, controls = {}) {
     started + Math.min(120000, controls.budgetMs ?? 120000), 10000, controls.signal,
     4096, process.env, true);
   if (configured.kind !== 'complete' || configured.code !== 0 || typeof configured.stdout !== 'string')
-    return { kind: 'unresolved', reason: configured.reason ?? 'config-unavailable', probes: 0 };
+    return { kind: 'unresolved', reason: configured.kind === 'cancelled' ? 'cancelled' :
+      configured.reason ?? 'config-unavailable', probes: 0 };
   let registry;
   try { registry = new URL(configured.stdout.trim()); }
   catch { return { kind: 'unresolved', reason: 'config-invalid', probes: 0 }; }
@@ -533,6 +534,24 @@ export async function assessNodeTrustCandidate(request, controls = {}) {
     return { kind: 'unresolved', reason: 'config-invalid', probes: 0 };
   const origins = candidateOrigins([registry.origin]);
   if (!origins) return { kind: 'unresolved', reason: 'config-invalid', probes: 0 };
+  let cachedRoots;
+  const systemRoots = () => {
+    if (cachedRoots) return cachedRoots;
+    let roots;
+    try { roots = tls.getCACertificates('system'); }
+    catch { return { kind: 'unavailable', reason: 'root-inventory' }; }
+    if (!Array.isArray(roots) || roots.length > 1024)
+      return { kind: 'unavailable', reason: 'root-count' };
+    let bytes = 0;
+    for (const pem of roots) {
+      if (typeof pem !== 'string' || Buffer.byteLength(pem) > 65536)
+        return { kind: 'unavailable', reason: 'root-bytes' };
+      bytes += Buffer.byteLength(pem);
+      if (bytes > 2 * 1024 * 1024) return { kind: 'unavailable', reason: 'output-bytes' };
+    }
+    cachedRoots = { kind: 'completed', roots };
+    return cachedRoots;
+  };
   const probe = async (kind, origin, roots, timeoutMs, signal) => {
     if (kind === 'os') {
       const curl = executable('curl');
@@ -544,6 +563,8 @@ export async function assessNodeTrustCandidate(request, controls = {}) {
       return result.kind === 'complete' ? result.code === 0 ? { kind: 'passed' } :
         { kind: 'failed', reason: 'os-tls-failed' } : { kind: 'unavailable', reason: result.reason ?? 'probe-invocation' };
     }
+    const inventory = kind === 'system-ca' ? systemRoots() : undefined;
+    if (inventory && inventory.kind !== 'completed') return inventory;
     return new Promise(resolveResult => {
       let socket, timer, finished = false;
       const url = new URL(origin);
@@ -554,15 +575,18 @@ export async function assessNodeTrustCandidate(request, controls = {}) {
       try {
         const options = { host: url.hostname, port: Number(url.port || 443), servername: url.hostname,
           rejectUnauthorized: kind !== 'capture', timeout: Math.min(timeoutMs, 20000) };
-        if (kind === 'system-ca') options.ca = [...tls.rootCertificates, ...tls.getCACertificates('system')];
+        if (kind === 'system-ca') options.ca = [...tls.rootCertificates, ...inventory.roots];
         if (kind === 'extra-ca') options.ca = [...tls.rootCertificates, ...roots];
         socket = tls.connect(options, () => {
           if (kind === 'capture') {
-            const chain = [], seen = new Set();
+            const chain = [], seen = new Set(); let outputBytes = 2;
             let cert = socket.getPeerCertificate(true);
-            for (let i = 0; cert?.raw && i < 8; i++) {
+            for (let i = 0; cert?.raw; i++) {
+              if (i >= 8) return finish({ kind: 'unavailable', reason: 'peer-count' });
               const key = cert.raw.toString('base64');
               if (seen.has(key)) break;
+              outputBytes += Buffer.byteLength(key) + 3;
+              if (outputBytes > 65536) return finish({ kind: 'unavailable', reason: 'output-bytes' });
               seen.add(key); chain.push(cert.raw);
               if (!cert.issuerCertificate || cert.issuerCertificate === cert) break;
               cert = cert.issuerCertificate;
@@ -584,10 +608,7 @@ export async function assessNodeTrustCandidate(request, controls = {}) {
   const remainingBudget = Math.floor(Math.min(120000, controls.budgetMs ?? 120000) - (performance.now() - started));
   if (remainingBudget < 1) return { kind: 'unresolved', reason: 'deadline', probes: 0 };
   const result = await selectTrustCandidateWith(origins, { probe,
-    systemRoots: async () => {
-      try { return { kind: 'completed', roots: tls.getCACertificates('system') }; }
-      catch { return { kind: 'unavailable', reason: 'root-inventory' }; }
-    } }, { ...controls, budgetMs: remainingBudget });
+    systemRoots: async () => systemRoots() }, { ...controls, budgetMs: remainingBudget });
   return { ...result, elapsedMs: Math.ceil(performance.now() - started) };
 }
 
