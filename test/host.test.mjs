@@ -1,11 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, renameSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, renameSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { prepare, apply } from '../dist/index.js';
+import { pathPins, pinsMatch } from '../dist/internal/host-files.js';
 import { policy } from './fixture.mjs';
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'aih-core-host-'));
@@ -118,6 +119,29 @@ test('replaced parent directories and linked target paths cannot reuse approval'
   assert.notEqual(linked.status, 'ready'); assert.equal(linked.prepared, undefined);
   assert.equal(existsSync(join(external, 'TEAM.md')), false);
 });
+
+test('macOS fixed system temp aliases are pinned while interior symlinks stay unsafe',
+  { skip: process.platform !== 'darwin' }, async () => {
+    for (const [alias, physical] of [['/var', '/private/var'], ['/tmp', '/private/tmp']]) {
+      assert.equal(realpathSync.native(alias), physical);
+      const writable = alias === '/var' ? '/var/tmp' : alias;
+      const temp = mkdtempSync(join(writable, 'aih-core-alias-'));
+      try {
+        const pins = pathPins(temp);
+        assert.equal(pinsMatch(pins), true);
+        const p = await prepare({ useCase: 'policy', policy: policy(), target: { project: temp } }, { logging: 'off' });
+        assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
+        const applied = await apply(p.prepared, authorize(p), { logging: 'off' });
+        assert.equal(applied.completion, 'complete', JSON.stringify(applied));
+        mkdirSync(join(temp, 'real'));
+        symlinkSync(join(temp, 'real'), join(temp, 'linked'), 'dir');
+        assert.throws(() => pathPins(join(temp, 'linked', 'TEAM.md')), /unsafe-path/);
+      } finally {
+        assert.ok(realpathSync.native(temp).startsWith(realpathSync.native(writable) + sep));
+        rmSync(temp, { recursive: true, force: true });
+      }
+    }
+  });
 
 test('history failures are reported without pretending already-satisfied work failed', async () => {
   const project = target(); writeFileSync(join(project, 'TEAM.md'), "Read the project's contribution guide.\n");
