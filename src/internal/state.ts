@@ -1,10 +1,11 @@
-import { chmodSync, lstatSync, mkdirSync, rmdirSync } from 'node:fs';
+import { accessSync, constants, chmodSync, lstatSync, mkdirSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { pathPins, sha256 } from './host-files.js';
+import { pathPins, pinsMatch, sha256 } from './host-files.js';
+import { containedPath } from './contained-path.js';
 import type { RecordStatus } from '../host-types.js';
 
 export const stateRoot = (): string => join(homedir(), '.aih', 'core');
@@ -35,14 +36,17 @@ if($Create -eq 'yes') {
   }
   [System.IO.Directory]::SetAccessControl($StatePath,$acl)
 }
-$actual=[System.IO.Directory]::GetAccessControl($StatePath)
-if($actual.Owner -ne $user.Translate([System.Security.Principal.NTAccount]).Value -and $actual.Owner -ne $user.Value) { throw 'state-owner' }
-foreach($rule in $actual.Access) {
-  $sid=$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-  if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $sid) { throw 'state-protection' }
+foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
+  if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
+  else { $actual=[System.IO.File]::GetAccessControl($path) }
+  if($actual.Owner -ne $user.Translate([System.Security.Principal.NTAccount]).Value -and $actual.Owner -ne $user.Value) { throw 'state-owner' }
+  foreach($rule in $actual.Access) {
+    $sid=$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $sid) { throw 'state-protection' }
+  }
 }`;
 
-export function protectState(): void {
+export function protectState(relativePaths: string[] = []): void {
   const root = stateRoot(); pathPins(root);
   const base = join(homedir(), '.aih');
   try { mkdirSync(base, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
@@ -51,18 +55,27 @@ export function protectState(): void {
   pathPins(root);
   const stat = lstatSync(root);
   if (!stat.isDirectory()) throw new Error('state-protection');
+  const protectedPaths = new Set([root]);
+  for (const path of relativePaths) {
+    for (const pin of pathPins(join(root, path))) {
+      if (pin.identity !== 'absent' && containedPath(root, pin.path)) protectedPaths.add(pin.path);
+    }
+  }
   if (process.platform === 'win32') {
     // -Command uses fixed source; variable values are passed through the environment,
     // never concatenated into executable PowerShell text.
     const result = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
       `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`], {
       windowsHide: true, timeout: 10_000, maxBuffer: 4096,
-      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no' }
+      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no', AIHQ_STATE_CHECK: [...protectedPaths].join('\n') }
     });
     if (result.error || result.status !== 0) throw new Error('state-protection');
   } else {
     if (created) chmodSync(root, 0o700);
-    if (stat.uid !== process.getuid?.() || (lstatSync(root).mode & 0o077) !== 0) throw new Error('state-protection');
+    for (const path of protectedPaths) {
+      const current = lstatSync(path);
+      if (current.uid !== process.getuid?.() || (current.mode & 0o077) !== 0) throw new Error('state-protection');
+    }
   }
 }
 
@@ -75,7 +88,7 @@ export function readOwnership(target: string): { value: Ownership; digest: strin
   }
   // Custody is meaningful only in the protected store; existing records in a
   // writable/untrusted root must not establish ownership, including in previews.
-  protectState();
+  protectState([ownershipPath(target)]);
   const bytes = stateFiles().read(ownershipPath(target));
   if (!bytes) return { value: empty, digest: null };
   const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
@@ -95,7 +108,7 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
   try {
     const bytes = Buffer.from(JSON.stringify({ ...(result as object), record: written }));
     if (bytes.length > 1_048_576) return { status: 'failed', reason: 'record-limit', diagnosticId: 'record-limit' };
-    protectState(); stateFiles().writeAtomic(reference, bytes, 0o600);
+    protectState([reference]); stateFiles().writeAtomic(reference, bytes, 0o600);
     return written;
   } catch { return { status: 'failed', reason: 'record-write', diagnosticId: 'record-write' }; }
 }
@@ -106,5 +119,28 @@ export function lockTarget(target: string): () => void {
   return () => {
     // Never recursively delete locks; leftovers need deliberate inspection.
     if (pathPins(lock).at(-1)?.identity === pins.at(-1)?.identity) rmdirSync(lock);
+  };
+}
+
+export function stageOwnership(target: string, runId: string, update: Ownership): () => void {
+  const path = ownershipPath(target);
+  const record = Buffer.from(JSON.stringify(update));
+  if (record.length > 1_048_576) throw new Error('state-unwritable');
+  protectState([path, `work/${runId}`, `recovery/${runId}`]);
+  const actual = join(stateRoot(), path);
+  try { accessSync(actual, constants.W_OK); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('state-unwritable');
+  }
+  const staged = `work/${runId}/ownership.json`;
+  try {
+    // This slice only adds members, so the final receipt bounds every earlier
+    // receipt. Stage it once, without retaining a snapshot per operation.
+    stateFiles().writeAtomic(staged, record, 0o600);
+  } catch { throw new Error('state-unwritable'); }
+  const directory = join(stateRoot(), 'work', runId); const pins = pathPins(directory);
+  return () => {
+    if (!pinsMatch(pins)) throw new Error('state-protection');
+    stateFiles().remove(staged);
+    rmdirSync(directory);
   };
 }

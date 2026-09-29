@@ -33,7 +33,6 @@ export interface OwnedFileStep {
   expect: OwnedFileExpectation;
   prior?: Buffer;
   priorMode?: number;
-  announce?: () => void;
 }
 
 export interface OwnedFilePolicy {
@@ -45,12 +44,6 @@ export interface OwnedFilePolicy {
   assertOwnedPath(path: string, ownState: boolean): void;
   assertResolvedSegments(segments: readonly string[], requested: string, ownState: boolean): void;
   assertAction?(path: string, action: OwnedFileAction, ownState: boolean): void;
-}
-
-export interface OwnedFileTransactionDeps {
-  rename?: (from: string, to: string) => void;
-  beforeEffects?: () => void;
-  afterEffects?: () => void;
 }
 
 const MAX_STEPS = 100_000;
@@ -66,18 +59,10 @@ const STEP_KEYS = new Set([
   "expect",
   "prior",
   "priorMode",
-  "announce",
 ]);
-const DEP_KEYS = new Set(["rename", "beforeEffects", "afterEffects"]);
 
 interface SnapshotPolicy extends OwnedFilePolicy {
   statePaths: ReadonlySet<string>;
-}
-
-interface SnapshotDeps {
-  rename?: (from: string, to: string) => void;
-  beforeEffects?: () => void;
-  afterEffects?: () => void;
 }
 
 const nativeRealpath = (realpathSync as unknown as { native?: (path: string) => string }).native;
@@ -155,39 +140,6 @@ function snapshotExpectation(value: unknown): OwnedFileExpectation {
   throw new Error("invalid owned file transaction steps");
 }
 
-function snapshotDeps(value: unknown): SnapshotDeps {
-  if (!plainObject(value) || Object.getOwnPropertySymbols(value).length !== 0) {
-    throw new Error("owned file transaction dependencies are invalid");
-  }
-  const names = Object.getOwnPropertyNames(value);
-  if (names.some((name) => !DEP_KEYS.has(name))) {
-    throw new Error("owned file transaction dependencies are invalid");
-  }
-  const read = (key: string): unknown => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined) return undefined;
-    if (!("value" in descriptor) || !descriptor.enumerable) {
-      throw new Error("owned file transaction dependencies are invalid");
-    }
-    return descriptor.value;
-  };
-  const rename = read("rename");
-  const beforeEffects = read("beforeEffects");
-  const afterEffects = read("afterEffects");
-  if (
-    (rename !== undefined && typeof rename !== "function") ||
-    (beforeEffects !== undefined && typeof beforeEffects !== "function") ||
-    (afterEffects !== undefined && typeof afterEffects !== "function")
-  ) {
-    throw new Error("owned file transaction dependencies are invalid");
-  }
-  return {
-    ...(rename === undefined ? {} : { rename: rename as (from: string, to: string) => void }),
-    ...(beforeEffects === undefined ? {} : { beforeEffects: beforeEffects as () => void }),
-    ...(afterEffects === undefined ? {} : { afterEffects: afterEffects as () => void }),
-  };
-}
-
 function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -229,7 +181,6 @@ function snapshotSteps(input: readonly OwnedFileStep[], policy: SnapshotPolicy):
     const rawContents = optionalOwnData(candidate, "contents");
     const rawPrior = optionalOwnData(candidate, "prior");
     const priorMode = optionalOwnData(candidate, "priorMode");
-    const announce = optionalOwnData(candidate, "announce");
     const action =
       rawAction === undefined ? (rawContents === undefined ? "remove" : "write") : rawAction;
     if (
@@ -238,8 +189,7 @@ function snapshotSteps(input: readonly OwnedFileStep[], policy: SnapshotPolicy):
       (action !== "assert" && action !== "write" && action !== "remove") ||
       (rawContents !== undefined && !Buffer.isBuffer(rawContents)) ||
       (rawPrior !== undefined && !Buffer.isBuffer(rawPrior)) ||
-      (priorMode !== undefined && !validMode(priorMode)) ||
-      (announce !== undefined && typeof announce !== "function")
+      (priorMode !== undefined && !validMode(priorMode))
     ) {
       throw new Error("invalid owned file transaction steps");
     }
@@ -285,7 +235,6 @@ function snapshotSteps(input: readonly OwnedFileStep[], policy: SnapshotPolicy):
       expect,
       ...(prior === undefined ? {} : { prior }),
       ...(priorMode === undefined ? {} : { priorMode }),
-      ...(announce === undefined ? {} : { announce: announce as () => void }),
     });
   }
   return snapshots;
@@ -362,17 +311,9 @@ export function resolveOwnedFileRoot(root: string, label: string): string {
 export class OwnedFileTransaction {
   private readonly root: string;
   private readonly policy: SnapshotPolicy;
-  private readonly rename?: (from: string, to: string) => void;
-  private readonly beforeEffects?: () => void;
-  private readonly afterEffects?: () => void;
-
-  constructor(root: string, policy: OwnedFilePolicy, deps: OwnedFileTransactionDeps = {}) {
-    const safeDeps = snapshotDeps(deps);
+  constructor(root: string, policy: OwnedFilePolicy) {
     this.policy = snapshotPolicy(policy);
     this.root = resolveOwnedFileRoot(root, this.policy.label);
-    this.rename = safeDeps.rename;
-    this.beforeEffects = safeDeps.beforeEffects;
-    this.afterEffects = safeDeps.afterEffects;
   }
 
   private ownState(path: string): boolean {
@@ -525,12 +466,10 @@ export class OwnedFileTransaction {
     try {
       writeFileSync(temporary, snapshot, { flag: "wx", mode });
       chmodSync(temporary, mode);
-      const commit =
-        this.rename ?? ((from: string, to: string) => retryTransient(() => renameSync(from, to)));
       // A newly reviewed file must not replace a file created by another process
       // after assertExpected. Linking the same-volume staging file is exclusive.
       if (exclusive) retryTransient(() => linkSync(temporary, target));
-      else commit(temporary, target);
+      else retryTransient(() => renameSync(temporary, target));
     } finally {
       rmSync(temporary, { force: true });
     }
@@ -576,16 +515,13 @@ export class OwnedFileTransaction {
     for (const step of steps) this.assertSafeParents(step.path);
     const applied: OwnedFileStep[] = [];
     try {
-      this.beforeEffects?.();
       for (const step of steps) {
-        step.announce?.();
         this.assertExpected(step);
         if (step.action === "assert") continue;
         if (step.action === "remove") this.remove(step.path);
         else this.writeAtomic(step.path, step.contents as Buffer, step.mode, 'absent' in step.expect);
         applied.push(step);
       }
-      this.afterEffects?.();
     } catch (error) {
       const unrestored = this.rollback(applied);
       if (unrestored.length === 0) throw error;

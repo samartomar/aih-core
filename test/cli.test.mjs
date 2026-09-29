@@ -30,3 +30,26 @@ test('CLI previews by default and applies only deliberate automation through the
     assert.equal(run(['--yes']).status, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('CLI binds dotted private-input names without exposing their values', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-core-private-cli-'));
+  const home = join(root, 'home'); const project = join(root, 'project');
+  mkdirSync(home); mkdirSync(project);
+  const document = policy(); const selection = document.selections[0];
+  selection.id = 'team.guidance'; selection.configuration = {};
+  selection.recipe.inline.inputs = { 'text.content': { type: 'string', required: true, sensitive: true } };
+  selection.recipe.inline.operations[0].content = { input: 'text.content' };
+  const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(document));
+  try {
+    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+    const result = spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', '--apply', '--yes',
+      '--private-input', 'team%2Eguidance.text%2Econtent=AIHQ_TEST_PRIVATE'], {
+      encoding: 'utf8', timeout: 20_000,
+      env: { ...process.env, HOME: home, USERPROFILE: home, AIHQ_TEST_PRIVATE: 'fixture-private-content' }
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(JSON.parse(result.stdout).operations[0].id, 'team.guidance/write');
+    assert.equal(result.stdout.includes('fixture-private-content'), false);
+    assert.equal(readFileSync(join(project, 'TEAM.md'), 'utf8'), 'fixture-private-content');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

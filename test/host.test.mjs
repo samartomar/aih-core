@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, renameSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { prepare, apply } from '../dist/index.js';
 import { policy } from './fixture.mjs';
 
@@ -131,4 +133,93 @@ test('history failures are reported without pretending already-satisfied work fa
     assert.equal(result.completion, 'complete'); assert.equal(result.record.status, 'failed');
     assert.ok(result.diagnostics.some(d => d.reason === 'record-write'));
   } finally { Object.assign(process.env, previous); }
+});
+
+test('cancellation scheduled by the caller is observed before the next file effect', async () => {
+  const project = target(); const controller = new AbortController();
+  const p = await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' });
+  const pending = apply(p.prepared, authorize(p), { logging: 'off', signal: controller.signal });
+  setImmediate(() => controller.abort());
+  const result = await pending;
+  assert.equal(result.completion, 'cancelled');
+  assert.equal(existsSync(join(project, 'TEAM.md')), false);
+});
+
+test('dotted local names have distinct qualified operation and input identities', async () => {
+  const project = target(); const document = policy();
+  const first = document.selections[0];
+  first.id = 'a.b'; first.recipe.inline.operations[0].id = 'c';
+  const second = structuredClone(first); second.id = 'a'; second.managementId = 'second';
+  second.recipe.inline.operations[0].id = 'b.c';
+  second.recipe.inline.operations[0].target.segments = [{ literal: 'SECOND.md' }];
+  document.selections.push(second);
+  const p = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal(p.status, 'ready');
+  assert.deepEqual(p.review.operations.map(op => op.id), ['a.b/c', 'a/b.c']);
+});
+
+test('cancellation between writes preserves earlier outcomes and releases staged work', async () => {
+  const project = target(); const document = policy(); const controller = new AbortController();
+  const recipe = document.selections[0].recipe.inline;
+  recipe.operations = ['FIRST.md', 'SECOND.md', 'THIRD.md'].map((name, index) => ({
+    ...structuredClone(recipe.operations[0]), id: `write-${index}`,
+    target: { root: 'project', segments: [{ literal: 'new-directory' }, { literal: name }] }
+  }));
+  const p = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal(p.status, 'ready');
+  let finished = false;
+  const cancelAfterSecond = () => {
+    if (finished) return;
+    if (existsSync(join(project, 'new-directory/SECOND.md'))) controller.abort();
+    else setImmediate(cancelAfterSecond);
+  };
+  const pending = apply(p.prepared, authorize(p), { logging: 'off', signal: controller.signal });
+  setImmediate(cancelAfterSecond);
+  let result;
+  try { result = await pending; } finally { finished = true; }
+  assert.equal(result.completion, 'cancelled', JSON.stringify(result));
+  assert.deepEqual(result.operations.map(op => op.application), ['applied', 'applied', 'not-attempted']);
+  assert.equal(existsSync(join(project, 'new-directory/THIRD.md')), false);
+  assert.equal(existsSync(join(process.env.USERPROFILE, '.aih/core/work', result.runId)), false);
+  const again = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.deepEqual(again.review.operations.map(op => op.ownership), ['managed', 'managed', 'unowned']);
+});
+
+test('an existing ownership file with unrelated Windows writers is not trusted', { skip: process.platform !== 'win32' }, async () => {
+  const project = target();
+  const p = await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' });
+  assert.equal((await apply(p.prepared, authorize(p), { logging: 'off' })).completion, 'complete');
+  const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(p.review.target.project).digest('hex') + '.json');
+  const script = `$p=$env:AIHQ_TEST_RECORD; $a=[System.IO.File]::GetAccessControl($p); $sid=New-Object System.Security.Principal.SecurityIdentifier('S-1-1-0'); $r=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'Write','Allow'); $a.AddAccessRule($r); [System.IO.File]::SetAccessControl($p,$a)`;
+  const result = spawnSync(join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile','-NonInteractive','-Command',script], { windowsHide:true, encoding:'utf8',env:{...process.env,AIHQ_TEST_RECORD:ownership} });
+  assert.equal(result.status,0,result.stderr);
+  const untrusted = await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' });
+  assert.notEqual(untrusted.status, 'ready'); assert.equal(untrusted.prepared, undefined);
+});
+
+test('known ownership record capacity failure blocks a new target write', async () => {
+  const project = target(); const document = policy();
+  const p = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(p.prepared, authorize(p), { logging: 'off' })).completion, 'complete');
+  const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(p.review.target.project).digest('hex') + '.json');
+  const record = JSON.parse(readFileSync(ownership,'utf8'));
+  const member = record.members['TEAM.md'];
+  // Fill a valid, protected record to just below its admitted byte ceiling.
+  const entryBytes = Buffer.byteLength(JSON.stringify('retained-00000000') + ':' + JSON.stringify(member) + ',');
+  const count = Math.floor((1_048_576 - 4 - Buffer.byteLength(JSON.stringify(record))) / entryBytes);
+  for (let i = 0; i < count; i++) record.members[`retained-${String(i).padStart(8, '0')}`] = member;
+  const bytes = Buffer.byteLength(JSON.stringify(record));
+  // Inert whitespace is permitted in a historical state file. It does not make
+  // the next canonical ownership update larger, so fill remaining space in a key.
+  const last = Object.keys(record.members).at(-1);
+  const enlarged = last + 'x'.repeat(1_048_576 - bytes - 4);
+  record.members[enlarged] = record.members[last]; delete record.members[last];
+  writeFileSync(ownership, JSON.stringify(record));
+  document.selections[0].recipe.inline.operations[0].target.segments = [{literal:'NEXT.md'}];
+  const next = await prepare({useCase:'policy',policy:document,target:{project}},{logging:'off'});
+  assert.equal(next.status,'ready');
+  const result = await apply(next.prepared,authorize(next),{logging:'off'});
+  assert.equal(existsSync(join(project,'NEXT.md')),false);
+  assert.equal(result.completion,'rejected');
+  assert.equal(result.diagnostics[0].reason,'state-unwritable');
 });

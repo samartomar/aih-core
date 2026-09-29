@@ -45,11 +45,13 @@ try {
     else {
       const controls: HostControls = { signal: controller.signal, privateInputs: Object.create(null) };
       for (const mapping of values['private-input'] ?? []) {
-        const match = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9][A-Za-z0-9_-]*)=([A-Za-z_][A-Za-z0-9_]*)$/.exec(mapping);
+        const match = /^([A-Za-z0-9][A-Za-z0-9_%-]*)\.([A-Za-z0-9][A-Za-z0-9_%-]*)=([A-Za-z_][A-Za-z0-9_]*)$/.exec(mapping);
         if (!match || process.env[match[3]!] === undefined) throw new Error('private-input');
-        const selection = controls.privateInputs![match[1]!] ??= Object.create(null);
-        if (Object.hasOwn(selection, match[2]!)) throw new Error('private-input');
-        selection[match[2]!] = process.env[match[3]!]!;
+        const selectionId = decodeURIComponent(match[1]!); const inputId = decodeURIComponent(match[2]!);
+        if (![selectionId, inputId].every(id => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))) throw new Error('private-input');
+        const selection = controls.privateInputs![selectionId] ??= Object.create(null);
+        if (Object.hasOwn(selection, inputId)) throw new Error('private-input');
+        selection[inputId] = process.env[match[3]!]!;
       }
       const p = await prepare({ useCase: 'policy', policy: parsed.document, target: { project: resolve(values.project ?? process.cwd()) } }, controls);
       if (!values.apply || !p.prepared || !p.review) emit(p, exitCode(p));

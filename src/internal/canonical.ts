@@ -138,4 +138,3 @@ function serializeCanonicalValue(value: unknown): string {
 export function canonicalJson(value: unknown): string {
   return serializeCanonicalValue(value);
 }
-

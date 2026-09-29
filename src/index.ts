@@ -2,12 +2,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { isProxy } from 'node:util/types';
+import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, validatePolicy } from './contracts.js';
 import { canonicalJson } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { lockTarget, ownershipPath, protectState, readOwnership, stateFiles, stateRoot, writeHistory, type Ownership } from './internal/state.js';
+import { lockTarget, ownershipPath, protectState, readOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership } from './internal/state.js';
 import type { Diagnostic, Json, Slot } from './types.js';
 import type { Authorization, Effective, HostControls, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewOperation, RunResult } from './host-types.js';
 export type * from './types.js';
@@ -94,7 +95,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (value === undefined && !spec.required) continue;
         if (!inputAccepts(spec, value)) throw new Error('input-value');
         bound[name] = value;
-        inputs[`${selection.id}.${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
+        inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
       const resolveSlot = (slot: Slot): string => {
         const value = 'literal' in slot ? slot.literal : bound[slot.input];
@@ -111,7 +112,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (destinations.has(key)) throw new Error('duplicate-destination'); destinations.add(key);
         const content = resolveSlot(op.content); const contents = Buffer.from(content);
         if (contents.length > 16 * 1024 * 1024) throw new Error('file-limit');
-        const id = `${selection.id}.${op.id}`;
+        const id = `${selection.id}/${op.id}`;
         const live = tx.inspect(path); const contentDigest = sha256(contents);
         const owner = Object.hasOwn(ownership.value.members, path) ? ownership.value.members[path] : undefined;
         const managed = owner?.managementId === selection.managementId && live.state === 'present' && owner.sha256 === sha256(live.bytes);
@@ -121,7 +122,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const review: ReviewOperation = {
           id, purpose: safeText(op.purpose, privateValues), kind: 'file.write', scope: 'project',
           effects: conflict ? 'conflict' : satisfied ? 'already-satisfied' : 'create-file', ownership: managed ? 'managed' : 'unowned',
-          requires: op.requires.map(required => `${selection.id}.${required}`), checks: [],
+          requires: op.requires.map(required => `${selection.id}/${required}`), checks: [],
           details: { target: safeText(join(project, ...segments), privateValues),
             content: 'input' in op.content && recipe.inputs[op.content.input]?.sensitive ? '[REDACTED]' : content,
             mode: live.state === 'present' ? live.mode : 0o600 }
@@ -168,9 +169,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
   const runId = randomUUID(); let state: PreparedState | undefined;
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
-  let unlock: (() => void) | undefined; let started = false;
+  let unlock: (() => void) | undefined; let releaseWork: (() => void) | undefined; let started = false;
   try {
     validateControls(controls); result.effectiveOptions.logging = loggingOption(controls);
+    await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     if (!state) throw new Error('handle-unavailable');
     result.inputs = state.review.inputs;
@@ -181,8 +183,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error('review-stale');
     result.authorization = { origin: authorization.origin, allowPartial: { value: authorization.allowPartial ?? false, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' } };
     if (controls.signal?.aborted) throw new Error('cancelled');
-    if (homedir() !== state.home || digest(clone(state.request)) !== state.requestDigest ||
-        digest(clone(state.privateInputs ?? {})) !== state.privateDigest || !pinsMatch(state.bindings)) throw new Error('review-stale');
+    const assertInputs = () => {
+      try {
+        if (!state || homedir() !== state.home || digest(clone(state.request)) !== state.requestDigest ||
+            digest(clone(state.privateInputs ?? {})) !== state.privateDigest || !pinsMatch(state.bindings)) throw new Error('changed');
+      } catch { throw new Error('review-stale'); }
+    };
+    assertInputs();
     const tx = fileTransaction(state.project, stateRoot());
     const assertFiles = () => {
       if (!state) throw new Error('handle-unavailable');
@@ -196,16 +203,35 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     assertFiles();
     const mutating = state.files.some(file => file.review.effects === 'create-file');
     if (mutating) { protectState(); unlock = lockTarget(state.project); assertFiles(); }
+    const nextOwnership: Ownership = { ...state.ownership, members: { ...state.ownership.members } };
+    for (const file of state.files) {
+      if (file.review.effects !== 'create-file') continue;
+      Object.defineProperty(nextOwnership.members, file.path, { enumerable: true, configurable: true, writable: true, value: {
+        managementId: file.managementId, recipeIdentity: file.recipeIdentity, sha256: file.digest, mode: 0o600
+      } });
+    }
+    if (mutating) releaseWork = stageOwnership(state.project, runId, nextOwnership);
+    let ownership = state.ownership; let ownershipDigest = state.ownershipDigest;
     handles.delete(prepared);
     if (mutating) {
       result.recovery = `recovery/${runId}/manifest.json`;
-      stateFiles().writeAtomic(result.recovery, Buffer.from(JSON.stringify({ target: state.project,
-        operations: state.files.map(file => ({ path: file.path, before: file.before, intendedSha256: file.digest })),
-        instruction: 'Inspect current state before manual recovery; this is not execution authority.' })), 0o600);
+      try {
+        stateFiles().writeAtomic(result.recovery, Buffer.from(JSON.stringify({ target: state.project,
+          operations: state.files.map(file => ({ path: file.path, before: file.before, intendedSha256: file.digest })),
+          instruction: 'Inspect current state before manual recovery; this is not execution authority.' })), 0o600);
+      } catch { throw new Error('recovery-unavailable'); }
     }
     for (let index = 0; index < state.files.length; index++) {
+      await yieldToHost();
       if (controls.signal?.aborted) throw new Error('cancelled');
+      assertInputs();
+      // The host may run caller code during the yield. Recheck custody before
+      // any effect and compare against only the receipts this invocation wrote.
+      if (readOwnership(state.project).digest !== ownershipDigest) throw new Error('review-stale');
       const file = state.files[index]!; const operation = result.operations[index]!;
+      const current = tx.inspect(file.path);
+      if (!pinsMatch(file.pins) || current.state === 'unreadable' ||
+          (current.state === 'absent' ? null : sha256(current.bytes)) !== file.before) throw new Error('review-stale');
       if (file.review.effects === 'already-satisfied') { operation.application = 'already-satisfied'; continue; }
       started = true;
       try {
@@ -215,9 +241,21 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         operation.application = 'failed'; operation.effectsUncertain = true;
         throw new Error('file-write');
       }
-      Object.defineProperty(state.ownership.members, file.path, { enumerable: true, configurable: true, writable: true,
-        value: { managementId: file.managementId, recipeIdentity: file.recipeIdentity, sha256: file.digest, mode: 0o600 } });
-      stateFiles().writeAtomic(ownershipPath(state.project), Buffer.from(JSON.stringify(state.ownership)), 0o600);
+      try {
+        protectState([ownershipPath(state.project)]);
+        ownership = { ...ownership, members: { ...ownership.members, [file.path]: nextOwnership.members[file.path]! } };
+        const receipt = Buffer.from(JSON.stringify(ownership));
+        stateFiles().writeAtomic(ownershipPath(state.project), receipt, 0o600);
+        ownershipDigest = sha256(receipt);
+      } catch { throw new Error('state-unwritable'); }
+      // Later files may share directories that this approved write just created.
+      // Only replace previously absent parent pins with those observed here.
+      const createdParents = pathPins(join(state.project, ...file.path.split('/'))).slice(0, -1);
+      for (const remaining of state.files.slice(index + 1)) {
+        if (remaining.pins.some(pin => pin.identity === 'absent' && createdParents.some(parent => parent.path === pin.path))) {
+          remaining.pins = pathPins(join(state.project, ...remaining.path.split('/')));
+        }
+      }
     }
     result.completion = 'complete';
   } catch (error) {
@@ -225,10 +263,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const safeReason = /^[a-z-]{1,64}$/.test(reason) ? reason : 'execution-failed';
     result.completion = reason === 'cancelled' ? 'cancelled' : started ? 'incomplete' : 'rejected';
     const code = reason === 'cancelled' ? 'CANCELLED' : reason === 'review-stale' || reason === 'handle-unavailable' ? 'REVIEW_STALE' :
-      reason === 'approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' : started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
+      reason === 'approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
+      reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' : started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
     result.diagnostics.push(diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');
   } finally {
+    try { releaseWork?.(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     try { unlock?.(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
   result.record = writeHistory(runId, historySafe(result, state?.project), result.effectiveOptions.logging.value);

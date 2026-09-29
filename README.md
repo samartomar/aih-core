@@ -91,6 +91,8 @@ Inputs are scalar strings, booleans, finite numbers or safe integers with option
 
 Sensitive inputs declare `sensitive: true`, omit the portable value/default, and arrive through `prepare` controls: `{ privateInputs: { selectionId: { inputName: value } } }`. The CLI maps an existing environment value with `--private-input selection.input=ENV_NAME`. They are redacted in reviews and omitted from routine history. Keep returned handles private to your host; authenticating your UI's requests is your application's responsibility.
 
+Reported operation and input IDs use `selectionId/localId`; `/` cannot occur in an authored ID. For CLI private-input mappings, percent-encode a dot inside either component as `%2E`, preserving the one literal separator dot: `team%2Eguidance.text%2Econtent=ENV_NAME`.
+
 `apply` requires `approved: true`, `origin` and the review's `reviewDigest`. `allowPartial` defaults to false and its default/explicit origin is recorded. This slice blocks a conflicting file request entirely; it does not use that flag to bypass conflicts. Cancellation is supplied as `controls.signal` or SIGINT. Results distinguish `applied`, `already-satisfied`, `failed`, and `not-attempted`; verification is independently `unverified` when no check was supplied.
 
 Target paths are explicitly scoped and reject traversal, links, unsafe host filenames and Core's reserved state paths. Existing matching unowned bytes remain unowned. This is guarded local file handling, not a sandbox against arbitrary concurrently privileged software.
