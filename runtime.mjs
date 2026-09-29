@@ -108,8 +108,11 @@ async function runProcess(file, args, deadline, ceiling, signal, maxBytes = prof
       resolveResult(value); };
     const stop = reason => {
       child.kill();
-      cleanupTimer ??= setTimeout(() => finish({ kind: reason === 'cancelled' ? 'cancelled' : 'limit',
-        reason, terminationUnresolved: true }), 2000);
+      cleanupTimer ??= setTimeout(() => {
+        const aborted = cancelled || isCancelled(signal);
+        finish({ kind: aborted ? 'cancelled' : 'limit',
+          reason: aborted ? 'cancelled' : reason, initialReason: reason, terminationUnresolved: true });
+      }, 2000);
     };
     const abort = () => { cancelled = true; stop('cancelled'); };
     const timer = setTimeout(() => { timedOut = true; stop('deadline'); }, remaining(stopAt));
@@ -245,6 +248,8 @@ export async function diagnose(request, controls = {}) {
       })];
       for (const id of ids) if (!seen.has(id)) checks.push({ id, target: target.id, outcome: 'skipped', reason, detail: '' });
     }
+    if (mcp && !checks.some(check => check.target === 'mcp'))
+      checks.push({ id: 'mcp/configuration', target: 'mcp', outcome: 'skipped', reason, detail: '' });
   };
   if (isCancelled(controls.signal)) {
     markUnstarted('cancelled');
@@ -255,7 +260,7 @@ export async function diagnose(request, controls = {}) {
       limits: { budgetMs, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }
     };
   }
-  let cancelled = false;
+  let cancelled = false; let halted = false;
   for (const target of targets) {
     if (isCancelled(controls.signal)) { cancelled = true; break; }
     if (!remaining(deadline)) { push('phase', target.id, 'unavailable', 'deadline'); break; }
@@ -273,7 +278,14 @@ export async function diagnose(request, controls = {}) {
       continue;
     }
     const version = await runProcess(binary, ['--version'], deadline, profile.localProcessMs, controls.signal);
-    if (version.terminationUnresolved) diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
+    if (version.terminationUnresolved) {
+      diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
+      if (version.initialReason === 'deadline') diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'deadline', 'The diagnostic child exceeded its deadline before cancellation.'));
+      push(`${target.id}/version`, target.id, 'unavailable', version.reason);
+      cancelled = version.kind === 'cancelled' || isCancelled(controls.signal);
+      halted = true;
+      break;
+    }
     if (version.kind === 'cancelled') { cancelled = true; push(`${target.id}/version`, target.id, 'unavailable', 'cancelled'); break; }
     if (version.kind === 'limit') push(`${target.id}/version`, target.id, 'unavailable', version.reason);
     else if (version.kind === 'complete') {
@@ -305,7 +317,14 @@ export async function diagnose(request, controls = {}) {
         '--max-time', '20', origin], deadline, profile.networkProcessMs, controls.signal,
         profile.outputBytes, curlEnvironment()) :
         { kind: 'missing', reason: 'executable-missing' };
-      if (os.terminationUnresolved) diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
+      if (os.terminationUnresolved) {
+        diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
+        if (os.initialReason === 'deadline') diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'deadline', 'The diagnostic child exceeded its deadline before cancellation.'));
+        push(osId, target.id, 'unavailable', os.reason);
+        cancelled = os.kind === 'cancelled' || isCancelled(controls.signal);
+        halted = true;
+        break;
+      }
       if (os.kind === 'cancelled') { cancelled = true; push(osId, target.id, 'unavailable', 'cancelled'); break; }
       push(osId, target.id, os.kind === 'complete' ? os.code === 0 ? 'passed' : 'failed' : 'unavailable',
         os.kind === 'complete' ? os.code === 0 ? 'tls-ok' : 'connection-failed' : os.reason ?? 'probe-invocation', origin);
@@ -314,9 +333,9 @@ export async function diagnose(request, controls = {}) {
       push(nodeId, target.id, node.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(node.kind) ? 'unavailable' : 'failed',
         node.reason === 'certificate-chain' && os.kind === 'complete' && os.code === 0 ? 'node-certificate-chain' : node.reason, origin);
     }
-    if (cancelled) break;
+    if (cancelled || halted) break;
   }
-  if (mcp && !cancelled && remaining(deadline)) {
+  if (mcp && !cancelled && !halted && remaining(deadline)) {
     const { found, rejected, overflow } = configuredOrigins(selected, home, project);
     for (const reason of rejected) push(`mcp/configuration/${reason}`, 'mcp', 'unavailable', reason);
     const mcpDeadline = Math.min(deadline, performance.now() + profile.configuredMcpMs);
@@ -332,7 +351,9 @@ export async function diagnose(request, controls = {}) {
     if (overflow) push('mcp/tls/limit', 'mcp', network === 'off' ? 'skipped' : 'unavailable',
       network === 'off' ? 'network-off' : 'candidate-count');
   }
+  cancelled ||= isCancelled(controls.signal);
   if (cancelled) markUnstarted('cancelled');
+  else if (halted) markUnstarted('termination-unresolved');
   else if (checks.some(check => check.id === 'phase' && check.reason === 'deadline')) markUnstarted('deadline');
   const detailBytes = checks.reduce((sum, check) => sum + Buffer.byteLength(check.detail), 0);
   if (detailBytes > profile.phaseDetailBytes) {
