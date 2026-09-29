@@ -39,7 +39,8 @@ export interface PreparedReview {
   schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string } } |
-    { sourceSha256: string; certificates: string[]; helperSha256: string; package: { name: string; version: string } };
+    { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
+      helperSha256: string; package: { name: string; version: string } };
   operations: ReviewOperation[];
   observations: { id: string; reason: string }[];
   conflicts: Diagnostic[]; omissions: Diagnostic[];

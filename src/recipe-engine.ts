@@ -538,7 +538,9 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
-        preEffectCheck?.();
+        await preEffectCheck?.();
+        if (controls.signal?.aborted) throw new Error('cancelled');
+        assertInputs();
         started = true;
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
@@ -548,7 +550,11 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         }
         if (processResult.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
       } else if (step.path && step.root) {
-        preEffectCheck?.();
+        await preEffectCheck?.();
+        if (controls.signal?.aborted) throw new Error('cancelled');
+        assertInputs();
+        assertStep(step);
+        if (readOwnership(step.root).digest !== state.ownership.get(step.root)?.digest) throw new Error('review-stale');
         started = true;
         try {
           const tx = transaction(step.root);

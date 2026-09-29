@@ -166,7 +166,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const candidate = definition.candidateDiagnostic ? await assessRepairCandidate({ id: selected.id, inputs: ordinaryInputs },
       { signal: controls.signal, budgetMs: 120000 }) : undefined;
     if (candidate?.kind === 'unresolved') return fail(candidate.reason === 'cancelled' ? 'cancelled' : 'blocked',
-      ['deadline', 'root-count', 'candidate-count', 'output-bytes'].includes(candidate.reason) ? 'DIAGNOSTIC_LIMIT' :
+      ['deadline', 'root-count', 'root-bytes', 'peer-count', 'candidate-count', 'output-bytes'].includes(candidate.reason) ? 'DIAGNOSTIC_LIMIT' :
       candidate.reason === 'cancelled' ? 'CANCELLED' : 'PREREQUISITE_UNAVAILABLE', candidate.reason);
     const matching = variants.filter(item => item.candidate === candidate?.kind);
     const variant = matching.length === 1 ? matching[0]! : !candidate && variants.length === 1 ? variants[0]! : undefined;
@@ -230,7 +230,9 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     if (!prepared.review || !prepared.prepared) return recordPreparation(prepared, controls);
     const sourceBindings = Object.fromEntries(Object.entries(sources).map(([key, source]) =>
       [key, { sha256: source.sha256, pins: source.pins }]));
-    const inputs = { sourceSha256: hash(sourceBindings), certificates: rendered.fingerprints,
+    const inputs = { sourceSha256: hash(candidate ? { sourceBindings, candidate } : sourceBindings),
+      certificates: rendered.fingerprints,
+      ...(candidate ? { candidateKind: candidate.kind } : {}),
       helperSha256, package: harnessSupport.package };
     const publicReviewDigest = hash({ policyReviewDigest: prepared.review.reviewDigest,
       variantRef: variant.recipeRef, sourceBindings, ordinaryInputs, helperSha256,
@@ -293,6 +295,8 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
     if (installedHelperSha256(state.id) !== state.helperSha256) throw new Error('review-stale');
     const candidate = state.candidate ? await assessRepairCandidate({ id: state.id, inputs: state.ordinaryInputs },
       { signal: controls.signal, budgetMs: 120000 }) : undefined;
+    if (controls.signal?.aborted || candidate?.kind === 'unresolved' && candidate.reason === 'cancelled')
+      throw new Error('cancelled');
     if (installedHelperSha256(state.id) !== state.helperSha256) throw new Error('review-stale');
     const stableCandidate = (value: typeof candidate) => value?.kind === 'extra-ca' ?
       { kind: value.kind, origins: value.origins, certs: value.certs } : value?.kind === 'system-ca' ?

@@ -31,7 +31,8 @@
         },
         "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "helperSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "certificates": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+        "candidateKind": { "enum": ["system-ca", "extra-ca"] },
+        "certificates": { "type": "array", "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
         "package": {
           "type": "object",
           "additionalProperties": false,
@@ -50,6 +51,11 @@
         }
       },
       "required": ["package"],
+      "allOf": [{
+        "if": { "properties": { "candidateKind": { "const": "system-ca" } }, "required": ["candidateKind"] },
+        "then": { "properties": { "certificates": { "type": "array", "maxItems": 0 } } },
+        "else": { "properties": { "certificates": { "type": "array", "minItems": 1 } } }
+      }],
       "oneOf": [
         { "properties": { "policySha256": {} }, "required": ["policySha256"] },
         { "properties": { "sourceSha256": {}, "helperSha256": {}, "certificates": {} },

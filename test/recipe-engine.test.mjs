@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepare, apply } from '../dist/index.js';
+import { apply as applyWithGuard } from '../dist/recipe-engine.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-recipe-engine-'));
 const previousHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -34,6 +35,39 @@ const request = (project, policy, resolutions) => ({ useCase: 'policy', policy, 
 const authorize = (prepared, extras = {}) => ({ approved: true, origin: 'automation',
   reviewDigest: prepared.review.reviewDigest, ...extras });
 const controls = { logging: 'off' };
+
+test('an asynchronous guard must settle before either a file or process effect begins', async () => {
+  for (const kind of ['file', 'process']) {
+    const project = mkdtempSync(join(scratch, `guard-${kind}-`));
+    const sentinel = join(project, 'started.txt');
+    const effect = kind === 'file' ? op('effect', 'file.write', {
+      target: target('started.txt'), content: { literal: 'started' }
+    }) : op('effect', 'process.run', {
+      executable: { name: process.execPath },
+      args: [{ literal: '-e' }, { literal: "require('node:fs').writeFileSync(process.env.AIH_SENTINEL,'started')" }],
+      cwd: { root: 'project', segments: [] }, env: { AIH_SENTINEL: { literal: sentinel } },
+      timeoutMs: 5000, maxOutputBytes: 1024, acceptedExitCodes: [0], effects: ['Write a start marker']
+    });
+    const prepared = await prepare(request(project, document([effect])), controls);
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    let guardCalls = 0; let entered; let rejectGate;
+    const atGuard = new Promise(resolve => { entered = resolve; });
+    const pending = new Promise((_resolve, reject) => { rejectGate = reject; });
+    const resultPromise = applyWithGuard(prepared.prepared, authorize(prepared), controls, () => {
+      guardCalls++;
+      if (guardCalls === 2) { entered(); return pending; }
+    });
+    await atGuard;
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(existsSync(sentinel), false, `${kind} effect started before the guard settled`);
+    rejectGate(new Error('review-stale'));
+    const result = await resultPromise;
+    assert.equal(result.completion, 'rejected', JSON.stringify(result));
+    assert.equal(result.operations[0].application, 'not-attempted');
+    assert.equal(existsSync(sentinel), false);
+    assert.equal(guardCalls, 2);
+  }
+});
 
 test('public Prepare/Apply edits JSONC, TOML and text blocks without changing neighboring content', async () => {
   const project = mkdtempSync(join(scratch, 'project-edit-'));
