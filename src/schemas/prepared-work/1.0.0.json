@@ -444,13 +444,8 @@
             "remove"
           ]
         },
-        "stdinSha256": {
-          "pattern": "^[a-f0-9]{64}$",
+        "stdin": {
           "type": "string"
-        },
-        "stdinBytes": {
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": []

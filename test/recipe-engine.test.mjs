@@ -113,6 +113,30 @@ test('failed required process check blocks a dependent while explicit partial ap
   assert.equal(readFileSync(join(project, 'C.md'), 'utf8'), 'C');
 });
 
+test('prepared edit and stdin reviews redact sensitive values before JSON escaping', async () => {
+  const project = mkdtempSync(join(scratch, 'project-private-review-'));
+  mkdirSync(join(project, 'work'));
+  const secret = 'quoted " and slash \\ plus\nnewline';
+  const edit = op('edit', 'config.entries', { target: target('settings.json'), format: 'json',
+    entries: [{ path: ['credential'], action: 'set', value: { input: 'secret' } }] });
+  const run = op('run', 'process.run', { executable: { name: process.execPath },
+    args: [{ literal: '-e' }, { literal: 'process.exit(0)' }], cwd: target('work'),
+    env: { TOKEN: { input: 'secret' } }, stdin: { input: 'secret' },
+    timeoutMs: 1000, maxOutputBytes: 1024, acceptedExitCodes: [0], effects: ['Verify token'] });
+  const policy = document([edit, run]);
+  policy.selections[0].recipe.inline.inputs.secret = { type: 'string', required: true, sensitive: true };
+  const prepared = await prepare(request(project, policy), { ...controls,
+    privateInputs: { fixture: { secret } } });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  const review = JSON.stringify(prepared.review);
+  assert.equal(review.includes(secret), false);
+  assert.equal(review.includes(JSON.stringify(secret).slice(1, -1)), false);
+  assert.equal(review.includes(sha(secret)), false);
+  assert.equal(prepared.review.operations[0].details.entries[0].value, '[REDACTED]');
+  assert.equal(prepared.review.operations[1].details.stdin, '[REDACTED]');
+  assert.deepEqual(prepared.review.operations[1].details.env, { TOKEN: '"[REDACTED]"' });
+});
+
 test('opaque process requires reviewed approval and reports deadline with uncertain effects', async () => {
   const project = mkdtempSync(join(scratch, 'project-process-'));
   mkdirSync(join(project, 'work'));

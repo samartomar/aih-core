@@ -74,6 +74,13 @@ function redactExact(text: string, privateValues: string[]): string {
   for (const secret of privateValues) if (secret) result = result.split(secret).join('[REDACTED]');
   return result;
 }
+function redactJson(value: Json, privateValues: string[]): Json {
+  if (typeof value === 'string') return redactExact(value, privateValues);
+  if (Array.isArray(value)) return value.map(item => redactJson(item, privateValues));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+    [redactExact(key, privateValues), redactJson(item, privateValues)]));
+  return value;
+}
 function historySafe(result: unknown, project?: string): unknown {
   let text = JSON.stringify(result);
   for (const [path, label] of [[project, '<project>'], [homedir(), '<home>']])
@@ -116,7 +123,7 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       ...(executable ? { executableSha256: executable.sha256 } : materialBytes ? { executableSha256: sha256(materialBytes) } : {}),
       args: args.map(arg => JSON.stringify(redactExact(arg, privateValues))), cwd: safeText(cwd.absolute, privateValues),
       env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, JSON.stringify(redactExact(value, privateValues))])),
-      stdinProtected: stdin !== undefined, ...(stdin === undefined ? {} : { stdinSha256: sha256(stdin), stdinBytes: Buffer.byteLength(stdin) }),
+      stdinProtected: stdin !== undefined, ...(stdin === undefined ? {} : { stdin: redactExact(stdin, privateValues) }),
       timeoutMs: { value: timeoutMs, origin: invocation.timeoutMs === undefined ? 'default' : 'explicit' },
       maxOutputBytes: { value: maxOutputBytes, origin: invocation.maxOutputBytes === undefined ? 'default' : 'explicit' },
       acceptedExitCodes: [...invocation.acceptedExitCodes] } };
@@ -313,9 +320,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             if (!after) throw new Error('material-missing');
           } else if (op.kind === 'config.entries') {
             const entries = op.entries.map(entry => entry.action === 'set' ? { ...entry, value: resolveSlot(entry.value, bound) } : entry);
-            details = { format: op.format, entries: entries.map(entry => entry.action === 'set' ?
-              { path: entry.path, action: entry.action, value: redactExact(canonicalJson(entry.value), privateValues) } :
-              { path: entry.path, action: entry.action }) };
+            details = { format: op.format, entries: entries.map((entry, index) => {
+              if (entry.action === 'remove') return { path: entry.path, action: entry.action };
+              const source = op.entries[index]!;
+              const sensitive = source.action === 'set' && 'input' in source.value && recipe.inputs[source.value.input]?.sensitive;
+              return { path: entry.path, action: entry.action,
+                value: sensitive ? '[REDACTED]' : canonicalJson(redactJson(entry.value, privateValues)) };
+            }) };
             try { after = renderConfigEntries(op.format, before, entries); }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else if (op.kind === 'text.block') {
@@ -403,6 +414,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
 
 function historyDetails(details: ReviewOperation['details']): ReviewOperation['details'] {
   return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',
+    stdin: details.stdin === undefined ? undefined : '[OMITTED]',
     entries: details.entries?.map(entry => ({ ...entry, ...(entry.value === undefined ? {} : { value: '[OMITTED]' }) })),
     args: details.args?.map(() => '[OMITTED]'),
     env: details.env ? Object.fromEntries(Object.keys(details.env).map(key => [key, '[OMITTED]'])) : undefined };
@@ -572,6 +584,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
               stop = true;
               for (const remaining of result.checks.filter(item => item.operationId === step.review.id && item.status === 'skipped'))
                 remaining.reason = 'termination-unresolved';
+              if (controls.signal?.aborted) {
+                operation.verification = { status: 'unavailable', reason: 'cancelled' };
+                throw new Error('cancelled');
+              }
               break;
             }
             if (controls.signal?.aborted) { operation.verification = { status: 'unavailable', reason: 'cancelled' }; throw new Error('cancelled'); }

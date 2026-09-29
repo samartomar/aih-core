@@ -26,7 +26,7 @@ export interface ReviewOperation {
   ownership: 'managed' | 'unowned';
   requires: string[]; checks: ReviewCheck[];
   details: { target?: string; content?: string; mode?: number; executable?: string; args?: string[];
-    cwd?: string; env?: Record<string, string>; stdinProtected?: boolean; stdinSha256?: string; stdinBytes?: number; material?: string;
+    cwd?: string; env?: Record<string, string>; stdinProtected?: boolean; stdin?: string; material?: string;
     materialSha256?: string; materialBytes?: number; executableSha256?: string;
     timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; acceptedExitCodes?: number[];
     declaredEffects?: string[]; reason?: string;
