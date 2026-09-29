@@ -2,7 +2,7 @@
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:harness:support:1.0.0',
   package: Object.freeze({ name: '@aihq/harness', version: '2.0.0-dev.0' }),
-  contracts: Object.freeze(['urn:aihq:harness:diagnostic:1.0.0']),
+  contracts: Object.freeze(['urn:aihq:harness:diagnostic:1.0.0', 'urn:aihq:harness:repair:1.0.0']),
   entries: Object.freeze([
     { export: '@aihq/harness/contracts', runtime: 'portable' },
     { export: '@aihq/harness/runtime', runtime: 'node', nodeRange: '>=24.6.0 <25' }
@@ -11,9 +11,26 @@ export const contractSupport = Object.freeze({
 
 // Presence signals and fixed origins are extracted from the prior CLI registry
 // and heal inventory. A config trace never proves a runnable binary.
-export const repairIndex = Object.freeze([]);
+export const repairIndex = Object.freeze([Object.freeze({
+  id: 'node-npm-ca', description: 'Add supplied CA certificates to user-scope Node and npm trust',
+  schema: 'urn:aihq:harness:repair:1.0.0', scope: 'user',
+  managementId: 'node-npm-trust', materialName: 'trust.pem',
+  variants: Object.freeze([
+    { os: 'win32', architectures: ['x64', 'arm64'], recipeRef: 'node-npm-ca/windows' },
+    { os: 'darwin', architectures: ['arm64', 'x64'], recipeRef: 'node-npm-ca/macos' },
+    { os: 'linux', architectures: ['x64', 'arm64'], recipeRef: 'node-npm-ca/linux' }
+  ]),
+  targets: Object.freeze(['node', 'npm']),
+  inputs: Object.freeze({ caFile: Object.freeze({ type: 'file', required: true, description: 'Certificate-only PEM file' }) }),
+  limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
+  offlineVerification: Object.freeze([
+    { target: 'node', operationId: 'node-config', checkId: 'node-tls' },
+    { target: 'npm', operationId: 'npm-config', checkId: 'npm-behavior' }
+  ])
+})]);
 export const verificationKeys = Object.freeze([]);
 export const helperMetadata = Object.freeze({
+  repairs: Object.freeze([{ id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] }]),
   diagnostics: Object.freeze([
     { id: 'existing-tools', kind: 'diagnostic', purpose: 'Inspect installed tools and their declared TLS origins',
       targets: ['node', 'npm', 'git', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro'],

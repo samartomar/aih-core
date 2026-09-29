@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
@@ -6,6 +7,171 @@ import { performance } from 'node:perf_hooks';
 import { isProxy } from 'node:util/types';
 import tls from 'node:tls';
 import { contractSupport, helperMetadata, repairIndex, targets } from './contracts.mjs';
+import { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
+export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
+
+const literal = value => ({ literal: value });
+const userTarget = (...segments) => ({ root: 'userHome', segments: segments.map(literal) });
+const stateTarget = name => ({ root: 'userState', segments: [literal(name)] });
+const cwdTarget = userTarget('.aih');
+const nodeCheckScript = "const tls=require('node:tls'),c=require('node:crypto');" +
+  "const wanted=new Set(process.argv[1].split(','));" +
+  "const got=new Set(tls.getCACertificates('extra').map(p=>new c.X509Certificate(p).fingerprint256.replaceAll(':','').toLowerCase()));" +
+  "process.exit([...wanted].every(f=>got.has(f))?0:1)";
+const nodeTlsScript =
+  "const tls=require('node:tls');" +
+  "const s=tls.connect({host:'registry.npmjs.org',port:443,servername:'registry.npmjs.org',timeout:15000,rejectUnauthorized:true}," +
+  "()=>{const ok=s.authorized;s.end();process.exit(ok?0:1)});" +
+  "s.on('error',()=>process.exit(1));s.on('timeout',()=>{s.destroy();process.exit(1)})";
+const npmCheckScript = "const fs=require('node:fs'),cp=require('node:child_process');" +
+  "const expected=process.argv[1],config=process.argv[2],offline=process.argv[3]==='1';" +
+  "const text=fs.readFileSync(config,'utf8');const lines=text.split(/\\r?\\n/).filter(x=>/^\\s*cafile\\s*=/.test(x));" +
+  "if(!lines.length||lines.at(-1).split('=').slice(1).join('=').trim()!==expected)process.exit(1);" +
+  "if(offline)process.exit(3);" +
+  "const file=process.platform==='win32'?'npm.cmd':'npm';" +
+  "const env={...process.env,NPM_CONFIG_USERCONFIG:config};" +
+  "const configured=cp.spawnSync(file,['config','get','cafile']," +
+  "{shell:process.platform==='win32',env,timeout:10000,maxBuffer:4096,windowsHide:true});" +
+  "if(configured.status!==0||configured.stdout.toString().trim()!==expected)process.exit(1);" +
+  "const run=cp.spawnSync(file,['ping','--fetch-retries=0','--fetch-timeout=15000']," +
+  "{shell:process.platform==='win32',env,timeout:20000,maxBuffer:4096,windowsHide:true});" +
+  "process.exit(run.status===0?0:1)";
+const windowsEnvCheckScript = "const cp=require('node:child_process'),p=require('node:path');" +
+  "const script=\"$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
+  "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:'+" +
+  "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}\";" +
+  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');" +
+  "const r=cp.spawnSync(file,['-NoLogo','-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',timeout:10000,maxBuffer:4096,windowsHide:true});" +
+  "process.exit(r.status===0&&r.stdout==='VALUE:'+Buffer.from(process.argv[1]).toString('base64')?0:1)";
+const windowsSetxScript = "const cp=require('node:child_process'),p=require('node:path');" +
+  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','setx.exe');" +
+  "const r=cp.spawnSync(file,['NODE_EXTRA_CA_CERTS',process.argv[1]]," +
+  "{shell:false,timeout:10000,maxBuffer:4096,windowsHide:true});" +
+  "process.exit(r.status===0?0:1)";
+
+/** Return only a fixed installed recipe; Core supplies and pins the reviewed material. */
+export function renderRepair(request) {
+  if (!request || Object.getPrototypeOf(request) !== Object.prototype ||
+      Reflect.ownKeys(request).some(key => !['id', 'targets', 'bundlePath', 'bundleSha256', 'fingerprints', 'offline'].includes(key)) ||
+      request.id !== 'node-npm-ca' || !Array.isArray(request.targets) ||
+      !request.targets.length || request.targets.some(id => !['node', 'npm'].includes(id)) ||
+      new Set(request.targets).size !== request.targets.length ||
+      typeof request.bundlePath !== 'string' || !request.bundlePath || /[\r\n\0]/.test(request.bundlePath) ||
+      typeof request.bundleSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(request.bundleSha256) ||
+      !Array.isArray(request.fingerprints) || !request.fingerprints.length ||
+      request.fingerprints.some(value => typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) ||
+      typeof request.offline !== 'boolean') throw new Error('repair-request');
+  const operations = [{ id: 'material', purpose: 'Write validated CA certificates into managed user material',
+    kind: 'file.write', scope: 'user', target: stateTarget('trust.pem'), content: { input: 'bundle' },
+    mode: 0o600, requires: [], checks: ['material-digest'] }];
+  const checks = [{ id: 'material-digest', purpose: 'Check persisted material bytes', kind: 'file.sha256',
+    target: stateTarget('trust.pem'), sha256: request.bundleSha256 }];
+  if (request.targets.includes('node')) {
+    const path = process.platform === 'win32' ? ['Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'] :
+      process.platform === 'darwin' ? ['.zprofile'] : ['.profile'];
+    const assignment = process.platform === 'win32' ? `$env:NODE_EXTRA_CA_CERTS = '${request.bundlePath.replaceAll("'", "''")}'` :
+      `export NODE_EXTRA_CA_CERTS=${"'" + request.bundlePath.replaceAll("'", "'\\''") + "'"}`;
+    if (process.platform === 'win32') {
+      if (request.bundlePath.includes('%') || request.bundlePath.length > 1024) throw new Error('setx-value-unsupported');
+      operations.push({ id: 'node-persist', purpose: 'Persist NODE_EXTRA_CA_CERTS for future Windows user processes',
+        kind: 'process.run', scope: 'user', executable: { name: process.execPath },
+        args: [literal('-e'), literal(windowsSetxScript), literal(request.bundlePath)], cwd: cwdTarget, env: {},
+        timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0],
+        effects: ['HKCU\\Environment\\NODE_EXTRA_CA_CERTS'], requires: ['material'], checks: ['node-user-env'] });
+      checks.push({ id: 'node-user-env', purpose: 'Check Windows user environment stores the selected Node CA path',
+        kind: 'process.exit', executable: { name: process.execPath },
+        args: [literal('-e'), literal(windowsEnvCheckScript), literal(request.bundlePath)], cwd: cwdTarget,
+        env: {}, timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+    }
+    operations.push({ id: 'node-config', purpose: 'Persist Node extra CA path for future user shell sessions',
+      kind: 'text.block', scope: 'user', target: userTarget(...path), blockId: 'node-ca',
+      startMarker: process.platform === 'win32' ? '# BEGIN AIHQ NODE CA' : '# BEGIN AIHQ NODE CA',
+      endMarker: '# END AIHQ NODE CA', action: 'set', content: literal(assignment),
+      requires: [process.platform === 'win32' ? 'node-persist' : 'material'],
+      checks: request.offline ? ['node-behavior'] : ['node-behavior', 'node-tls'] });
+    checks.push({ id: 'node-behavior', purpose: 'Check Node loaded the selected extra CAs', kind: 'process.exit',
+      executable: { name: process.execPath }, args: [literal('-e'), literal(nodeCheckScript),
+        literal(request.fingerprints.join(','))],
+      cwd: cwdTarget, env: { NODE_EXTRA_CA_CERTS: literal(request.bundlePath), NODE_TLS_REJECT_UNAUTHORIZED: literal('1') },
+      timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+    if (!request.offline) checks.push({ id: 'node-tls', purpose: 'Check Node TLS reaches the declared registry', kind: 'process.exit',
+      executable: { name: process.execPath }, args: [literal('-e'), literal(nodeTlsScript)], cwd: cwdTarget,
+      env: { NODE_EXTRA_CA_CERTS: literal(request.bundlePath), NODE_TLS_REJECT_UNAUTHORIZED: literal('1') },
+      timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+  }
+  if (request.targets.includes('npm')) {
+    operations.push({ id: 'npm-config', purpose: 'Set user npm cafile without changing other npm settings',
+      kind: 'text.block', scope: 'user', target: userTarget('.npmrc'), blockId: 'npm-ca',
+      startMarker: '# BEGIN AIHQ NPM CA', endMarker: '# END AIHQ NPM CA', action: 'set',
+      content: literal(`cafile=${request.bundlePath}`), requires: ['material'], checks: request.offline ? [] : ['npm-behavior'] });
+    if (!request.offline) checks.push({ id: 'npm-behavior', purpose: 'Check npm uses the selected cafile and reaches its registry',
+      kind: 'process.exit', executable: { name: process.execPath },
+      args: [literal('-e'), literal(npmCheckScript), literal(request.bundlePath), literal(join(homedir(), '.npmrc')),
+        literal(request.offline ? '1' : '0')], cwd: cwdTarget, env: { NODE_TLS_REJECT_UNAUTHORIZED: literal('1') },
+      timeoutMs: 25000, maxOutputBytes: 4096, acceptedExitCodes: [0] });
+  }
+  return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'node-npm-ca',
+    description: 'User-scope Node/npm CA repair from complete validated supplied input',
+    inputs: { bundle: { type: 'string', required: true, sensitive: true, maxLength: 16 * 1024 * 1024 } },
+    materials: [], targets: ['user'], prerequisites: [], operations, checks };
+}
+
+/** Installed vendor logic consumes bounded snapshots; it never reads or mutates the host. */
+export function prepareRepairDefinition(request) {
+  const definition = repairIndex.find(item => item.id === request?.id);
+  if (!request || !definition || request.id !== 'node-npm-ca' ||
+      !definition.variants.some(item => item.recipeRef === request.variantRef &&
+        item.os === process.platform && item.architectures.includes(process.arch)) || !request.files ||
+      !Object.hasOwn(request.files, 'caFile') || !(request.files.caFile instanceof Uint8Array))
+    return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'repair-input', message: 'Unsupported repair input.' }] };
+  const accepted = validateSuppliedCa(request.files.caFile);
+  if (!accepted.valid) return { status: 'invalid', diagnostics: accepted.diagnostics };
+  if (request.validateOnly) return { status: 'completed', fingerprints: accepted.certificates.map(item => item.fingerprint),
+    evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
+  const bundle = composeExistingTrust(request.existing, accepted.material,
+    { includeNodeDefaults: request.targets.includes('npm') });
+  if (bundle === undefined) return { status: 'blocked', diagnostics: [{ code: 'STATE_CONFLICT',
+    reason: 'existing-trust-uncomposable', message: 'Existing managed trust cannot be safely composed.' }] };
+  if (Buffer.byteLength(bundle) > 16 * 1024 * 1024) return { status: 'blocked', diagnostics: [{ code: 'STATE_CONFLICT',
+    reason: 'managed-material-limit', message: 'Managed trust would exceed its bound.' }] };
+  const sha256 = createHash('sha256').update(bundle).digest('hex');
+  const recipe = renderRepair({ id: request.id, targets: request.targets, bundlePath: request.managedPath,
+    bundleSha256: sha256, fingerprints: accepted.certificates.map(item => item.fingerprint), offline: request.offline });
+  return { status: 'completed', recipe, bundle, fingerprints: accepted.certificates.map(item => item.fingerprint),
+    evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
+}
+
+/** Fixed, read-only host observations selected by the installed repair definition. */
+export function repairObservationRequests(request) {
+  if (request.id !== 'node-npm-ca') throw new Error('repair-unsupported');
+  if (process.platform !== 'win32' || !request.targets.includes('node')) return [];
+  return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(process.env.SystemRoot || 'C:\\Windows',
+    'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+      "$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
+      "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}"],
+    timeoutMs: 10000, maxOutputBytes: 4096 }];
+}
+
+/** Interpret the fixed probe's output and its reviewed target transition. */
+export function assessRepairObservations(request) {
+  if (request.id !== 'node-npm-ca') throw new Error('repair-unsupported');
+  return request.observations.map(item => {
+    if (item.id !== 'node-user-env') throw new Error('observation-unsupported');
+    let current = null;
+    if (item.output !== 'ABSENT') {
+      const encoded = item.output.startsWith('VALUE:') ? item.output.slice(6) : '';
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('user-environment-invalid');
+      current = Buffer.from(encoded, 'base64').toString('utf8');
+      if ('VALUE:' + Buffer.from(current).toString('base64') !== item.output) throw new Error('user-environment-invalid');
+    }
+    return { id: item.id, operationId: 'node-persist', raw: item.output,
+      expectedRaw: 'VALUE:' + Buffer.from(request.managedPath).toString('base64'),
+      conflict: current !== null && current !== request.managedPath,
+      observedValue: current, reason: current === null ? 'absent' :
+        current === request.managedPath ? 'already-selected' : 'replace-reviewed' };
+  });
+}
 
 const profile = helperMetadata.diagnostics[0].profile;
 const diagnostic = (code, reason, message) => ({ code, reason, message });

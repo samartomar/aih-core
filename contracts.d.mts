@@ -5,9 +5,16 @@ export declare const contractSupport: {
   readonly schema: string; readonly package: { readonly name: string; readonly version: string };
   readonly contracts: readonly string[]; readonly entries: readonly { export: string; runtime: string; nodeRange?: string }[];
 };
-export declare const repairIndex: readonly never[];
+export declare const repairIndex: readonly { id: string; description: string;
+  schema: 'urn:aihq:harness:repair:1.0.0'; scope: 'user'; managementId: string; materialName: string;
+  variants: readonly { os: string; architectures: readonly string[]; recipeRef: string }[];
+  targets: readonly string[]; inputs: Readonly<Record<string, { type: 'file' | 'string' | 'boolean' | 'number';
+    required: boolean; description: string; maxLength?: number }>>;
+  limits: { sourceBytes: number; certificateBlocks: number; blockBytes: number };
+  offlineVerification: readonly { target: string; operationId: string; checkId: string }[] }[];
 export declare const verificationKeys: readonly never[];
 export declare const helperMetadata: {
+  readonly repairs: readonly { id: string; helper: string; targets: readonly string[] }[];
   readonly diagnostics: readonly { id: string; kind: string; purpose: string; targets: readonly string[];
     profile: { phaseMs: number; maxActiveProbes: number; localProcessMs: number; networkProcessMs: number;
       networkSocketMs: number; outputBytes: number; checkDetailBytes: number; phaseDetailBytes: number;
