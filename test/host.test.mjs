@@ -180,7 +180,7 @@ test('cancellation between writes preserves earlier outcomes and releases staged
   assert.equal(result.completion, 'cancelled', JSON.stringify(result));
   assert.deepEqual(result.operations.map(op => op.application), ['applied', 'applied', 'not-attempted']);
   assert.equal(existsSync(join(project, 'new-directory/THIRD.md')), false);
-  assert.equal(existsSync(join(process.env.USERPROFILE, '.aih/core/work', result.runId)), false);
+  assert.equal(existsSync(join(process.env.USERPROFILE, `.aih/core/ownership/.pending-${result.runId}.json`)), false);
   const again = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
   assert.deepEqual(again.review.operations.map(op => op.ownership), ['managed', 'managed', 'unowned']);
 });
@@ -222,4 +222,25 @@ test('known ownership record capacity failure blocks a new target write', async 
   assert.equal(existsSync(join(project,'NEXT.md')),false);
   assert.equal(result.completion,'rejected');
   assert.equal(result.diagnostics[0].reason,'state-unwritable');
+});
+
+test('a protected ownership directory that denies receipt creation blocks target effects', { skip: process.platform !== 'win32' }, async () => {
+  const project = target(); const home = join(fixtureRoot, 'denied-ownership-home'); mkdirSync(home);
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home; process.env.USERPROFILE = home;
+  try {
+    const p = await prepare({ useCase: 'policy', policy: policy(), target: { project } });
+    assert.equal(p.status, 'ready'); assert.equal(p.record.status, 'written');
+    const ownership = join(home, '.aih/core/ownership'); mkdirSync(ownership);
+    const script = `$p=$env:AIHQ_TEST_DIRECTORY; $a=[System.IO.Directory]::GetAccessControl($p); $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User; $r=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'CreateFiles','Deny'); $a.AddAccessRule($r); [System.IO.Directory]::SetAccessControl($p,$a)`;
+    const denied = spawnSync(join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script], {
+      windowsHide: true, encoding: 'utf8', env: { ...process.env, AIHQ_TEST_DIRECTORY: ownership }
+    });
+    assert.equal(denied.status, 0, denied.stderr);
+    const result = await apply(p.prepared, authorize(p), { logging: 'off' });
+    assert.equal(result.completion, 'rejected', JSON.stringify(result));
+    assert.equal(result.operations[0].application, 'not-attempted');
+    assert.equal(result.diagnostics[0].reason, 'state-unwritable');
+    assert.equal(existsSync(join(project, 'TEAM.md')), false);
+  } finally { Object.assign(process.env, previous); }
 });

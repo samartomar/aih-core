@@ -1,4 +1,4 @@
-import { accessSync, constants, chmodSync, lstatSync, mkdirSync, rmdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -126,21 +126,25 @@ export function stageOwnership(target: string, runId: string, update: Ownership)
   const path = ownershipPath(target);
   const record = Buffer.from(JSON.stringify(update));
   if (record.length > 1_048_576) throw new Error('state-unwritable');
-  protectState([path, `work/${runId}`, `recovery/${runId}`]);
-  const actual = join(stateRoot(), path);
-  try { accessSync(actual, constants.W_OK); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('state-unwritable');
-  }
-  const staged = `work/${runId}/ownership.json`;
+  const staged = `ownership/.pending-${runId}.json`;
+  protectState([path, staged, `recovery/${runId}`]);
+  const files = stateFiles(); let stagedWritten = false;
   try {
     // This slice only adds members, so the final receipt bounds every earlier
-    // receipt. Stage it once, without retaining a snapshot per operation.
-    stateFiles().writeAtomic(staged, record, 0o600);
-  } catch { throw new Error('state-unwritable'); }
-  const directory = join(stateRoot(), 'work', runId); const pins = pathPins(directory);
+    // receipt. Stage it in the actual destination directory to establish that
+    // creating a receipt there is possible before any target changes.
+    files.writeAtomic(staged, record, 0o600, true); stagedWritten = true;
+    const current = files.read(path);
+    // Existing receipts also require replacement permission. Probe that exact
+    // operation with unchanged bytes; this adds no claim of target ownership.
+    if (current) files.writeAtomic(path, current, 0o600);
+  } catch {
+    if (stagedWritten) { try { files.remove(staged); } catch { /* A failed probe can leave recognizable inert staging. */ } }
+    throw new Error('state-unwritable');
+  }
+  const pins = pathPins(join(stateRoot(), 'ownership'));
   return () => {
     if (!pinsMatch(pins)) throw new Error('state-protection');
-    stateFiles().remove(staged);
-    rmdirSync(directory);
+    files.remove(staged);
   };
 }
