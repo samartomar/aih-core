@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { parsePolicy } from './contracts.js';
-import { prepare, apply } from './index.js';
+import { prepare, apply, inspect } from './index.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { sha256 } from './internal/host-files.js';
 import type { HostControls, PreparationResult, RunResult } from './host-types.js';
@@ -29,12 +29,25 @@ try {
   const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
     project: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' },
     'allow-partial': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean' },
-    'private-input': { type: 'string', multiple: true }
+    'private-input': { type: 'string', multiple: true },
+    target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
+    'probe-configured-mcp': { type: 'boolean' }
   } });
   json = values.json ?? false;
   if (values.help) {
-    process.stdout.write('aih policy <policy.json> [--project <path>] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--json]\n');
-  } else if (positionals.length !== 2 || positionals[0] !== 'policy' || values.yes && !values.apply || values['allow-partial'] && !values.apply) {
+    process.stdout.write('aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n' +
+      'aih policy <policy.json> [--project <path>] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--json]\n');
+  } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
+      !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length) {
+    const result = await inspect({
+      ...(values.target === undefined ? {} : { targets: values.target }),
+      ...(values.offline ? { network: 'off' as const } : {}),
+      ...(values['probe-configured-mcp'] ? { probeConfiguredMcp: true } : {}),
+      ...(values.project ? { project: resolve(values.project) } : {})
+    }, { signal: controller.signal });
+    emit(result, ({ complete: 0, incomplete: 1, invalid: 2, cancelled: 130 })[result.status]);
+  } else if (positionals.length !== 2 || positionals[0] !== 'policy' || values.target || values.offline ||
+      values['probe-configured-mcp'] || values.yes && !values.apply || values['allow-partial'] && !values.apply) {
     refused('INPUT_INVALID', 'cli-options');
   } else {
     const file = resolve(positionals[1]!);

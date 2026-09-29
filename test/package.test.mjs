@@ -13,6 +13,7 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
   assert.ok(process.env.npm_execpath, 'Run this acceptance with npm test so its npm CLI is known.');
   const root = mkdtempSync(join(tmpdir(), 'aih-core-package-'));
   const packageRoot = fileURLToPath(new URL('../', import.meta.url));
+  const harnessRoot = fileURLToPath(new URL('../../aih-harness/', import.meta.url));
   const home = join(root, 'home'); const project = join(root, 'target'); const consumer = join(root, 'consumer');
   for (const path of [home, project, consumer]) mkdirSync(path);
   const env = { ...process.env, HOME: home, USERPROFILE: home };
@@ -22,14 +23,18 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
   const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 60_000 });
   try {
     const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], packageRoot))[0];
+    const harnessPacked = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], harnessRoot))[0];
     for (const entry of packed.files) assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-    writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module', dependencies: { ajv: '8.20.0' } }));
-    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', join(root, packed.filename)], consumer);
+    for (const entry of harnessPacked.files) assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
+      dependencies: { ajv: '8.20.0', '@aihq/core': `file:${join(root, packed.filename)}`,
+        '@aihq/harness': `file:${join(root, harnessPacked.filename)}` } }));
+    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund'], consumer);
     writeFileSync(join(consumer, 'policy.json'), JSON.stringify(policy()));
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';
       import { readFileSync } from 'node:fs';
-      import { prepare, apply } from '@aihq/core';
+      import { prepare, apply, inspect } from '@aihq/core';
       import { parsePolicy, contractSupport } from '@aihq/core/contracts';
       import { Ajv2020 } from 'ajv/dist/2020.js';
       const ajv = new Ajv2020({strict:true});
@@ -38,6 +43,10 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
         ajv.addSchema(schema);
       }
       assert.equal(contractSupport.contracts.length, 4);
+      const inspection = await inspect({targets:['node'],network:'off'});
+      assert.equal(inspection.package.name,'@aihq/harness');
+      assert.equal(inspection.package.version,'2.0.0-dev.0');
+      assert.equal(inspection.tools.find(tool=>tool.id==='node').state,'runnable');
       const p = await prepare({useCase:'policy',policy:parsePolicy(readFileSync('policy.json','utf8')).document,target:{project:process.env.TEST_PROJECT}}, {logging:'off'});
       assert.equal(p.status,'ready');
       assert.equal(ajv.validate(p.review.schema,p.review),true,JSON.stringify(ajv.errors));
@@ -52,6 +61,13 @@ test('an isolated packed consumer imports public schemas, runs a file and bundle
     const browserGlobals = { TextEncoder, TextDecoder };
     runInNewContext(bundle.outputFiles[0].text, browserGlobals, { timeout: 5000 });
     assert.equal(browserGlobals.validation, true);
+    const harnessBundle = await build({ absWorkingDir: consumer, stdin: {
+      contents: "import {contractSupport,helperMetadata} from '@aihq/harness/contracts'; globalThis.harnessSupport = [contractSupport.package.name, helperMetadata.diagnostics.length];",
+      resolveDir: consumer
+    }, bundle: true, platform: 'browser', format: 'iife', write: false });
+    runInNewContext(harnessBundle.outputFiles[0].text, browserGlobals, { timeout: 5000 });
+    assert.equal(browserGlobals.harnessSupport[0], '@aihq/harness');
+    assert.ok(browserGlobals.harnessSupport[1] > 0);
     // Locate only the documented bin entry in the installed package's manifest.
     const installed = join(consumer, 'node_modules/@aihq/core');
     const bin = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).bin.aih;

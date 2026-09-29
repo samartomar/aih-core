@@ -13,6 +13,8 @@ import type { Diagnostic, Json, Slot } from './types.js';
 import type { Authorization, Effective, HostControls, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewOperation, RunResult } from './host-types.js';
 export type * from './types.js';
 export type * from './host-types.js';
+export { inspect } from './inspection.js';
+export type { InspectRequest, InspectControls, InspectResult } from './inspection.js';
 
 interface CapturedFile {
   review: ReviewOperation; path: string; contents: Buffer; digest: string;

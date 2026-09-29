@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements Vibe policies containing inline `file.write` recipes for project files. It creates absent files, recognizes matching files without adopting them, and blocks conflicting content. Repair inspection, Enterprise authority, referenced materials, other operations, replacement/adoption and lifecycle reconciliation arrive in subsequent delivery slices. Unsupported requests are rejected; this artifact is not the completed product release. The included schemas describe this slice of the approved first-release formats and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection of existing tools and Vibe policies containing inline `file.write` recipes for project files. File delivery creates absent files, recognizes matching files without adopting them, and blocks conflicting content. Repair execution, Enterprise authority, referenced materials, other operations, replacement/adoption and lifecycle reconciliation arrive in subsequent delivery slices. Unsupported requests are rejected; this artifact is not the completed product release. The included schemas describe this slice of the approved first-release formats and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node filesystem, process, network or installation effects. It can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -10,7 +10,7 @@ The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node fi
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `prepare`, `apply`, public request/review/result types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
@@ -20,6 +20,26 @@ The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node fi
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
 
 JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, input definitions and bindings. These checks do not grant organization authority or permission to execute.
+
+## Inspect existing tools
+
+Inspection reads the installed `@aihq/harness` definitions and reports their actual resolved package version. It requires no policy, Catalog or Scan. It observes detected tools by default, runs only their declared bounded diagnostics, and makes no repair or history changes.
+
+```sh
+aih inspect --json
+aih inspect --target node --target npm --offline --json
+aih inspect --target claude --probe-configured-mcp --project /absolute/project --json
+```
+
+The API exposes the same result:
+
+```js
+import { inspect } from '@aihq/core';
+
+const result = await inspect({ targets: ['node', 'npm'], network: 'off' });
+```
+
+`network` defaults to `declared`; `off` retains local observations and marks network checks as skipped. Configured MCP endpoint probes require a separate opt-in, and offline mode suppresses them too. Results distinguish a requested missing executable, an unselected absent tool, a failed performed check and an unavailable or skipped check. `effectiveOptions` records each default or explicit choice. `repairChoices` currently provides manual guidance; selectable repair recipes arrive in later slices. A result does not authorize installation or repair.
 
 ## One complete authoring example
 
@@ -114,4 +134,4 @@ npm run build
 npm test
 ```
 
-Tests exercise public boundaries with temporary homes and target directories. The package test installs a local tarball into an isolated consumer, imports public schemas and APIs, runs the installed CLI, and bundles/runs the contracts in an environment without Node globals. Never target a source checkout with the product CLI during development. Build/pack needs no donor checkout, Catalog, Scan, vendor engine or private engineering files.
+Tests exercise public boundaries with temporary homes and target directories. The package test installs local Core and Harness tarballs into an isolated consumer, imports public schemas and APIs, runs the installed CLI, and bundles/runs the portable contracts in an environment without Node globals. Never target a source checkout with the product CLI during development. Build/pack needs no donor checkout, Catalog, Scan, vendor engine or private engineering files.
