@@ -98,8 +98,10 @@ test('broken version and bounded output remain failed versus unavailable, and ca
   const filename = join(bin, process.platform === 'win32' ? 'claude.cmd' : 'claude');
   const original = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   const script = code => {
-    writeFileSync(filename, process.platform === 'win32' ? `@echo off\r\n"${process.execPath}" -e "${code}"\r\n` :
-      `#!/bin/sh\n"${process.execPath}" -e '${code}'\n`);
+    const encoded = Buffer.from(code).toString('base64');
+    writeFileSync(filename, process.platform === 'win32' ?
+      `@echo off\r\n"${process.execPath}" -e "eval(Buffer.from('${encoded}','base64').toString())"\r\n` :
+      `#!/bin/sh\n"${process.execPath}" -e 'eval(Buffer.from("${encoded}","base64").toString())'\n`);
     if (process.platform !== 'win32') chmodSync(filename, 0o755);
   };
   try {

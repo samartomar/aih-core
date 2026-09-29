@@ -6,6 +6,11 @@ export interface Diagnostic {
   path?: string;
   encountered?: string;
   supported?: string[];
+  block?: number;
+  offset?: number;
+  assessedBlocks?: number;
+  assessmentLimit?: string;
+  guidance?: string;
 }
 export interface ValidationResult {
   valid: boolean;

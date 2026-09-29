@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { contractSupport as harnessSupport, repairIndex } from '@aihq/harness/contracts';
-import { assessRepairObservations, prepareRepairDefinition, repairObservationRequests } from '@aihq/harness/runtime';
+import { assessRepairCandidate, assessRepairObservations, getRepairRecipe, prepareRepairDefinition, repairObservationRequests } from '@aihq/harness/runtime';
 import { validateRecipe } from './contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
@@ -30,6 +30,7 @@ interface RepairState {
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
+  candidate?: Awaited<ReturnType<typeof assessRepairCandidate>>;
   inputs: NonNullable<RunResult['inputs']>;
 }
 const handles = new WeakMap<PreparedHandle, RepairState>();
@@ -90,8 +91,8 @@ function capturedSource(path: string, maxBytes: number) {
   return { bytes: first.contents, pins, sha256: sha256(first.contents) };
 }
 
-function observeRepair(id: string, targets: string[]) {
-  return repairObservationRequests({ id, targets }).map(probe => {
+function observeRepair(id: string, targets: string[], variantRef: string) {
+  return repairObservationRequests({ id, targets, variantRef }).map(probe => {
     if (!isAbsolute(probe.executable) || probe.timeoutMs < 1 || probe.timeoutMs > 30_000 ||
         probe.maxOutputBytes < 1 || probe.maxOutputBytes > 65_536 || probe.args.some(arg => typeof arg !== 'string'))
       throw new Error('observation-unsupported');
@@ -115,11 +116,15 @@ function validateRequest(request: RepairRequest) {
       !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(definition.materialName) ||
       !Number.isSafeInteger(definition.limits.sourceBytes) || definition.limits.sourceBytes < 1 ||
       definition.limits.sourceBytes > 16 * 1024 * 1024) throw new Error('repair-definition');
-  const variants = definition.variants.filter(item => item.os === process.platform && item.architectures.includes(process.arch));
-  if (variants.length !== 1) throw new Error(variants.length ? 'repair-variant-ambiguous' : 'repair-variant-unavailable');
   if (!Array.isArray(repair.targets) || !repair.targets.length ||
       repair.targets.some(id => !definition.targets.includes(id)) || new Set(repair.targets).size !== repair.targets.length)
     throw new Error('repair-request');
+  const variants = definition.variants.filter(item => item.os === process.platform && item.architectures.includes(process.arch) &&
+    item.network === (request.network ?? 'declared') && item.targets.length === repair.targets.length &&
+    item.targets.every(target => repair.targets.includes(target)));
+  if (!variants.length || variants.length > 1 && !definition.candidateDiagnostic ||
+      definition.candidateDiagnostic && variants.some(item => !item.candidate))
+    throw new Error(variants.length ? 'repair-variant-ambiguous' : 'repair-variant-unavailable');
   dataObject(repair.inputs, Object.keys(definition.inputs));
   if (Object.keys(repair.inputs).some(key => !Object.hasOwn(definition.inputs, key)) ||
       Object.entries(definition.inputs).some(([key, declaration]) => declaration.required && !Object.hasOwn(repair.inputs, key)))
@@ -138,40 +143,53 @@ function validateRequest(request: RepairRequest) {
     if (!Array.isArray(request.resolutions)) throw new Error('resolution-invalid');
     for (const item of request.resolutions) dataObject(item, ['selectionId', 'operationId', 'choice', 'observedSha256']);
   }
-  return { definition, variant: variants[0]! };
+  return { definition, variants };
 }
 
 export async function prepareRepair(request: RepairRequest, controls: HostControls = {}): Promise<PreparationResult> {
   const runId = randomUUID();
   let safeControls: HostControls = { logging: 'off' };
   const fail = (status: PreparationResult['status'], code: string, reason: string): PreparationResult => recordPreparation({
-    status, runId, diagnostics: [diagnostic(code, reason, 'Prepare again after resolving the reported repair input or state.')], record: disabled
+    status, runId, diagnostics: [{ ...diagnostic(code, reason, 'Prepare again after resolving the reported repair input or state.'),
+      ...(reason === 'source-byte-limit' ? { assessedBlocks: 0, assessmentLimit: 'source-byte-limit' } : {}) }], record: disabled
   }, safeControls);
   try {
     validateControls(controls);
     request = cloneJsonValueStructureV1(request, 'repair request', 32);
-    const { definition, variant } = validateRequest(request);
+    const { definition, variants } = validateRequest(request);
     safeControls = controls;
     if (controls.signal?.aborted) return fail('cancelled', 'CANCELLED', 'cancelled');
     const selected = request.repairs[0]!;
     const helperSha256 = installedHelperSha256(selected.id);
     const ordinaryInputs = Object.fromEntries(Object.entries(selected.inputs).filter(([key]) =>
       definition.inputs[key]?.type !== 'file'));
+    const candidate = definition.candidateDiagnostic ? await assessRepairCandidate({ id: selected.id, inputs: ordinaryInputs },
+      { signal: controls.signal, budgetMs: 120000 }) : undefined;
+    if (candidate?.kind === 'unresolved') return fail(candidate.reason === 'cancelled' ? 'cancelled' : 'blocked',
+      ['deadline', 'root-count', 'candidate-count', 'output-bytes'].includes(candidate.reason) ? 'DIAGNOSTIC_LIMIT' :
+      candidate.reason === 'cancelled' ? 'CANCELLED' : 'PREREQUISITE_UNAVAILABLE', candidate.reason);
+    const matching = variants.filter(item => item.candidate === candidate?.kind);
+    const variant = matching.length === 1 ? matching[0]! : !candidate && variants.length === 1 ? variants[0]! : undefined;
+    if (!variant) return fail('invalid', 'SCHEMA_UNSUPPORTED', 'repair-variant-unavailable');
     const sources = Object.fromEntries(Object.entries(selected.inputs).filter(([key]) =>
       definition.inputs[key]?.type === 'file').map(([key, path]) =>
       [key, { path: path as string, maxBytes: definition.limits.sourceBytes,
         ...capturedSource(path as string, definition.limits.sourceBytes) }]));
     const files = Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, source.bytes]));
     const initial = prepareRepairDefinition({ id: selected.id, variantRef: variant.recipeRef,
-      targets: selected.targets, files, ordinaryInputs, validateOnly: true });
+      targets: selected.targets, files, ordinaryInputs, candidate, validateOnly: true });
     if (initial.status !== 'completed') return recordPreparation({ status: 'invalid', runId,
       diagnostics: initial.diagnostics.map(item => ({ code: item.code, reason: item.reason,
-        message: item.message, ...(item.block === undefined ? {} : { path: `/blocks/${item.block}` }) })), record: disabled }, controls);
+        message: item.message, ...(item.block === undefined ? {} : { block: item.block, path: `/blocks/${item.block}` }),
+        ...(item.offset === undefined ? {} : { offset: item.offset }),
+        assessedBlocks: initial.assessedBlocks,
+        ...(initial.assessmentLimit === undefined ? {} : { assessmentLimit: initial.assessmentLimit }),
+        ...(item.guidance === undefined ? {} : { guidance: item.guidance }) })), record: disabled }, controls);
     const home = homedir();
     const selectionKey = sha256(`${home}\0user\0${definition.managementId}`);
     const managedPath = join(stateRoot(), 'content', selectionKey, definition.materialName);
-    const observations = assessRepairObservations({ id: selected.id, managedPath,
-      observations: observeRepair(selected.id, selected.targets) });
+    const observations = assessRepairObservations({ id: selected.id, managedPath, variantRef: variant.recipeRef,
+      observations: observeRepair(selected.id, selected.targets, variant.recipeRef) });
     const resolutions = [...request.resolutions ?? []];
     for (const observation of observations) {
       const choice = resolutions.find(item => item.selectionId === 'trust' && item.operationId === observation.operationId);
@@ -187,20 +205,28 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const existing = readRegularFile(managedPath, { maxBytes: 16 * 1024 * 1024 });
     const rendered = prepareRepairDefinition({ id: selected.id, variantRef: variant.recipeRef,
       targets: selected.targets, files, ordinaryInputs, existing,
-      managedPath, offline: request.network === 'off' });
-    if (rendered.status !== 'completed' || !rendered.bundle || !rendered.recipe)
+      candidate, managedPath, offline: request.network === 'off' });
+    if (rendered.status !== 'completed' || !rendered.bindings)
       return recordPreparation({ status: rendered.status === 'completed' ? 'invalid' : rendered.status, runId, diagnostics: rendered.status === 'completed' ?
-        [diagnostic('INPUT_INVALID', 'repair-render', 'The installed repair returned no recipe.')] : rendered.diagnostics,
+        [diagnostic('INPUT_INVALID', 'repair-render', 'The installed repair returned no bindings.')] : rendered.diagnostics,
         record: disabled }, controls);
     const bundle = rendered.bundle;
-    const recipe = rendered.recipe as Recipe;
+    const recipe = getRepairRecipe(variant.recipeRef) as Recipe | undefined;
+    if (!recipe) return fail('invalid', 'SCHEMA_UNSUPPORTED', 'recipe-unavailable');
     const validation = validateRecipe(recipe);
     if (!validation.valid) return recordPreparation({ status: 'invalid', runId, diagnostics: validation.diagnostics, record: disabled }, controls);
+    const publicNames = Object.keys(recipe.inputs).filter(name => !recipe.inputs[name]?.sensitive);
+    if (Object.keys(rendered.bindings).length !== publicNames.length ||
+        Object.keys(rendered.bindings).some(name => !publicNames.includes(name)) ||
+        (bundle !== undefined && (!Object.hasOwn(recipe.inputs, 'bundle') || !recipe.inputs.bundle?.sensitive)) ||
+        (bundle === undefined && Object.keys(recipe.inputs).some(name => recipe.inputs[name]?.sensitive)))
+      return fail('invalid', 'INPUT_INVALID', 'repair-bindings');
     const prepared = await preparePolicy({ useCase: 'policy', target: { project: home },
       policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
-        id: 'trust', managementId: definition.managementId, scope: 'user', configuration: {}, requires: [], recipe: { inline: recipe }
+        id: 'trust', managementId: definition.managementId, scope: 'user', configuration: rendered.bindings,
+        requires: [], recipe: { inline: recipe }
       }] }, ...(policyResolutions.length ? { resolutions: policyResolutions } : {}) },
-      { ...controls, logging: 'off', privateInputs: { trust: { bundle } } });
+      { ...controls, logging: 'off', ...(bundle === undefined ? {} : { privateInputs: { trust: { bundle } } }) });
     if (!prepared.review || !prepared.prepared) return recordPreparation(prepared, controls);
     const sourceBindings = Object.fromEntries(Object.entries(sources).map(([key, source]) =>
       [key, { sha256: source.sha256, pins: source.pins }]));
@@ -213,7 +239,9 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const review: PreparedReview = { ...prepared.review, useCase: 'repair', mode: 'standalone',
       target: { scope: 'user', project: home }, inputs,
       observations: [...prepared.review.observations,
-        { id: 'supplied-ca', reason: `${rendered.count} certificates; ${rendered.duplicates} duplicates; ${rendered.evaluatedAt}` },
+        { id: candidate ? 'os-trust-candidate' : 'supplied-ca', reason: candidate ?
+          `${candidate.kind}; ${candidate.origins.join(', ')}; ${candidate.probes} probes` :
+          `${rendered.count} certificates; ${rendered.duplicates} duplicates; ${rendered.evaluatedAt}` },
         { id: 'harness-helper', reason: `sha256:${helperSha256}` },
         ...observations.map(item => ({ id: item.id, reason: item.reason })),
         ...(request.network === 'off' ? definition.offlineVerification.filter(item => selected.targets.includes(item.target))
@@ -227,6 +255,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       sources: Object.fromEntries(Object.entries(sources).map(([key, source]) =>
         [key, { path: source.path, pins: source.pins, sha256: source.sha256, maxBytes: source.maxBytes }])),
       helperSha256, targets: selected.targets, fingerprints: rendered.fingerprints,
+      candidate,
       offlineVerification: definition.offlineVerification, offline: request.network === 'off', inputs,
       observations: observations.map(item => ({ id: item.id, operationId: item.operationId,
         raw: item.raw, expectedRaw: item.expectedRaw })), managedPath, ordinaryInputs });
@@ -260,10 +289,18 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       authorization.allowPartial !== undefined && typeof authorization.allowPartial !== 'boolean')
     return rejected('approval-required', 'APPROVAL_REQUIRED');
   if (controls.signal?.aborted) return { ...rejected('cancelled', 'CANCELLED'), completion: 'cancelled' };
-  const revalidate = () => {
+  const revalidate = async () => {
     if (installedHelperSha256(state.id) !== state.helperSha256) throw new Error('review-stale');
-    const observed = assessRepairObservations({ id: state.id, managedPath: state.managedPath,
-      observations: observeRepair(state.id, state.targets) });
+    const candidate = state.candidate ? await assessRepairCandidate({ id: state.id, inputs: state.ordinaryInputs },
+      { signal: controls.signal, budgetMs: 120000 }) : undefined;
+    if (installedHelperSha256(state.id) !== state.helperSha256) throw new Error('review-stale');
+    const stableCandidate = (value: typeof candidate) => value?.kind === 'extra-ca' ?
+      { kind: value.kind, origins: value.origins, certs: value.certs } : value?.kind === 'system-ca' ?
+      { kind: value.kind, origins: value.origins } : value;
+    if (state.candidate && (candidate?.kind === 'unresolved' || hash(stableCandidate(candidate)) !== hash(stableCandidate(state.candidate))))
+      throw new Error('review-stale');
+    const observed = assessRepairObservations({ id: state.id, managedPath: state.managedPath, variantRef: state.variantRef,
+      observations: observeRepair(state.id, state.targets, state.variantRef) });
     if (observed.length !== state.observations.length || observed.some((item, index) =>
         item.id !== state.observations[index]?.id ||
         ![state.observations[index]?.raw, state.observations[index]?.expectedRaw].includes(item.raw)))
@@ -276,14 +313,11 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       files[key] = captured.bytes;
     }
     const accepted = prepareRepairDefinition({ id: state.id, variantRef: state.variantRef, targets: state.targets, files,
-      ordinaryInputs: state.ordinaryInputs, validateOnly: true });
+      ordinaryInputs: state.ordinaryInputs,
+      candidate: candidate?.kind === 'unresolved' ? undefined : candidate, validateOnly: true });
     if (accepted.status !== 'completed') throw new Error('certificate-invalid');
     if (hash(accepted.fingerprints) !== hash(state.fingerprints)) throw new Error('review-stale');
   };
-  try { revalidate(); } catch (error) {
-    return rejected(error instanceof Error && error.message === 'certificate-invalid' ? 'certificate-invalid' : 'review-stale',
-      error instanceof Error && error.message === 'certificate-invalid' ? 'INPUT_INVALID' : 'REVIEW_STALE');
-  }
   const result = await applyPolicy(state.policyHandle, { ...authorization, reviewDigest: state.policyReviewDigest },
     { ...controls, logging: 'off' }, revalidate);
   handles.delete(handle);

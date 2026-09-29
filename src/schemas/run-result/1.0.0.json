@@ -202,7 +202,12 @@
             "items": {
               "type": "string"
             }
-          }
+          },
+          "block": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 },
+          "assessedBlocks": { "type": "integer", "minimum": 0 },
+          "assessmentLimit": { "type": "string" },
+          "guidance": { "type": "string" }
         },
         "required": [
           "code",

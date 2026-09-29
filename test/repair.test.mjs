@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { renderRepair } from '@aihq/harness/runtime';
+import { getRepairRecipe, renderRepair } from '@aihq/harness/runtime';
+import { repairIndex } from '@aihq/harness/contracts';
 import { prepare, apply } from '../dist/index.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-repair-'));
@@ -33,6 +34,43 @@ test('mixed validity rejects before writing managed trust or target config', asy
   assert.equal(readFileSync(sentinel, 'utf8'), 'registry=https://example.test/\n');
   assert.equal(existsSync(join(home, '.aih')), false);
   rmSync(sentinel);
+});
+
+test('OS trust repair rejects an unknown endpoint selector before probes or effects', async () => {
+  const result = await prepare({ useCase: 'repair', repairs: [{ id: 'node-os-trust', targets: ['node'],
+    inputs: { originId: 'https://attacker.example.test' } }] }, { logging: 'off' });
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.prepared, undefined);
+  assert.equal(result.diagnostics[0].reason, 'origin-invalid');
+  assert.equal(existsSync(join(home, '.aih')), false);
+});
+
+test('OS trust repair refuses an insecure configured npm registry before network probes', async () => {
+  const prior = process.env.NPM_CONFIG_REGISTRY;
+  process.env.NPM_CONFIG_REGISTRY = 'http://127.0.0.1:9/';
+  try {
+    const result = await prepare({ useCase: 'repair', repairs: [{ id: 'node-os-trust', targets: ['node'],
+      inputs: { originId: 'npm-registry' } }] }, { logging: 'off' });
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.diagnostics[0].reason, 'config-invalid');
+    assert.equal(existsSync(join(home, '.aih')), false);
+  } finally {
+    if (prior === undefined) delete process.env.NPM_CONFIG_REGISTRY;
+    else process.env.NPM_CONFIG_REGISTRY = prior;
+  }
+});
+
+test('CA rejection keeps byte offsets, assessment limits and export guidance across the public API', async () => {
+  const source = join(scratch, 'bom-trailing.pem');
+  writeFileSync(source, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), root, Buffer.from('unexpected')]));
+  const rejected = await prepare(offlineNpm(source), { logging: 'off' });
+  assert.equal(rejected.status, 'invalid');
+  const issue = rejected.diagnostics.find(item => item.reason === 'pem-envelope');
+  assert.equal(issue.offset, 3 + root.length);
+  assert.equal(issue.assessedBlocks, 1);
+  assert.equal(issue.assessmentLimit, 'structure');
+  assert.match(issue.guidance, /CA-only PEM/);
+  assert.equal(existsSync(join(home, '.aih')), false);
 });
 
 test('source change after review rejects before any import effect', async () => {
@@ -154,7 +192,8 @@ test('a later valid import preserves an expired managed CA', async () => {
   } finally { Date.now = originalNow; process.env.HOME = home; process.env.USERPROFILE = home; }
 });
 
-test('Windows persistence is reviewed and a failed step blocks its Node reference', async () => {
+test('Windows persistence is reviewed and a failed step blocks its Node reference',
+  { skip: process.platform !== 'win32' }, async () => {
   const scopedHome = join(scratch, 'persist-home'); mkdirSync(scopedHome);
   process.env.HOME = scopedHome; process.env.USERPROFILE = scopedHome;
   try {
@@ -162,13 +201,17 @@ test('Windows persistence is reviewed and a failed step blocks its Node referenc
     const key = digest(`${scopedHome}\0user\0node-npm-trust`);
     const bundlePath = join(scopedHome, '.aih', 'core', 'content', key, 'trust.pem');
     const bundle = root.toString();
-    const recipe = renderRepair({ id: 'node-npm-ca', targets: ['node'], bundlePath,
-      bundleSha256: digest(bundle), fingerprints: ['0'.repeat(64)], offline: true });
+    const variant = repairIndex[0].variants.find(item => item.os === 'win32' &&
+      item.targets.length === 1 && item.targets[0] === 'node' && item.network === 'off');
+    const bindings = renderRepair({ id: 'node-npm-ca', variantRef: variant.recipeRef,
+      bundlePath, bundleSha256: digest(bundle), fingerprints: ['0'.repeat(64)] });
+    assert.equal(bindings.status, 'completed');
+    const recipe = getRepairRecipe(variant.recipeRef);
     const persist = recipe.operations.find(op => op.id === 'node-persist');
     assert.equal(persist.kind, 'process.run');
     assert.equal(persist.executable.name, process.execPath);
     assert.match(persist.args[1].literal, /setx\.exe/);
-    assert.deepEqual([persist.args[0].literal, persist.args[2].literal], ['-e', bundlePath]);
+    assert.deepEqual([persist.args[0].literal, persist.args[2].input], ['-e', 'bundlePath']);
     assert.doesNotThrow(() => new Function(persist.args[1].literal));
     const userEnvCheck = recipe.checks.find(check => check.id === 'node-user-env');
     assert.doesNotThrow(() => new Function(userEnvCheck.args[1].literal));
@@ -176,7 +219,8 @@ test('Windows persistence is reviewed and a failed step blocks its Node referenc
     persist.executable = { name: 'aih-deliberately-missing-setx-stub' };
     const p = await prepare({ useCase: 'policy', target: { project: scopedHome }, policy: {
       schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
-        id: 'trust', managementId: 'node-npm-trust', scope: 'user', configuration: {}, requires: [], recipe: { inline: recipe }
+        id: 'trust', managementId: 'node-npm-trust', scope: 'user', configuration: bindings.bindings,
+        requires: [], recipe: { inline: recipe }
       }]
     } }, { logging: 'off', privateInputs: { trust: { bundle } } });
     assert.equal(p.status, 'partial', JSON.stringify(p));
@@ -208,4 +252,28 @@ test('hostile repair inputs and controls are rejected before getters, probes or 
     assert.equal(rejected.completion, 'rejected'); assert.equal(reads, 0);
     assert.equal(existsSync(join(scopedHome, '.aih', 'core', 'content')), false);
   } finally { process.env.HOME = home; process.env.USERPROFILE = home; }
+});
+
+test('npm TLS verification refuses inherited bypass and an HTTP registry', async () => {
+  const source = join(scratch, 'bypass-root.pem'); writeFileSync(source, root);
+  const cases = [
+    ['NPM_CONFIG_STRICT_SSL', 'false'],
+    ['NPM_CONFIG_REGISTRY', 'http://127.0.0.1:9/'],
+    ['NODE_TLS_REJECT_UNAUTHORIZED', '0']
+  ];
+  for (const [key, value] of cases) {
+    const scopedHome = join(scratch, `bypass-${key}`); mkdirSync(scopedHome);
+    const prior = process.env[key];
+    process.env.HOME = scopedHome; process.env.USERPROFILE = scopedHome; process.env[key] = value;
+    try {
+      const prepared = await prepare(request(source, ['npm']), { logging: 'off' });
+      assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+      const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+      assert.equal(result.completion, 'incomplete', `${key}: ${JSON.stringify(result)}`);
+      assert.equal(result.checks.find(item => item.id === 'trust/npm-behavior').status, 'failed');
+    } finally {
+      if (prior === undefined) delete process.env[key]; else process.env[key] = prior;
+      process.env.HOME = home; process.env.USERPROFILE = home;
+    }
+  }
 });

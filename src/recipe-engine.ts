@@ -434,7 +434,7 @@ function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: 
 }
 
 export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {},
-    preEffectCheck?: () => void): Promise<RunResult> {
+    preEffectCheck?: () => void | Promise<void>): Promise<RunResult> {
   const runId = randomUUID(); let state: PreparedState | undefined; let started = false;
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
@@ -483,7 +483,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const step of state.steps) assertStep(step);
     for (const [root, ownership] of state.ownership)
       if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
-    preEffectCheck?.();
+    await preEffectCheck?.();
+    if (preEffectCheck) {
+      assertInputs();
+      for (const step of state.steps) assertStep(step);
+      for (const [root, ownership] of state.ownership)
+        if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
+    }
     const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');

@@ -82,6 +82,7 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     if (!recipe.targets.includes(op.scope)) invalid('scope-mismatch', `${path}/scope`);
     for (const id of op.checks) if (!checkIds.has(id)) invalid('check-missing', `${path}/checks`);
     if (op.kind === 'process.run') { checkInvocation(op, path); checkTarget(op.cwd, `${path}/cwd`, op.scope); return; }
+    if (op.target.segments.length === 0) invalid('target-root', `${path}/target`);
     checkTarget(op.target, `${path}/target`, op.scope);
     if (op.kind === 'file.write') {
       if (op.content) checkSlot(op.content, `${path}/content`, true);
@@ -103,7 +104,10 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   recipe.checks.forEach((check, index) => {
     const path = `/checks/${index}`;
     if (check.kind === 'process.exit') checkInvocation(check, path);
-    else checkTarget(check.target, `${path}/target`);
+    else {
+      if (check.target.segments.length === 0) invalid('target-root', `${path}/target`);
+      checkTarget(check.target, `${path}/target`);
+    }
   });
   return diagnostics;
 }
