@@ -290,3 +290,80 @@ test('declared network is bounded, curl ignores config and TLS failure is interp
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('an unconfirmed child stops all later probes, and abort during deadline cleanup wins', async () => {
+  const originalSpawn = childProcess.spawn;
+  let calls = 0;
+  try {
+    childProcess.spawn = () => {
+      calls++;
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => true; // No close confirmation within the two-second cleanup window.
+      queueMicrotask(() => child.stdout.emit('data', Buffer.alloc(65537)));
+      return child;
+    };
+    syncBuiltinESMExports();
+    const overflow = await inspect({ targets: ['node', 'npm', 'git'], network: 'off' }, { budgetMs: 5000 });
+    assert.equal(overflow.status, 'incomplete');
+    assert.equal(overflow.checks.find(check => check.id === 'node/version').reason, 'output-bytes');
+    assert.equal(overflow.checks.find(check => check.id === 'npm/version').reason, 'termination-unresolved');
+    assert.equal(overflow.checks.find(check => check.id === 'git/version').outcome, 'skipped');
+    assert.equal(overflow.diagnostics.some(item => item.reason === 'termination-unresolved'), true);
+    assert.equal(calls, 1, 'No later diagnostic child may start after uncertain termination.');
+
+    calls = 0;
+    childProcess.spawn = () => {
+      calls++;
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => true;
+      return child;
+    };
+    syncBuiltinESMExports();
+    const controller = new AbortController();
+    const pending = inspect({ targets: ['node', 'npm'], network: 'off' }, { signal: controller.signal, budgetMs: 20 });
+    setTimeout(() => controller.abort(), 50); // Abort after deadline entered cleanup.
+    const cancelled = await pending;
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.checks.find(check => check.id === 'node/version').reason, 'cancelled');
+    assert.equal(cancelled.checks.find(check => check.id === 'npm/version').reason, 'cancelled');
+    assert.equal(cancelled.diagnostics.some(item => item.reason === 'termination-unresolved'), true);
+    assert.equal(cancelled.diagnostics.some(item => item.reason === 'deadline'), true);
+    assert.equal(calls, 1);
+  } finally {
+    childProcess.spawn = originalSpawn; syncBuiltinESMExports();
+  }
+});
+
+test('an unconfirmed curl probe prevents Node TLS and subsequent selected tools', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-inspect-curl-hung-'));
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  for (const name of ['npm', 'curl', 'git']) {
+    const suffix = process.platform === 'win32' ? name === 'npm' ? '.cmd' : '.exe' : '';
+    writeFileSync(join(bin, name + suffix), '');
+  }
+  const original = { PATH: process.env.PATH, spawn: childProcess.spawn, connect: tls.connect };
+  let spawns = 0; let sockets = 0;
+  try {
+    process.env.PATH = bin;
+    childProcess.spawn = () => {
+      spawns++;
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.kill = () => true;
+      if (spawns === 1) queueMicrotask(() => child.emit('close', 0));
+      else queueMicrotask(() => child.stdout.emit('data', Buffer.alloc(65537)));
+      return child;
+    };
+    syncBuiltinESMExports();
+    tls.connect = () => { sockets++; throw new Error('TLS must not start after uncertain curl termination'); };
+    const result = await inspect({ targets: ['npm', 'git'], network: 'declared', probeConfiguredMcp: true }, { budgetMs: 5000 });
+    assert.equal(result.status, 'incomplete');
+    assert.equal(result.checks.find(check => check.id === 'npm/tls/os/registry.npmjs.org').reason, 'output-bytes');
+    assert.equal(result.checks.find(check => check.id === 'npm/tls/node/registry.npmjs.org').reason, 'termination-unresolved');
+    assert.equal(result.checks.find(check => check.id === 'git/version').outcome, 'skipped');
+    assert.equal(result.checks.find(check => check.id === 'mcp/configuration').reason, 'termination-unresolved');
+    assert.equal(spawns, 2); assert.equal(sockets, 0);
+  } finally {
+    process.env.PATH = original.PATH; childProcess.spawn = original.spawn; syncBuiltinESMExports();
+    tls.connect = original.connect; rmSync(root, { recursive: true, force: true });
+  }
+});
