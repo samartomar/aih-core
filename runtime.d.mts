@@ -11,4 +11,5 @@ export interface DiagnoseResult {
   repairChoices: { target: string; kind: 'manual-guidance'; reason: string; guidance: string }[];
   limits: { budgetMs: number; elapsedMs: number; maxActiveProbes: number };
 }
+export declare function validDiagnosticTargets(value: unknown): boolean;
 export declare function diagnose(request: DiagnoseRequest, controls?: DiagnoseControls): Promise<DiagnoseResult>;
