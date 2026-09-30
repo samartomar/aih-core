@@ -12,3 +12,15 @@ The repair definition accepts a local certificate-only PEM file through Core's p
 | `@aihq/harness/runtime` | Bounded `diagnose`, `validateSuppliedCa`, `composeExistingTrust` and fixed `renderRepair` helpers |
 
 The runtime requires Node `>=24.6.0 <25`. Inspect through Core's public API or `aih inspect`; Core owns the caller-facing result and CLI.
+
+## Development
+
+Source lives in [`samartomar/aih-harness`](https://github.com/samartomar/aih-harness),
+with its own Git history and remote. Run `node --test test/*.test.mjs` on Node 24
+within the declared engine range. There is no build step.
+
+For Core consumer checks, clone [`samartomar/aih-core`](https://github.com/samartomar/aih-core)
+beside this repository as sibling directories `aih-core/` and `aih-harness/`, then
+follow Core's development checks. The initial split pairs Harness source commit
+`d505dea` with Core source commit `a36fc32`. Core's package test installs both
+tarballs into an isolated consumer; Harness itself has no dependency on Core.
