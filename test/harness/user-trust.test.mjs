@@ -10,7 +10,7 @@ import { repairIndex } from '../../dist/harness/contracts.mjs';
 const environmentKeys = ['APPDATA', 'XDG_CONFIG_HOME', 'CARGO_HOME', 'CONDARC', 'GIT_CONFIG_GLOBAL',
   'PIP_CERT', 'PIP_CONFIG_FILE', 'WIN_PD_OVERRIDE_APPDATA', 'WIN_PD_OVERRIDE_LOCAL_APPDATA',
   'PIP_USER', 'PIP_SITE', 'PIP_GLOBAL',
-  'GIT_SSL_CAINFO', 'CARGO_HTTP_CAINFO', 'PIP_TRUSTED_HOST', 'GIT_SSL_NO_VERIFY', 'CONDA_SSL_VERIFY'];
+  'GIT_SSL_CAINFO', 'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'PIP_TRUSTED_HOST', 'GIT_SSL_NO_VERIFY', 'CONDA_SSL_VERIFY'];
 const savedEnvironment = Object.fromEntries(environmentKeys.map(key => [key, process.env[key]]));
 before(() => { for (const key of environmentKeys) delete process.env[key]; });
 after(() => { for (const [key, value] of Object.entries(savedEnvironment)) {
@@ -48,6 +48,87 @@ test('Cargo retains both donor keys, Windows path safety, neighboring TOML and i
   assert.equal(first.privateBindings.cargoConfig, `# keep\r\n[http]\r\ncainfo = ${serialized}\r\nproxy = "https://proxy.example"\r\n[net]\r\ngit-fetch-with-cli = true\r\nretry = 2\r\n`);
   const twice = prepare(['cargo'], { 'cargo-config': Buffer.from(first.privateBindings.cargoConfig) }, { managedPath: path });
   assert.equal(twice.privateBindings.cargoConfig, first.privateBindings.cargoConfig);
+});
+
+test('Cargo refuses inherited TLS bypass before any repair definition is produced', () => {
+  try {
+    for (const value of ['false', '0', 'TRUE']) {
+      process.env.CARGO_HTTP_SSL_VERIFY = value;
+      const result = prepare(['cargo']);
+      assert.equal(result.status, 'blocked', value);
+      assert.equal(result.diagnostics[0].reason, 'trust-bypass-environment');
+      assert.equal(result.bindings, undefined);
+    }
+    process.env.CARGO_HTTP_SSL_VERIFY = 'true';
+    assert.equal(prepare(['cargo']).status, 'completed');
+  } finally { delete process.env.CARGO_HTTP_SSL_VERIFY; }
+});
+
+test('selected Cargo definitions bind its executable and declare extensionless config absence', () => {
+  const definition = repairIndex.find(item => item.id === 'user-tools-ca');
+  for (const variant of definition.variants.filter(item => item.targets.includes('cargo'))) {
+    assert.equal(variant.requiredAbsences.length, 1);
+    assert.deepEqual(variant.requiredAbsences[0].target,
+      { root: 'userHome', segments: [{ literal: '.cargo' }, { literal: 'config' }] });
+    assert.equal(variant.requiredAbsences[0].reason, 'cargo-legacy-config');
+    if (variant.network !== 'off') assert.ok(variant.executableBindings.some(item => item.name === 'cargo' && item.pathInput === 'cargoExecutable'));
+  }
+});
+
+test('Cargo behavioral verification uses inherited trust and the captured executable path', () => {
+  const probe = getRepairRecipe(`user-tools-ca/${process.platform}/cargo/declared`).checks.find(item => item.id === 'cargo-behavior');
+  assert.equal(probe.env.CARGO_HTTP_SSL_VERIFY, undefined);
+  assert.ok(probe.args.some(slot => slot.input === 'cargoExecutable'));
+});
+
+test('Cargo verification refuses legacy config and filesystem errors before invoking its bound executable', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-cargo-effective-trust-'));
+  try {
+    const boundary = join(root, 'process-boundary.cjs');
+    writeFileSync(boundary, `
+      const fs=require('node:fs'),original=fs.lstatSync;
+      fs.lstatSync=(path,...args)=>{
+        if(path===process.env.FIXTURE_LEGACY_CONFIG){
+          if(process.env.FIXTURE_LSTAT==='dangling')return {isSymbolicLink:()=>true};
+          if(process.env.FIXTURE_LSTAT==='denied'){const error=new Error('private path');error.code='EACCES';throw error}
+        }
+        return original(path,...args);
+      };
+      require('node:child_process').spawnSync=(file,args,options)=>{
+        if(file!==process.env.FIXTURE_BOUND_EXE||options.shell!==false||options.env.CARGO_HTTP_SSL_VERIFY!==process.env.CARGO_HTTP_SSL_VERIFY||options.timeout>18000||options.maxBuffer!==16384)return {status:2,stdout:'',stderr:''};
+        if(JSON.stringify(args)!==JSON.stringify(['search','serde','--limit','1']))return {status:2,stdout:'',stderr:''};
+        fs.writeFileSync(process.env.FIXTURE_NETWORK_MARKER,'queried');
+        return {status:0,stdout:'private tool output',stderr:''};
+      };
+    `);
+    const probe = getRepairRecipe(`user-tools-ca/${process.platform}/cargo/declared`).checks.find(item => item.id === 'cargo-behavior');
+    const legacy = join(root, 'config');
+    const bindings = { bundlePath: join(root, 'ca.pem'), cargoConfigPath: join(root, 'config.toml'), cargoExecutable: join(root, 'bound-cargo.exe') };
+    const cases = [
+      { verify: undefined, accepted: true },
+      { verify: 'true', accepted: true },
+      { verify: 'false', accepted: false },
+      { verify: 'TRUE', accepted: false },
+      { legacy: 'file', accepted: false },
+      { legacy: 'dangling', accepted: false },
+      { legacy: 'denied', accepted: false }
+    ];
+    for (const [index, fixture] of cases.entries()) {
+      if (fixture.legacy === 'file') writeFileSync(legacy, '[http]\nssl-verify=false\n');
+      else rmSync(legacy, { force: true });
+      const marker = join(root, `network-${index}`);
+      const env = { ...process.env, FIXTURE_BOUND_EXE: bindings.cargoExecutable, FIXTURE_NETWORK_MARKER: marker,
+        FIXTURE_LEGACY_CONFIG: legacy, FIXTURE_LSTAT: fixture.legacy ?? 'absent' };
+      for (const name of Object.keys(env)) if (/^CARGO_(HOME|HTTP_SSL_VERIFY|HTTP_CAINFO)$/i.test(name)) delete env[name];
+      if (fixture.verify !== undefined) env.CARGO_HTTP_SSL_VERIFY = fixture.verify;
+      const result = spawnSync(probe.executable.name, ['--require', boundary,
+        ...probe.args.map(slot => slot.literal ?? bindings[slot.input])],
+      { cwd: root, env, shell: false, encoding: 'utf8', timeout: probe.timeoutMs, maxBuffer: probe.maxOutputBytes, windowsHide: true });
+      assert.equal(result.status, fixture.accepted ? 0 : 1, `Cargo fixture ${index}`);
+      assert.equal(existsSync(marker), fixture.accepted, `Cargo network scheduling ${index}`);
+      assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('duplicate or disabled pip trust refuses a misleading verified repair', () => {

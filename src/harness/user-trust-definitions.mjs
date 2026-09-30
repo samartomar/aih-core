@@ -16,7 +16,12 @@ export const userToolsRepair = Object.freeze({
       targets: Object.freeze([...targets]), network, recipeRef: `user-tools-ca/${os}/${targets.join('+')}/${network}`,
       executableBindings: Object.freeze(network === 'off' ? [] : [
         ...(targets.includes('pip') ? [Object.freeze({ name: 'pip', pathInput: 'pipExecutable' })] : []),
-        ...(targets.includes('git') ? [Object.freeze({ name: 'git', pathInput: 'gitExecutable' })] : [])]),
+        ...(targets.includes('git') ? [Object.freeze({ name: 'git', pathInput: 'gitExecutable' })] : []),
+        ...(targets.includes('cargo') ? [Object.freeze({ name: 'cargo', pathInput: 'cargoExecutable' })] : [])]),
+      requiredAbsences: Object.freeze(targets.includes('cargo') ? [Object.freeze({
+        target: Object.freeze({ root: 'userHome', segments: Object.freeze([Object.freeze(literal('.cargo')), Object.freeze(literal('config'))]) }),
+        reason: 'cargo-legacy-config', purpose: 'Cargo extensionless config must be absent so the selected config.toml is active'
+      })] : []),
       transformId: 'user-tools-ca-bindings', configFiles: Object.freeze([
         ...(targets.includes('pip') ? [file('pip-config', os === 'win32' ? ['AppData', 'Roaming', 'pip', 'pip.ini'] : ['.config', 'pip', 'pip.conf'])] : []),
         ...(targets.includes('git') ? [file('git-config', ['.gitconfig'])] : []),

@@ -18,7 +18,7 @@ const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE,
   APPDATA: process.env.APPDATA };
 const envOverrides = ['GIT_CONFIG_GLOBAL', 'GIT_SSL_NO_VERIFY', 'GIT_SSL_CAINFO', 'PIP_CERT', 'PIP_TRUSTED_HOST',
   'PIP_CONFIG_FILE', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'CONDARC', 'CONDA_SSL_VERIFY', 'CARGO_HOME',
-  'CARGO_HTTP_CAINFO', 'XDG_CONFIG_HOME'];
+  'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'XDG_CONFIG_HOME'];
 const savedOverrides = Object.fromEntries(envOverrides.map(key => [key, process.env[key]]));
 const appData = join(home, 'AppData', 'Roaming');
 before(() => {
@@ -152,6 +152,56 @@ test('missing Git blocks only the Cargo branch while reviewed pip work completes
   assert.equal(result.operations.find(item => item.id === 'trust/cargo-config').application, 'not-attempted');
   assert.match(readFileSync(pipConfig('cargo'), 'utf8'), /cert\s*=/);
   assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
+}));
+
+test('Cargo legacy config blocks preparation without effects', () => withPath(async () => {
+  fixtureTool('cargo'); fixtureTool('git');
+  mkdirSync(join(home, '.cargo'));
+  const legacy = join(home, '.cargo', 'config');
+  writeFileSync(legacy, '');
+  const input = request(source('cargo-precedence.pem'), ['cargo']);
+  const inactive = await prepare(input, { logging: 'off' });
+  assert.equal(inactive.status, 'blocked', JSON.stringify(inactive.diagnostics));
+  assert.ok(inactive.diagnostics.some(item => item.code === 'PREREQUISITE_UNAVAILABLE' && item.reason === 'cargo-legacy-config'));
+  assert.equal(existsSync(join(home, '.aih')), false);
+  assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
+}));
+
+test('Cargo inherited TLS bypass blocks preparation without effects', () => withPath(async () => {
+  fixtureTool('cargo'); fixtureTool('git');
+  const input = request(source('cargo-bypass.pem'), ['cargo']);
+  process.env.CARGO_HTTP_SSL_VERIFY = 'false';
+  try {
+    const bypass = await prepare(input, { logging: 'off' });
+    assert.equal(bypass.status, 'blocked', JSON.stringify(bypass.diagnostics));
+    assert.ok(bypass.diagnostics.some(item => item.reason === 'trust-bypass-environment'));
+    assert.equal(existsSync(join(home, '.aih')), false);
+  } finally { delete process.env.CARGO_HTTP_SSL_VERIFY; }
+}));
+
+test('Cargo legacy config created after review rejects before any effect', () => withPath(async () => {
+  fixtureTool('cargo'); fixtureTool('git');
+  const prepared = await prepare(request(source('cargo-stale-precedence.pem'), ['cargo']), { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.ok(prepared.review.observations.some(item => item.id === 'cargo-legacy-config'));
+  mkdirSync(join(home, '.cargo'));
+  writeFileSync(join(home, '.cargo', 'config'), '[net]\nretry = 0\n');
+  const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+  assert.equal(applied.completion, 'rejected');
+  assert.ok(applied.diagnostics.some(item => item.code === 'REVIEW_STALE'));
+  assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
+  assert.equal(existsSync(join(home, '.aih', 'core', 'content')), false);
+}));
+
+test('Cargo required absence survives its authorized config directory creation', () => withPath(async () => {
+  fixtureTool('cargo'); fixtureTool('git');
+  const prepared = await prepare(request(source('cargo-absent-parent.pem'), ['cargo']), { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+  assert.equal(applied.operations.find(item => item.id === 'trust/cargo-config').application, 'applied', JSON.stringify(applied));
+  assert.equal(applied.completion, 'incomplete');
+  assert.equal(existsSync(join(home, '.cargo', 'config')), false);
+  assert.match(readFileSync(join(home, '.cargo', 'config.toml'), 'utf8'), /cainfo/);
 }));
 
 test('a substitute executable never yields verified success', () => withPath(async () => {

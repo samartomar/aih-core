@@ -159,6 +159,8 @@ export function prepareUserToolsRepair(request) {
     variant.targets.includes('conda') && process.env.CONDARC && resolve(process.env.CONDARC) !== resolve(home, '.condarc') ||
     variant.targets.includes('git') && process.env.GIT_CONFIG_GLOBAL && resolve(process.env.GIT_CONFIG_GLOBAL) !== resolve(home, '.gitconfig');
   if (redirected) return invalid('user-config-location-unsupported', 'A selected tool redirects its user configuration. Use its canonical user location before preparing this repair.', 'PREREQUISITE_UNAVAILABLE');
+  if (variant.targets.includes('cargo') && process.env.CARGO_HTTP_SSL_VERIFY && process.env.CARGO_HTTP_SSL_VERIFY !== 'true')
+    return invalid('trust-bypass-environment', 'Inherited Cargo TLS verification must be enabled before preparing this CA repair.', 'PREREQUISITE_UNAVAILABLE');
   if (variant.network !== 'off' && (
       variant.targets.includes('pip') && process.env.PIP_TRUSTED_HOST ||
       variant.targets.includes('git') && process.env.GIT_SSL_NO_VERIFY ||
@@ -259,6 +261,12 @@ const gitTls = toolCheckPrelude +
   "if(verify.status!==1&&(!ok(verify)||/^(false|no|off|0)$/i.test(verify.stdout.trim())))process.exit(1);" +
   "const backend=run(file,['config','--get','http.sslBackend']);if(ok(backend)&&backend.stdout.trim().toLowerCase()==='schannel')process.exit(1);" +
   "const r=run(file,['ls-remote',origin,'HEAD']);process.exit(ok(r)?0:1)";
+const cargoTls = toolCheckPrelude +
+  "if(env.CARGO_HTTP_SSL_VERIFY&&env.CARGO_HTTP_SSL_VERIFY!=='true'||env.CARGO_HTTP_CAINFO&&env.CARGO_HTTP_CAINFO!==expected)process.exit(1);" +
+  "const p=require('node:path'),f=require('node:fs');" +
+  "if(env.CARGO_HOME&&p.resolve(env.CARGO_HOME)!==p.dirname(config))process.exit(1);" +
+  "try{f.lstatSync(p.join(p.dirname(config),'config'));process.exit(1)}catch(error){if(error.code!=='ENOENT')process.exit(1)};" +
+  "const r=run(file,['search','serde','--limit','1']);process.exit(ok(r)?0:1)";
 const condaTls = "import os\nfrom conda.base.context import context\nfrom conda.gateways.connection.session import CondaSession\nassert context.ssl_verify == os.environ['AIHQ_EXPECTED_CA']\nr=CondaSession().get('https://repo.anaconda.com/pkgs/main/noarch/repodata.json',timeout=15,stream=True)\nassert r.status_code==200\nr.close()";
 
 export function userToolsRecipe(variant) {
@@ -321,8 +329,8 @@ export function userToolsRecipe(variant) {
       ...nodeInvocation(pipTls, [input('bundlePath'), input('pipConfigPath'), input('pipExecutable')]), timeoutMs: 30000, maxOutputBytes: 16384 });
     if (id === 'git') checks.push({ id: 'git-behavior', purpose: 'Check effective Git CA, verification and HTTPS remote read', kind: 'process.exit',
       ...nodeInvocation(gitTls, [input('bundlePath'), input('gitConfigPath'), input('gitExecutable')]), timeoutMs: 30000, maxOutputBytes: 16384 });
-    if (id === 'cargo') checks.push(check('cargo-behavior', 'Check Cargo HTTPS searches its configured registry with selected user trust',
-      'cargo', ['search', 'serde', '--limit', '1'], { CARGO_HTTP_SSL_VERIFY: literal('true') }));
+    if (id === 'cargo') checks.push({ id: 'cargo-behavior', purpose: 'Check Cargo searches with inherited verified trust and no shadowing extensionless config', kind: 'process.exit',
+      ...nodeInvocation(cargoTls, [input('bundlePath'), input('cargoConfigPath'), input('cargoExecutable')]), timeoutMs: 30000, maxOutputBytes: 16384 });
     if (id === 'conda') checks.push(check('conda-behavior', 'Check conda base connection session uses selected ssl_verify and reaches its repository',
       'conda', ['run', '--no-capture-output', '-n', 'base', 'python', '-c', condaTls],
       { CONDARC: input('condaConfigPath'), AIHQ_EXPECTED_CA: input('bundlePath') }, 30000));

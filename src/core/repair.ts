@@ -29,6 +29,7 @@ interface RepairState {
   id: string; variantRef: string;
   sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
   configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  requiredAbsences: { path: string; reason: string; purpose: string }[];
   executables: Record<string, { name: string; path: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
@@ -98,6 +99,41 @@ function capturedSource(path: string, maxBytes: number) {
 interface VariantMetadata {
   configFiles?: readonly { operationId: string; target: { root: 'userHome'; segments: readonly { literal: string }[] }; maxBytes: number }[];
   executableBindings?: readonly { name: string; pathInput: string }[];
+  requiredAbsences?: readonly { target: { root: 'userHome'; segments: readonly { literal: string }[] }; reason: string; purpose: string }[];
+}
+
+function userConfigurationPath(target: NonNullable<VariantMetadata['configFiles']>[number]['target']) {
+  if (!target || typeof target !== 'object' || target.root !== 'userHome' ||
+      !Array.isArray(target.segments) || !target.segments.length || target.segments.length > 8 ||
+      target.segments.some((slot: { literal: string }) => !slot || typeof slot !== 'object' ||
+        Reflect.ownKeys(slot).length !== 1 || typeof slot.literal !== 'string' || !validSegment(slot.literal)))
+    throw new Error('repair-definition');
+  return join(homedir(), ...target.segments.map(slot => slot.literal));
+}
+
+class ConfigurationPrerequisiteUnavailable extends Error {
+  constructor(readonly prerequisite: RepairState['requiredAbsences'][number]) { super(prerequisite.reason); }
+}
+
+/** Bind absence conditions without pinning parents that authorized writes may create. */
+function captureRequiredAbsences(variant: VariantMetadata) {
+  const list = variant.requiredAbsences ?? [];
+  if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
+  const captured: RepairState['requiredAbsences'] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object' || typeof entry.reason !== 'string' ||
+        !/^[a-z][a-z-]{0,63}$/.test(entry.reason) || typeof entry.purpose !== 'string' ||
+        !entry.purpose.length || entry.purpose.length > 512 || /[\p{Cc}\p{Cf}]/u.test(entry.purpose))
+      throw new Error('repair-definition');
+    const path = userConfigurationPath(entry.target);
+    if (captured.some(item => item.path === path || item.reason === entry.reason)) throw new Error('repair-definition');
+    const prerequisite = { path, reason: entry.reason, purpose: entry.purpose };
+    let absent = false;
+    try { absent = pathPins(path).at(-1)?.identity === 'absent'; } catch { /* Unsafe paths are unavailable too. */ }
+    if (!absent) throw new ConfigurationPrerequisiteUnavailable(prerequisite);
+    captured.push(prerequisite);
+  }
+  return captured;
 }
 
 /** Portable variant metadata declares scoped user configuration inputs; Core captures their exact bytes. */
@@ -110,15 +146,9 @@ function captureConfigFiles(variant: VariantMetadata) {
     if (!entry || typeof entry !== 'object' || typeof entry.operationId !== 'string' ||
         !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.operationId) || Object.hasOwn(captures, entry.operationId))
       throw new Error('repair-definition');
-    const target = entry.target;
-    if (!target || typeof target !== 'object' || target.root !== 'userHome' ||
-        !Array.isArray(target.segments) || !target.segments.length || target.segments.length > 8 ||
-        target.segments.some((slot: { literal: string }) => !slot || typeof slot !== 'object' ||
-          Reflect.ownKeys(slot).length !== 1 || typeof slot.literal !== 'string' || !validSegment(slot.literal)))
-      throw new Error('repair-definition');
     if (!Number.isSafeInteger(entry.maxBytes) || entry.maxBytes < 1 || entry.maxBytes > 16 * 1024 * 1024)
       throw new Error('repair-definition');
-    const path = join(homedir(), ...target.segments.map((slot: { literal: string }) => slot.literal));
+    const path = userConfigurationPath(entry.target);
     const pins = pathPins(path);
     if (pins.at(-1)?.identity === 'absent') {
       captures[entry.operationId] = { path, maxBytes: entry.maxBytes, pins, sha256: null };
@@ -267,6 +297,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const policyResolutions = resolutions.filter(item => !observations.some(obs =>
       item.selectionId === 'trust' && item.operationId === obs.operationId));
     const existing = readRegularFile(managedPath, { maxBytes: 16 * 1024 * 1024 });
+    const requiredAbsences = captureRequiredAbsences(variant);
     const { captures: configs, snapshots: configSnapshots } = captureConfigFiles(variant);
     const { executables, paths: executablePaths } = resolveExecutableBindings(variant);
     const rendered = prepareRepairDefinition({ id: selected.id, variantRef: variant.recipeRef,
@@ -313,6 +344,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       variantRef: variant.recipeRef, sourceBindings, ordinaryInputs, helperSha256,
       configBindings: Object.fromEntries(Object.entries(configs).map(([key, item]) =>
         [key, { sha256: item.sha256, pins: item.pins }])),
+      requiredAbsences,
       executableBindingDigests: Object.fromEntries(Object.entries(executables).map(([key, item]) =>
         [key, { path: item.path, sha256: item.sha256 }])),
       fingerprints: rendered.fingerprints, evaluatedAt: rendered.evaluatedAt,
@@ -324,6 +356,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
           `${candidate.kind}; ${candidate.origins.join(', ')}; ${candidate.probes} probes` :
           `${rendered.count} certificates; ${rendered.duplicates} duplicates; ${rendered.evaluatedAt}` },
         { id: 'harness-helper', reason: `sha256:${helperSha256}` },
+        ...requiredAbsences.map(item => ({ id: item.reason, reason: `${item.purpose}: ${item.path}` })),
         ...observations.map(item => ({ id: item.id, reason: item.reason })),
         ...(request.network === 'off' ? definition.offlineVerification.filter(item => selected.targets.includes(item.target))
           .map(item => ({ id: item.checkId, reason: 'skipped-offline' })) : [])],
@@ -335,7 +368,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       publicReviewDigest, id: selected.id, variantRef: variant.recipeRef,
       sources: Object.fromEntries(Object.entries(sources).map(([key, source]) =>
         [key, { path: source.path, pins: source.pins, sha256: source.sha256, maxBytes: source.maxBytes }])),
-      configs, executables,
+      configs, requiredAbsences, executables,
       helperSha256, targets: selected.targets, fingerprints: rendered.fingerprints,
       candidate,
       offlineVerification: definition.offlineVerification, offline: request.network === 'off', inputs,
@@ -343,6 +376,10 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         raw: item.raw, expectedRaw: item.expectedRaw })), managedPath, ordinaryInputs });
     return recordPreparation({ ...prepared, runId, review, prepared: handle }, controls);
   } catch (error) {
+    if (error instanceof ConfigurationPrerequisiteUnavailable)
+      return recordPreparation({ status: 'blocked', runId, diagnostics: [diagnostic('PREREQUISITE_UNAVAILABLE',
+        error.prerequisite.reason, `${error.prerequisite.purpose}: ${error.prerequisite.path}. Resolve this before preparing again.`)],
+        record: disabled }, safeControls);
     const reason = error instanceof Error && /^[a-z-]{1,64}$/.test(error.message) ? error.message : 'repair-input';
     return fail('invalid', 'INPUT_INVALID', reason);
   }
@@ -423,6 +460,10 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       candidate: candidate?.kind === 'unresolved' ? undefined : candidate, validateOnly: true });
     if (accepted.status !== 'completed') throw new Error('certificate-invalid');
     if (hash(accepted.fingerprints) !== hash(state.fingerprints)) throw new Error('review-stale');
+    for (const prerequisite of state.requiredAbsences) {
+      try { if (pathPins(prerequisite.path).at(-1)?.identity !== 'absent') throw new Error('review-stale'); }
+      catch { throw new Error('review-stale'); }
+    }
     configsValidated = true;
   };
   const result = await applyPolicy(state.policyHandle, { ...authorization, reviewDigest: state.policyReviewDigest },
