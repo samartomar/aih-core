@@ -10,7 +10,8 @@ import { validateRecipe } from './contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
-import { pathPins, pinsMatch, projectRoot, sha256 } from './internal/host-files.js';
+import { pathPins, pinsMatch, projectRoot, sha256, validSegment } from './internal/host-files.js';
+import { resolveExecutable, executableIdentityMatches } from './internal/approved-process.js';
 import { stateRoot, writeHistory } from './internal/state.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
 import type { Diagnostic, Recipe } from './types.js';
@@ -27,6 +28,9 @@ interface RepairState {
   policyHandle: PreparedHandle; policyReviewDigest: string; publicReviewDigest: string;
   id: string; variantRef: string;
   sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
+  configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  requiredAbsences: { path: string; reason: string; purpose: string }[];
+  executables: Record<string, { name: string; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
@@ -68,7 +72,8 @@ function installedHelperSha256(id: string): string {
       !repairIndex.some(item => item.id === id)) throw new Error('harness-unsupported');
   const digest = createHash('sha256');
   for (const name of ['package.json', 'dist/distribution.mjs', 'dist/harness/contracts.mjs',
-    'dist/harness/runtime.mjs', 'dist/harness/ca.mjs', 'dist/harness/candidate.mjs']) {
+    'dist/harness/runtime.mjs', 'dist/harness/ca.mjs', 'dist/harness/candidate.mjs',
+    'dist/harness/user-trust-definitions.mjs', 'dist/harness/user-trust.mjs']) {
     const bytes = readRegularFile(join(root, name), { maxBytes: 2_000_000 });
     if (!bytes) throw new Error('harness-unavailable');
     digest.update(name).update('\0').update(bytes).update('\0');
@@ -89,6 +94,96 @@ function capturedSource(path: string, maxBytes: number) {
       first.identity.dev !== second.identity.dev || first.identity.ino !== second.identity.ino)
     throw new Error('source-changed');
   return { bytes: first.contents, pins, sha256: sha256(first.contents) };
+}
+
+interface VariantMetadata {
+  configFiles?: readonly { operationId: string; target: { root: 'userHome'; segments: readonly { literal: string }[] }; maxBytes: number }[];
+  executableBindings?: readonly { name: string; pathInput: string }[];
+  requiredAbsences?: readonly { target: { root: 'userHome'; segments: readonly { literal: string }[] }; reason: string; purpose: string }[];
+}
+
+function userConfigurationPath(target: NonNullable<VariantMetadata['configFiles']>[number]['target']) {
+  if (!target || typeof target !== 'object' || target.root !== 'userHome' ||
+      !Array.isArray(target.segments) || !target.segments.length || target.segments.length > 8 ||
+      target.segments.some((slot: { literal: string }) => !slot || typeof slot !== 'object' ||
+        Reflect.ownKeys(slot).length !== 1 || typeof slot.literal !== 'string' || !validSegment(slot.literal)))
+    throw new Error('repair-definition');
+  return join(homedir(), ...target.segments.map(slot => slot.literal));
+}
+
+class ConfigurationPrerequisiteUnavailable extends Error {
+  constructor(readonly prerequisite: RepairState['requiredAbsences'][number]) { super(prerequisite.reason); }
+}
+
+/** Bind absence conditions without pinning parents that authorized writes may create. */
+function captureRequiredAbsences(variant: VariantMetadata) {
+  const list = variant.requiredAbsences ?? [];
+  if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
+  const captured: RepairState['requiredAbsences'] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object' || typeof entry.reason !== 'string' ||
+        !/^[a-z][a-z-]{0,63}$/.test(entry.reason) || typeof entry.purpose !== 'string' ||
+        !entry.purpose.length || entry.purpose.length > 512 || /[\p{Cc}\p{Cf}]/u.test(entry.purpose))
+      throw new Error('repair-definition');
+    const path = userConfigurationPath(entry.target);
+    if (captured.some(item => item.path === path || item.reason === entry.reason)) throw new Error('repair-definition');
+    const prerequisite = { path, reason: entry.reason, purpose: entry.purpose };
+    let absent = false;
+    try { absent = pathPins(path).at(-1)?.identity === 'absent'; } catch { /* Unsafe paths are unavailable too. */ }
+    if (!absent) throw new ConfigurationPrerequisiteUnavailable(prerequisite);
+    captured.push(prerequisite);
+  }
+  return captured;
+}
+
+/** Portable variant metadata declares scoped user configuration inputs; Core captures their exact bytes. */
+function captureConfigFiles(variant: VariantMetadata) {
+  const list = variant.configFiles ?? [];
+  if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
+  const captures: RepairState['configs'] = {};
+  const snapshots: Record<string, Uint8Array> = {};
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object' || typeof entry.operationId !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.operationId) || Object.hasOwn(captures, entry.operationId))
+      throw new Error('repair-definition');
+    if (!Number.isSafeInteger(entry.maxBytes) || entry.maxBytes < 1 || entry.maxBytes > 16 * 1024 * 1024)
+      throw new Error('repair-definition');
+    const path = userConfigurationPath(entry.target);
+    const pins = pathPins(path);
+    if (pins.at(-1)?.identity === 'absent') {
+      captures[entry.operationId] = { path, maxBytes: entry.maxBytes, pins, sha256: null };
+      continue;
+    }
+    const first = readRegularFileWithStats(path, { maxBytes: entry.maxBytes });
+    if (!first || !pinsMatch(pins)) throw new Error('config-unavailable');
+    const second = readRegularFileWithStats(path, { maxBytes: entry.maxBytes });
+    if (!second || !pinsMatch(pins) || !first.contents.equals(second.contents) ||
+        first.identity.dev !== second.identity.dev || first.identity.ino !== second.identity.ino)
+      throw new Error('config-unavailable');
+    captures[entry.operationId] = { path, maxBytes: entry.maxBytes, pins, sha256: sha256(first.contents) };
+    snapshots[entry.operationId] = first.contents;
+  }
+  return { captures, snapshots };
+}
+
+/** Portable variant metadata declares reviewed executable prerequisites; Core resolves and pins their bytes. */
+function resolveExecutableBindings(variant: VariantMetadata) {
+  const list = variant.executableBindings ?? [];
+  if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
+  const executables: RepairState['executables'] = {};
+  const paths: Record<string, string> = {};
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) ||
+        typeof entry.pathInput !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.pathInput) ||
+        Object.hasOwn(executables, entry.pathInput)) throw new Error('repair-definition');
+    const resolved = resolveExecutable(entry.name);
+    executables[entry.pathInput] = { name: entry.name, path: resolved?.path ?? null,
+      launchPath: resolved?.launchPath ?? null,
+      pins: resolved?.pins ?? [], sha256: resolved?.sha256 ?? null };
+    paths[entry.pathInput] = resolved?.launchPath ?? '';
+  }
+  return { executables, paths };
 }
 
 function observeRepair(id: string, targets: string[], variantRef: string) {
@@ -203,8 +298,13 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const policyResolutions = resolutions.filter(item => !observations.some(obs =>
       item.selectionId === 'trust' && item.operationId === obs.operationId));
     const existing = readRegularFile(managedPath, { maxBytes: 16 * 1024 * 1024 });
+    const requiredAbsences = captureRequiredAbsences(variant);
+    const { captures: configs, snapshots: configSnapshots } = captureConfigFiles(variant);
+    const { executables, paths: executablePaths } = resolveExecutableBindings(variant);
     const rendered = prepareRepairDefinition({ id: selected.id, variantRef: variant.recipeRef,
       targets: selected.targets, files, ordinaryInputs, existing,
+      ...(variant.configFiles?.length ? { configSnapshots } : {}),
+      ...(variant.executableBindings?.length ? { executablePaths } : {}),
       candidate, managedPath, offline: request.network === 'off' });
     if (rendered.status !== 'completed' || !rendered.bindings)
       return recordPreparation({ status: rendered.status === 'completed' ? 'invalid' : rendered.status, runId, diagnostics: rendered.status === 'completed' ?
@@ -216,17 +316,24 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     const validation = validateRecipe(recipe);
     if (!validation.valid) return recordPreparation({ status: 'invalid', runId, diagnostics: validation.diagnostics, record: disabled }, controls);
     const publicNames = Object.keys(recipe.inputs).filter(name => !recipe.inputs[name]?.sensitive);
+    const sensitiveNames = Object.keys(recipe.inputs).filter(name => recipe.inputs[name]?.sensitive);
+    const privateBindings = rendered.privateBindings ?? {};
+    if (typeof privateBindings !== 'object' || !privateBindings || Array.isArray(privateBindings))
+      return fail('invalid', 'INPUT_INVALID', 'repair-bindings');
+    const suppliedPrivate: Record<string, string> = { ...privateBindings };
+    if (bundle !== undefined) suppliedPrivate.bundle = bundle;
     if (Object.keys(rendered.bindings).length !== publicNames.length ||
         Object.keys(rendered.bindings).some(name => !publicNames.includes(name)) ||
-        (bundle !== undefined && (!Object.hasOwn(recipe.inputs, 'bundle') || !recipe.inputs.bundle?.sensitive)) ||
-        (bundle === undefined && Object.keys(recipe.inputs).some(name => recipe.inputs[name]?.sensitive)))
+        Object.keys(privateBindings).some(name => name === 'bundle' || !sensitiveNames.includes(name)) ||
+        Object.keys(suppliedPrivate).length !== sensitiveNames.length ||
+        sensitiveNames.some(name => typeof suppliedPrivate[name] !== 'string'))
       return fail('invalid', 'INPUT_INVALID', 'repair-bindings');
     const prepared = await preparePolicy({ useCase: 'policy', target: { project: home },
       policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
         id: 'trust', managementId: definition.managementId, scope: 'user', configuration: rendered.bindings,
         requires: [], recipe: { inline: recipe }
       }] }, ...(policyResolutions.length ? { resolutions: policyResolutions } : {}) },
-      { ...controls, logging: 'off', ...(bundle === undefined ? {} : { privateInputs: { trust: { bundle } } }) });
+      { ...controls, logging: 'off', ...(sensitiveNames.length ? { privateInputs: { trust: suppliedPrivate } } : {}) });
     if (!prepared.review || !prepared.prepared) return recordPreparation(prepared, controls);
     const sourceBindings = Object.fromEntries(Object.entries(sources).map(([key, source]) =>
       [key, { sha256: source.sha256, pins: source.pins }]));
@@ -236,6 +343,11 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       helperSha256, package: harnessSupport.package };
     const publicReviewDigest = hash({ policyReviewDigest: prepared.review.reviewDigest,
       variantRef: variant.recipeRef, sourceBindings, ordinaryInputs, helperSha256,
+      configBindings: Object.fromEntries(Object.entries(configs).map(([key, item]) =>
+        [key, { sha256: item.sha256, pins: item.pins }])),
+      requiredAbsences,
+      executableBindingDigests: Object.fromEntries(Object.entries(executables).map(([key, item]) =>
+        [key, { path: item.path, launchPath: item.launchPath, sha256: item.sha256 }])),
       fingerprints: rendered.fingerprints, evaluatedAt: rendered.evaluatedAt,
       observations: observations.map(item => ({ id: item.id, raw: item.raw })) });
     const review: PreparedReview = { ...prepared.review, useCase: 'repair', mode: 'standalone',
@@ -245,6 +357,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
           `${candidate.kind}; ${candidate.origins.join(', ')}; ${candidate.probes} probes` :
           `${rendered.count} certificates; ${rendered.duplicates} duplicates; ${rendered.evaluatedAt}` },
         { id: 'harness-helper', reason: `sha256:${helperSha256}` },
+        ...requiredAbsences.map(item => ({ id: item.reason, reason: `${item.purpose}: ${item.path}` })),
         ...observations.map(item => ({ id: item.id, reason: item.reason })),
         ...(request.network === 'off' ? definition.offlineVerification.filter(item => selected.targets.includes(item.target))
           .map(item => ({ id: item.checkId, reason: 'skipped-offline' })) : [])],
@@ -256,6 +369,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       publicReviewDigest, id: selected.id, variantRef: variant.recipeRef,
       sources: Object.fromEntries(Object.entries(sources).map(([key, source]) =>
         [key, { path: source.path, pins: source.pins, sha256: source.sha256, maxBytes: source.maxBytes }])),
+      configs, requiredAbsences, executables,
       helperSha256, targets: selected.targets, fingerprints: rendered.fingerprints,
       candidate,
       offlineVerification: definition.offlineVerification, offline: request.network === 'off', inputs,
@@ -263,6 +377,10 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         raw: item.raw, expectedRaw: item.expectedRaw })), managedPath, ordinaryInputs });
     return recordPreparation({ ...prepared, runId, review, prepared: handle }, controls);
   } catch (error) {
+    if (error instanceof ConfigurationPrerequisiteUnavailable)
+      return recordPreparation({ status: 'blocked', runId, diagnostics: [diagnostic('PREREQUISITE_UNAVAILABLE',
+        error.prerequisite.reason, `${error.prerequisite.purpose}: ${error.prerequisite.path}. Resolve this before preparing again.`)],
+        record: disabled }, safeControls);
     const reason = error instanceof Error && /^[a-z-]{1,64}$/.test(error.message) ? error.message : 'repair-input';
     return fail('invalid', 'INPUT_INVALID', reason);
   }
@@ -291,6 +409,7 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       authorization.allowPartial !== undefined && typeof authorization.allowPartial !== 'boolean')
     return rejected('approval-required', 'APPROVAL_REQUIRED');
   if (controls.signal?.aborted) return { ...rejected('cancelled', 'CANCELLED'), completion: 'cancelled' };
+  let configsValidated = false;
   const revalidate = async () => {
     if (installedHelperSha256(state.id) !== state.helperSha256) throw new Error('review-stale');
     const candidate = state.candidate ? await assessRepairCandidate({ id: state.id, inputs: state.ordinaryInputs },
@@ -316,11 +435,39 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       if (captured.sha256 !== source.sha256) throw new Error('review-stale');
       files[key] = captured.bytes;
     }
+    // Bind the transform snapshots before any effect. The policy engine checks
+    // each destination's reviewed bytes/pins again immediately before writing;
+    // later effects must not reject a preceding authorized config rewrite.
+    if (!configsValidated) {
+      for (const config of Object.values(state.configs)) {
+        if (!pinsMatch(config.pins)) throw new Error('review-stale');
+        if (config.sha256 === null) continue;
+        const captured = readRegularFileWithStats(config.path, { maxBytes: config.maxBytes });
+        if (!captured || sha256(captured.contents) !== config.sha256 || !pinsMatch(config.pins)) throw new Error('review-stale');
+      }
+    }
+    for (const executable of Object.values(state.executables)) {
+      if (executable.path === null) {
+        if (resolveExecutable(executable.name)) throw new Error('review-stale');
+        continue;
+      }
+      if (executable.launchPath === null) throw new Error('review-stale');
+      const identity = { path: executable.path, launchPath: executable.launchPath, pins: executable.pins };
+      const live = executableIdentityMatches(identity) ?
+        readRegularFileWithStats(executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
+      if (!live || sha256(live.contents) !== executable.sha256 || !executableIdentityMatches(identity))
+        throw new Error('review-stale');
+    }
     const accepted = prepareRepairDefinition({ id: state.id, variantRef: state.variantRef, targets: state.targets, files,
       ordinaryInputs: state.ordinaryInputs,
       candidate: candidate?.kind === 'unresolved' ? undefined : candidate, validateOnly: true });
     if (accepted.status !== 'completed') throw new Error('certificate-invalid');
     if (hash(accepted.fingerprints) !== hash(state.fingerprints)) throw new Error('review-stale');
+    for (const prerequisite of state.requiredAbsences) {
+      try { if (pathPins(prerequisite.path).at(-1)?.identity !== 'absent') throw new Error('review-stale'); }
+      catch { throw new Error('review-stale'); }
+    }
+    configsValidated = true;
   };
   const result = await applyPolicy(state.policyHandle, { ...authorization, reviewDigest: state.policyReviewDigest },
     { ...controls, logging: 'off' }, revalidate);

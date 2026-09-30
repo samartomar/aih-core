@@ -1,0 +1,57 @@
+name: Native user trust acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'src/harness/user-trust*'
+      - 'src/core/repair.ts'
+      - 'scripts/ci/user-trust-native.mjs'
+      - '.github/workflows/user-trust-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Provision native fixture tools
+        uses: conda-incubator/setup-miniconda@be893c923ea9cf1cf7cd510fbdde27c7e18cbdcb # v4
+        with:
+          miniforge-version: latest
+          activate-environment: ''
+          auto-activate: true
+      - name: Build candidate
+        shell: bash -el {0}
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+          npm run build
+      - name: Packed native acceptance
+        shell: bash -el {0}
+        run: |
+          mkdir -p native-trust-results
+          python --version > native-trust-results/tool-versions.txt
+          pip --version >> native-trust-results/tool-versions.txt
+          git --version >> native-trust-results/tool-versions.txt
+          cargo --version >> native-trust-results/tool-versions.txt
+          conda --version >> native-trust-results/tool-versions.txt
+          uname -a >> native-trust-results/tool-versions.txt
+          npm exec --offline --call 'node scripts/ci/user-trust-native.mjs'
+      - name: Preserve native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-user-trust-${{ matrix.os }}
+          path: native-trust-results/
+          if-no-files-found: warn

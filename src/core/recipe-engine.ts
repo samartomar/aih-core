@@ -119,7 +119,7 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
   const timeoutMs = invocation.timeoutMs ?? 300_000; const maxOutputBytes = invocation.maxOutputBytes ?? 65_536;
   return { process: { executable: resolvedExecutable, args, cwd: cwd.absolute, cwdPins: pathPins(cwd.absolute), env, stdin,
     timeoutMs, maxOutputBytes, acceptedExitCodes: invocation.acceptedExitCodes },
-    review: { executable: executable?.path ?? (materialId ? `material:${materialId}` : `unavailable:${'name' in invocation.executable ? invocation.executable.name : ''}`),
+    review: { executable: executable?.launchPath ?? (materialId ? `material:${materialId}` : `unavailable:${'name' in invocation.executable ? invocation.executable.name : ''}`),
       ...(executable ? { executableSha256: executable.sha256 } : materialBytes ? { executableSha256: sha256(materialBytes) } : {}),
       args: args.map(arg => JSON.stringify(redactExact(arg, privateValues))), cwd: safeText(cwd.absolute, privateValues),
       env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, JSON.stringify(redactExact(value, privateValues))])),
