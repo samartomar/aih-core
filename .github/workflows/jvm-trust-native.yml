@@ -42,9 +42,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          # Exact pinned build (Temurin jdk-21.0.12.1+1 = semver 21.0.12+101);
+          # Exact pinned build (Temurin jdk-21.0.12.1+1 = 21.0.12+101.0.LTS);
           # the resolved patch is recorded in tool-versions.txt below.
-          java-version: '21.0.12+101'
+          java-version: '21.0.12+101.0.LTS'
       - name: Provision pinned fixture Gradle and Maven
         shell: bash
         # CI-only fixture provisioning; the product installs nothing. Versions and
