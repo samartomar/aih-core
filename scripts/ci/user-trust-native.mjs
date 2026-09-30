@@ -70,8 +70,15 @@ async function exerciseConsumer() {
         cwd: details.cwd, env: { ...process.env, ...Object.fromEntries(Object.entries(details.env).map(([key, value]) => [key, JSON.parse(value)])) },
         shell: false, windowsHide: true, encoding: 'utf8', timeout: 30000, maxBuffer: 8192
       });
+      // The product wrapper suppresses vendor output. In this isolated fixture,
+      // retain a bounded direct Cargo probe with the same inherited trust so a
+      // native failure can be distinguished from an external query failure.
+      const cargo = item.id === 'trust/cargo-behavior' ? spawnSync(JSON.parse(details.args.at(-1)),
+        ['search', 'serde', '--limit', '1'], { cwd: details.cwd, env: { ...process.env },
+          shell: false, windowsHide: true, encoding: 'utf8', timeout: 18000, maxBuffer: 8192 }) : undefined;
       return { checkId: item.id, status: command.status, error: command.error?.code,
-        stderr: (command.stderr ?? '').slice(0, 8192) };
+        stderr: (command.stderr ?? '').slice(0, 8192), ...(cargo ? { cargo: {
+          status: cargo.status, error: cargo.error?.code, stderr: (cargo.stderr ?? '').slice(0, 8192) } } : {}) };
     });
     writeFileSync('native-diagnostics.json', JSON.stringify(diagnostics, null, 2));
   }
