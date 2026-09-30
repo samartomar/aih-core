@@ -1,0 +1,14 @@
+{
+  "name": "@aihq/harness",
+  "version": "2.0.0-dev.0",
+  "description": "Installed AIHQ environment inspection and repair content",
+  "type": "module",
+  "engines": { "node": ">=24.6.0 <25" },
+  "exports": {
+    "./package.json": "./package.json",
+    "./contracts": { "types": "./contracts.d.mts", "import": "./contracts.mjs" },
+    "./runtime": { "types": "./runtime.d.mts", "import": "./runtime.mjs" }
+  },
+  "files": ["contracts.mjs", "contracts.d.mts", "runtime.mjs", "runtime.d.mts", "ca.mjs", "candidate.mjs", "README.md", "LICENSE"],
+  "license": "Apache-2.0"
+}
