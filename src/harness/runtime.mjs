@@ -12,6 +12,8 @@ import { candidateOrigins, selectTrustCandidateWith } from './candidate.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
   userToolsObservationRequests, assessUserToolsObservations } from './user-trust.mjs';
+import { jvmRepair } from './jvm-trust-definitions.mjs';
+import { jvmRecipe, renderJvmRepair, prepareJvmRepair } from './jvm-trust.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 
 const literal = value => ({ literal: value });
@@ -230,6 +232,7 @@ for (const variant of repairIndex[1].variants) {
 
 /** The graph is selected from installed content; callers receive a detached copy. */
 for (const variant of userToolsRepair.variants) shippedRecipes.set(variant.recipeRef, userToolsRecipe(variant));
+for (const variant of jvmRepair.variants) shippedRecipes.set(variant.recipeRef, jvmRecipe(variant));
 export function getRepairRecipe(recipeRef) {
   const recipe = shippedRecipes.get(recipeRef);
   return recipe ? structuredClone(recipe) : undefined;
@@ -237,6 +240,7 @@ export function getRepairRecipe(recipeRef) {
 
 /** This transform supplies literal bindings only; it cannot alter an operation graph. */
 export function renderRepair(request) {
+  if (request?.id === 'jvm-ca') return renderJvmRepair(request);
   if (request?.id === 'user-tools-ca') return renderUserToolsRepair(request);
   const definition = repairIndex.find(item => item.id === request?.id);
   const variant = definition?.variants.find(item => item.recipeRef === request.variantRef &&
@@ -271,6 +275,7 @@ export function renderRepair(request) {
 
 /** Installed vendor logic consumes bounded snapshots; it never reads or mutates the host. */
 export function prepareRepairDefinition(request) {
+  if (request?.id === 'jvm-ca') return prepareJvmRepair(request);
   if (request?.id === 'user-tools-ca') return prepareUserToolsRepair(request);
   const definition = repairIndex.find(item => item.id === request?.id);
   if (request?.id === 'node-os-trust') {
@@ -331,6 +336,7 @@ export function prepareRepairDefinition(request) {
 
 /** Fixed, read-only host observations selected by the installed repair definition. */
 export function repairObservationRequests(request) {
+  if (request.id === 'jvm-ca') return [];
   if (request.id === 'user-tools-ca') return userToolsObservationRequests(request);
   if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
   if (process.platform !== 'win32' || !request.targets.includes('node')) return [];
@@ -345,6 +351,7 @@ export function repairObservationRequests(request) {
 
 /** Interpret the fixed probe's output and its reviewed target transition. */
 export function assessRepairObservations(request) {
+  if (request.id === 'jvm-ca') return [];
   if (request.id === 'user-tools-ca') return assessUserToolsObservations(request);
   if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
   const expected = request.id === 'node-os-trust' && request.variantRef?.endsWith('/system-ca') ? '1' : request.managedPath;

@@ -70,6 +70,35 @@ export function resolveExecutable(name: string): ResolvedExecutable | undefined 
   return undefined;
 }
 
+/** Capture an installed launcher for a fixed helper; this does not admit direct execution. */
+export function resolveLauncher(name: string): ResolvedExecutable | undefined {
+  if (!name || /[\r\n\0]/.test(name)) return undefined;
+  const suffixes = process.platform === 'win32' ? ['.exe', '.com', '.cmd', '.bat'] : [''];
+  const candidates: string[] = [];
+  if (isAbsolute(name)) candidates.push(name);
+  else if (!/[\\/]/.test(name) && name !== '.' && name !== '..') {
+    for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+      if (!dir || !isAbsolute(dir)) continue;
+      for (const suffix of suffixes) candidates.push(join(dir,
+        process.platform === 'win32' && !/\.(exe|com|cmd|bat)$/i.test(name) ? name + suffix : name));
+    }
+  }
+  for (const path of candidates) {
+    if (process.platform === 'win32' && !/\.(exe|com|cmd|bat)$/i.test(path)) continue;
+    try {
+      accessSync(path, constants.R_OK);
+      const resolved = realpathSync.native(path);
+      const pins = [...executablePathPins(path), ...executablePathPins(resolved)];
+      const captured = readRegularFileWithStats(resolved, { maxBytes: 16 * 1024 * 1024 });
+      const current = lstatSync(resolved, { bigint: true });
+      if (captured && current.isFile() && captured.identity.dev === current.dev && captured.identity.ino === current.ino &&
+          realpathSync.native(path) === resolved && executablePinsMatch(pins))
+        return { path: resolved, launchPath: resolve(path), pins, sha256: sha256(captured.contents) };
+    } catch { /* Try the next declared PATH candidate. */ }
+  }
+  return undefined;
+}
+
 export async function runApprovedProcess(request: {
   executable: ResolvedExecutable; args: string[]; cwd: string; env: Record<string, string>;
   stdin?: string; timeoutMs: number; maxOutputBytes: number; acceptedExitCodes: number[];

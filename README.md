@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo and conda CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -90,6 +90,40 @@ Python sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for future user shell sessi
 Vendor transforms retain neighboring settings. Preserved configuration bodies are private inputs and appear redacted in reviews and routine history. Existing unowned or changed files require an exact reviewed replacement resolution, even when their other content will be preserved. Managed trust retains existing certificates and includes baseline roots alongside the supplied CA. Relevant config files, helper bytes and input bytes are bound to the prepared work; changes require another review. Online verification exercises the selected tool and its effective trust configuration. `--offline` reports skipped behavioral verification and incomplete repair. A failed or unavailable prerequisite prevents its dependent configuration changes. `--allow-partial` permits only reviewed independent work and does not authorize a conflict replacement.
 
 Python must be `python` on Windows or `python3` on macOS/Linux. pip, Git and conda require direct executables; Windows batch wrappers are unavailable. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
+
+## Repair Gradle and Maven trust
+
+The bundled `jvm-ca` repair selects `gradle`, `maven`, or both at user scope. Supply a complete CA-only PEM and explicitly select a trust-only **JKS** baseline containing the default roots from the JDK used by those managers. The baseline uses the conventional public-container password `changeit` and must contain only CA certificate entries. Some JDKs ship PKCS12 `cacerts`; those files are unsupported directly. Export or convert the selected baseline with an approved local tool, preserve its default CA identities, and review that JKS file explicitly. Core binds both source files to the review; selecting a CA does not authorize discovery or installation of another JDK.
+
+Save `{"jvm-ca":{"caFile":"/absolute/company-ca.pem","baselineStore":"/absolute/reviewed-jdk-baseline.jks"}}` as `repair-inputs.json`, then preview and authorize the selected targets:
+
+```sh
+aih repair jvm-ca --target gradle --target maven --inputs-file repair-inputs.json --json
+aih repair jvm-ca --target gradle --target maven --inputs-file repair-inputs.json --apply
+```
+
+The API uses the same preparation and authorization path:
+
+```js
+const preparation = await prepare({ useCase: 'repair', repairs: [{
+  id: 'jvm-ca', targets: ['gradle', 'maven'], inputs: {
+    caFile: absolutePemPath,
+    baselineStore: absoluteBaselineJksPath
+  }
+}] });
+// Show preparation.review and obtain explicit authorization.
+const result = await apply(preparation.prepared, {
+  approved: true, origin: 'interactive', reviewDigest: preparation.review.reviewDigest
+});
+```
+
+CA admission uses the same complete-input limits as Node/npm. Existing user configuration is preserved, and an unowned or changed configuration file requires an exact reviewed replacement resolution. A missing keytool is an unavailable prerequisite. A failed truststore materialization or required store check prevents dependent Gradle/Maven configuration writes. Earlier authorized effects and recovery information remain available; a process failure can leave opaque effects.
+
+The repair writes Gradle's canonical `~/.gradle/gradle.properties` and Maven's `~/.mavenrc` on macOS/Linux or `%USERPROFILE%/mavenrc_pre.cmd` on Windows. It retains neighboring settings and previously managed CA certificates. The derived JKS retains the reviewed baseline roots and uses an exclusive destination containing both input hashes; unknown bytes at that destination are preserved and block materialization. Redirected Gradle homes, Maven rc bypasses, ambiguous configuration and inherited JVM trust overrides require correction before preparation.
+
+Declared verification requires the existing `java`, `keytool`, `gradle` and/or `mvn` on `PATH`. Windows Gradle and Maven batch launchers are captured and checked through fixed wrappers. The checks run a temporary Gradle task or Maven project with the repaired user settings, verify the selected store and supplied CA identities in the manager's default trust context, and connect to `services.gradle.org` or `repo.maven.apache.org`. Temporary check projects are removed after the check. Review their declared process effects and network access before authorization.
+
+The review shows selected executables, arguments, destinations and required checks. Source, configuration, helper or executable changes require a fresh review. Offline mode skips live manager verification and reports incomplete repair. No organization policy, system trust change or tool installation is involved. Public endpoint checks establish the performed connection only; they do not prove a supplied CA repaired a different endpoint.
 
 ## One complete authoring example
 

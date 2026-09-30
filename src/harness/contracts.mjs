@@ -1,6 +1,7 @@
 // This entry is data only. Importing it performs no host observation.
 import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
+import { jvmRepair } from './jvm-trust-definitions.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:harness:support:1.0.0',
   package: distribution,
@@ -45,13 +46,14 @@ export const repairIndex = Object.freeze([Object.freeze({
     description: 'Installed selector for the effective HTTPS npm registry: npm-registry' }) }),
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
   offlineVerification: Object.freeze([])
-}), userToolsRepair]);
+}), userToolsRepair, jvmRepair]);
 export const verificationKeys = Object.freeze([]);
 export const helperMetadata = Object.freeze({
   repairs: Object.freeze([
     { id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] },
     { id: 'node-os-trust', helper: 'renderRepair', targets: ['node'] },
-    { id: 'user-tools-ca', helper: 'renderRepair', targets: ['python', 'pip', 'git', 'cargo', 'conda'] }
+    { id: 'user-tools-ca', helper: 'renderRepair', targets: ['python', 'pip', 'git', 'cargo', 'conda'] },
+    { id: 'jvm-ca', helper: 'renderRepair', targets: ['gradle', 'maven'] }
   ]),
   diagnostics: Object.freeze([
     { id: 'existing-tools', kind: 'diagnostic', purpose: 'Inspect installed tools and their declared TLS origins',
