@@ -267,7 +267,13 @@ const cargoTls = toolCheckPrelude +
   "if(env.CARGO_HOME&&p.resolve(env.CARGO_HOME)!==p.dirname(config))process.exit(1);" +
   "try{f.lstatSync(p.join(p.dirname(config),'config'));process.exit(1)}catch(error){if(error.code!=='ENOENT')process.exit(1)};" +
   "const r=run(file,['search','serde','--limit','1']);process.exit(ok(r)?0:1)";
-const condaTls = "import os\nfrom conda.base.context import context\nfrom conda.gateways.connection.session import CondaSession\nassert context.ssl_verify == os.environ['AIHQ_EXPECTED_CA']\nr=CondaSession().get('https://repo.anaconda.com/pkgs/main/noarch/repodata.json',timeout=15,stream=True)\nassert r.status_code==200\nr.close()";
+// conda run's Windows wrapper refuses arguments with newlines. A fresh Python
+// import also starts with an empty config search path; initialize the same
+// effective context used by conda's CLI before testing its connection session.
+const condaTls = ["import os", "from conda.base.context import context,reset_context", "reset_context()",
+  "from conda.gateways.connection.session import CondaSession", "assert context.ssl_verify == os.environ['AIHQ_EXPECTED_CA']",
+  "r=CondaSession().get('https://repo.anaconda.com/pkgs/main/noarch/repodata.json',timeout=15,stream=True)",
+  "assert r.status_code==200", "r.close()"].join(';');
 
 export function userToolsRecipe(variant) {
   const inputs = { bundle: { type: 'string', required: true, sensitive: true, maxLength: 16 * 1024 * 1024 },

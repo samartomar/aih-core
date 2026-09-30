@@ -65,6 +65,23 @@ test('an existing hardlinked executable runs while its reviewed bytes remain unc
   assert.equal(existsSync(marker), true);
 });
 
+test('a reviewed executable rejects an intermediate alias retarget before spawning', async t => {
+  const project = mkdtempSync(join(root, 'intermediate-'));
+  const first = join(project, 'first.exe'), second = join(project, 'second.exe');
+  const middle = join(project, 'middle.exe'), alias = join(project, 'tool.exe');
+  for (const file of [first, second]) { copyFileSync(process.execPath, file); chmodSync(file, 0o700); }
+  try { symlinkSync(first, middle, 'file'); symlinkSync(middle, alias, 'file'); }
+  catch (error) { if (error.code === 'EPERM') { t.skip('This Windows account cannot create executable symlinks'); return; } throw error; }
+  const marker = join(project, 'ran.txt');
+  const preparation = await prepare(request(project, alias, marker), controls);
+  assert.equal(preparation.status, 'ready', JSON.stringify(preparation.diagnostics));
+  unlinkSync(middle); symlinkSync(second, middle, 'file');
+  const result = await apply(preparation.prepared, authorize(preparation), controls);
+  assert.equal(result.operations[0].reason, 'executable-changed');
+  assert.equal(result.operations[0].effectsUncertain, false);
+  assert.equal(existsSync(marker), false);
+});
+
 test('an executable alias preserves the selected launcher name', async t => {
   const project = mkdtempSync(join(root, 'launcher-'));
   const executable = join(project, 'dispatcher.exe'), alias = join(project, 'tool.exe');

@@ -11,7 +11,7 @@ import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateCon
 import { canonicalJson } from './internal/canonical.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
 import { pathPins, pinsMatch, projectRoot, sha256, validSegment } from './internal/host-files.js';
-import { resolveExecutable, executablePinsMatch } from './internal/approved-process.js';
+import { resolveExecutable, executableIdentityMatches } from './internal/approved-process.js';
 import { stateRoot, writeHistory } from './internal/state.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
 import type { Diagnostic, Recipe } from './types.js';
@@ -451,9 +451,11 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
         if (resolveExecutable(executable.name)) throw new Error('review-stale');
         continue;
       }
-      const live = executablePinsMatch(executable.pins) ?
+      if (executable.launchPath === null) throw new Error('review-stale');
+      const identity = { path: executable.path, launchPath: executable.launchPath, pins: executable.pins };
+      const live = executableIdentityMatches(identity) ?
         readRegularFileWithStats(executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
-      if (!live || sha256(live.contents) !== executable.sha256 || !executablePinsMatch(executable.pins))
+      if (!live || sha256(live.contents) !== executable.sha256 || !executableIdentityMatches(identity))
         throw new Error('review-stale');
     }
     const accepted = prepareRepairDefinition({ id: state.id, variantRef: state.variantRef, targets: state.targets, files,

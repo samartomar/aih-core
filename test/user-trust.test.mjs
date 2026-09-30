@@ -1,6 +1,6 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -202,6 +202,23 @@ test('Cargo required absence survives its authorized config directory creation',
   assert.equal(applied.completion, 'incomplete');
   assert.equal(existsSync(join(home, '.cargo', 'config')), false);
   assert.match(readFileSync(join(home, '.cargo', 'config.toml'), 'utf8'), /cainfo/);
+}));
+
+test('a repair rejects an intermediate executable binding retarget before any effect', t => withPath(async () => {
+  fixtureTool('git');
+  const first = join(bin, 'first.exe'), second = join(bin, 'second.exe');
+  const middle = join(bin, 'middle.exe'), alias = join(bin, process.platform === 'win32' ? 'cargo.exe' : 'cargo');
+  for (const file of [first, second]) { copyFileSync(process.execPath, file); chmodSync(file, 0o700); }
+  try { symlinkSync(first, middle, 'file'); symlinkSync(middle, alias, 'file'); }
+  catch (error) { if (error.code === 'EPERM') { t.skip('This Windows account cannot create executable symlinks'); return; } throw error; }
+  const prepared = await prepare(request(source('binding-alias.pem'), ['cargo'], 'declared'), { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  unlinkSync(middle); symlinkSync(second, middle, 'file');
+  const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+  assert.equal(result.completion, 'rejected');
+  assert.equal(result.diagnostics[0].code, 'REVIEW_STALE');
+  assert.equal(existsSync(join(home, '.aih')), false);
+  assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
 }));
 
 test('a substitute executable never yields verified success', () => withPath(async () => {

@@ -13,7 +13,7 @@ export interface ProcessResult {
 const WINDOWS_SUFFIX = process.platform === 'win32' ? ['.exe', '.com'] : [''];
 
 // Read-only executable admission has different link rules from mutation targets.
-// Pin both the selected alias chain and its resolved regular file; never reuse
+// Pin the selected path and its resolved regular file; never reuse
 // these pins to authorize a file write.
 function executablePathPins(path: string): PathPin[] {
   const absolute = resolve(path), base = parse(absolute).root;
@@ -35,6 +35,13 @@ export function executablePinsMatch(pins: PathPin[]): boolean {
       return current?.path === pin.path && current.identity === pin.identity;
     } catch { return false; }
   });
+}
+
+/** Re-resolve the launcher too: lexical pins cannot cover intermediate link targets. */
+export function executableIdentityMatches(executable: Pick<ResolvedExecutable, 'path' | 'launchPath' | 'pins'>): boolean {
+  try {
+    return executablePinsMatch(executable.pins) && realpathSync.native(executable.launchPath) === executable.path;
+  } catch { return false; }
 }
 
 export function resolveExecutable(name: string): ResolvedExecutable | undefined {
@@ -69,9 +76,9 @@ export async function runApprovedProcess(request: {
   signal?: AbortSignal;
 }): Promise<ProcessResult> {
   if (request.signal?.aborted) return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false, terminationUnconfirmed: false };
-  const live = executablePinsMatch(request.executable.pins) ?
+  const live = executableIdentityMatches(request.executable) ?
     readRegularFileWithStats(request.executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
-  if (!live || sha256(live.contents) !== request.executable.sha256 || !executablePinsMatch(request.executable.pins))
+  if (!live || sha256(live.contents) !== request.executable.sha256 || !executableIdentityMatches(request.executable))
     return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
   return new Promise(resolve => {
     let child: ReturnType<typeof spawn>;
@@ -94,7 +101,7 @@ export async function runApprovedProcess(request: {
     const abort = () => stop('cancelled');
     try {
       // Dispatchers such as rustup select the tool by the original launcher name.
-      // Its alias chain and canonical executable bytes were both pinned above.
+      // The launcher still resolves to the reviewed, byte-pinned executable.
       child = spawn(request.executable.launchPath, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
         env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { finish('unavailable', 'spawn-failed'); return; }

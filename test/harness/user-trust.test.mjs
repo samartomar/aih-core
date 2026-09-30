@@ -253,6 +253,33 @@ test('Git and conda retain neighboring user configuration and are byte-idempoten
   assert.equal(twice.bundle, result.bundle);
 });
 
+test('native conda behavior uses its selected CA and rejects a mismatched path',
+  { skip: !process.env.AIHQ_TEST_CONDA_EXECUTABLE }, () => {
+    const root = mkdtempSync(join(tmpdir(), 'aih-conda-session-'));
+    try {
+      const caPath = join(root, 'trust.pem');
+      const configPath = join(root, '.condarc');
+      const prepared = prepare(['conda'], {}, { managedPath: caPath });
+      assert.equal(prepared.status, 'completed');
+      writeFileSync(caPath, prepared.bundle);
+      writeFileSync(configPath, prepared.privateBindings.condaConfig);
+      const probe = getRepairRecipe(`user-tools-ca/${process.platform}/conda/declared`).checks.find(item => item.id === 'conda-behavior');
+      const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: root, LOCALAPPDATA: root, TEMP: root, TMP: root,
+        CONDARC: configPath, AIHQ_EXPECTED_CA: caPath };
+      for (const name of Object.keys(env)) if (/^CONDA_(PREFIX|DEFAULT_ENV|SSL_VERIFY|SHLVL)$/.test(name)) delete env[name];
+      delete env.REQUESTS_CA_BUNDLE; delete env.SSL_CERT_FILE;
+      const args = probe.args.map(slot => slot.literal);
+      const run = expected => spawnSync(process.env.AIHQ_TEST_CONDA_EXECUTABLE, args,
+        { cwd: root, env: { ...env, AIHQ_EXPECTED_CA: expected }, shell: false, windowsHide: true,
+          encoding: 'utf8', timeout: probe.timeoutMs, maxBuffer: probe.maxOutputBytes });
+      const accepted = run(caPath);
+      assert.equal(accepted.error, undefined, `native conda error: ${accepted.error?.code}`);
+      assert.equal(accepted.status, 0, `native conda exit ${accepted.status}; output bytes ${Buffer.byteLength(accepted.stdout) + Buffer.byteLength(accepted.stderr)}`);
+      const rejected = run(caPath + '.mismatched');
+      assert.notEqual(rejected.status, 0, 'CondaSession verification must enforce the selected CA path');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
 test('a narrower repair preserves existing trust and rejects a complete-input bad suffix', () => {
   const previous = readFileSync(new URL('./fixtures/root-b.pem', import.meta.url));
   const result = prepare(['pip'], {}, { existing: previous });
