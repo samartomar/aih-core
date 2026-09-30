@@ -555,3 +555,29 @@ test('interrupted transitive cleanup publishes removed-root intent before depend
   assert.deepEqual(fresh.review.operations.map(item => item.details.target.split(/[\\/]/).at(-1)), ['b.txt', 'c.txt']);
   assert.equal((await apply(fresh.prepared, approve(fresh), { logging: 'off' })).completion, 'complete');
 });
+
+
+test('user state identity and retained custody use the canonical home across harmless path spellings', async () => {
+  const canonicalHome = realpathSync.native(process.env.USERPROFILE), child = join(canonicalHome, 'identity-child'); mkdirSync(child);
+  const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const project = mkdtempSync(join(scratch, 'canonical-user-home-'));
+  try {
+    process.env.HOME = child + '/..'; process.env.USERPROFILE = child + '/..';
+    const document = policy(op('file.write', 'userState', 'asset.txt', { content: { literal: 'canonical user asset' } }));
+    document.managedSelections = [{ id: 'user-assets', scope: 'user', members: ['stable-item'] }];
+    const first = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+    assert.equal(first.status, 'ready', JSON.stringify(first));
+    const key = createHash('sha256').update(`${canonicalHome}\0user\0stable-item`).digest('hex');
+    assert.ok(first.review.operations[0].details.target.includes(key), first.review.operations[0].details.target);
+    assert.equal((await apply(first.prepared, approve(first), { logging: 'off' })).completion, 'complete');
+    process.env.HOME = canonicalHome; process.env.USERPROFILE = canonicalHome;
+    const repeat = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+    assert.equal(repeat.review.operations[0].details.target, first.review.operations[0].details.target);
+    assert.equal(repeat.review.operations[0].ownership, 'managed');
+    const empty = { schema: document.schema, mode: 'vibe', selections: [], managedSelections: [{ id: 'user-assets', scope: 'user', members: [] }] };
+    const remove = await prepare({ useCase: 'policy', policy: empty, target: { project } }, { logging: 'off' });
+    assert.equal(remove.review.operations.length, 1);
+    assert.equal((await apply(remove.prepared, approve(remove), { logging: 'off' })).completion, 'complete');
+    assert.equal(existsSync(first.review.operations[0].details.target), false);
+  } finally { Object.assign(process.env, original); }
+});

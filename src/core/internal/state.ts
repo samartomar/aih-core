@@ -1,15 +1,14 @@
 import { chmodSync, lstatSync, mkdirSync, rmdirSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { pathPins, pinsMatch, sha256 } from './host-files.js';
+import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
 import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import type { RecordStatus } from '../host-types.js';
 
-export const stateRoot = (): string => join(homedir(), '.aih', 'core');
+export const stateRoot = (): string => join(userHomeRoot(), '.aih', 'core');
 export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[] }
 export interface Ownership { schema: 'urn:aihq:core:ownership:1.0.0'; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
 export function stateFiles(): OwnedFileTransaction {
@@ -51,7 +50,7 @@ foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
 
 export function protectState(relativePaths: string[] = []): void {
   const root = stateRoot(); pathPins(root);
-  const base = join(homedir(), '.aih');
+  const base = join(userHomeRoot(), '.aih');
   try { mkdirSync(base, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
   let created = false;
   try { mkdirSync(root, { mode: 0o700 }); created = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
@@ -112,13 +111,13 @@ export function validateOwnership(input: unknown, target: string): asserts input
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
     if (m.claims !== undefined && (!Array.isArray(m.claims) || !m.claims.length || m.claims.length > 4096 || !m.claims.every(validClaim) ||
       new Set(m.claims.map(claim => `${claim.scope}:${claim.managementId}`)).size !== m.claims.length)) throw new Error('ownership-invalid');
-    if (m.claims?.some(claim => claim.scope === 'user' && target !== homedir() && !/^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), target).replaceAll('\\', '/')))) throw new Error('ownership-invalid');
+    if (m.claims?.some(claim => claim.scope === 'user' && target !== userHomeRoot() && !/^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), target).replaceAll('\\', '/')))) throw new Error('ownership-invalid');
     if (typeof m.managementId !== 'string' || typeof m.recipeIdentity !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m.recipeIdentity) || !/^[a-f0-9]{64}$/.test(m.sha256) || !Number.isInteger(m.mode) || m.mode < 0 || m.mode > 0o7777) throw new Error('ownership-invalid');
   }
   if (value.selections !== undefined) {
     if (!value.selections || typeof value.selections !== 'object' || Array.isArray(value.selections) || Object.keys(value.selections).length > 4096) throw new Error('ownership-invalid');
     for (const [key, selection] of Object.entries(value.selections)) {
-      if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== homedir()) throw new Error('ownership-invalid');
+      if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== userHomeRoot()) throw new Error('ownership-invalid');
     }
   }
 }

@@ -8,7 +8,7 @@ import { contractSupport, validatePolicy, validateRecipe } from './contracts.js'
 import { canonicalJson } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
-import { fileTransaction, pathPins, pinsMatch, projectRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
+import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
@@ -106,7 +106,7 @@ function resolvePath(target: TargetPath, scope: 'project' | 'user', bound: Recor
   if (scope === 'project' ? target.root !== 'project' : target.root === 'project') throw new Error('scope-mismatch');
   const segments = target.segments.map(slot => resolveString(slot, bound));
   if (segments.some(segment => !validSegment(segment))) throw new Error('invalid-path');
-  const root = target.root === 'project' ? project : target.root === 'userHome' ? homedir() : join(stateRoot(), 'content', selectionKey);
+  const root = target.root === 'project' ? project : target.root === 'userHome' ? userHomeRoot() : join(stateRoot(), 'content', selectionKey);
   return { root, path: segments.join('/'), absolute: join(root, ...segments) };
 }
 function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Json>, project: string, selectionKey: string,
@@ -280,7 +280,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) throw new Error('scope-mismatch');
       for (const name of Object.keys(privateInputs[selection.id] ?? {}))
         if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
-      const selectionKey = sha256(`${selection.scope === 'user' ? homedir() : project}\0${selection.scope}\0${selection.managementId}`);
+      const selectionKey = sha256(`${selection.scope === 'user' ? userHomeRoot() : project}\0${selection.scope}\0${selection.managementId}`);
       const bound: Record<string, Json> = Object.create(null);
       for (const [name, value] of Object.entries(selection.configuration))
         if (!Object.hasOwn(recipe.inputs, name) || recipe.inputs[name]!.sensitive || !inputAccepts(recipe.inputs[name]!, value)) throw new Error('input-value');
@@ -441,7 +441,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       selectionOps.set(selection.id, currentIds);
     }
     // Omitted sets retain their roots. Explicit sets reconcile only their prior claims.
-    for (const root of [project, homedir()]) if (!ownership.has(root)) ownership.set(root, readOwnership(root));
+    for (const root of [project, userHomeRoot()]) if (!ownership.has(root)) ownership.set(root, readOwnership(root));
     const inventoriesNeeded = policy.managedSelections?.length || policy.removals?.length;
     const inventory = inventoriesNeeded ? ownershipInventory() : undefined;
     let foreignUnverifiable = inventory?.unverifiable ?? false;
@@ -455,7 +455,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const selectionUpdates = new Map<string, Record<string, { claim: Claim | null; requires: string[] }>>();
     const candidates = new Set<string>(); const retained = new Set<string>(); const dependencies = new Map<string, string[]>();
     const claimId = (claim: Pick<Claim, 'scope' | 'managementId'>, target = project!) => claimIdentity(claim.scope, claim.managementId, target);
-    const effectRoot = (root: string) => root === project || root === homedir() || isManagedContentRoot(root);
+    const effectRoot = (root: string) => root === project || root === userHomeRoot() || isManagedContentRoot(root);
     for (const [root, stored] of ownership) for (const claim of [...Object.values(stored.value.selections ?? {}), ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
       const id = claimId(claim, root); dependencies.set(id, [...new Set([...(dependencies.get(id) ?? []), ...claim.requires])]);
       const sets = claim.sets.map(setId => policy.managedSelections?.find(set => set.id === setId && set.scope === claim.scope));
@@ -472,7 +472,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     for (let index = 0; index < queue.length; index++) for (const dependency of dependencies.get(queue[index]!) ?? [])
       if (!retained.has(dependency)) { retained.add(dependency); queue.push(dependency); }
     for (const selection of policy.selections.filter(selection => !unavailableSelections.has(selection.id))) {
-      const root = selection.scope === 'project' ? project : homedir(); const key = claimId(selection);
+      const root = selection.scope === 'project' ? project : userHomeRoot(); const key = claimId(selection);
       const old = ownership.get(root)!.value.selections?.[key];
       const claim: Claim = { managementId: selection.managementId, scope: selection.scope,
         sets: [...new Set([...(old?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === selection.scope)),
@@ -557,7 +557,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     if (steps.length > 8192) throw new Error('operation-limit');
-    const bindings = pathPins(project);
+    const bindings = [...pathPins(project), ...pathPins(homedir())];
     const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package },
       operations: steps.map(step => step.review), observations, conflicts, omissions,

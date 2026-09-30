@@ -1,6 +1,5 @@
 import { canonicalJson } from './canonical.js';
-import { homedir } from 'node:os';
-import { sha256, validSegment } from './host-files.js';
+import { sha256, validSegment, userHomeRoot } from './host-files.js';
 import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock } from './recipe-editors.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export type MemberDescriptor = { path: string; kind: 'file' } |
@@ -36,7 +35,7 @@ export function validDescriptor(value: unknown): value is MemberDescriptor {
 
 
 export function claimIdentity(scope: 'project' | 'user', managementId: string, project: string): string {
-  const anchor = scope === 'project' ? project : homedir();
+  const anchor = scope === 'project' ? project : userHomeRoot();
   return `${scope}:${sha256(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${managementId}`;
 }
 export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor, bytes?: Buffer | null): boolean {
