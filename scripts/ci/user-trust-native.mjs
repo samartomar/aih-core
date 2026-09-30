@@ -111,7 +111,9 @@ if (process.argv[2] === '--consumer') {
       integrity: packed.integrity, workflowRevision: process.env.GITHUB_SHA ?? null }, null, 2));
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
-    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
+    // npm exec --offline selects this local script; its inherited offline flag
+    // must not prevent the new consumer from obtaining published dependencies.
+    npm(['install', '--offline=false', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
     const caPath = join(consumer, 'supplied-ca.pem');
     copyFileSync(join(source, 'test/fixtures/root-a.pem'), caPath);
     copyFileSync(fileURLToPath(import.meta.url), join(consumer, 'native.mjs'));
