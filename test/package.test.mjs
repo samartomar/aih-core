@@ -1,17 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, cpSync, existsSync, rmSync } from 'node:fs';
+import { lstatSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, copyFileSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { build } from 'esbuild';
+import { build, stop } from 'esbuild';
 import { policy } from './fixture.mjs';
 
 test('one Core artifact delivers APIs, portable Harness, repairs and a versioned Harness update', async () => {
   assert.ok(process.env.npm_execpath, 'Run this acceptance with npm test so its npm CLI is known.');
-  const root = mkdtempSync(join(tmpdir(), 'aih-core-package-'));
+  const parent = realpathSync.native(tmpdir());
+  const root = mkdtempSync(join(parent, 'aih-core-package-'));
   const packageRoot = fileURLToPath(new URL('../', import.meta.url));
   const version = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).version;
   const home = join(root, 'home'), project = join(root, 'target'), consumer = join(root, 'consumer');
@@ -23,8 +24,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   // A separate test invocation must not inherit Node's parent-test marker,
   // which would silently skip the updated artifact's owning test files.
   delete env.NODE_TEST_CONTEXT;
-  const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args],
-    { cwd, env, encoding: 'utf8', timeout: 120_000 });
+  const npm = (args, cwd, timeout = 120_000) => execFileSync(process.execPath, [process.env.npm_execpath, ...args],
+    { cwd, env, encoding: 'utf8', timeout });
   const pack = cwd => JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], cwd))[0];
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
@@ -33,6 +34,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   };
   const run = (file, extraEnv = {}) => execFileSync(process.execPath, [file],
     { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout: 30_000 });
+  let failure;
   try {
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
@@ -177,7 +179,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     npm(['run', 'build'], updated);
     assert.equal(existsSync(join(updated, 'dist/index.js')), false);
     assert.equal(existsSync(join(updated, 'dist/harness/package.json')), false);
-    npm(['test'], updated);
+    // This runs a complete standalone suite, including bounded Windows native
+    // subprocess checks. Its budget is larger than an individual npm install.
+    npm(['test'], updated, 300_000);
     const replacement = pack(updated);
     assert.equal(replacement.version, nextVersion);
     install(replacement);
@@ -208,5 +212,16 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.match(run('run.mjs', { HOME: restoredHome, USERPROFILE: restoredHome }), /packed API, Harness runtime, repair and schemas passed/);
     assert.equal(readFileSync(join(consumer, 'baseline-helper.txt'), 'utf8'), baselineDigest);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/harness')), false);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } catch (error) { failure = error; throw error; }
+  finally {
+    try {
+      await stop();
+      assert.equal(dirname(realpathSync.native(root)), parent);
+      assert.equal(lstatSync(root).isSymbolicLink(), false);
+      rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });
+    } catch (error) {
+      if (!failure) throw error;
+      console.error(`Package fixture cleanup ${error.code ?? 'failed'}; preserving original failure and evidence at ${root}`);
+    }
+  }
 });

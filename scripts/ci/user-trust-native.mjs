@@ -48,8 +48,15 @@ async function exerciseConsumer() {
   const result = await apply(prepared.prepared, { approved: true, origin: 'automation',
     reviewDigest: prepared.review.reviewDigest }, { logging: 'off' });
   assert.equal(ajv.validate(result.schema, result), true, JSON.stringify(ajv.errors));
+  const privilege = process.platform === 'win32' ? {
+    elevated: execFileSync(join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+      ['-NoProfile', '-Command', '([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'],
+      { encoding: 'utf8', timeout: 5000, maxBuffer: 1024, windowsHide: true }).trim() === 'True'
+  } : { uid: process.getuid(), effectiveUid: process.geteuid(), elevated: process.geteuid() === 0 };
+  const osVersion = process.platform === 'darwin' ? execFileSync('/usr/bin/sw_vers', ['-productVersion'],
+    { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 }).trim() : undefined;
   writeFileSync('native-result.json', JSON.stringify({ platform: process.platform, architecture: process.arch,
-    osRelease: release(), node: process.version, package: contractSupport.package,
+    osRelease: release(), ...(osVersion ? { osVersion } : {}), privilege, node: process.version, package: contractSupport.package,
     targets, review: prepared.review, result }, null, 2));
   if (result.completion !== 'complete') {
     // These supplied vendor checks are read-only; bounded fixture diagnostics
