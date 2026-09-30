@@ -53,6 +53,9 @@ jobs:
         run: |
           set -euo pipefail
           tools="$RUNNER_TEMP/jvm-tools"
+          if [ "$RUNNER_OS" = Windows ]; then
+            tools="$(cygpath -u "$RUNNER_TEMP")/jvm-tools"
+          fi
           mkdir -p "$tools"
           curl -fsSL --retry 3 -o "$tools/gradle.zip" https://services.gradle.org/distributions/gradle-8.14.3-bin.zip
           echo "bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531  $tools/gradle.zip" | sha256sum -c -
@@ -60,8 +63,13 @@ jobs:
           curl -fsSL --retry 3 -o "$tools/maven.tar.gz" https://archive.apache.org/dist/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz
           echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  $tools/maven.tar.gz" | sha512sum -c -
           tar -xzf "$tools/maven.tar.gz" -C "$tools"
-          echo "$tools/gradle-8.14.3/bin" >> "$GITHUB_PATH"
-          echo "$tools/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cygpath -w "$tools/gradle-8.14.3/bin" >> "$GITHUB_PATH"
+            cygpath -w "$tools/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          else
+            echo "$tools/gradle-8.14.3/bin" >> "$GITHUB_PATH"
+            echo "$tools/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          fi
       - name: Build candidate
         shell: bash
         run: |
