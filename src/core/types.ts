@@ -101,5 +101,7 @@ export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0';
   mode: 'vibe';
   selections: Selection[];
+  managedSelections?: { id: string; scope: 'project' | 'user'; members: string[] }[];
+  removals?: { managementId: string; scope: 'project' | 'user' }[];
   metadata?: Record<string, Json>;
 }

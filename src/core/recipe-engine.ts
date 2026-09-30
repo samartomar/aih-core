@@ -9,10 +9,11 @@ import { canonicalJson } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { lockTarget, ownershipPath, protectState, readOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership } from './internal/state.js';
+import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
+import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type MemberDescriptor, type Claim } from './internal/recipe-lifecycle.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
@@ -28,15 +29,17 @@ interface PreparedProcess {
 interface PreparedCheck { id: string; kind: 'file.sha256' | 'process.exit'; path?: string; sha256?: string; process?: PreparedProcess }
 interface PreparedStep {
   review: ReviewOperation; root?: string; path?: string; ownerKey?: string;
-  before?: Buffer | null; after?: Buffer | null; mode?: number; pins?: PathPin[];
+  initialBefore?: Buffer | null; before?: Buffer | null; after?: Buffer | null; mode?: number; pins?: PathPin[];
   managementId: string; recipeIdentity: string; checks: PreparedCheck[];
   process?: PreparedProcess; unavailable?: string; resolution?: 'replace' | 'adopt';
+  custody?: Record<string, Owner | null>; custodyOnly?: boolean; lifecycle?: boolean;
 }
 interface PreparedState {
   request: PolicyRequest; requestDigest: string; privateInputs: HostControls['privateInputs']; privateDigest: string;
   review: PreparedReview; steps: PreparedStep[]; project: string; home: string;
   ownership: Map<string, { value: Ownership; digest: string | null }>;
-  bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
+  selectionUpdates: Map<string, Record<string, { claim: Claim | null; requires: string[] }>>;
+  inventory?: Map<string, string>; bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
 }
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
@@ -247,7 +250,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           throw new Error('private-input-unknown');
     }
     const privateValues = Object.values(privateInputs).flatMap(inputs => Object.values(inputs)).map(String);
-    const steps: PreparedStep[] = []; const destinations = new Set<string>();
+    const steps: PreparedStep[] = [];
+    const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string }>();
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
     const conflicts: Diagnostic[] = []; const omissions: Diagnostic[] = []; const observations: PreparedReview['observations'] = [];
     const ownership = new Map<string, { value: Ownership; digest: string | null }>();
@@ -276,7 +280,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) throw new Error('scope-mismatch');
       for (const name of Object.keys(privateInputs[selection.id] ?? {}))
         if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
-      const selectionKey = sha256(`${project}\0${selection.scope}\0${selection.managementId}`);
+      const selectionKey = sha256(`${selection.scope === 'user' ? homedir() : project}\0${selection.scope}\0${selection.managementId}`);
       const bound: Record<string, Json> = Object.create(null);
       for (const [name, value] of Object.entries(selection.configuration))
         if (!Object.hasOwn(recipe.inputs, name) || recipe.inputs[name]!.sensitive || !inputAccepts(recipe.inputs[name]!, value)) throw new Error('input-value');
@@ -308,8 +312,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id,
           capturedUnavailable.checks[`${selection.id}/${check.id}`]));
         const checks = preparedChecks.map(item => item.prepared);
+        let initialBefore: Buffer | null | undefined;
         let root: string | undefined; let path: string | undefined; let before: Buffer | null | undefined;
         let after: Buffer | null | undefined; let pins: PathPin[] | undefined; let mode: number | undefined;
+        let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let editConflict: string | undefined;
@@ -322,15 +328,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const target = resolvePath(op.target, op.scope, bound, project, selectionKey);
           root = target.root; path = target.path; pins = pathPins(target.absolute); ownerKey = path;
           const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`;
-          if (destinations.has(key)) throw new Error('duplicate-destination'); destinations.add(key);
+          const overlay = overlays.get(key);
+          if (overlay) requires.push(overlay.priorId);
           const tx = transaction(root); const live = tx.inspect(path);
           if (live.state === 'unreadable') throw new Error('target-unreadable');
-          before = live.state === 'present' ? Buffer.from(live.bytes) : null;
+          initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
+          before = overlay ? overlay.after : initialBefore;
           mode = op.kind === 'file.write' ? op.mode ?? (live.state === 'present' ? live.mode : 0o600) :
             live.state === 'present' ? live.mode : 0o600;
           const stored = ownership.get(root) ?? readOwnership(root); ownership.set(root, stored);
-          const owner = Object.hasOwn(stored.value.members, ownerKey) ? stored.value.members[ownerKey] : undefined;
-          const managed = owner?.managementId === selection.managementId && before !== null && owner.sha256 === sha256(before);
+          const projected: Ownership = { ...stored.value, members: { ...stored.value.members } };
+          for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly))) updateCustody(projected, prior);
+          const owner = Object.hasOwn(projected.members, ownerKey) ? projected.members[ownerKey] : undefined;
+          let managed = owner?.managementId === selection.managementId && (!owner.claims || owner.claims.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope)) && before !== null && owner.sha256 === sha256(before);
           ownerState = managed ? 'managed' : 'unowned';
           if (op.kind === 'file.write') {
             after = op.material ? material.readMaterial(op.material) : Buffer.from(resolveString(op.content!, bound));
@@ -354,6 +364,26 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else after = null;
           if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
+          const descriptors: MemberDescriptor[] = op.kind === 'config.entries' ? op.entries.map(entry => ({ path: path!, kind: 'entry', format: op.format, entry: entry.path })) :
+            op.kind === 'text.block' ? [{ path, kind: 'block', blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker }] : [{ path, kind: 'file' }];
+          try {
+            const claim: Claim = { managementId: selection.managementId, scope: selection.scope, sets: (policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id), requires: selection.requires.map(id => { const dependency = policy.selections.find(item => item.id === id)!; return claimIdentity(dependency.scope, dependency.managementId, project!); }) };
+            const matches = descriptors.map(member => {
+              const prior = projected.members[memberKey(member)];
+              const bytes = memberBytes(member, before!);
+              return !!prior && (prior.claims ?? [{ managementId: prior.managementId, scope: selection.scope }]).some(item => item.managementId === selection.managementId && item.scope === selection.scope) &&
+                bytes !== null && prior.sha256 === sha256(bytes);
+            });
+            managed = managed || matches.every(Boolean);
+            ownerState = managed ? 'managed' : 'unowned';
+            custody = Object.fromEntries(descriptors.map(member => {
+              const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
+              return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member,
+                claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
+                  { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
+            }));
+          } catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
+          if (custody && owner && !owner.descriptor && managed && !descriptors.some(member => memberKey(member) === ownerKey)) custody[ownerKey!] = null;
           const currentDigest = before === null ? null : sha256(before);
           const choice = resolutions.find(item => item.selectionId === selection.id && item.operationId === op.id);
           if (choice) {
@@ -364,12 +394,27 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const same = before === null ? after === null : after !== null && before.equals(after) &&
             (op.kind !== 'file.write' || op.mode === undefined || process.platform === 'win32' ||
               live.state === 'present' && live.mode === op.mode);
+          if (op.kind === 'file.remove' && Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.descriptor?.kind !== 'file')) managed = false;
           const changingOwned = managed && before !== null;
-          if (editConflict) effect = 'conflict';
+          const selectedAbsent = !editConflict && descriptors.every(member => { const bytes = memberBytes(member, before!); const prior = projected.members[memberKey(member)];
+            return bytes === null || !!prior && bytes !== null && prior.sha256 === sha256(bytes) && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); });
+          const drift = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
+            return prior && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope) && (bytes === null || prior.sha256 !== sha256(bytes)); });
+          const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
+            return prior?.claims?.some(claim => claim.managementId !== selection.managementId || claim.scope !== selection.scope) && (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
+          const overlap = descriptors.some(member => Object.values(projected.members).some(owner => owner.descriptor && memberKey(owner.descriptor) !== memberKey(member) && overlappingMembers(member, owner.descriptor)));
+          if (editConflict || sharedChange || overlap) effect = 'conflict';
+          else if (drift && !resolution) effect = 'conflict';
           else if (same) effect = 'already-satisfied';
           else if (before === null && after !== null) effect = 'create-file';
-          else if (before !== null && after === null) effect = changingOwned ? 'remove-file' : 'conflict';
-          else effect = changingOwned || resolution === 'replace' ? 'replace-file' : 'conflict';
+          else if (before !== null && after === null) effect = changingOwned || resolution === 'replace' && descriptors.every(member => { const prior = projected.members[memberKey(member)]; return prior?.claims?.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); }) ? 'remove-file' : 'conflict';
+          else effect = changingOwned || selectedAbsent || resolution === 'replace' ? 'replace-file' : 'conflict';
+          if (!editConflict && custody && !resolution) for (const member of descriptors) {
+            const key = memberKey(member); const bytes = memberBytes(member, before!); const prior = projected.members[key];
+            const desired = memberBytes(member, after!);
+            if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
+          }
+          custodyOnly = same && (managed || resolution === 'replace' && drift) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
           if (resolution === 'adopt' && (!same || before === null || managed)) throw new Error('resolution-invalid');
           if (effect === 'conflict') conflicts.push({ ...diagnostic('STATE_CONFLICT', editConflict ?? 'existing-content',
             'Existing, edited or unsupported content requires an exact reviewed resolution or a narrower edit.'), path: safeText(path, privateValues) });
@@ -378,21 +423,112 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               materialSha256: sha256(after!), materialBytes: after!.byteLength } : {}),
             ...(op.kind === 'file.write' && op.content ? { content: 'input' in op.content && recipe.inputs[op.content.input]?.sensitive ?
               '[REDACTED]' : redactExact(resolveString(op.content, bound), privateValues) } : {}),
-            mode, ...(editConflict ? { reason: editConflict } : {}) };
+            mode, ...(resolution ? { reason: `explicit-${resolution}` } : {}), ...(editConflict ? { reason: editConflict } : {}) };
+          if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
         }
         const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable ? 'executable-missing' :
           checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
         if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
         const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
-          effects: effect, ownership: ownerState, requires, checks: preparedChecks.map(item => item.review), details };
-        steps.push({ review, root, path, ownerKey, before, after, mode, pins, managementId: selection.managementId,
-          recipeIdentity, checks, process: preparedProcess, unavailable, resolution });
+          effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
+        steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
+          recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly });
       }
       selectionOps.set(selection.id, currentIds);
+    }
+    // Omitted sets retain their roots. Explicit sets reconcile only their prior claims.
+    for (const root of [project, homedir()]) if (!ownership.has(root)) ownership.set(root, readOwnership(root));
+    const inventoriesNeeded = policy.managedSelections?.length || policy.removals?.length;
+    const inventory = inventoriesNeeded ? ownershipInventory() : undefined;
+    let foreignUnverifiable = inventory?.unverifiable ?? false;
+    for (const root of inventory?.targets ?? []) if (!ownership.has(root)) {
+      try { ownership.set(root, readOwnership(root)); }
+      catch { foreignUnverifiable = true; }
+    }
+    if (foreignUnverifiable && (policy.removals?.some(item => item.scope === 'user') || policy.managedSelections?.some(item => item.scope === 'user' && item.members.length === 0)))
+      omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'dependency-custody-unverifiable', 'User cleanup requires verifiable retained dependency custody.'));
+
+    const selectionUpdates = new Map<string, Record<string, { claim: Claim | null; requires: string[] }>>();
+    const candidates = new Set<string>(); const retained = new Set<string>(); const dependencies = new Map<string, string[]>();
+    const claimId = (claim: Pick<Claim, 'scope' | 'managementId'>, target = project!) => claimIdentity(claim.scope, claim.managementId, target);
+    const effectRoot = (root: string) => root === project || root === homedir() || isManagedContentRoot(root);
+    for (const [root, stored] of ownership) for (const claim of [...Object.values(stored.value.selections ?? {}), ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
+      const id = claimId(claim, root); dependencies.set(id, [...new Set([...(dependencies.get(id) ?? []), ...claim.requires])]);
+      const sets = claim.sets.map(setId => policy.managedSelections?.find(set => set.id === setId && set.scope === claim.scope));
+      if (effectRoot(root) && (policy.removals?.some(removal => claimId(removal) === id) || sets.length && sets.every(set => !!set && !set.members.includes(claim.managementId)))) candidates.add(id);
+      else retained.add(id);
+    }
+    for (const selection of policy.selections) {
+      const id = claimId(selection); retained.add(id); candidates.delete(id);
+      dependencies.set(id, selection.requires.map(required => { const dependency = policy.selections.find(item => item.id === required)!; return claimId(dependency); }));
+    }
+    if (foreignUnverifiable) for (const id of candidates) if (id.startsWith('user:')) retained.add(id);
+    const queue = [...retained];
+    for (let index = 0; index < queue.length; index++) for (const dependency of dependencies.get(queue[index]!) ?? [])
+      if (!retained.has(dependency)) { retained.add(dependency); queue.push(dependency); }
+    for (const selection of policy.selections.filter(selection => !unavailableSelections.has(selection.id))) {
+      const root = selection.scope === 'project' ? project : homedir(); const key = claimId(selection);
+      const old = ownership.get(root)!.value.selections?.[key];
+      const claim: Claim = { managementId: selection.managementId, scope: selection.scope,
+        sets: [...new Set([...(old?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === selection.scope)),
+          ...(policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id)])],
+        requires: selection.requires.map(required => claimId(policy.selections.find(item => item.id === required)!)) };
+      if ((old || claim.sets.length || claim.requires.length) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
+        const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim, requires: selectionOps.get(selection.id) ?? [] }; selectionUpdates.set(root, updates);
+      }
+    }
+    for (const [root, stored] of ownership) if (effectRoot(root)) for (const [key, claim] of Object.entries(stored.value.selections ?? {})) {
+      if (!candidates.has(key) || retained.has(key)) continue;
+      const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim: null, requires: [] }; selectionUpdates.set(root, updates);
+      observations.push({ id: `lifecycle/root-${observations.length}`, reason: `remove-management-root:${claim.managementId}` });
+    }
+    let removalIndex = 0;
+    for (const [root, stored] of ownership) for (const [key, owner] of Object.entries(stored.value.members)) {
+      if (!effectRoot(root)) continue;
+      const claims = owner.claims ?? [];
+      const obsolete = (claim: Claim) => {
+        const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root));
+        return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key));
+      };
+      const removed = claims.filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)) || obsolete(claim));
+      if (!removed.length) continue;
+      const remaining = claims.filter(claim => !removed.includes(claim));
+      const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
+      const live = transaction(root).inspect(descriptor.path);
+      if (live.state === 'unreadable') throw new Error('target-unreadable');
+      const destination = `${root}:${process.platform === 'win32' ? descriptor.path.toLowerCase() : descriptor.path}`;
+      const overlay = overlays.get(destination);
+      const initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
+      const before = overlay ? overlay.after : initialBefore;
+      let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied';
+      let matching = false;
+      try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
+        if (!remaining.length && matching) after = subtractMember(descriptor, before);
+      } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
+      if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
+      else if (before !== null && after === null) effect = 'remove-file';
+      else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
+      const droppedDependencyGuards = policy.selections.flatMap(selection => {
+        const id = claimId(selection);
+        const priorDependencies = [...ownership].flatMap(([priorRoot, stored]) => [...Object.values(stored.value.selections ?? {}), ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])].filter(claim => claimId(claim, priorRoot) === id).flatMap(claim => claim.requires));
+        return removed.some(claim => priorDependencies.includes(claimId(claim, root))) ? selectionOps.get(selection.id) ?? [] : [];
+      });
+      let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
+      steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : 'file.remove',
+        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: 'explicit-managed-removal',
+          ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) } },
+        root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
+        managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, custody: { [key]: remaining.length ? { ...owner, claims: remaining } : null },
+        custodyOnly: matching && effect === 'already-satisfied' });
+      if (matching) overlays.set(destination, { initial: overlay?.initial ?? initialBefore, after, priorId: id });
+    }
+    for (const [root, updates] of selectionUpdates) for (const [key, update] of Object.entries(updates)) if (update.claim === null) {
+      update.requires = steps.filter(step => claimIdentity(step.review.scope, step.managementId, step.review.scope === 'project' ? step.root! : root) === key).map(step => step.review.id);
     }
     if (usedResolutions.size !== resolutions.length) throw new Error('resolution-unknown');
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
+    if (steps.length > 8192) throw new Error('operation-limit');
     const bindings = pathPins(project);
     const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package },
@@ -401,13 +537,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs), nonce: randomBytes(32).toString('hex') }) });
-    const available = steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
+    const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
       diagnostics: [...conflicts, ...omissions], record: disabled };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, bindings, captures });
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures });
       result.prepared = prepared;
     }
   } catch (error) {
@@ -481,12 +617,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const assertInputs = () => {
       try {
         if (!state || homedir() !== state.home || digest(clone(state.request)) !== state.requestDigest ||
-            digest(clone(state.privateInputs ?? {})) !== state.privateDigest || !pinsMatch(state.bindings)) throw new Error('changed');
+            digest(clone(state.privateInputs ?? {})) !== state.privateDigest || !pinsMatch(state.bindings) ||
+            state.inventory && canonicalJson([...state.inventory].sort()) !== canonicalJson(ownershipInventory().entries.sort())) throw new Error('changed');
       } catch { throw new Error('review-stale'); }
     };
     assertInputs();
     for (const capture of state.captures) if (!await capture.recheck()) throw new Error('review-stale');
-    const assertStep = (step: PreparedStep) => {
+    const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
@@ -497,37 +634,40 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         protectState(); step.pins = pathPins(join(step.root, ...step.path.split('/'))); pinsOkay = true;
       }
       if (!pinsOkay || live.state === 'unreadable' ||
-          (live.state === 'absent' ? null : sha256(live.bytes)) !== (step.before ? sha256(step.before) : null))
+          (live.state === 'absent' ? null : sha256(live.bytes)) !== ((initial ? step.initialBefore : step.before) ? sha256((initial ? step.initialBefore : step.before)!) : null))
         throw new Error('review-stale');
     };
-    for (const step of state.steps) assertStep(step);
+    for (const step of state.steps) assertStep(step, true);
     for (const [root, ownership] of state.ownership)
       if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
     await preEffectCheck?.();
     if (preEffectCheck) {
       assertInputs();
-      for (const step of state.steps) assertStep(step);
+      for (const step of state.steps) assertStep(step, true);
       for (const [root, ownership] of state.ownership)
         if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
     }
     const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');
-    const mutatingRoots = [...new Set(state.steps.filter(step => step.path &&
-      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt')).map(step => step.root!))].sort();
+    const mutatingRoots = [...new Set([...state.selectionUpdates.keys(), ...state.steps.filter(step => step.path &&
+      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!)])].sort();
     if (mutatingRoots.length) protectState();
     for (const root of mutatingRoots) {
       unlocks.push(lockTarget(root));
-      for (const step of state.steps.filter(item => item.root === root)) assertStep(step);
+      for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
       if (readOwnership(root).digest !== state.ownership.get(root)?.digest) throw new Error('review-stale');
       const current = state.ownership.get(root)!.value;
-      const next: Ownership = { ...current, members: { ...current.members } };
+      // Reserve a conservative upper bound for every intermediate receipt,
+      // including old members awaiting subtraction and selection intent.
+      const next: Ownership = { ...current, members: { ...current.members }, selections: { ...current.selections } };
+      const larger = <T>(prior: T | undefined, proposed: T): T => prior && Buffer.byteLength(JSON.stringify(prior)) > Buffer.byteLength(JSON.stringify(proposed)) ? prior : proposed;
       for (const step of state.steps.filter(item => item.root === root &&
-        (['create-file', 'replace-file', 'remove-file'].includes(item.review.effects) || item.resolution === 'adopt'))) {
-        if (step.after === null) delete next.members[step.ownerKey!];
-        else if (step.after) next.members[step.ownerKey!] = { managementId: step.managementId,
-          recipeIdentity: step.recipeIdentity, sha256: sha256(step.after), mode: step.mode ?? 0o600 };
+        (['create-file', 'replace-file', 'remove-file'].includes(item.review.effects) || item.resolution === 'adopt' || item.custodyOnly))) {
+        for (const [key, owner] of Object.entries(step.custody ?? {})) if (owner) next.members[key] = larger(next.members[key], owner);
       }
+      for (const [key, update] of Object.entries(state.selectionUpdates.get(root) ?? {})) if (update.claim)
+        next.selections![key] = larger(next.selections![key], update.claim);
       releases.push(stageOwnership(root, runId, next));
     }
     handles.delete(prepared);
@@ -585,6 +725,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           operation.application = 'applied';
           const createdParents = pathPins(join(step.root, ...step.path.split('/'))).slice(0, -1);
           for (const remaining of state.steps.slice(index + 1)) {
+            if (remaining.root === step.root && remaining.path === step.path) remaining.pins = pathPins(join(remaining.root!, ...remaining.path!.split('/')));
             if (remaining.pins?.some(pin => pin.identity === 'absent' && createdParents.some(parent => parent.path === pin.path)) && remaining.root && remaining.path)
               remaining.pins = pathPins(join(remaining.root, ...remaining.path.split('/')));
             for (const invocation of [remaining.process, ...remaining.checks.map(check => check.process)].filter((item): item is PreparedProcess => !!item))
@@ -596,18 +737,16 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         }
       }
       if (operation.application === 'applied' || operation.application === 'already-satisfied') {
-        if (step.root && step.path && (operation.application === 'applied' || step.resolution === 'adopt')) {
+        if (step.root && step.path && (operation.application === 'applied' || step.resolution === 'adopt' || step.custodyOnly)) {
           try {
             const tracked = state.ownership.get(step.root)!;
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
-            if (step.after === null) delete next.members[step.ownerKey!];
-            else if (operation.application === 'applied' || step.resolution === 'adopt') next.members[step.ownerKey!] = {
-              managementId: step.managementId, recipeIdentity: step.recipeIdentity,
-              sha256: sha256(step.after!), mode: step.mode ?? 0o600 };
+            updateCustody(next, step, true);
             protectState([ownershipPath(step.root)]);
             const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
             state.ownership.set(step.root, { value: next, digest: sha256(receipt) });
-          } catch { throw new Error('state-unwritable'); }
+            state.inventory?.set(basename(ownershipPath(step.root)), sha256(receipt));
+          } catch { operation.effectsUncertain = true; operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
         }
         if (step.checks.length) {
           let checkFailed = false;
@@ -638,6 +777,36 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         ['unverified', 'passed'].includes(operation.verification.status);
       outcomes.set(step.review.id, okay);
       if (!okay && !allowPartial) stop = true;
+    }
+    // Byte custody follows each successful mutation. Selection metadata advances
+    // only when all its reviewed operations and required checks succeeded.
+    for (const root of mutatingRoots) {
+      const tracked = state.ownership.get(root)!;
+      const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
+      let changed = false;
+      for (const step of state.steps.filter(step => step.root === root && outcomes.get(step.review.id) === true)) {
+        const selectionSteps = state.steps.filter(other => other.managementId === step.managementId && other.review.scope === step.review.scope && !other.lifecycle);
+        if (!selectionSteps.every(other => outcomes.get(other.review.id) === true)) continue;
+        for (const [key, desired] of Object.entries(step.custody ?? {})) {
+          const current = next.members[key]; if (!desired || !current) continue;
+          const claims = (current.claims ?? []).map(claim => desired.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope) ?? claim);
+          const owner = { ...current, claims };
+          if (canonicalJson(owner) !== canonicalJson(current)) { next.members[key] = owner; changed = true; }
+        }
+      }
+      for (const [key, update] of Object.entries(state.selectionUpdates.get(root) ?? {})) {
+        if (!update.requires.every(id => outcomes.get(id) === true)) continue;
+        next.selections = { ...next.selections };
+        if (update.claim) next.selections[key] = update.claim; else delete next.selections[key];
+        changed = true;
+      }
+      if (changed) {
+        if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
+        protectState([ownershipPath(root)]);
+        const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+        state.ownership.set(root, { value: next, digest: sha256(receipt) });
+        state.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+      }
     }
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
@@ -705,4 +874,16 @@ async function executeCheck(check: PreparedCheck, operationId: string, runId: st
   return { id: check.id, operationId, status: outcome.status === 'cancelled' ? 'unavailable' : outcome.status,
     reason: outcome.reason, ...(outcome.effectsUncertain ? { effectsUncertain: true } : {}),
     ...(outcome.terminationUnconfirmed ? { terminationUnconfirmed: true } : {}) };
+}
+
+function updateCustody(next: Ownership, step: PreparedStep, deferMetadata = false): void {
+  for (const [key, owner] of Object.entries(step.custody ?? {})) {
+    if (owner) {
+      const prior = next.members[key];
+      next.members[key] = deferMetadata && !step.lifecycle ? { ...owner, claims: owner.claims?.map(claim => {
+        const old = prior?.claims?.find(old => old.managementId === claim.managementId && old.scope === claim.scope);
+        return { ...claim, sets: old?.sets ?? [], requires: old?.requires ?? [] };
+      }) } : owner;
+    } else delete next.members[key];
+  }
 }

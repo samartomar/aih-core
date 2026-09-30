@@ -61,3 +61,20 @@ test('authors get structured diagnostics for unsupported formats, dependencies a
     assert.equal(validatePolicy(candidate).valid, false, mutate.toString());
   }
 });
+
+test('lifecycle admission preserves omitted and explicit empty sets and rejects ambiguous identities', () => {
+  const empty = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [] };
+  const omitted = parsePolicy(JSON.stringify(empty)); assert.equal(omitted.valid, true);
+  assert.equal(Object.hasOwn(omitted.document, 'managedSelections'), false);
+  const explicit = { ...empty, managedSelections: [{ id: 'tools', scope: 'project', members: [] }] };
+  assert.deepEqual(parsePolicy(JSON.stringify(explicit)).document, explicit);
+  const valid = policy(); valid.managedSelections = [{ id: 'tools', scope: 'project', members: [valid.selections[0].managementId] }];
+  assert.equal(validatePolicy(valid).valid, true);
+  for (const invalid of [
+    { ...explicit, managedSelections: [...explicit.managedSelections, ...explicit.managedSelections] },
+    { ...explicit, managedSelections: [{ id: 'tools', scope: 'machine', members: [] }] },
+    { ...explicit, removals: [{ managementId: 'item', scope: 'project', path: 'arbitrary.txt' }] },
+    { ...valid, removals: [{ managementId: valid.selections[0].managementId, scope: 'project' }] },
+    { ...valid, managedSelections: [{ id: 'tools', scope: 'project', members: ['missing'] }] }
+  ]) assert.equal(validatePolicy(invalid).valid, false, JSON.stringify(invalid));
+});

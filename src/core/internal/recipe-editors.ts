@@ -231,3 +231,27 @@ export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buf
   const separator = text && !/[\r\n]$/u.test(text) ? eol : '';
   return Buffer.from(`${text}${separator}${body}${eol}`, 'utf8');
 }
+
+/** Exact selected bytes, with the same ambiguity checks as the editor. */
+export function configMemberBytes(format: 'json' | 'jsonc' | 'toml', before: Buffer | null, path: string[]): Buffer | null {
+  const text = decode(before);
+  if (before === null) return null;
+  if (format === 'toml') {
+    const member = tomlLines(text).assignments.get(path.join('.'));
+    if (!member) return null;
+    const value = member.text.slice(member.valueStart, member.valueEnd).trim();
+    if (!tomlScalarSyntax(value)) fail('unsupported-toml-value');
+    return Buffer.from(value);
+  }
+  const member = findNodeAtLocation(parsedObject(text, format), path);
+  return member ? Buffer.from(text.slice(member.offset, member.offset + member.length)) : null;
+}
+export function blockMemberBytes(before: Buffer | null, edit: TextBlockEdit): Buffer | null {
+  const removed = renderTextBlock(before, { ...edit, action: 'remove', content: undefined });
+  if (before === null || removed?.equals(before)) return null;
+  const text = decode(before);
+  const start = text.indexOf(edit.startMarker);
+  const end = text.indexOf(edit.endMarker, start) + edit.endMarker.length;
+  const closingNewline = /^(?:\r\n|\n|\r)/u.exec(text.slice(end))?.[0] ?? '';
+  return Buffer.from(text.slice(start, end + closingNewline.length));
+}

@@ -138,5 +138,17 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
       }
     }
   });
+  const sets = new Set<string>(); const removals = new Set<string>();
+  for (const [index, set] of (policy.managedSelections ?? []).entries()) {
+    const key = `${set.scope}:${set.id}`;
+    if (sets.has(key) || new Set(set.members).size !== set.members.length) invalid('duplicate-management-set', `/managedSelections/${index}`);
+    sets.add(key);
+    for (const id of set.members) if (!managers.has(`${set.scope}:${id}`)) invalid('management-member-missing', `/managedSelections/${index}`);
+  }
+  for (const [index, removal] of (policy.removals ?? []).entries()) {
+    const key = `${removal.scope}:${removal.managementId}`;
+    if (removals.has(key) || managers.has(key)) invalid('removal-conflict', `/removals/${index}`);
+    removals.add(key);
+  }
   return diagnostics;
 }
