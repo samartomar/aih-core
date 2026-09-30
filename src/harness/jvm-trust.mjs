@@ -439,9 +439,15 @@ function variantFor(request) {
 const GRADLE_KEYS = ['systemProp.javax.net.ssl.trustStore', 'systemProp.javax.net.ssl.trustStorePassword'];
 /** Duplicate managed keys or non-`=` separators must never become an apparently verified rewrite. */
 function gradleConfigAmbiguous(text) {
+  if (/\r(?!\n)/.test(text)) return true;
   const seen = new Set();
   for (const row of text.split(/\r?\n/)) {
     if (!row.trim() || /^\s*[!#]/.test(row)) continue;
+    // Java Properties joins continued physical lines and decodes escaped keys.
+    // This bounded line-preserving upsert admits neither shape: appending to a
+    // continuation can change a neighbor, and escaped keys can hide duplicates.
+    if ((row.match(/\\+$/)?.[0].length ?? 0) % 2) return true;
+    if (/^\s*[^\s=:]*\\/.test(row)) return true;
     for (const key of GRADLE_KEYS) {
       const escaped = key.replaceAll('.', '\\.');
       if (new RegExp(`^\\s*${escaped}=`).test(row)) {
@@ -480,8 +486,28 @@ function mavenMarkers(os) {
 }
 /** Stacked/mismatched managed blocks or foreign trust options must never become an apparently verified rewrite. */
 function mavenRcAmbiguous(text, os) {
+  if (/\r(?!\n)/.test(text)) return true;
   const [begin, end] = mavenMarkers(os);
   const rows = text.split(/\r?\n/);
+  // Managed markers must be standalone shell/batch lines, never text in a
+  // continuation, multiline quote or here-document. Reject those uncertain
+  // contexts rather than changing a neighbor while a trust check still passes.
+  for (const row of rows) {
+    if (!row.trim() || (os === 'win32' ? /^\s*(?:REM(?:\s|$)|::)/i : /^\s*#/).test(row)) continue;
+    const escape = os === 'win32' ? '^' : '\\';
+    const trailing = os === 'win32' ? /\^+$/ : /\\+$/;
+    if ((row.match(trailing)?.[0].length ?? 0) % 2) return true;
+    if (os !== 'win32' && row.includes('<<')) return true;
+    let quote;
+    for (let i = 0; i < row.length; i++) {
+      if (row[i] === escape && quote !== "'") { i++; continue; }
+      if (row[i] === '"' || os !== 'win32' && row[i] === "'") {
+        if (quote === row[i]) quote = undefined;
+        else if (!quote) quote = row[i];
+      }
+    }
+    if (quote) return true;
+  }
   const starts = rows.flatMap((row, i) => row === begin ? [i] : []);
   const ends = rows.flatMap((row, i) => row === end ? [i] : []);
   if (starts.length !== ends.length || starts.length > 1 || starts.length === 1 && ends[0] < starts[0]) return true;

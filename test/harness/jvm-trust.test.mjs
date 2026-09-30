@@ -211,6 +211,24 @@ test('Maven rc block preserves neighboring lines and is byte-idempotent', () => 
   assert.equal(twice.privateBindings.mavenConfig, first.privateBindings.mavenConfig);
 });
 
+test('Gradle refuses continuations and escaped property keys before a rewrite can change neighboring values', () => {
+  for (const text of [
+    'org.gradle.jvmargs=-Xmx1g\\\n',
+    'org.gradle.jvmargs=-Xmx1g\\\r\n\r\n',
+    'org.gradle.jvmargs=-Xmx1g\\\n  -Xms256m\n',
+    'systemProp.javax.net.ssl.\\u0074rustStore=/old.jks\n',
+    '\\systemProp.javax.net.ssl.trustStore=/old.jks\n',
+    'org.gradle.parallel=true\rsystemProp.javax.net.ssl.trustStore=/old.jks\r'
+  ]) {
+    const result = prepare(['gradle'], { 'gradle-config': Buffer.from(text) });
+    assert.equal(result.status, 'invalid', JSON.stringify(text));
+    assert.equal(result.diagnostics[0].reason, 'config-ambiguous');
+    assert.equal(result.privateBindings, undefined);
+  }
+  assert.equal(prepare(['gradle'], { 'gradle-config': Buffer.from('# comment\\\norg.gradle.jvmargs=-Xmx1g\\\\\n') }).status,
+    'completed', 'comment backslashes and a literal escaped final backslash do not continue a value');
+});
+
 test('Maven replaces its earlier managed block instead of stacking a second one', () => {
   const win = process.platform === 'win32';
   const [begin, end] = win ? ['REM BEGIN AIHQ MAVEN CA', 'REM END AIHQ MAVEN CA'] : ['# BEGIN AIHQ MAVEN CA', '# END AIHQ MAVEN CA'];
@@ -220,6 +238,22 @@ test('Maven replaces its earlier managed block instead of stacking a second one'
   assert.equal(result.privateBindings.mavenConfig.split(begin).length - 1, 1);
   assert.ok(!result.privateBindings.mavenConfig.includes('stale trust options'));
   assert.ok(result.privateBindings.mavenConfig.startsWith('setx HOME 1\n'));
+});
+
+test('Maven refuses continued lines and uncertain shell block contexts before changing neighboring values', () => {
+  const win = process.platform === 'win32';
+  const [begin, end] = win ? ['REM BEGIN AIHQ MAVEN CA', 'REM END AIHQ MAVEN CA'] : ['# BEGIN AIHQ MAVEN CA', '# END AIHQ MAVEN CA'];
+  const cases = win ? ['set OTHER=keep^\n', 'set "OTHER=unclosed\n'] : [
+    'export OTHER=keep\\\n',
+    `cat <<'EOF'\n${begin}\nkeep this neighboring text\n${end}\nEOF\n`,
+    `OTHER="\n${begin}\nkeep this neighboring text\n${end}\n"\n`
+  ];
+  for (const text of [...cases, 'OTHER=keep\r']) {
+    const result = prepare(['maven'], { 'maven-config': Buffer.from(text) });
+    assert.equal(result.status, 'invalid', JSON.stringify(text));
+    assert.equal(result.diagnostics[0].reason, 'config-ambiguous');
+    assert.equal(result.privateBindings, undefined);
+  }
 });
 
 test('existing Maven trust options outside the managed block refuse a silent override', () => {

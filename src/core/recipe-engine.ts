@@ -38,6 +38,8 @@ interface PreparedState {
   ownership: Map<string, { value: Ownership; digest: string | null }>;
   bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
 }
+// Internal adapter input: never accepted through public request or host controls.
+interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T): T => cloneJsonValueStructureV1(value, 'request', 32);
@@ -105,7 +107,7 @@ function resolvePath(target: TargetPath, scope: 'project' | 'user', bound: Recor
   return { root, path: segments.join('/'), absolute: join(root, ...segments) };
 }
 function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Json>, project: string, selectionKey: string,
-    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[]): { process: PreparedProcess; review: ReviewOperation['details'] } {
+    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], capturedMissing?: string): { process: PreparedProcess; review: ReviewOperation['details'] } {
   const cwd = resolvePath(invocation.cwd, invocation.cwd.root === 'project' ? 'project' : 'user', bound, project, selectionKey);
   const executable = 'name' in invocation.executable ? resolveExecutable(invocation.executable.name) : undefined;
   const materialId = 'material' in invocation.executable ? invocation.executable.material : undefined;
@@ -117,7 +119,8 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
   const env = Object.fromEntries(Object.entries(invocation.env).map(([key, slot]) => [key, resolveString(slot, bound)]));
   const stdin = invocation.stdin ? resolveString(invocation.stdin, bound) : undefined;
   const timeoutMs = invocation.timeoutMs ?? 300_000; const maxOutputBytes = invocation.maxOutputBytes ?? 65_536;
-  return { process: { executable: resolvedExecutable, args, cwd: cwd.absolute, cwdPins: pathPins(cwd.absolute), env, stdin,
+  return { process: { executable: capturedMissing ? { missing: capturedMissing } : resolvedExecutable,
+    args, cwd: cwd.absolute, cwdPins: pathPins(cwd.absolute), env, stdin,
     timeoutMs, maxOutputBytes, acceptedExitCodes: invocation.acceptedExitCodes },
     review: { executable: executable?.launchPath ?? (materialId ? `material:${materialId}` : `unavailable:${'name' in invocation.executable ? invocation.executable.name : ''}`),
       ...(executable ? { executableSha256: executable.sha256 } : materialBytes ? { executableSha256: sha256(materialBytes) } : {}),
@@ -126,7 +129,8 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       stdinProtected: stdin !== undefined, ...(stdin === undefined ? {} : { stdin: redactExact(stdin, privateValues) }),
       timeoutMs: { value: timeoutMs, origin: invocation.timeoutMs === undefined ? 'default' : 'explicit' },
       maxOutputBytes: { value: maxOutputBytes, origin: invocation.maxOutputBytes === undefined ? 'default' : 'explicit' },
-      acceptedExitCodes: [...invocation.acceptedExitCodes] } };
+      acceptedExitCodes: [...invocation.acceptedExitCodes],
+      ...(capturedMissing ? { reason: `executable-missing:${capturedMissing}` } : {}) } };
 }
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
     budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
@@ -195,12 +199,21 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
   return reference;
 }
 
-export async function prepare(request: PolicyRequest, controls: HostControls = {}): Promise<PreparationResult> {
+export async function prepare(request: PolicyRequest, controls: HostControls = {},
+    unavailableInvocations?: CapturedUnavailableInvocations): Promise<PreparationResult> {
   const runId = randomUUID();
   let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled };
   let logging: 'on' | 'off' = 'off'; let project: string | undefined;
   try {
     validateControls(controls); logging = loggingOption(controls).value;
+    const capturedUnavailable = clone(unavailableInvocations ?? { operations: {}, checks: {} });
+    dataObject(capturedUnavailable, ['operations', 'checks']);
+    for (const entries of [capturedUnavailable.operations, capturedUnavailable.checks]) {
+      dataObject(entries, Object.keys(entries));
+      for (const [id, name] of Object.entries(entries))
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) ||
+            typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error('captured-prerequisite-invalid');
+    }
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 6) throw new Error('node-runtime');
     dataObject(request, ['useCase', 'policy', 'target', 'resolutions']);
@@ -242,6 +255,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const selectionOps = new Map<string, string[]>();
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
+    const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
       let captured: Awaited<ReturnType<typeof captureSelection>>;
@@ -254,6 +268,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         unavailableSelections.add(selection.id); selectionOps.set(selection.id, []); continue;
       }
       const { recipe, recipeSha256, material } = captured;
+      for (const op of recipe.operations) if (op.kind === 'process.run') knownProcesses.add(`${selection.id}/${op.id}`);
+      for (const check of recipe.checks) if (check.kind === 'process.exit') knownChecks.add(`${selection.id}/${check.id}`);
       captures.push(material);
       const recipeValidation = validateRecipe(recipe);
       if (!recipeValidation.valid) { result.diagnostics = recipeValidation.diagnostics; return finish(); }
@@ -289,7 +305,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const id = `${selection.id}/${op.id}`; currentIds.push(id);
         const requires = [...priorSelections, ...op.requires.map(required => `${selection.id}/${required}`)];
         const selectedChecks = op.checks.map(checkId => checkMap.get(checkId)!);
-        const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id));
+        const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id,
+          capturedUnavailable.checks[`${selection.id}/${check.id}`]));
         const checks = preparedChecks.map(item => item.prepared);
         let root: string | undefined; let path: string | undefined; let before: Buffer | null | undefined;
         let after: Buffer | null | undefined; let pins: PathPin[] | undefined; let mode: number | undefined;
@@ -298,7 +315,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let editConflict: string | undefined;
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
         if (op.kind === 'process.run') {
-          const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues);
+          const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
           effect = 'opaque-process';
         } else {
@@ -374,6 +391,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       selectionOps.set(selection.id, currentIds);
     }
     if (usedResolutions.size !== resolutions.length) throw new Error('resolution-unknown');
+    if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
+        Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     const bindings = pathPins(project);
     const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package },
@@ -420,7 +439,8 @@ function historyDetails(details: ReviewOperation['details']): ReviewOperation['d
     env: details.env ? Object.fromEntries(Object.keys(details.env).map(key => [key, '[OMITTED]'])) : undefined };
 }
 function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: string, selectionKey: string,
-    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], selectionId: string): { prepared: PreparedCheck; review: ReviewCheck } {
+    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], selectionId: string,
+    capturedMissing?: string): { prepared: PreparedCheck; review: ReviewCheck } {
   const id = `${selectionId}/${check.id}`;
   if (check.kind === 'file.sha256') {
     const target = resolvePath(check.target, check.target.root === 'project' ? 'project' : 'user', bound, project, selectionKey);
@@ -428,7 +448,7 @@ function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: 
       review: { id, purpose: safeText(check.purpose, privateValues), kind: check.kind,
         details: { target: safeText(target.absolute, privateValues), content: `sha256:${check.sha256}` } } };
   }
-  const resolved = resolveProcess(check, bound, project, selectionKey, material, privateValues);
+  const resolved = resolveProcess(check, bound, project, selectionKey, material, privateValues, capturedMissing);
   return { prepared: { id, kind: check.kind, process: resolved.process },
     review: { id, purpose: safeText(check.purpose, privateValues), kind: check.kind, details: resolved.review } };
 }

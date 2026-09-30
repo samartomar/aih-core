@@ -7,6 +7,8 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepare, apply } from '@aihq/core';
+import { repairIndex } from '@aihq/core/harness';
+import { getRepairRecipe } from '@aihq/core/harness/runtime';
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aih-jvm-trust-')));
 const home = join(scratch, 'home');
@@ -154,6 +156,98 @@ test('boundary fixture: changed installed JVM helper bytes reject before effects
       assert.equal(existsSync(join(home, '.aih')), false);
     } finally { writeFileSync(helper, bytes); }
   } finally { rmSync(installed, { recursive: true }); }
+}));
+
+for (const { absent, targets } of [
+  { absent: ['gradle'], targets: ['gradle'] },
+  { absent: ['mvn'], targets: ['maven'] },
+  { absent: ['java'], targets: ['gradle', 'maven'] },
+  { absent: ['java', 'gradle', 'mvn'], targets: ['gradle', 'maven'] }
+]) test(`boundary fixture: missing declared ${absent.join('+')} is unavailable before dependent configuration effects`, t => withPath(async () => {
+  if (!boundaryKeytool(t, new X509Certificate(root).fingerprint256)) return;
+  if (!absent.includes('java')) fixtureExecutable('java');
+  if (!absent.includes('gradle')) fixtureLauncher('gradle');
+  if (!absent.includes('mvn')) fixtureLauncher('mvn');
+  const variant = repairIndex.find(item => item.id === 'jvm-ca').variants.find(item =>
+    item.os === process.platform && item.network === 'declared' && item.targets.join(',') === targets.join(','));
+  const fixedRecipe = getRepairRecipe(variant.recipeRef);
+  const before = structuredClone(fixedRecipe);
+  const prepared = await prepare({ ...request(source('missing-declared.pem'), targets), network: 'declared' }, { logging: 'off' });
+  assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
+  assert.ok(prepared.diagnostics.some(item => item.code === 'PREREQUISITE_UNAVAILABLE' && item.reason === 'check-executable-missing'));
+  assert.deepEqual(fixedRecipe, before, 'preparation must not mutate the shipped public recipe');
+  assert.deepEqual(getRepairRecipe(variant.recipeRef), before);
+  for (const target of targets) assert.equal(prepared.review.operations.find(item => item.id === `trust/${target}-config`).effects, 'unavailable');
+  for (const target of targets) {
+    const check = prepared.review.operations.find(item => item.id === `trust/${target}-config`).checks
+      .find(item => item.id === `trust/${target}-behavior`);
+    assert.equal(check.details.executable, process.execPath, 'review preserves the fixed helper wrapper');
+    assert.match(check.details.reason, /^executable-missing:/);
+  }
+  assert.equal(new Set(prepared.review.operations.map(item => item.id)).size, prepared.review.operations.length);
+  const applied = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), { logging: 'off' });
+  assert.equal(applied.completion, 'incomplete', JSON.stringify(applied));
+  for (const target of targets) {
+    const config = applied.operations.find(item => item.id === `trust/${target}-config`);
+    assert.equal(config.application, 'not-attempted');
+    assert.equal(config.reason, 'unavailable');
+    const check = applied.checks.find(item => item.id === `trust/${target}-behavior`);
+    assert.equal(check.status, 'skipped'); assert.equal(check.reason, 'unavailable');
+  }
+  assert.equal(existsSync(join(home, '.gradle', 'gradle.properties')), false);
+  assert.equal(existsSync(join(home, process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc')), false);
+  assert.equal(applied.operations.find(item => item.id === 'trust/material').application, 'applied');
+  assert.equal(applied.operations.find(item => item.id === 'trust/jks-materialize').application, 'applied');
+}));
+
+test('boundary fixture: a missing declared launcher appearing after review requires a fresh review', () => withPath(async () => {
+  fixtureExecutable('keytool'); fixtureExecutable('java');
+  const prepared = await prepare({ ...request(source('missing-launcher-stale.pem'), ['gradle']), network: 'declared' }, { logging: 'off' });
+  assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
+  fixtureLauncher('gradle');
+  const applied = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), { logging: 'off' });
+  assert.equal(applied.completion, 'rejected', JSON.stringify(applied.diagnostics));
+  assert.ok(applied.diagnostics.some(item => item.code === 'REVIEW_STALE'));
+  assert.equal(existsSync(join(home, '.aih')), false);
+}));
+
+test('boundary fixture: all declared executable bindings missing remain explicit unavailable prerequisites', () => withPath(async () => {
+  const prepared = await prepare({ ...request(source('all-bindings-missing.pem')), network: 'declared' }, { logging: 'off' });
+  assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
+  for (const id of ['keytool-ready', 'jks-materialize', 'gradle-config', 'maven-config'])
+    assert.equal(prepared.review.operations.find(item => item.id === `trust/${id}`).effects, 'unavailable');
+  const applied = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), { logging: 'off' });
+  assert.equal(applied.completion, 'incomplete');
+  assert.equal(applied.operations.find(item => item.id === 'trust/material').application, 'applied');
+  assert.equal(applied.operations.find(item => item.id === 'trust/baseline-material').application, 'applied');
+  for (const id of ['keytool-ready', 'jks-materialize', 'gradle-config', 'maven-config'])
+    assert.equal(applied.operations.find(item => item.id === `trust/${id}`).application, 'not-attempted');
+  assert.equal(applied.checks.some(item => item.status === 'failed'), false);
+  assert.ok(applied.diagnostics.some(item => item.code === 'PREREQUISITE_UNAVAILABLE'));
+  assert.equal(existsSync(join(home, '.gradle', 'gradle.properties')), false);
+  assert.equal(existsSync(join(home, process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc')), false);
+  assert.equal(existsSync(join(bin, process.platform === 'win32' ? 'keytool.exe' : 'keytool')), false);
+}));
+
+test('boundary fixture: a launcher rejected by capture limits cannot be re-admitted as a direct executable', t => withPath(async () => {
+  const keytool = boundaryKeytool(t, new X509Certificate(root).fingerprint256);
+  if (!keytool) return;
+  fixtureExecutable('java');
+  const launcher = join(bin, process.platform === 'win32' ? 'gradle.exe' : 'gradle');
+  // Deliberately between launcher and direct-executable byte bounds. Keep a
+  // real PE on Windows (or executable shell fixture on POSIX), without running it.
+  writeFileSync(launcher, Buffer.concat([readFileSync(keytool), Buffer.alloc(17 * 1024 * 1024)]), { mode: 0o755 });
+  const prepared = await prepare({ ...request(source('oversized-launcher.pem'), ['gradle']), network: 'declared' }, { logging: 'off' });
+  assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.review.operations.find(item => item.id === 'trust/gradle-config').effects, 'unavailable');
+  const check = prepared.review.operations.find(item => item.id === 'trust/gradle-config').checks
+    .find(item => item.id === 'trust/gradle-behavior');
+  assert.equal(check.details.executable, process.execPath);
+  assert.equal(check.details.reason, 'executable-missing:gradle');
+  const applied = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), { logging: 'off' });
+  assert.equal(applied.completion, 'incomplete');
+  assert.equal(applied.operations.find(item => item.id === 'trust/gradle-config').application, 'not-attempted');
+  assert.equal(existsSync(join(home, '.gradle', 'gradle.properties')), false);
 }));
 
 test('JVM repair rejects the complete mixed-validity input before touching user trust or config', async () => {

@@ -125,6 +125,8 @@ Declared verification requires the existing `java`, `keytool`, `gradle` and/or `
 
 The review shows selected executables, arguments, destinations and required checks. Source, configuration, helper or executable changes require a fresh review. Offline mode skips live manager verification and reports incomplete repair. No organization policy, system trust change or tool installation is involved. Public endpoint checks establish the performed connection only; they do not prove a supplied CA repaired a different endpoint.
 
+The configuration upsert supports ordinary LF/CRLF properties and line-based Maven rc settings. Bare-CR separators, Gradle continuations or escaped property keys, and Maven continuations, multiline quotes or here-documents require correction before preparation so the repair cannot change neighboring values or mistake shell text for a managed block.
+
 ## One complete authoring example
 
 Save this as `policy.json`:

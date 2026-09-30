@@ -14,7 +14,7 @@ import { pathPins, pinsMatch, projectRoot, sha256, validSegment } from './intern
 import { resolveExecutable, resolveLauncher, executableIdentityMatches } from './internal/approved-process.js';
 import { stateRoot, writeHistory } from './internal/state.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
-import type { Diagnostic, Recipe } from './types.js';
+import type { Diagnostic, ProcessInvocation, Recipe } from './types.js';
 import type { Authorization, HostControls, PreparationResult, PreparedHandle, PreparedReview, RunResult } from './host-types.js';
 
 export interface RepairRequest {
@@ -189,6 +189,25 @@ function resolveExecutableBindings(variant: VariantMetadata) {
   return { executables, paths };
 }
 
+/** Expose unavailable helper prerequisites to the existing policy admission engine. */
+function unavailableExecutableInvocations(recipe: Recipe, executables: RepairState['executables']) {
+  const unavailable = { operations: {} as Record<string, string>, checks: {} as Record<string, string> };
+  const missing = Object.entries(executables).filter(([, executable]) => executable.path === null);
+  const prerequisite = (invocation: ProcessInvocation) => {
+    const slots = [...invocation.args, ...Object.values(invocation.env), ...(invocation.stdin ? [invocation.stdin] : [])];
+    return missing.find(([input]) => slots.some(slot => 'input' in slot && slot.input === input))?.[1].name;
+  };
+  const bind = (invocation: ProcessInvocation & { id: string }, entries: Record<string, string>) => {
+    const name = prerequisite(invocation);
+    // One absent prerequisite is sufficient to prevent invocation. All captured
+    // absences remain in repair state and are independently revalidated at apply.
+    if (name) entries[`trust/${invocation.id}`] = name;
+  };
+  for (const operation of recipe.operations) if (operation.kind === 'process.run') bind(operation, unavailable.operations);
+  for (const check of recipe.checks) if (check.kind === 'process.exit') bind(check, unavailable.checks);
+  return unavailable;
+}
+
 function observeRepair(id: string, targets: string[], variantRef: string) {
   return repairObservationRequests({ id, targets, variantRef }).map(probe => {
     if (!isAbsolute(probe.executable) || probe.timeoutMs < 1 || probe.timeoutMs > 30_000 ||
@@ -336,7 +355,8 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         id: 'trust', managementId: definition.managementId, scope: 'user', configuration: rendered.bindings,
         requires: [], recipe: { inline: recipe }
       }] }, ...(policyResolutions.length ? { resolutions: policyResolutions } : {}) },
-      { ...controls, logging: 'off', ...(sensitiveNames.length ? { privateInputs: { trust: suppliedPrivate } } : {}) });
+      { ...controls, logging: 'off', ...(sensitiveNames.length ? { privateInputs: { trust: suppliedPrivate } } : {}) },
+      unavailableExecutableInvocations(recipe, executables));
     if (!prepared.review || !prepared.prepared) return recordPreparation(prepared, controls);
     const sourceBindings = Object.fromEntries(Object.entries(sources).map(([key, source]) =>
       [key, { sha256: source.sha256, pins: source.pins }]));
