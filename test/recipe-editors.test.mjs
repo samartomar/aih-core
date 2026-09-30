@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderConfigEntries, renderTextBlock } from '../dist/internal/recipe-editors.js';
+import { renderConfigEntries, renderTextBlock } from '../dist/core/internal/recipe-editors.js';
 
 test('JSONC edits nested object keys while retaining unrelated comments and formatting', () => {
   const before = Buffer.from('{\n  // keep this note\n  "other": 1,\n  "nested": { "old": true }\n}\n');

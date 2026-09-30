@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 import tls from 'node:tls';
-import { validateSuppliedCa, composeExistingTrust, prepareRepairDefinition, getRepairRecipe } from '../runtime.mjs';
-import { repairIndex } from '../contracts.mjs';
+import { validateSuppliedCa, composeExistingTrust, prepareRepairDefinition, getRepairRecipe } from '../../dist/harness/runtime.mjs';
+import { repairIndex } from '../../dist/harness/contracts.mjs';
 
 const fixture = name => readFileSync(new URL(`./fixtures/${name}.pem`, import.meta.url));
 const root = fixture('root-a');
@@ -44,7 +44,7 @@ test('bounds reject before subset acceptance and existing trust composition reta
   assert.equal(check(Buffer.alloc(1_048_577, 32)).assessmentLimit, 'source-byte-limit');
   assert.equal(check(root.toString().repeat(257)).diagnostics[0].reason, 'block-count-limit');
   const prior = root.toString();
-  assert.equal(composeExistingTrust(Buffer.from(prior), rootB.toString()), prior + rootB);
+  assert.equal(composeExistingTrust(Buffer.from(prior), rootB.toString()), prior + rootB.toString().trimEnd() + '\n');
   assert.equal(composeExistingTrust(Buffer.from(prior), root.toString()), prior);
   assert.equal(composeExistingTrust(Buffer.from(prior + '  \n'), root.toString()), prior + '  \n');
   assert.equal(composeExistingTrust(Buffer.from('opaque'), rootB.toString()), undefined);

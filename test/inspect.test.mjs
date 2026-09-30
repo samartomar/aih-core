@@ -9,8 +9,9 @@ import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import childProcess from 'node:child_process';
 import tls from 'node:tls';
-import { inspect } from '../dist/index.js';
-import { diagnose } from '@aihq/harness/runtime';
+import { inspect } from '../dist/core/index.js';
+import { contractSupport } from '../dist/core/contracts.js';
+import { diagnose } from '@aihq/core/harness/runtime';
 
 test('inspection uses installed Harness and distinguishes runnable, requested absent and unselected absent', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-inspect-'));
@@ -20,8 +21,8 @@ test('inspection uses installed Harness and distinguishes runnable, requested ab
   try {
     process.env.PATH = path; process.env.HOME = home; process.env.USERPROFILE = home;
     const result = await inspect({ targets: ['node', 'kiro'], network: 'off', project });
-    assert.equal(result.package.name, '@aihq/harness');
-    assert.equal(result.package.version, '2.0.0-dev.0');
+    assert.equal(result.package.name, '@aihq/core');
+    assert.equal(result.package.version, contractSupport.package.version);
     assert.equal(result.tools.find(tool => tool.id === 'node').state, 'runnable');
     assert.deepEqual(result.tools.find(tool => tool.id === 'kiro').selection, 'requested');
     assert.equal(result.checks.find(check => check.id === 'kiro/version').outcome, 'unavailable');
@@ -133,7 +134,7 @@ test('CLI and API expose the same bounded offline inspection without a policy or
   const root = mkdtempSync(join(tmpdir(), 'aih-inspect-cli-'));
   const home = join(root, 'home'); const project = join(root, 'project');
   mkdirSync(home); mkdirSync(project);
-  const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   try {
     const child = spawnSync(process.execPath, [cli, 'inspect', '--target', 'node', '--offline', '--project', project, '--json'], {
       env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8', timeout: 20000
@@ -141,7 +142,7 @@ test('CLI and API expose the same bounded offline inspection without a policy or
     assert.equal(child.status, 0, child.stdout + child.stderr);
     const result = JSON.parse(child.stdout);
     assert.equal(result.status, 'complete');
-    assert.equal(result.package.name, '@aihq/harness');
+    assert.equal(result.package.name, '@aihq/core');
     assert.equal(result.tools.find(tool => tool.id === 'node').state, 'runnable');
     assert.deepEqual(result.effectiveOptions.network, { value: 'off', origin: 'explicit' });
     assert.equal(existsSync(join(home, '.aih')), false);

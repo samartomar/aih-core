@@ -1,9 +1,8 @@
-import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { isProxy } from 'node:util/types';
-import { contractSupport, helperMetadata } from '@aihq/harness/contracts';
-import { diagnose, validDiagnosticTargets } from '@aihq/harness/runtime';
+import { helperMetadata } from '../harness/contracts.mjs';
+import { diagnose, validDiagnosticTargets } from '../harness/runtime.mjs';
+import { installedDistribution } from './internal/installed-distribution.js';
 import type { Diagnostic } from './types.js';
 import type { Effective } from './host-types.js';
 
@@ -33,7 +32,7 @@ export interface InspectResult {
 }
 
 const internalFailure: Diagnostic = {
-  code: 'INTERNAL_ERROR', reason: 'inspection-helper', message: 'Inspection could not safely complete. Reinspect after checking the installed Harness package.'
+  code: 'INTERNAL_ERROR', reason: 'inspection-helper', message: 'Inspection could not safely complete. Reinspect after checking the installed Core distribution.'
 };
 
 function plain(value: unknown, keys: string[]): boolean {
@@ -44,23 +43,14 @@ function plain(value: unknown, keys: string[]): boolean {
     return typeof key === 'string' && keys.includes(key) && descriptor?.enumerable && 'value' in descriptor;
   });
 }
-function installedPackage(): { name: string; version: string } {
-  const require = createRequire(import.meta.url);
-  const manifest = JSON.parse(readFileSync(require.resolve('@aihq/harness/package.json'), 'utf8')) as Record<string, unknown>;
-  if (manifest.name !== '@aihq/harness' || typeof manifest.version !== 'string' ||
-      contractSupport.package.name !== manifest.name || contractSupport.package.version !== manifest.version)
-    throw new Error('harness-package-identity');
-  return { name: manifest.name, version: manifest.version };
-}
-
 export async function inspect(request: InspectRequest = {}, controls: InspectControls = {}): Promise<InspectResult> {
   let identity: { name: string; version: string };
-  try { identity = installedPackage(); }
+  try { identity = installedDistribution(); }
   catch {
-    return { status: 'incomplete', package: { name: '@aihq/harness', version: 'unavailable' },
+    return { status: 'incomplete', package: { name: '@aihq/core', version: 'unavailable' },
       tools: [], observations: [], checks: [], repairChoices: [],
-      diagnostics: [{ code: 'PREREQUISITE_UNAVAILABLE', reason: 'harness-package-identity',
-        message: 'The installed Harness package identity could not be verified.' }],
+      diagnostics: [{ code: 'PREREQUISITE_UNAVAILABLE', reason: 'core-distribution-identity',
+        message: 'The installed Core distribution identity could not be verified.' }],
       effectiveOptions: { targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
         probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: 180000, origin: 'default' } },
       limits: { budgetMs: 180000, elapsedMs: 0, maxActiveProbes: 2 }, followUp: [] };

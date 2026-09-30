@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { repairIndex } from '@aihq/harness/contracts';
+import { repairIndex } from '../harness/contracts.mjs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';

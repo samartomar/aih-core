@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/contracts.js';
+import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/core/contracts.js';
 import { policy } from './fixture.mjs';
 
 test('an outside author round-trips the documented Vibe file without inserting defaults', () => {

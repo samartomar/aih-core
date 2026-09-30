@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 import test from 'node:test';
-import { candidateOrigins, selectTrustCandidateWith } from '../candidate.mjs';
-import { getRepairRecipe, prepareRepairDefinition } from '../runtime.mjs';
-import { repairIndex } from '../contracts.mjs';
+import { candidateOrigins, selectTrustCandidateWith } from '../../dist/harness/candidate.mjs';
+import { getRepairRecipe, prepareRepairDefinition } from '../../dist/harness/runtime.mjs';
+import { repairIndex } from '../../dist/harness/contracts.mjs';
 
 const read = name => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 const rootA = read('root-a.pem'), rootB = read('root-b.pem');

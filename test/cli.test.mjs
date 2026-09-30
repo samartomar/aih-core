@@ -13,7 +13,7 @@ test('CLI previews by default and applies only deliberate automation through the
   const home = join(root, 'home'); const project = join(root, 'project');
   mkdirSync(home); mkdirSync(project);
   const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(policy()));
-  const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   const run = flags => spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', ...flags], {
     encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 20_000
   });
@@ -42,7 +42,7 @@ test('CLI binds dotted private-input names without exposing their values', () =>
   selection.recipe.inline.operations[0].content = { input: 'text.content' };
   const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(document));
   try {
-    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+    const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
     const result = spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', '--apply', '--yes',
       '--private-input', 'team%2Eguidance.text%2Econtent=AIHQ_TEST_PRIVATE'], {
       encoding: 'utf8', timeout: 20_000,
@@ -72,7 +72,7 @@ test('CLI binds an explicit local material root to a referenced recipe', () => {
     materials: [{ id: 'payload', path: 'payload.txt', sha256: digest(content), byteLength: content.length }] } };
   const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(document));
   try {
-    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+    const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
     const run = spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', '--apply', '--yes',
       '--material-root', `selected=${source}`], { encoding: 'utf8', timeout: 20_000,
       env: { ...process.env, HOME: home, USERPROFILE: home } });
@@ -96,7 +96,7 @@ test('CLI applies a narrow config edit only with an exact reviewed resolution fi
     selectionId: document.selections[0].id, operationId: operation.id, choice: 'replace',
     observedSha256: createHash('sha256').update(before).digest('hex') }] }));
   try {
-    const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+    const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
     const run = flags => spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', ...flags],
       { encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: home, USERPROFILE: home } });
     const blocked = run(['--apply', '--yes']); assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);

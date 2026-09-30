@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { captureInlineMaterials, captureRecipeReference, createMaterialCaptureBudget, MATERIAL_LIMITS } from '../dist/internal/material.js';
+import { captureInlineMaterials, captureRecipeReference, createMaterialCaptureBudget, MATERIAL_LIMITS } from '../dist/core/internal/material.js';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const recipe = materials => Buffer.from(JSON.stringify({

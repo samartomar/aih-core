@@ -1,11 +1,12 @@
 // This entry is data only. Importing it performs no host observation.
+import { distribution } from '../distribution.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:harness:support:1.0.0',
-  package: Object.freeze({ name: '@aihq/harness', version: '2.0.0-dev.0' }),
+  package: distribution,
   contracts: Object.freeze(['urn:aihq:harness:diagnostic:1.0.0', 'urn:aihq:harness:repair:1.0.0']),
   entries: Object.freeze([
-    { export: '@aihq/harness/contracts', runtime: 'portable' },
-    { export: '@aihq/harness/runtime', runtime: 'node', nodeRange: '>=24.6.0 <25' }
+    { export: '@aihq/core/harness', runtime: 'portable' },
+    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.6.0 <25' }
   ])
 });
 

@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { prepare, apply } from '../dist/index.js';
-import { pathPins, pinsMatch } from '../dist/internal/host-files.js';
+import { prepare, apply } from '../dist/core/index.js';
+import { pathPins, pinsMatch } from '../dist/core/internal/host-files.js';
 import { policy } from './fixture.mjs';
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'aih-core-host-'));

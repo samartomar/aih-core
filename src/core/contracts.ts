@@ -1,4 +1,5 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
+import { distribution } from '../distribution.mjs';
 import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'json' };
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import preparedSchema from './schemas/prepared-work/1.0.0.json' with { type: 'json' };
@@ -15,13 +16,15 @@ const checkPolicy = validator.compile(policySchema);
 const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
-  package: { name: '@aihq/core', version: '1.0.0-dev.0' },
+  package: distribution,
   contracts: [policySchema, recipeSchema, preparedSchema, resultSchema].map(schema => ({
     id: schema.$id, role: schema === policySchema || schema === recipeSchema ? 'accepts' : 'produces',
     schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/1.0.0.json`
   })),
   entries: [
     { export: '@aihq/core/contracts', runtime: 'portable' },
+    { export: '@aihq/core/harness', runtime: 'portable' },
+    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.6.0 <25' },
     { export: '@aihq/core', runtime: 'node', nodeRange: '>=24.6.0 <25' }
   ]
 });

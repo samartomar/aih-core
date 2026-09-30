@@ -4,7 +4,7 @@ Core exposes one headless execution path to CLIs and application hosts. An autho
 
 **Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
 
-The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node filesystem, process, network or installation effects. It can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
+The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
 ## Public imports
 
@@ -12,6 +12,8 @@ The Node host requires **Node >=24.6.0 <25**. The contracts entry has no Node fi
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
+| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys` |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment and fixed repair helpers |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
@@ -23,7 +25,7 @@ JSON Schema establishes structure. The portable validators also check strict JSO
 
 ## Inspect existing tools
 
-Inspection reads the installed `@aihq/harness` definitions and reports their actual resolved package version. It requires no policy, Catalog or Scan. It observes detected tools by default, runs only their declared bounded diagnostics, and makes no repair or history changes.
+Inspection reads the locally bundled Harness definitions and reports the actual installed `@aihq/core` distribution version. It requires no policy, Catalog or Scan. It observes detected tools by default, runs only their declared bounded diagnostics, and makes no repair or history changes.
 
 ```sh
 aih inspect --json
@@ -43,7 +45,7 @@ const result = await inspect({ targets: ['node', 'npm'], network: 'off' });
 
 ## Repair Node/npm trust
 
-The installed `@aihq/harness` package supplies `node-npm-ca`. Save `{"node-npm-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`, then preview and authorize selected user-scope targets:
+The bundled Harness module supplies `node-npm-ca`. Save `{"node-npm-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`, then preview and authorize selected user-scope targets:
 
 ```sh
 aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json
@@ -165,13 +167,11 @@ Strict document admission limits each document to 1,000,000 UTF-8 bytes and dept
 ## Development checks
 
 Source lives in [`samartomar/aih-core`](https://github.com/samartomar/aih-core).
-Use Node 24 within the declared engine range. This unreleased development slice
-uses a sibling checkout of [`samartomar/aih-harness`](https://github.com/samartomar/aih-harness):
-the lockfile links it and the package acceptance test packs both repositories.
-Clone both repositories under the same parent as `aih-core/` and `aih-harness/`,
-then run these commands inside `aih-core/`. Each has its own Git history and remote.
-The initial split pairs Core source commit `a36fc32` with Harness source commit
-`d505dea`; select compatible source changes explicitly when developing later slices.
+Use Node 24 within the declared engine range. Clone this repository and run the
+following commands inside it. Generic engine source lives in `src/core/`; supplied
+repair definitions and bounded helpers live in `src/harness/`. Harness does not
+import the engine. There is one root manifest and one published distribution;
+no sibling checkout is needed.
 
 ```sh
 npm ci --ignore-scripts
@@ -180,4 +180,26 @@ npm run build
 npm test
 ```
 
-Tests exercise public boundaries with temporary homes and target directories. The package test installs local Core and Harness tarballs into an isolated consumer, imports public schemas and APIs, runs the installed CLI, and bundles/runs the portable contracts in an environment without Node globals. Never target a source checkout with the product CLI during development. Build/pack needs no donor checkout, Catalog, Scan, vendor engine or private engineering files.
+Tests exercise public boundaries with temporary homes and target directories.
+`npm test` includes the migrated Harness CA/candidate tests. The package test
+installs one Core tarball into an isolated consumer, imports public schemas and
+APIs, runs the installed CLI and repair, and bundles/runs both portable entries
+without Node globals. It also rejects prepared repair after bundled helper bytes
+change, builds and installs a new Core version with changed Harness content, and
+restores the original artifact. Never target a source checkout with the product
+CLI during development. Build/pack needs no donor checkout, Catalog, Scan, vendor
+engine or private engineering files.
+
+The build removes obsolete generated output and copies only shipped Harness
+files. Portable package identity is generated from the root manifest, shared by
+both modules, and checked against the installed manifest by host operations.
+Repair review/result `inputs.package` names that Core distribution;
+`helperSha256` binds the manifest, generated identity and shipped Harness helper
+bytes, while `sourceSha256` binds selected repair inputs. Schema IDs retain their
+independent versions. Every shipped Harness change requires a new Core package
+version and a deliberate Core update through ordinary package management.
+
+CI runs these gates on Linux, Windows and macOS. The separate manually invoked
+native macOS trust acceptance uses a disposable runner, installs a temporary CA
+in its OS keychain and exercises packed system-CA and supplied npm repair. It
+requires a macOS 26 arm64 runner and establishes native evidence only when run.

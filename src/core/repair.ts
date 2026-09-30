@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { contractSupport as harnessSupport, repairIndex } from '@aihq/harness/contracts';
-import { assessRepairCandidate, assessRepairObservations, getRepairRecipe, prepareRepairDefinition, repairObservationRequests } from '@aihq/harness/runtime';
+import { contractSupport as harnessSupport, repairIndex } from '../harness/contracts.mjs';
+import { assessRepairCandidate, assessRepairObservations, getRepairRecipe, prepareRepairDefinition, repairObservationRequests } from '../harness/runtime.mjs';
+import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
 import { validateRecipe } from './contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
@@ -60,15 +60,15 @@ function recordRun(result: RunResult, controls: HostControls): RunResult {
 }
 
 function installedHelperSha256(id: string): string {
-  const require = createRequire(import.meta.url);
-  const packageFile = require.resolve('@aihq/harness/package.json');
+  const packageFile = distributionManifest;
   const root = dirname(packageFile);
-  const actual = JSON.parse(readFileSync(packageFile, 'utf8')) as { name: string; version: string };
+  const actual = installedDistribution();
   if (actual.name !== harnessSupport.package.name || actual.version !== harnessSupport.package.version ||
       !harnessSupport.contracts.includes('urn:aihq:harness:repair:1.0.0') ||
       !repairIndex.some(item => item.id === id)) throw new Error('harness-unsupported');
   const digest = createHash('sha256');
-  for (const name of ['package.json', ...readdirSync(root).filter(name => name.endsWith('.mjs')).sort()]) {
+  for (const name of ['package.json', 'dist/distribution.mjs', 'dist/harness/contracts.mjs',
+    'dist/harness/runtime.mjs', 'dist/harness/ca.mjs', 'dist/harness/candidate.mjs']) {
     const bytes = readRegularFile(join(root, name), { maxBytes: 2_000_000 });
     if (!bytes) throw new Error('harness-unavailable');
     digest.update(name).update('\0').update(bytes).update('\0');

@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { getRepairRecipe, renderRepair } from '@aihq/harness/runtime';
-import { repairIndex } from '@aihq/harness/contracts';
-import { prepare, apply } from '../dist/index.js';
+import { getRepairRecipe, renderRepair } from '@aihq/core/harness/runtime';
+import { repairIndex } from '@aihq/core/harness';
+import { prepare, apply } from '../dist/core/index.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-repair-'));
 const home = join(scratch, 'home');
@@ -134,7 +134,7 @@ test('CLI and API reject the same mixed input without effects or raw key output'
   writeFileSync(source, Buffer.concat([root, Buffer.from('-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----')]));
   const input = join(scratch, 'repair-inputs.json');
   writeFileSync(input, JSON.stringify({ 'node-npm-ca': { caFile: source } }));
-  const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   const result = spawnSync(process.execPath, [cli, 'repair', 'node-npm-ca', '--target', 'node',
     '--inputs-file', input, '--apply', '--yes', '--json'], {
     encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome }

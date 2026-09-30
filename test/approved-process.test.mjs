@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveExecutable, runApprovedProcess } from '../dist/internal/approved-process.js';
+import { resolveExecutable, runApprovedProcess } from '../dist/core/internal/approved-process.js';
 
 test('an in-place executable edit invalidates the captured byte identity', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-executable-pin-'));

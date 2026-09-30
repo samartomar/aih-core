@@ -1,16 +1,20 @@
 # AIH-Core
 
 Source repository: `samartomar/aih-core`. Package: `@aihq/core`.
-The current sibling `aih-harness` repository owns the transitional `@aihq/harness`
-artifact; the accepted target bundles Harness in Core with `@aihq/core/harness`.
-That cutover is not implemented by these instructions. `ai-harness` is the
-legacy donor. Resolve this repository's Git root, branch and push URL before
+Generic engine source lives in `src/core/`; bundled repair/support definitions
+and helpers live in `src/harness/`. Portable Harness metadata is exposed through
+`@aihq/core/harness`; Node helpers use `@aihq/core/harness/runtime`. Both modules
+share this repository's single package version. Resolve the Git root, branch and push URL before
 committing. Keep shared/private engineering plans outside this repository.
 
 Read the [README](README.md) for implemented contracts, development setup and
 checks. Preserve the generic engine boundary: vendor/tool-specific definitions
 and helpers belong in Harness or supplied content. Portable contracts must work
 without Node host effects. Treat schemas and public API behavior as contracts.
+
+Every shipped Harness edit requires a new Core distribution version. Preserve
+the actual installed package identity and selected helper/input byte binding.
+Build only the root package; no nested package or sibling checkout is required.
 
 Run focused checks for the change and the applicable package checks before
 handoff. Use `npm test` so package tests receive npm's executable path. Exercise

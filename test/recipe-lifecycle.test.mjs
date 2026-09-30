@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { prepare, apply } from '../dist/index.js';
+import { prepare, apply } from '../dist/core/index.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-recipe-lifecycle-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
