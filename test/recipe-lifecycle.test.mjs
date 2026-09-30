@@ -558,7 +558,7 @@ test('interrupted transitive cleanup publishes removed-root intent before depend
 
 
 test('user state identity and retained custody use the canonical home across harmless path spellings', async () => {
-  const canonicalHome = realpathSync.native(process.env.USERPROFILE), child = join(canonicalHome, 'identity-child'); mkdirSync(child);
+  const canonicalHome = realpathSync.native(mkdtempSync(join(scratch, 'identity-home-'))), child = join(canonicalHome, 'identity-child'); mkdirSync(child);
   const original = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   const project = mkdtempSync(join(scratch, 'canonical-user-home-'));
   try {
