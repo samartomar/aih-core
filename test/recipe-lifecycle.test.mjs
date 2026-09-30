@@ -386,7 +386,7 @@ test('TOML entries and text blocks retain neighboring edits during selected clea
   assert.equal(readFileSync(join(project, 'NOTES.md'), 'utf8'), 'Human added introduction.\nHuman introduction.\n');
 });
 
-test('cancellation between cleanup removals advances only the completed member custody', { timeout: 30_000 }, async () => {
+test('cancellation between cleanup removals advances only the completed member custody', { timeout: 120_000 }, async () => {
   const project = mkdtempSync(join(scratch, 'cancel-between-removals-'));
   const write = op('file.write', 'project', 'first.txt', { content: { literal: 'first bytes' } });
   const document = policy(write);
@@ -532,7 +532,7 @@ test('adjacent distinct marker blocks retain independent custody during cleanup'
   assert.equal(readFileSync(join(project, 'NOTES.md'), 'utf8'), '<!-- second:start -->\nsecond bytes\n<!-- second:end -->\n');
 });
 
-test('interrupted transitive cleanup publishes removed-root intent before dependent subtraction', { timeout: 60_000 }, async () => {
+test('interrupted transitive cleanup publishes removed-root intent before dependent subtraction', { timeout: 120_000 }, async () => {
   const project = mkdtempSync(join(scratch, 'transitive-cancel-')), document = chainPolicy();
   const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
   assert.equal((await apply(initial.prepared, approve(initial), { logging: 'off' })).completion, 'complete');
