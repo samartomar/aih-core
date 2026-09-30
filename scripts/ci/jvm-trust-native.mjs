@@ -203,7 +203,10 @@ function runManagerPosix(executable, args, env) {
 function windowsWhere(name) {
   const out = execFileSync(join(process.env.SystemRoot, 'System32/where.exe'), [name],
     { encoding: 'utf8', timeout: 10000, maxBuffer: 8192, windowsHide: true }).trim().split(/\r?\n/);
-  assert.equal(out.length, 1, `Expected exactly one ${name} on PATH, got ${out.length}`);
+  // Match Core's ordered PATH resolution. Hosted Windows images can include a
+  // second Maven installation after the pinned fixture; its presence must not
+  // reject the first launcher selected by normal PATH precedence.
+  assert.ok(out.length > 0 && out[0].length > 0, `No ${name} on PATH`);
   assert.ok(windowsSafePath.test(out[0]), `${name} path is not safe for a verbatim cmd string: ${out[0]}`);
   return out[0];
 }
