@@ -9,6 +9,7 @@ on:
       - 'src/harness/contracts.mjs'
       - 'src/harness/contracts.d.mts'
       - 'src/core/repair.ts'
+      - 'src/core/recipe-engine.ts'
       - 'src/core/internal/approved-process.ts'
       - 'scripts/build.mjs'
       - 'scripts/ci/jvm-trust-native.mjs'
