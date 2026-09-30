@@ -2,3 +2,12 @@ node_modules/
 dist/
 *.tgz
 coverage/
+/.code-review-graph/
+/.codebase-memory/
+/.serena/
+/.scratch/
+/.env
+/.env.*
+!/.env.example
+!/.env.sample
+/secrets/

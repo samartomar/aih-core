@@ -164,6 +164,15 @@ Strict document admission limits each document to 1,000,000 UTF-8 bytes and dept
 
 ## Development checks
 
+Source lives in [`samartomar/aih-core`](https://github.com/samartomar/aih-core).
+Use Node 24 within the declared engine range. This unreleased development slice
+uses a sibling checkout of [`samartomar/aih-harness`](https://github.com/samartomar/aih-harness):
+the lockfile links it and the package acceptance test packs both repositories.
+Clone both repositories under the same parent as `aih-core/` and `aih-harness/`,
+then run these commands inside `aih-core/`. Each has its own Git history and remote.
+The initial split pairs Core source commit `a36fc32` with Harness source commit
+`d505dea`; select compatible source changes explicitly when developing later slices.
+
 ```sh
 npm ci --ignore-scripts
 npm run typecheck
