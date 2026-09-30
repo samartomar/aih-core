@@ -79,6 +79,12 @@ jobs:
           npm run build
       - name: Packed native acceptance
         shell: bash
+        # Windows account temp can resolve to an 8.3 RUNNER~1 path outside the
+        # runner's strict batch-argument subset. Use the dedicated runner temp
+        # for fixtures while retaining the same product path admission rules.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
           mkdir -p native-trust-results
           # Version probes run with an isolated probe home so no real account
