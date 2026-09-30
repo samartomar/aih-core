@@ -30,7 +30,7 @@ interface RepairState {
   sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
   configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   requiredAbsences: { path: string; reason: string; purpose: string }[];
-  executables: Record<string, { name: string; path: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  executables: Record<string, { name: string; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
@@ -179,8 +179,9 @@ function resolveExecutableBindings(variant: VariantMetadata) {
         Object.hasOwn(executables, entry.pathInput)) throw new Error('repair-definition');
     const resolved = resolveExecutable(entry.name);
     executables[entry.pathInput] = { name: entry.name, path: resolved?.path ?? null,
+      launchPath: resolved?.launchPath ?? null,
       pins: resolved?.pins ?? [], sha256: resolved?.sha256 ?? null };
-    paths[entry.pathInput] = resolved?.path ?? '';
+    paths[entry.pathInput] = resolved?.launchPath ?? '';
   }
   return { executables, paths };
 }
@@ -346,7 +347,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         [key, { sha256: item.sha256, pins: item.pins }])),
       requiredAbsences,
       executableBindingDigests: Object.fromEntries(Object.entries(executables).map(([key, item]) =>
-        [key, { path: item.path, sha256: item.sha256 }])),
+        [key, { path: item.path, launchPath: item.launchPath, sha256: item.sha256 }])),
       fingerprints: rendered.fingerprints, evaluatedAt: rendered.evaluatedAt,
       observations: observations.map(item => ({ id: item.id, raw: item.raw })) });
     const review: PreparedReview = { ...prepared.review, useCase: 'repair', mode: 'standalone',

@@ -45,7 +45,7 @@ test('a reviewed executable alias rejects retargeting before the process starts'
   const marker = join(project, 'ran.txt');
   const preparation = await prepare(request(project, alias, marker), controls);
   assert.equal(preparation.status, 'ready', JSON.stringify(preparation.diagnostics));
-  assert.equal(preparation.review.operations[0].details.executable, realpathSync(first));
+  assert.equal(preparation.review.operations[0].details.executable, alias);
   unlinkSync(alias); symlinkSync(second, alias, 'file');
   const result = await apply(preparation.prepared, authorize(preparation), controls);
   assert.equal(result.operations[0].reason, 'executable-changed');
@@ -61,6 +61,23 @@ test('an existing hardlinked executable runs while its reviewed bytes remain unc
   const preparation = await prepare(request(project, executable, marker), controls);
   assert.equal(preparation.status, 'ready', JSON.stringify(preparation.diagnostics));
   const result = await apply(preparation.prepared, authorize(preparation), controls);
+  assert.equal(result.operations[0].application, 'applied', JSON.stringify(result));
+  assert.equal(existsSync(marker), true);
+});
+
+test('an executable alias preserves the selected launcher name', async t => {
+  const project = mkdtempSync(join(root, 'launcher-'));
+  const executable = join(project, 'dispatcher.exe'), alias = join(project, 'tool.exe');
+  copyFileSync(process.execPath, executable); chmodSync(executable, 0o700);
+  try { symlinkSync(executable, alias, 'file'); }
+  catch (error) { if (error.code === 'EPERM') { t.skip('This Windows account cannot create executable symlinks'); return; } throw error; }
+  const marker = join(project, 'ran.txt');
+  const input = request(project, alias, marker);
+  input.policy.selections[0].recipe.inline.operations[0].args[1].literal =
+    "require('node:assert/strict').equal(require('node:path').basename(process.argv0),'tool.exe');require('node:fs').writeFileSync(process.argv[1],'ran')";
+  const prepared = await prepare(input, controls);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  const result = await apply(prepared.prepared, authorize(prepared), controls);
   assert.equal(result.operations[0].application, 'applied', JSON.stringify(result));
   assert.equal(existsSync(marker), true);
 });

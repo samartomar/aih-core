@@ -5,7 +5,7 @@ import { sha256 } from './host-files.js';
 import { readRegularFileWithStats } from './fsxn.js';
 import type { PathPin } from './host-files.js';
 
-export interface ResolvedExecutable { path: string; pins: PathPin[]; sha256: string }
+export interface ResolvedExecutable { path: string; launchPath: string; pins: PathPin[]; sha256: string }
 export interface ProcessResult {
   status: 'passed' | 'failed' | 'unavailable' | 'cancelled'; reason: string;
   exitCode?: number; effectsUncertain: boolean; terminationUnconfirmed: boolean;
@@ -57,7 +57,7 @@ export function resolveExecutable(name: string): ResolvedExecutable | undefined 
       const current = lstatSync(resolved, { bigint: true });
       if (captured && current.isFile() && captured.identity.dev === current.dev && captured.identity.ino === current.ino &&
           realpathSync.native(path) === resolved && executablePinsMatch(pins))
-        return { path: resolved, pins, sha256: sha256(captured.contents) };
+        return { path: resolved, launchPath: resolve(path), pins, sha256: sha256(captured.contents) };
     } catch { /* Try the next explicit PATH candidate. */ }
   }
   return undefined;
@@ -93,7 +93,9 @@ export async function runApprovedProcess(request: {
     };
     const abort = () => stop('cancelled');
     try {
-      child = spawn(request.executable.path, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
+      // Dispatchers such as rustup select the tool by the original launcher name.
+      // Its alias chain and canonical executable bytes were both pinned above.
+      child = spawn(request.executable.launchPath, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
         env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { finish('unavailable', 'spawn-failed'); return; }
     const observe = (chunk: Buffer) => { byteCount += chunk.byteLength; if (byteCount > request.maxOutputBytes) stop('output-bytes'); };

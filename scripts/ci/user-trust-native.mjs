@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -51,6 +51,23 @@ async function exerciseConsumer() {
   writeFileSync('native-result.json', JSON.stringify({ platform: process.platform, architecture: process.arch,
     osRelease: release(), node: process.version, package: contractSupport.package,
     targets, review: prepared.review, result }, null, 2));
+  if (result.completion !== 'complete') {
+    // These supplied vendor checks are read-only; bounded fixture diagnostics
+    // remain separate from the product's redacted run history.
+    const failures = result.checks.filter(item => item.status === 'failed' &&
+      ['trust/cargo-behavior', 'trust/conda-behavior'].includes(item.id));
+    const diagnostics = failures.map(item => {
+      const check = prepared.review.operations.flatMap(operation => operation.checks).find(check => check.id === item.id);
+      const details = check.details;
+      const command = spawnSync(details.executable, details.args.map(value => JSON.parse(value)), {
+        cwd: details.cwd, env: { ...process.env, ...Object.fromEntries(Object.entries(details.env).map(([key, value]) => [key, JSON.parse(value)])) },
+        shell: false, windowsHide: true, encoding: 'utf8', timeout: 30000, maxBuffer: 8192
+      });
+      return { checkId: item.id, status: command.status, error: command.error?.code,
+        stderr: (command.stderr ?? '').slice(0, 8192) };
+    });
+    writeFileSync('native-diagnostics.json', JSON.stringify(diagnostics, null, 2));
+  }
   assert.equal(result.completion, 'complete', JSON.stringify(result));
   for (const id of targets) assert.equal(result.operations.find(operation => operation.id === `trust/${id}-config`).verification.status, 'passed');
   for (const file of files) {
@@ -100,7 +117,7 @@ if (process.argv[2] === '--consumer') {
   for (const key of Object.keys(env)) if (/^(?:npm_config_allow_scripts|node_test_context|pip_config_file|pip_cert|pip_trusted_host|requests_ca_bundle|ssl_cert_file|git_ssl_cainfo|git_ssl_no_verify|cargo_http_cainfo|cargo_http_ssl_verify|conda_ssl_verify)$/i.test(key)) delete env[key];
   const reportDirectory = join(source, 'native-trust-results');
   mkdirSync(reportDirectory, { recursive: true });
-  for (const name of ['native-failure.json', 'native-result.json', 'native-repeat.json', 'native-package.json'])
+  for (const name of ['native-failure.json', 'native-result.json', 'native-repeat.json', 'native-package.json', 'native-diagnostics.json'])
     if (existsSync(join(reportDirectory, name))) unlinkSync(join(reportDirectory, name));
   const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 120000 });
   let succeeded = false;
@@ -126,7 +143,7 @@ if (process.argv[2] === '--consumer') {
       message: error instanceof Error ? error.message : 'Native acceptance failed' }, null, 2));
     throw error;
   } finally {
-    for (const name of ['native-result.json', 'native-repeat.json'])
+    for (const name of ['native-result.json', 'native-repeat.json', 'native-diagnostics.json'])
       if (existsSync(join(consumer, name))) copyFileSync(join(consumer, name), join(reportDirectory, name));
     if (succeeded) {
       assert.ok(lstatSync(root).isDirectory() && !lstatSync(root).isSymbolicLink());
