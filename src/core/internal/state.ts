@@ -39,7 +39,9 @@ if($Create -eq 'yes') {
 foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
   if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
   else { $actual=[System.IO.File]::GetAccessControl($path) }
-  if($actual.Owner -ne $user.Translate([System.Security.Principal.NTAccount]).Value -and $actual.Owner -ne $user.Value) { throw 'state-owner' }
+  # Elevated Windows creates children owned by Administrators, already trusted with FullControl.
+  $owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if($allowed -notcontains $owner) { throw 'state-owner' }
   foreach($rule in $actual.Access) {
     $sid=$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
     if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $sid) { throw 'state-protection' }
