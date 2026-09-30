@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
-import { delimiter, isAbsolute, join } from 'node:path';
-import { pathPins, pinsMatch } from './host-files.js';
+import { accessSync, constants, lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { delimiter, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { sha256 } from './host-files.js';
 import { readRegularFileWithStats } from './fsxn.js';
 import type { PathPin } from './host-files.js';
@@ -12,6 +11,31 @@ export interface ProcessResult {
   exitCode?: number; effectsUncertain: boolean; terminationUnconfirmed: boolean;
 }
 const WINDOWS_SUFFIX = process.platform === 'win32' ? ['.exe', '.com'] : [''];
+
+// Read-only executable admission has different link rules from mutation targets.
+// Pin both the selected alias chain and its resolved regular file; never reuse
+// these pins to authorize a file write.
+function executablePathPins(path: string): PathPin[] {
+  const absolute = resolve(path), base = parse(absolute).root;
+  let current = base;
+  return ['', ...relative(base, absolute).split(/[\\/]/).filter(Boolean)].map(segment => {
+    if (segment) current = join(current, segment);
+    const stats = lstatSync(current, { bigint: true });
+    if (stats.ino === 0n || !stats.isFile() && !stats.isDirectory() && !stats.isSymbolicLink())
+      throw new Error('executable-path');
+    const link = stats.isSymbolicLink() ? Buffer.from(readlinkSync(current)).toString('hex') : '';
+    return { path: current, identity: `executable:${stats.dev}:${stats.ino}:${stats.mode}:${stats.isFile() ? stats.nlink : 0n}:${link}` };
+  });
+}
+
+export function executablePinsMatch(pins: PathPin[]): boolean {
+  return pins.length > 0 && pins.every(pin => {
+    try {
+      const current = executablePathPins(pin.path).at(-1);
+      return current?.path === pin.path && current.identity === pin.identity;
+    } catch { return false; }
+  });
+}
 
 export function resolveExecutable(name: string): ResolvedExecutable | undefined {
   if (!name || /[\r\n\0]/.test(name)) return undefined;
@@ -27,11 +51,13 @@ export function resolveExecutable(name: string): ResolvedExecutable | undefined 
     if (process.platform === 'win32' && !/\.(exe|com)$/i.test(path)) continue;
     try {
       accessSync(path, constants.X_OK);
-      const pins = pathPins(path);
-      if (pins.at(-1)?.identity !== 'absent') {
-        const captured = readRegularFileWithStats(path, { maxBytes: 512 * 1024 * 1024 });
-        if (captured && pinsMatch(pins)) return { path, pins, sha256: sha256(captured.contents) };
-      }
+      const resolved = realpathSync.native(path);
+      const pins = [...executablePathPins(path), ...executablePathPins(resolved)];
+      const captured = readRegularFileWithStats(resolved, { maxBytes: 512 * 1024 * 1024 });
+      const current = lstatSync(resolved, { bigint: true });
+      if (captured && current.isFile() && captured.identity.dev === current.dev && captured.identity.ino === current.ino &&
+          realpathSync.native(path) === resolved && executablePinsMatch(pins))
+        return { path: resolved, pins, sha256: sha256(captured.contents) };
     } catch { /* Try the next explicit PATH candidate. */ }
   }
   return undefined;
@@ -43,9 +69,9 @@ export async function runApprovedProcess(request: {
   signal?: AbortSignal;
 }): Promise<ProcessResult> {
   if (request.signal?.aborted) return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false, terminationUnconfirmed: false };
-  const live = pinsMatch(request.executable.pins) ?
+  const live = executablePinsMatch(request.executable.pins) ?
     readRegularFileWithStats(request.executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
-  if (!live || sha256(live.contents) !== request.executable.sha256 || !pinsMatch(request.executable.pins))
+  if (!live || sha256(live.contents) !== request.executable.sha256 || !executablePinsMatch(request.executable.pins))
     return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
   return new Promise(resolve => {
     let child: ReturnType<typeof spawn>;

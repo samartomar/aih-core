@@ -37,7 +37,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs))$/.test(entry.path), entry.path);
     }
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
@@ -49,9 +49,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';
       import {readFileSync,writeFileSync} from 'node:fs';
-      import {resolve} from 'node:path';
+      import {join,resolve} from 'node:path';
       import {prepare,apply,inspect} from '@aihq/core';
-      import {parsePolicy,contractSupport} from '@aihq/core/contracts';
+      import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
       import {repairIndex,contractSupport as harnessSupport} from '@aihq/core/harness';
       import {getRepairRecipe} from '@aihq/core/harness/runtime';
       import {Ajv2020} from 'ajv/dist/2020.js';
@@ -72,6 +72,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(result.completion,'complete');
       assert.equal(ajv.validate(result.schema,result),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
+      const userTrust = repairIndex.find(item=>item.id==='user-tools-ca');
+      assert.ok(userTrust,'packed Harness must include the user-tools-ca repair');
+      assert.deepEqual(userTrust.targets,['python','pip','git','cargo','conda']);
+      for (const item of userTrust.variants) {
+        const recipe = getRepairRecipe(item.recipeRef);
+        assert.ok(recipe,'installed runtime resolves each portable repair variant');
+        const validation = validateRecipe(recipe);
+        assert.equal(validation.valid,true,JSON.stringify(validation.diagnostics));
+      }
       const variant = repairIndex[0].variants.find(item=>item.os===process.platform&&item.targets.length===1&&item.targets[0]==='npm'&&item.network==='off');
       assert.equal(getRepairRecipe(variant.recipeRef).id,'node-npm-ca');
       const repair = await prepare({useCase:'repair',repairs:[{id:'node-npm-ca',targets:['npm'],
@@ -84,6 +93,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(repaired.completion,'incomplete');
       assert.equal(repaired.operations.find(op=>op.id==='trust/material').application,'applied');
       assert.equal(ajv.validate(repaired.schema,repaired),true,JSON.stringify(ajv.errors));
+      const privateSentinel = 'fixture-private-credential-value';
+      writeFileSync(join(process.env.HOME,'.gitconfig'),'[credential]\\n\\thelper = '+privateSentinel+'\\n');
+      const gitRepair = await prepare({useCase:'repair',repairs:[{id:'user-tools-ca',targets:['git'],
+        inputs:{caFile:resolve('ca.pem')}}],network:'off'},{logging:'off'});
+      assert.ok(gitRepair.review,JSON.stringify(gitRepair.diagnostics));
+      assert.equal(JSON.stringify(gitRepair).includes(privateSentinel),false,'preserved credentials stay private');
+      assert.equal(gitRepair.review.operations.find(item=>item.id==='trust/git-config').details.content,'[REDACTED]');
       console.log('packed API, Harness runtime, repair and schemas passed');
     `);
     assert.match(run('run.mjs'), /packed API, Harness runtime, repair and schemas passed/);
@@ -93,7 +109,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
         contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length];`, resolveDir: consumer },
       bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
-    assert.equal(Object.keys(browser.metafile.inputs).some(name=>/harness\/(?:runtime|ca|candidate)\.mjs$/.test(name)), false);
+    assert.equal(Object.keys(browser.metafile.inputs).some(name=>/harness\/(?:runtime|ca|candidate|user-trust)\.mjs$/.test(name)), false);
     const browserGlobals = { TextEncoder, TextDecoder };
     runInNewContext(browser.outputFiles[0].text, browserGlobals, { timeout: 5000 });
     assert.equal(browserGlobals.portable[0], true);
@@ -138,7 +154,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       copyFileSync(join(packageRoot, name), join(updated, name));
     mkdirSync(join(updated, 'test'));
     for (const name of ['harness', 'fixtures']) cpSync(join(packageRoot, 'test', name), join(updated, 'test', name), { recursive: true });
-    for (const name of ['repair.test.mjs', 'inspect.test.mjs', 'fixture.mjs'])
+    for (const name of ['repair.test.mjs', 'inspect.test.mjs', 'user-trust.test.mjs', 'approved-process.test.mjs', 'executable-links.test.mjs', 'fixture.mjs'])
       copyFileSync(join(packageRoot, 'test', name), join(updated, 'test', name));
     const nextVersion = version.endsWith('-dev.0') ? version.replace(/-dev\.0$/, '-dev.1') : `${version}-packaging-fixture.1`;
     const nextManifest = JSON.parse(readFileSync(join(updated, 'package.json'), 'utf8'));

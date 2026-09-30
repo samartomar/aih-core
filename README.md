@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo and conda CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -69,6 +69,25 @@ const result = await apply(preparation.prepared, {
 Input must be a complete certificate-only PEM: at most 1 MiB total, 256 blocks and 64 KiB per block. Every certificate must parse as one CA certificate valid at preparation and application time. One bad block rejects the entire import without touching existing trust or configuration. Accepted certificates are copied to Core-managed user material; later source changes do not rotate that copy. Existing managed certificates are retained byte-for-byte, including expired certificates. Unowned or changed destinations need an exact reviewed resolution through `--resolutions`; a generic `--allow-partial` does not grant replacement authority. No system trust store or installer is changed.
 
 Node's user shell profile receives `NODE_EXTRA_CA_CERTS`. On Windows, a reviewed user-environment update also persists the value for future user processes, and its check must pass before the profile reference is written. The Node check starts a new Node process, confirms the selected CA identities loaded, and attempts a TLS connection to the public npm registry unless `--offline` was selected. Existing processes may need restarting to inherit the user environment. npm receives a user `.npmrc` `cafile`; the managed bundle includes Node's default roots because npm replaces its default trust when `cafile` is set. Its online check queries npm configuration and pings the registry selected by npm's configuration. `--offline` suppresses live TLS verification for either target and reports its repair as incomplete. A successful public-registry check does not prove the supplied CA resolved a different endpoint's trust failure.
+
+## Repair Python/pip, Git, Cargo and conda trust
+
+The bundled `user-tools-ca` repair accepts a complete supplied CA file and any selected combination of `python`, `pip`, `git`, `cargo` and `conda`. Save `{"user-tools-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`:
+
+```sh
+aih repair user-tools-ca --target pip --target git --inputs-file repair-inputs.json --json
+aih repair user-tools-ca --target pip --target git --inputs-file repair-inputs.json --apply
+# Explicit permission to perform independent work when a selected tool is unavailable:
+aih repair user-tools-ca --target pip --target conda --inputs-file repair-inputs.json --apply --allow-partial
+```
+
+The API uses `prepare({ useCase: 'repair', repairs: [{ id: 'user-tools-ca', targets: ['pip', 'git'], inputs: { caFile: absolutePemPath } }] })`, followed by the same explicit `apply` authorization as Node/npm. Tool readiness checks run before configuration changes. Cargo also requires Git because its retained configuration enables `git-fetch-with-cli`. Nothing installs missing tools.
+
+Python sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for future user shell sessions; Windows also persists both user environment values. The Python behavior check confirms the supplied CA identities loaded into its default TLS context and reaches PyPI. pip sets its user `cert`, Git sets user `http.sslCAInfo`, Cargo sets user `http.cainfo` and `net.git-fetch-with-cli`, and conda sets user `ssl_verify`. The selected recipe declares its exact paths, commands and checks in the review. Canonical user config locations are supported; redirected locations and inherited trust overrides or verification bypasses require correction before preparation.
+
+Vendor transforms retain neighboring settings. Preserved configuration bodies are private inputs and appear redacted in reviews and routine history. Existing unowned or changed files require an exact reviewed replacement resolution, even when their other content will be preserved. Managed trust retains existing certificates and includes baseline roots alongside the supplied CA. Relevant config files, helper bytes and input bytes are bound to the prepared work; changes require another review. Online verification exercises the selected tool and its effective trust configuration. `--offline` reports skipped behavioral verification and incomplete repair. A failed or unavailable prerequisite prevents its dependent configuration changes. `--allow-partial` permits only reviewed independent work and does not authorize a conflict replacement.
+
+Python must be `python` on Windows or `python3` on macOS/Linux. pip, Git and conda require direct executables; Windows batch wrappers are unavailable. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
 
 ## One complete authoring example
 

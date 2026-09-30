@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.tgz
 coverage/
+native-trust-results/
 /.code-review-graph/
 /.codebase-memory/
 /.serena/

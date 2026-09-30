@@ -1,5 +1,6 @@
 // This entry is data only. Importing it performs no host observation.
 import { distribution } from '../distribution.mjs';
+import { userToolsRepair } from './user-trust-definitions.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:harness:support:1.0.0',
   package: distribution,
@@ -44,16 +45,17 @@ export const repairIndex = Object.freeze([Object.freeze({
     description: 'Installed selector for the effective HTTPS npm registry: npm-registry' }) }),
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
   offlineVerification: Object.freeze([])
-})]);
+}), userToolsRepair]);
 export const verificationKeys = Object.freeze([]);
 export const helperMetadata = Object.freeze({
   repairs: Object.freeze([
     { id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] },
-    { id: 'node-os-trust', helper: 'renderRepair', targets: ['node'] }
+    { id: 'node-os-trust', helper: 'renderRepair', targets: ['node'] },
+    { id: 'user-tools-ca', helper: 'renderRepair', targets: ['python', 'pip', 'git', 'cargo', 'conda'] }
   ]),
   diagnostics: Object.freeze([
     { id: 'existing-tools', kind: 'diagnostic', purpose: 'Inspect installed tools and their declared TLS origins',
-      targets: ['node', 'npm', 'git', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro'],
+      targets: ['node', 'npm', 'git', 'python', 'pip', 'cargo', 'conda', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro'],
       profile: { phaseMs: 180000, maxActiveProbes: 2, localProcessMs: 30000, networkProcessMs: 25000,
         networkSocketMs: 20000, outputBytes: 65536, checkDetailBytes: 4096, phaseDetailBytes: 65536,
         configuredMcpOrigins: 3, configuredMcpMs: 60000 } }
@@ -64,6 +66,10 @@ export const targets = Object.freeze([
   { id: 'node', label: 'Node.js', binaries: ['node'], configDirs: [], origins: [] },
   { id: 'npm', label: 'npm', binaries: ['npm'], configDirs: [], origins: ['https://registry.npmjs.org'] },
   { id: 'git', label: 'Git', binaries: ['git'], configDirs: [], origins: [] },
+  { id: 'python', label: 'Python', binaries: ['python3', 'python'], configDirs: [], origins: ['https://pypi.org'] },
+  { id: 'pip', label: 'pip', binaries: ['pip', 'pip3'], configDirs: [], origins: ['https://pypi.org'] },
+  { id: 'cargo', label: 'Cargo', binaries: ['cargo'], configDirs: ['.cargo'], origins: ['https://crates.io'] },
+  { id: 'conda', label: 'conda', binaries: ['conda'], configDirs: [], origins: ['https://repo.anaconda.com'] },
   { id: 'claude', label: 'Claude Code', binaries: ['claude'], configDirs: ['.claude'], origins: [] },
   { id: 'codex', label: 'Codex CLI', binaries: ['codex'], configDirs: ['.codex'], origins: [] },
   { id: 'cursor', label: 'Cursor', binaries: ['cursor', 'cursor-agent', 'agent'], configDirs: ['.cursor'], origins: [] },

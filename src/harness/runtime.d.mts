@@ -29,11 +29,14 @@ export declare function assessRepairCandidate(request: { id: string; inputs: Rec
     { kind: 'extra-ca'; origins: string[]; certs: { fingerprint: string; pem: string }[];
       probes: number; elapsedMs: number }>;
 export declare function renderRepair(request: { id: string; variantRef: string;
-  bundlePath?: string; bundleSha256?: string; fingerprints?: string[]; origins?: string[] }):
+  bundlePath?: string; bundleSha256?: string; fingerprints?: string[]; origins?: string[];
+  configSnapshots?: Record<string, Uint8Array>; executablePaths?: Record<string, string> }):
   { status: 'invalid'; diagnostics: { code: string; reason: string; message: string }[] } |
-  { status: 'completed'; bindings: Record<string, string> };
+  { status: 'completed'; bindings: Record<string, string>; privateBindings?: Record<string, string> };
 export declare function prepareRepairDefinition(request: { id: string; variantRef: string;
   targets: string[]; files: Record<string, Uint8Array>;
+  configSnapshots?: Record<string, Uint8Array>;
+  executablePaths?: Record<string, string>;
   ordinaryInputs?: Record<string, string | boolean | number>; existing?: Uint8Array;
   candidate?: { kind: 'system-ca'; origins: string[] } | { kind: 'extra-ca'; origins: string[];
     certs: { fingerprint: string; pem: string }[] };
@@ -41,7 +44,7 @@ export declare function prepareRepairDefinition(request: { id: string; variantRe
   { status: 'invalid' | 'blocked'; assessedBlocks?: number; assessmentLimit?: string;
     diagnostics: { code: string; reason: string; message: string; block?: number; offset?: number; guidance?: string }[] } |
   { status: 'completed'; fingerprints: string[]; evaluatedAt: string; count: number; duplicates: number;
-    bundle?: string; bindings?: Record<string, string> };
+    bundle?: string; bindings?: Record<string, string>; privateBindings?: Record<string, string> };
 export declare function repairObservationRequests(request: { id: string; targets: string[]; variantRef?: string }):
   { id: string; operationId: string; executable: string; args: string[]; timeoutMs: number; maxOutputBytes: number }[];
 export declare function assessRepairObservations(request: { id: string; managedPath: string; variantRef?: string;
