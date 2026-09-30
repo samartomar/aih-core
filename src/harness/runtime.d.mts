@@ -30,8 +30,9 @@ export declare function assessRepairCandidate(request: { id: string; inputs: Rec
       probes: number; elapsedMs: number }>;
 export declare function renderRepair(request: { id: string; variantRef: string;
   bundlePath?: string; bundleSha256?: string; fingerprints?: string[]; origins?: string[];
+  baselineStoreSha256?: string; baselineStoreBase64?: string;
   configSnapshots?: Record<string, Uint8Array>; executablePaths?: Record<string, string> }):
-  { status: 'invalid'; diagnostics: { code: string; reason: string; message: string }[] } |
+  { status: 'invalid' | 'blocked'; diagnostics: { code: string; reason: string; message: string }[] } |
   { status: 'completed'; bindings: Record<string, string>; privateBindings?: Record<string, string> };
 export declare function prepareRepairDefinition(request: { id: string; variantRef: string;
   targets: string[]; files: Record<string, Uint8Array>;

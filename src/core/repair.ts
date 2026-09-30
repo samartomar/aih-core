@@ -11,10 +11,10 @@ import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateCon
 import { canonicalJson } from './internal/canonical.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
 import { pathPins, pinsMatch, projectRoot, sha256, validSegment } from './internal/host-files.js';
-import { resolveExecutable, executableIdentityMatches } from './internal/approved-process.js';
+import { resolveExecutable, resolveLauncher, executableIdentityMatches } from './internal/approved-process.js';
 import { stateRoot, writeHistory } from './internal/state.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
-import type { Diagnostic, Recipe } from './types.js';
+import type { Diagnostic, ProcessInvocation, Recipe } from './types.js';
 import type { Authorization, HostControls, PreparationResult, PreparedHandle, PreparedReview, RunResult } from './host-types.js';
 
 export interface RepairRequest {
@@ -30,7 +30,7 @@ interface RepairState {
   sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
   configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   requiredAbsences: { path: string; reason: string; purpose: string }[];
-  executables: Record<string, { name: string; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  executables: Record<string, { name: string; kind?: 'launcher'; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
@@ -73,7 +73,8 @@ function installedHelperSha256(id: string): string {
   const digest = createHash('sha256');
   for (const name of ['package.json', 'dist/distribution.mjs', 'dist/harness/contracts.mjs',
     'dist/harness/runtime.mjs', 'dist/harness/ca.mjs', 'dist/harness/candidate.mjs',
-    'dist/harness/user-trust-definitions.mjs', 'dist/harness/user-trust.mjs']) {
+    'dist/harness/user-trust-definitions.mjs', 'dist/harness/user-trust.mjs',
+    'dist/harness/jvm-trust-definitions.mjs', 'dist/harness/jvm-trust.mjs']) {
     const bytes = readRegularFile(join(root, name), { maxBytes: 2_000_000 });
     if (!bytes) throw new Error('harness-unavailable');
     digest.update(name).update('\0').update(bytes).update('\0');
@@ -98,7 +99,7 @@ function capturedSource(path: string, maxBytes: number) {
 
 interface VariantMetadata {
   configFiles?: readonly { operationId: string; target: { root: 'userHome'; segments: readonly { literal: string }[] }; maxBytes: number }[];
-  executableBindings?: readonly { name: string; pathInput: string }[];
+  executableBindings?: readonly { name: string; pathInput: string; kind?: 'launcher' }[];
   requiredAbsences?: readonly { target: { root: 'userHome'; segments: readonly { literal: string }[] }; reason: string; purpose: string }[];
 }
 
@@ -176,14 +177,35 @@ function resolveExecutableBindings(variant: VariantMetadata) {
     if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string' ||
         !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) ||
         typeof entry.pathInput !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.pathInput) ||
+        entry.kind !== undefined && entry.kind !== 'launcher' ||
         Object.hasOwn(executables, entry.pathInput)) throw new Error('repair-definition');
-    const resolved = resolveExecutable(entry.name);
+    const resolved = (entry.kind === 'launcher' ? resolveLauncher : resolveExecutable)(entry.name);
     executables[entry.pathInput] = { name: entry.name, path: resolved?.path ?? null,
+      ...(entry.kind ? { kind: entry.kind } : {}),
       launchPath: resolved?.launchPath ?? null,
       pins: resolved?.pins ?? [], sha256: resolved?.sha256 ?? null };
     paths[entry.pathInput] = resolved?.launchPath ?? '';
   }
   return { executables, paths };
+}
+
+/** Expose unavailable helper prerequisites to the existing policy admission engine. */
+function unavailableExecutableInvocations(recipe: Recipe, executables: RepairState['executables']) {
+  const unavailable = { operations: {} as Record<string, string>, checks: {} as Record<string, string> };
+  const missing = Object.entries(executables).filter(([, executable]) => executable.path === null);
+  const prerequisite = (invocation: ProcessInvocation) => {
+    const slots = [...invocation.args, ...Object.values(invocation.env), ...(invocation.stdin ? [invocation.stdin] : [])];
+    return missing.find(([input]) => slots.some(slot => 'input' in slot && slot.input === input))?.[1].name;
+  };
+  const bind = (invocation: ProcessInvocation & { id: string }, entries: Record<string, string>) => {
+    const name = prerequisite(invocation);
+    // One absent prerequisite is sufficient to prevent invocation. All captured
+    // absences remain in repair state and are independently revalidated at apply.
+    if (name) entries[`trust/${invocation.id}`] = name;
+  };
+  for (const operation of recipe.operations) if (operation.kind === 'process.run') bind(operation, unavailable.operations);
+  for (const check of recipe.checks) if (check.kind === 'process.exit') bind(check, unavailable.checks);
+  return unavailable;
 }
 
 function observeRepair(id: string, targets: string[], variantRef: string) {
@@ -333,7 +355,8 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         id: 'trust', managementId: definition.managementId, scope: 'user', configuration: rendered.bindings,
         requires: [], recipe: { inline: recipe }
       }] }, ...(policyResolutions.length ? { resolutions: policyResolutions } : {}) },
-      { ...controls, logging: 'off', ...(sensitiveNames.length ? { privateInputs: { trust: suppliedPrivate } } : {}) });
+      { ...controls, logging: 'off', ...(sensitiveNames.length ? { privateInputs: { trust: suppliedPrivate } } : {}) },
+      unavailableExecutableInvocations(recipe, executables));
     if (!prepared.review || !prepared.prepared) return recordPreparation(prepared, controls);
     const sourceBindings = Object.fromEntries(Object.entries(sources).map(([key, source]) =>
       [key, { sha256: source.sha256, pins: source.pins }]));
@@ -448,13 +471,13 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
     }
     for (const executable of Object.values(state.executables)) {
       if (executable.path === null) {
-        if (resolveExecutable(executable.name)) throw new Error('review-stale');
+        if ((executable.kind === 'launcher' ? resolveLauncher : resolveExecutable)(executable.name)) throw new Error('review-stale');
         continue;
       }
       if (executable.launchPath === null) throw new Error('review-stale');
       const identity = { path: executable.path, launchPath: executable.launchPath, pins: executable.pins };
       const live = executableIdentityMatches(identity) ?
-        readRegularFileWithStats(executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
+        readRegularFileWithStats(executable.path, { maxBytes: (executable.kind === 'launcher' ? 16 : 512) * 1024 * 1024 }) : undefined;
       if (!live || sha256(live.contents) !== executable.sha256 || !executableIdentityMatches(identity))
         throw new Error('review-stale');
     }

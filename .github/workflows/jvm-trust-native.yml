@@ -1,0 +1,112 @@
+name: Native JVM trust acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'src/harness/jvm-trust*'
+      - 'src/harness/runtime.mjs'
+      - 'src/harness/runtime.d.mts'
+      - 'src/harness/contracts.mjs'
+      - 'src/harness/contracts.d.mts'
+      - 'src/core/repair.ts'
+      - 'src/core/recipe-engine.ts'
+      - 'src/core/internal/approved-process.ts'
+      - 'scripts/build.mjs'
+      - 'scripts/ci/jvm-trust-native.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/jvm-trust-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      # ubuntu-24.04 x64 and macos-26 arm64 are contract native gates.
+      # windows-2025 is supplementary CI evidence only; the Windows 11 25H2
+      # build 26200 contract gate runs on the real host. The runner asserts
+      # exact identities itself and never labels windows-2025 as Windows 11.
+      # Its elevated hosted token is recorded as supplementary, never standard.
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Provision fixture JDK and keytool
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Exact pinned build (Temurin jdk-21.0.12.1+1 = 21.0.12+101.0.LTS);
+          # the resolved patch is recorded in tool-versions.txt below.
+          java-version: '21.0.12+101.0.LTS'
+      - name: Provision pinned fixture Gradle and Maven
+        shell: bash
+        # CI-only fixture provisioning; the product installs nothing. Versions and
+        # digests match the ticket's recorded fixture toolchain (Gradle 8.14.3,
+        # Apache Maven 3.9.11).
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/jvm-tools"
+          if [ "$RUNNER_OS" = Windows ]; then
+            tools="$(cygpath -u "$RUNNER_TEMP")/jvm-tools"
+          fi
+          mkdir -p "$tools"
+          curl -fsSL --retry 3 -o "$tools/gradle.zip" https://services.gradle.org/distributions/gradle-8.14.3-bin.zip
+          echo "bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531  $tools/gradle.zip" | sha256sum -c -
+          unzip -q "$tools/gradle.zip" -d "$tools"
+          curl -fsSL --retry 3 -o "$tools/maven.tar.gz" https://archive.apache.org/dist/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz
+          echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  $tools/maven.tar.gz" | sha512sum -c -
+          tar -xzf "$tools/maven.tar.gz" -C "$tools"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cygpath -w "$tools/gradle-8.14.3/bin" >> "$GITHUB_PATH"
+            cygpath -w "$tools/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          else
+            echo "$tools/gradle-8.14.3/bin" >> "$GITHUB_PATH"
+            echo "$tools/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Build candidate
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+          npm run build
+      - name: Packed native acceptance
+        shell: bash
+        # Windows account temp can resolve to an 8.3 RUNNER~1 path outside the
+        # runner's strict batch-argument subset. Use the dedicated runner temp
+        # for fixtures while retaining the same product path admission rules.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          mkdir -p native-trust-results
+          # Version probes run with an isolated probe home so no real account
+          # Gradle/Maven configuration is ever read and caches stay in scratch.
+          probe_home="$RUNNER_TEMP/jvm-probe-home"
+          mkdir -p "$probe_home/gradle-user-home"
+          {
+            echo "runner: $RUNNER_OS ImageOS=${ImageOS:-unknown} ImageVersion=${ImageVersion:-unknown}"
+            uname -a
+            node --version
+            java -version
+            echo "keytool: $(command -v keytool) (JAVA_HOME=$JAVA_HOME)"
+            HOME="$probe_home" USERPROFILE="$probe_home" gradle --gradle-user-home "$probe_home/gradle-user-home" --version
+            HOME="$probe_home" USERPROFILE="$probe_home" mvn --version
+            echo "gradle-8.14.3-bin.zip sha256: bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531 (verified in provisioning)"
+            echo "apache-maven-3.9.11-bin.tar.gz sha512: bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978 (verified in provisioning)"
+          } > native-trust-results/tool-versions.txt 2>&1
+          npm exec --offline --call 'node scripts/ci/jvm-trust-native.mjs'
+      - name: Preserve native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-jvm-trust-${{ matrix.os }}
+          path: native-trust-results/
+          if-no-files-found: warn

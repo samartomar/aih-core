@@ -11,7 +11,7 @@ export declare const repairIndex: readonly { id: string; description: string;
   variants: readonly { os: string; architectures: readonly string[]; targets: readonly string[];
     network: 'declared' | 'off'; candidate?: 'system-ca' | 'extra-ca'; recipeRef: string; transformId: string;
     configFiles?: readonly { operationId: string; target: { root: 'userHome'; segments: readonly { literal: string }[] }; maxBytes: number }[];
-    executableBindings?: readonly { name: string; pathInput: string }[];
+    executableBindings?: readonly { name: string; pathInput: string; kind?: 'launcher' }[];
     requiredAbsences?: readonly { target: { root: 'userHome'; segments: readonly { literal: string }[] };
       reason: string; purpose: string }[] }[];
   targets: readonly string[]; inputs: Readonly<Record<string, { type: 'file' | 'string' | 'boolean' | 'number';
