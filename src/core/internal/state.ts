@@ -95,7 +95,14 @@ export function readOwnership(target: string): { value: Ownership; digest: strin
   const bytes = stateFiles().read(ownershipPath(target));
   if (!bytes) return { value: empty, digest: null };
   const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
-  if (value.schema !== empty.schema || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
+  validateOwnership(value, target);
+  return { value, digest: sha256(bytes) };
+}
+
+export function validateOwnership(input: unknown, target: string): asserts input is Ownership {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('ownership-invalid');
+  const value = input as Record<string, unknown>;
+  if (value.schema !== 'urn:aihq:core:ownership:1.0.0' || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
   if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
@@ -114,7 +121,6 @@ export function readOwnership(target: string): { value: Ownership; digest: strin
       if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== homedir()) throw new Error('ownership-invalid');
     }
   }
-  return { value: value as unknown as Ownership, digest: sha256(bytes) };
 }
 
 export function writeHistory(runId: string, result: unknown, logging: 'on' | 'off'): RecordStatus {
@@ -140,6 +146,9 @@ export function lockTarget(target: string): () => void {
 
 export function stageOwnership(target: string, runId: string, update: Ownership): () => void {
   const path = ownershipPath(target);
+  // A byte-sized receipt must also remain readable under strict admission.
+  // Reject semantic count/descriptor failures before any target effects.
+  try { validateOwnership(update, target); } catch { throw new Error('state-unwritable'); }
   const record = Buffer.from(JSON.stringify(update));
   if (record.length > 1_048_576) throw new Error('state-unwritable');
   const staged = `ownership/.pending-${runId}-${sha256(target)}.json`;

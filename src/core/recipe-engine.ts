@@ -9,7 +9,7 @@ import { canonicalJson } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
+import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
@@ -402,7 +402,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             return prior && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope) && (bytes === null || prior.sha256 !== sha256(bytes)); });
           const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
             return prior?.claims?.some(claim => claim.managementId !== selection.managementId || claim.scope !== selection.scope) && (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
-          const overlap = descriptors.some(member => Object.values(projected.members).some(owner => owner.descriptor && memberKey(owner.descriptor) !== memberKey(member) && overlappingMembers(member, owner.descriptor)));
+          let overlap = false;
+          try { overlap = descriptors.some(member => Object.values(projected.members).some(owner => owner.descriptor && memberKey(owner.descriptor) !== memberKey(member) &&
+            (overlappingMembers(member, owner.descriptor, before) || overlappingMembers(member, owner.descriptor, after)))); }
+          catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
+
           if (editConflict || sharedChange || overlap) effect = 'conflict';
           else if (drift && !resolution) effect = 'conflict';
           else if (same) effect = 'already-satisfied';
@@ -458,6 +462,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (effectRoot(root) && (policy.removals?.some(removal => claimId(removal) === id) || sets.length && sets.every(set => !!set && !set.members.includes(claim.managementId)))) candidates.add(id);
       else retained.add(id);
     }
+    const priorDependencies = new Map(dependencies);
     for (const selection of policy.selections) {
       const id = claimId(selection); retained.add(id); candidates.delete(id);
       dependencies.set(id, selection.requires.map(required => { const dependency = policy.selections.find(item => item.id === required)!; return claimId(dependency); }));
@@ -482,8 +487,22 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim: null, requires: [] }; selectionUpdates.set(root, updates);
       observations.push({ id: `lifecycle/root-${observations.length}`, reason: `remove-management-root:${claim.managementId}` });
     }
+    const ancestors = (id: string): Set<string> => {
+      const result = new Set<string>(); const queue = [id];
+      for (let index = 0; index < queue.length; index++) for (const [parent, required] of priorDependencies)
+        if (required.includes(queue[index]!) && !result.has(parent)) { result.add(parent); queue.push(parent); }
+      return result;
+    };
+    // Generate retaining-root subtraction before dependency subtraction so
+    // same-destination overlays and interruption preserve the old graph.
+    const graphIds = [...new Set([...priorDependencies.keys(), ...[...priorDependencies.values()].flat()])];
+    const removalOrder = dependencyOrder(graphIds.map(id => ({ id, requires: [...priorDependencies].filter(([, required]) => required.includes(id)).map(([parent]) => parent) })));
+    const rank = new Map(removalOrder.map((item, index) => [item.id, index]));
+    const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
+    members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
+    const removedIdentities = new Map<PreparedStep, string[]>();
     let removalIndex = 0;
-    for (const [root, stored] of ownership) for (const [key, owner] of Object.entries(stored.value.members)) {
+    for (const { root, key, owner } of members) {
       if (!effectRoot(root)) continue;
       const claims = owner.claims ?? [];
       const obsolete = (claim: Claim) => {
@@ -503,16 +522,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied';
       let matching = false;
       try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
+        if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
         if (!remaining.length && matching) after = subtractMember(descriptor, before);
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
-      const droppedDependencyGuards = policy.selections.flatMap(selection => {
-        const id = claimId(selection);
-        const priorDependencies = [...ownership].flatMap(([priorRoot, stored]) => [...Object.values(stored.value.selections ?? {}), ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])].filter(claim => claimId(claim, priorRoot) === id).flatMap(claim => claim.requires));
-        return removed.some(claim => priorDependencies.includes(claimId(claim, root))) ? selectionOps.get(selection.id) ?? [] : [];
-      });
+      const removedIds = removed.map(claim => claimId(claim, root));
+      const retainingAncestors = new Set(removedIds.flatMap(id => [...ancestors(id)]));
+      const droppedDependencyGuards = policy.selections.flatMap(selection => retainingAncestors.has(claimId(selection)) ? selectionOps.get(selection.id) ?? [] : []);
       let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
       steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : 'file.remove',
         scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: 'explicit-managed-removal',
@@ -520,10 +538,20 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, custody: { [key]: remaining.length ? { ...owner, claims: remaining } : null },
         custodyOnly: matching && effect === 'already-satisfied' });
+      removedIdentities.set(steps.at(-1)!, removedIds);
       if (matching) overlays.set(destination, { initial: overlay?.initial ?? initialBefore, after, priorId: id });
     }
+    for (const [step, removedIds] of removedIdentities) {
+      const parents = new Set(removedIds.flatMap(id => [...ancestors(id)]));
+      const retainingRemovals = [...removedIdentities].filter(([other, ids]) => other !== step && ids.some(id => parents.has(id))).map(([other]) => other.review.id);
+      step.review.requires = [...new Set([...step.review.requires, ...retainingRemovals])];
+    }
+    // Validate the removal ordering before any effects; ambiguous shared cycles
+    // cannot become partially executable cleanup.
+    const orderedSteps = dependencyOrder(steps.map(step => ({ id: step.review.id, requires: step.review.requires, step })));
+    steps.splice(0, steps.length, ...orderedSteps.map(item => item.step));
     for (const [root, updates] of selectionUpdates) for (const [key, update] of Object.entries(updates)) if (update.claim === null) {
-      update.requires = steps.filter(step => claimIdentity(step.review.scope, step.managementId, step.review.scope === 'project' ? step.root! : root) === key).map(step => step.review.id);
+      update.requires = [...removedIdentities].filter(([, identities]) => identities.includes(key)).map(([step]) => step.review.id);
     }
     if (usedResolutions.size !== resolutions.length) throw new Error('resolution-unknown');
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
@@ -664,10 +692,22 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       const larger = <T>(prior: T | undefined, proposed: T): T => prior && Buffer.byteLength(JSON.stringify(prior)) > Buffer.byteLength(JSON.stringify(proposed)) ? prior : proposed;
       for (const step of state.steps.filter(item => item.root === root &&
         (['create-file', 'replace-file', 'remove-file'].includes(item.review.effects) || item.resolution === 'adopt' || item.custodyOnly))) {
-        for (const [key, owner] of Object.entries(step.custody ?? {})) if (owner) next.members[key] = larger(next.members[key], owner);
+        for (const [key, owner] of Object.entries(step.custody ?? {})) if (owner) {
+          // Byte size does not bound semantic counts: a shorter primary ID can
+          // hide an overflowing proposed claim list behind a larger old owner.
+          try { validateOwnership({ schema: current.schema, target: root, members: { [key]: owner } }, root); }
+          catch { throw new Error('state-unwritable'); }
+          next.members[key] = larger(next.members[key], owner);
+          const deferred: Ownership = { ...current, members: { ...current.members } };
+          updateCustody(deferred, { ...step, custody: { [key]: owner } }, true);
+          next.members[key] = larger(next.members[key], deferred.members[key]!);
+        }
       }
-      for (const [key, update] of Object.entries(state.selectionUpdates.get(root) ?? {})) if (update.claim)
+      for (const [key, update] of Object.entries(state.selectionUpdates.get(root) ?? {})) if (update.claim) {
+        try { validateOwnership({ schema: current.schema, target: root, members: {}, selections: { [key]: update.claim } }, root); }
+        catch { throw new Error('state-unwritable'); }
         next.selections![key] = larger(next.selections![key], update.claim);
+      }
       releases.push(stageOwnership(root, runId, next));
     }
     handles.delete(prepared);
@@ -676,6 +716,41 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       catch { throw new Error('recovery-unavailable'); }
     }
     const outcomes = new Map<string, boolean>(); let stop = false;
+    const metadataState = state;
+    const publishMetadata = () => {
+      // Byte custody follows each successful mutation. Selection metadata advances
+      // only when all its reviewed operations and required checks succeeded.
+      for (const root of mutatingRoots) {
+        const tracked = metadataState.ownership.get(root)!;
+        const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
+        let changed = false;
+        for (const step of metadataState.steps.filter(step => step.root === root && outcomes.get(step.review.id) === true)) {
+          const selectionSteps = metadataState.steps.filter(other => other.managementId === step.managementId && other.review.scope === step.review.scope && !other.lifecycle);
+          if (!selectionSteps.every(other => outcomes.get(other.review.id) === true)) continue;
+          for (const [key, desired] of Object.entries(step.custody ?? {})) {
+            const current = next.members[key]; if (!desired || !current) continue;
+            const claims = (current.claims ?? []).map(claim => desired.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope) ?? claim);
+            const owner = { ...current, claims };
+            if (canonicalJson(owner) !== canonicalJson(current)) { next.members[key] = owner; changed = true; }
+          }
+        }
+        for (const [key, update] of Object.entries(metadataState.selectionUpdates.get(root) ?? {})) {
+          if (!update.requires.every(id => outcomes.get(id) === true)) continue;
+          next.selections = { ...next.selections };
+          if (update.claim) next.selections[key] = update.claim; else delete next.selections[key];
+          delete metadataState.selectionUpdates.get(root)![key];
+          changed = true;
+        }
+        if (changed) {
+          if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
+          protectState([ownershipPath(root)]);
+          const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+          metadataState.ownership.set(root, { value: next, digest: sha256(receipt) });
+          metadataState.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+        }
+      }
+    };
+    publishMetadata();
     for (let index = 0; index < state.steps.length; index++) {
       const step = state.steps[index]!; const operation = result.operations[index]!;
       await yieldToHost();
@@ -776,38 +851,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       const okay = (operation.application === 'applied' || operation.application === 'already-satisfied') &&
         ['unverified', 'passed'].includes(operation.verification.status);
       outcomes.set(step.review.id, okay);
+      publishMetadata();
       if (!okay && !allowPartial) stop = true;
     }
-    // Byte custody follows each successful mutation. Selection metadata advances
-    // only when all its reviewed operations and required checks succeeded.
-    for (const root of mutatingRoots) {
-      const tracked = state.ownership.get(root)!;
-      const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
-      let changed = false;
-      for (const step of state.steps.filter(step => step.root === root && outcomes.get(step.review.id) === true)) {
-        const selectionSteps = state.steps.filter(other => other.managementId === step.managementId && other.review.scope === step.review.scope && !other.lifecycle);
-        if (!selectionSteps.every(other => outcomes.get(other.review.id) === true)) continue;
-        for (const [key, desired] of Object.entries(step.custody ?? {})) {
-          const current = next.members[key]; if (!desired || !current) continue;
-          const claims = (current.claims ?? []).map(claim => desired.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope) ?? claim);
-          const owner = { ...current, claims };
-          if (canonicalJson(owner) !== canonicalJson(current)) { next.members[key] = owner; changed = true; }
-        }
-      }
-      for (const [key, update] of Object.entries(state.selectionUpdates.get(root) ?? {})) {
-        if (!update.requires.every(id => outcomes.get(id) === true)) continue;
-        next.selections = { ...next.selections };
-        if (update.claim) next.selections[key] = update.claim; else delete next.selections[key];
-        changed = true;
-      }
-      if (changed) {
-        if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
-        protectState([ownershipPath(root)]);
-        const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
-        state.ownership.set(root, { value: next, digest: sha256(receipt) });
-        state.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
-      }
-    }
+    publishMetadata();
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
   } catch (error) {

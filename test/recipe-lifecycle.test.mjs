@@ -457,3 +457,101 @@ test('cleanup preserves a managed block with an edited closing newline', async (
   assert.equal(removal.review.operations[0].effects, 'conflict');
   assert.equal(readFileSync(path, 'utf8'), edited);
 });
+
+const chainPolicy = () => ({ schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe',
+  selections: ['a', 'b', 'c'].map((id, index) => ({ id, managementId: id, scope: 'project', configuration: {},
+    requires: index < 2 ? [['b'], ['c']][index] : [], recipe: { inline: recipe(op('file.write', 'project', `${id}.txt`, { content: { literal: id } })) } })),
+  managedSelections: [{ id: 'chain', scope: 'project', members: ['a', 'b', 'c'] }] });
+
+test('failed retaining-root update protects all transitive dependencies under partial cleanup', async () => {
+  const project = mkdtempSync(join(scratch, 'transitive-update-')), document = chainPolicy();
+  const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(initial.prepared, approve(initial), { logging: 'off' })).completion, 'complete');
+  const rootSelection = document.selections[0]; rootSelection.requires = [];
+  rootSelection.recipe.inline.operations[0].content.literal = 'updated a'; rootSelection.recipe.inline.operations[0].checks = ['required'];
+  rootSelection.recipe.inline.checks = [{ id: 'required', purpose: 'Required update check', kind: 'file.sha256', target: target('project', 'a.txt'), sha256: '0'.repeat(64) }];
+  document.selections = [rootSelection]; document.managedSelections[0].members = ['a'];
+  const update = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  const result = await apply(update.prepared, { ...approve(update), allowPartial: true }, { logging: 'off' });
+  assert.equal(result.completion, 'incomplete');
+  assert.equal(readFileSync(join(project, 'b.txt'), 'utf8'), 'b');
+  assert.equal(readFileSync(join(project, 'c.txt'), 'utf8'), 'c');
+  assert.ok(result.operations.filter(item => item.id.startsWith('lifecycle/')).every(item => item.application === 'not-attempted'));
+  const retry = await prepare({ useCase: 'policy', policy: { schema: document.schema, mode: 'vibe', selections: [], removals: [{ managementId: 'c', scope: 'project' }] }, target: { project } }, { logging: 'off' });
+  assert.equal(retry.review.operations.length, 0);
+});
+
+test('blocked retaining-root removal preserves its transitive dependencies under partial cleanup', async () => {
+  const project = mkdtempSync(join(scratch, 'transitive-remove-')), document = chainPolicy();
+  const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(initial.prepared, approve(initial), { logging: 'off' })).completion, 'complete');
+  writeFileSync(join(project, 'a.txt'), 'human edited a');
+  const empty = { schema: document.schema, mode: 'vibe', selections: [], managedSelections: [{ id: 'chain', scope: 'project', members: [] }] };
+  const cleanup = await prepare({ useCase: 'policy', policy: empty, target: { project } }, { logging: 'off' });
+  assert.equal(cleanup.status, 'partial');
+  const result = await apply(cleanup.prepared, { ...approve(cleanup), allowPartial: true }, { logging: 'off' });
+  assert.equal(result.completion, 'incomplete');
+  assert.equal(readFileSync(join(project, 'a.txt'), 'utf8'), 'human edited a');
+  assert.equal(readFileSync(join(project, 'b.txt'), 'utf8'), 'b');
+  assert.equal(readFileSync(join(project, 'c.txt'), 'utf8'), 'c');
+  assert.ok(result.operations.every(item => item.application === 'not-attempted'));
+});
+
+test('distinct marker pairs cannot acquire overlapping nested block custody', async () => {
+  const project = mkdtempSync(join(scratch, 'nested-block-custody-'));
+  const innerText = '<!-- inner:start -->\ninner bytes\n<!-- inner:end -->\n';
+  const outer = op('text.block', 'project', 'NOTES.md', { blockId: 'outer', startMarker: '<!-- outer:start -->',
+    endMarker: '<!-- outer:end -->', action: 'set', content: { literal: innerText } });
+  const first = await prepare(request(project, outer), { logging: 'off' });
+  assert.equal((await apply(first.prepared, approve(first), { logging: 'off' })).completion, 'complete');
+  const inner = op('text.block', 'project', 'NOTES.md', { blockId: 'inner', startMarker: '<!-- inner:start -->',
+    endMarker: '<!-- inner:end -->', action: 'set', content: { literal: 'inner bytes' } });
+  const document = policy(inner); document.selections[0].id = 'inner'; document.selections[0].managementId = 'inner-owner';
+  const before = readFileSync(join(project, 'NOTES.md'));
+  const adopted = await prepare({ useCase: 'policy', policy: document, target: { project }, resolutions: [{ selectionId: 'inner',
+    operationId: 'member', choice: 'adopt', observedSha256: createHash('sha256').update(before).digest('hex') }] }, { logging: 'off' });
+  assert.equal(adopted.status, 'blocked', JSON.stringify(adopted));
+  assert.equal(adopted.prepared, undefined);
+  assert.deepEqual(readFileSync(join(project, 'NOTES.md')), before);
+});
+
+
+test('adjacent distinct marker blocks retain independent custody during cleanup', async () => {
+  const project = mkdtempSync(join(scratch, 'adjacent-block-custody-'));
+  const makeBlock = id => op('text.block', 'project', 'NOTES.md', { blockId: id, startMarker: `<!-- ${id}:start -->`,
+    endMarker: `<!-- ${id}:end -->`, action: 'set', content: { literal: `${id} bytes` } });
+  const first = await prepare(request(project, makeBlock('first')), { logging: 'off' });
+  assert.equal((await apply(first.prepared, approve(first), { logging: 'off' })).completion, 'complete');
+  const secondDocument = policy(makeBlock('second')); secondDocument.selections[0].managementId = 'second-owner';
+  const second = await prepare({ useCase: 'policy', policy: secondDocument, target: { project } }, { logging: 'off' });
+  assert.equal(second.status, 'ready', JSON.stringify(second));
+  assert.equal((await apply(second.prepared, approve(second), { logging: 'off' })).completion, 'complete');
+  const cleanup = await prepare({ useCase: 'policy', policy: { schema: secondDocument.schema, mode: 'vibe', selections: [],
+    removals: [{ managementId: 'stable-item', scope: 'project' }] }, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(cleanup.prepared, approve(cleanup), { logging: 'off' })).completion, 'complete');
+  assert.equal(readFileSync(join(project, 'NOTES.md'), 'utf8'), '<!-- second:start -->\nsecond bytes\n<!-- second:end -->\n');
+});
+
+test('interrupted transitive cleanup publishes removed-root intent before dependent subtraction', { timeout: 60_000 }, async () => {
+  const project = mkdtempSync(join(scratch, 'transitive-cancel-')), document = chainPolicy();
+  const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(initial.prepared, approve(initial), { logging: 'off' })).completion, 'complete');
+  const empty = { schema: document.schema, mode: 'vibe', selections: [], managedSelections: [{ id: 'chain', scope: 'project', members: [] }] };
+  const cleanup = await prepare({ useCase: 'policy', policy: empty, target: { project } }, { logging: 'off' });
+  const controller = new AbortController(); let finished = false;
+  const abortAfterRoot = () => {
+    if (finished) return;
+    if (!existsSync(join(project, 'a.txt'))) controller.abort(); else setImmediate(abortAfterRoot);
+  };
+  const pending = apply(cleanup.prepared, approve(cleanup), { logging: 'off', signal: controller.signal }); setImmediate(abortAfterRoot);
+  let result; try { result = await pending; } finally { finished = true; }
+  assert.equal(result.completion, 'cancelled', JSON.stringify(result));
+  assert.deepEqual(result.operations.map(item => item.application), ['applied', 'not-attempted', 'not-attempted']);
+  assert.equal(readFileSync(join(project, 'b.txt'), 'utf8'), 'b'); assert.equal(readFileSync(join(project, 'c.txt'), 'utf8'), 'c');
+  const manifest = JSON.parse(readFileSync(join(process.env.USERPROFILE, '.aih/core', result.recovery), 'utf8'));
+  assert.deepEqual(manifest.operations.map(item => readFileSync(join(process.env.USERPROFILE, '.aih/core', item.snapshot), 'utf8')), ['a', 'b', 'c']);
+  assert.equal((await apply(cleanup.prepared, approve(cleanup), { logging: 'off' })).completion, 'rejected');
+  const fresh = await prepare({ useCase: 'policy', policy: empty, target: { project } }, { logging: 'off' });
+  assert.deepEqual(fresh.review.operations.map(item => item.details.target.split(/[\\/]/).at(-1)), ['b.txt', 'c.txt']);
+  assert.equal((await apply(fresh.prepared, approve(fresh), { logging: 'off' })).completion, 'complete');
+});

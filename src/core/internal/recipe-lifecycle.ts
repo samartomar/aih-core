@@ -39,12 +39,24 @@ export function claimIdentity(scope: 'project' | 'user', managementId: string, p
   const anchor = scope === 'project' ? project : homedir();
   return `${scope}:${sha256(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${managementId}`;
 }
-export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor): boolean {
+export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor, bytes?: Buffer | null): boolean {
   const samePath = process.platform === 'win32' ? a.path.toLowerCase() === b.path.toLowerCase() : a.path === b.path;
   if (!samePath) return false;
   if (a.kind === 'file' || b.kind === 'file') return true;
   if (a.kind === 'entry' && b.kind === 'entry') return a.entry.slice(0, b.entry.length).join('\0') === b.entry.join('\0') || b.entry.slice(0, a.entry.length).join('\0') === a.entry.join('\0');
-  if (a.kind === 'block' && b.kind === 'block') return a.blockId === b.blockId || [a.startMarker, a.endMarker].some(marker => [b.startMarker, b.endMarker].includes(marker));
+  if (a.kind === 'block' && b.kind === 'block') {
+    if (a.blockId === b.blockId || [a.startMarker, a.endMarker].some(marker => [b.startMarker, b.endMarker].includes(marker))) return true;
+    if (!bytes) return false;
+    // The editor first validates exact, unambiguous marker lines. Measure the
+    // complete removed byte range, including the closing line separator.
+    const range = (member: Extract<MemberDescriptor, { kind: 'block' }>): [number, number] | null => {
+      const owned = memberBytes(member, bytes); if (!owned) return null;
+      const start = bytes.indexOf(Buffer.from(member.startMarker));
+      return [start, start + owned.byteLength];
+    };
+    const left = range(a), right = range(b);
+    return !!left && !!right && left[0] < right[1] && right[0] < left[1];
+  }
   return true;
 }
 

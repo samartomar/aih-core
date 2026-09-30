@@ -260,6 +260,42 @@ test('known ownership record capacity failure blocks a new target write', async 
   assert.equal(existsSync(join(project,'TEAM.md')),true);
 });
 
+for (const limit of ['selection', 'claim']) test(`ownership ${limit} count capacity rejects before publishing custody or target effects`, async () => {
+  const project = target(); const document = policy();
+  const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(initial.prepared, authorize(initial), { logging: 'off' })).completion, 'complete');
+  const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(initial.review.target.project).digest('hex') + '.json');
+  const record = JSON.parse(readFileSync(ownership, 'utf8'));
+  const retained = Array.from({ length: 4096 }, (_, i) => ({ managementId: `retained-${i}`, scope: 'project', sets: [], requires: [] }));
+  if (limit === 'selection') {
+    const anchor = process.platform === 'win32' ? initial.review.target.project.toLowerCase() : initial.review.target.project;
+    const identity = createHash('sha256').update(anchor).digest('hex');
+    record.selections = Object.fromEntries(retained.map(claim => [`project:${identity}:${claim.managementId}`, claim]));
+    document.selections[0].recipe.inline.operations[0].target.segments = [{ literal: 'COUNT-NEXT.md' }];
+  } else {
+    Object.values(record.members)[0].claims = retained;
+    // A longer historical primary ID makes the overflowing proposed owner
+    // smaller in bytes. Byte reservation must not hide semantic count growth.
+    Object.values(record.members)[0].managementId = 'z'.repeat(128);
+  }
+  const before = JSON.stringify(record);
+  assert.ok(Buffer.byteLength(before) < 1_048_576);
+  writeFileSync(ownership, before);
+  document.selections[0].managementId = limit === 'claim' ? 'n' : 'new-count-owner';
+  if (limit === 'selection') document.managedSelections = [{ id: 'count', scope: 'project', members: ['new-count-owner'] }];
+  const selection = document.selections[0];
+  const resolutions = limit === 'claim' ? [{ selectionId: selection.id, operationId: selection.recipe.inline.operations[0].id,
+    choice: 'adopt', observedSha256: createHash('sha256').update(readFileSync(join(project, 'TEAM.md'))).digest('hex') }] : undefined;
+  const next = await prepare({ useCase: 'policy', policy: document, target: { project }, ...(resolutions ? { resolutions } : {}) }, { logging: 'off' });
+  assert.equal(next.status, 'ready', JSON.stringify(next));
+  const result = await apply(next.prepared, authorize(next), { logging: 'off' });
+  assert.equal(result.completion, 'rejected', JSON.stringify(result));
+  assert.equal(result.diagnostics[0].reason, 'state-unwritable');
+  assert.equal(existsSync(join(project, 'COUNT-NEXT.md')), false);
+  assert.equal(readFileSync(ownership, 'utf8'), before);
+  assert.equal((await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' })).diagnostics.some(diagnostic => diagnostic.reason === 'ownership-invalid'), false);
+});
+
 test('a protected ownership directory that denies receipt creation blocks target effects', { skip: process.platform !== 'win32' }, async () => {
   const project = target(); const home = join(fixtureRoot, 'denied-ownership-home'); mkdirSync(home);
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
