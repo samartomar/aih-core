@@ -36,7 +36,7 @@ const authorize = (prepared, extras = {}) => ({ approved: true, origin: 'automat
   reviewDigest: prepared.review.reviewDigest, ...extras });
 const controls = { logging: 'off' };
 
-test('an asynchronous guard must settle before either a file or process effect begins', async () => {
+test('an asynchronous guard must settle before either a file or process effect begins', { timeout: 30_000 }, async () => {
   for (const kind of ['file', 'process']) {
     const project = mkdtempSync(join(scratch, `guard-${kind}-`));
     const sentinel = join(project, 'started.txt');
@@ -57,7 +57,11 @@ test('an asynchronous guard must settle before either a file or process effect b
       guardCalls++;
       if (guardCalls === 2) { entered(); return pending; }
     });
-    await atGuard;
+    // A prerequisite rejection must fail this assertion, rather than leave the
+    // test waiting for an effect boundary that Apply will never reach.
+    await Promise.race([atGuard, resultPromise.then(result => {
+      assert.fail(`Apply finished before the guard: ${JSON.stringify(result)}`);
+    })]);
     await new Promise(resolve => setTimeout(resolve, 250));
     assert.equal(existsSync(sentinel), false, `${kind} effect started before the guard settled`);
     rejectGate(new Error('review-stale'));

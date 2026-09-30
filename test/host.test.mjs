@@ -182,7 +182,7 @@ test('dotted local names have distinct qualified operation and input identities'
   assert.deepEqual(p.review.operations.map(op => op.id), ['a.b/c', 'a/b.c']);
 });
 
-test('cancellation between writes preserves earlier outcomes and releases staged work', async () => {
+test('cancellation between writes preserves earlier outcomes and releases staged work', { timeout: 30_000 }, async () => {
   const project = target(); const document = policy(); const controller = new AbortController();
   const recipe = document.selections[0].recipe.inline;
   recipe.operations = ['FIRST.md', 'SECOND.md', 'THIRD.md'].map((name, index) => ({

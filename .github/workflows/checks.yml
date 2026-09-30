@@ -1,22 +1,28 @@
 name: Core package checks
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  windows-state-diagnostic:
-    # Temporary branch-only reproduction. Restore the normal matrix before PR.
-    runs-on: windows-latest
-    timeout-minutes: 5
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.21.0'
+          node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm run typecheck
       - run: npm run build
-      - run: node scripts/ci/windows-state-diagnostic.mjs
+      - run: npm test
