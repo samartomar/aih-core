@@ -69,6 +69,7 @@ function hostIdentity() {
     const build = Number(release().split('.')[2] ?? 0);
     identity.build = build;
     if (/Windows 11/.test(identity.osCaption)) {
+      assert.equal(process.arch, 'x64', `Native gate requires Windows 11 25H2 x64; got ${process.arch}`);
       assert.equal(build, 26200,
         `Windows 11 contract gate is exactly 25H2 build 26200; got ${build} ("${identity.osCaption}")`);
       if (identity.displayVersion !== null) assert.equal(identity.displayVersion, '25H2',
@@ -97,12 +98,14 @@ function hostIdentity() {
   return identity;
 }
 
-// Standard-user evidence only: verify before any fixture provisioning or
-// product effect.
-function assertStandardUser() {
+// Contract gates require a standard user before runner fixture/product effects.
+// The actual Server 2025 CI host is supplementary; retain its real elevated
+// token explicitly and never present that run as standard-user acceptance.
+function assertAcceptancePrivilege(identity) {
   const privilege = hostPrivilege();
-  assert.equal(privilege.elevated, false, 'Native acceptance must run as a standard (non-elevated) user');
-  return privilege;
+  if (identity.gate !== 'windows-2025-supplementary-ci')
+    assert.equal(privilege.elevated, false, 'Native acceptance must run as a standard (non-elevated) user');
+  return { ...privilege, evidence: privilege.elevated ? 'elevated-supplementary' : 'standard-user' };
 }
 
 function selectedJdk() {
@@ -283,7 +286,7 @@ function assertSentinelsUnchanged(files, before, label) {
 
 async function exerciseConsumer() {
   const identity = hostIdentity();
-  const privilege = assertStandardUser();
+  const privilege = assertAcceptancePrivilege(identity);
   const { prepare, apply, repairIndex, contractSupport, ajv } = await loadPublicConsumer();
   const targets = process.argv[5].split(',');
   const baselineStore = process.argv[4];
@@ -365,7 +368,7 @@ async function exerciseConsumer() {
 async function exerciseNegative() {
   const scenario = process.argv[3];
   const identity = hostIdentity();
-  const privilege = assertStandardUser();
+  const privilege = assertAcceptancePrivilege(identity);
   const { prepare, apply, repairIndex, contractSupport } = await loadPublicConsumer();
   const targets = process.argv[6].split(',');
   const files = fixtureConfigFiles(repairIndex, targets);
@@ -415,10 +418,10 @@ if (process.argv[2] === '--consumer') {
   assert.ok(process.env.npm_execpath, 'Run with npm exec --offline --call "node scripts/ci/jvm-trust-native.mjs"');
   const targets = process.argv.find(value => value.startsWith('--targets='))?.slice(10).split(',') ?? allTargets;
   assert.ok(targets.length && new Set(targets).size === targets.length && targets.every(id => allTargets.includes(id)));
-  // Identity and standard-user gates precede ALL fixture provisioning and
-  // product effects, including the baseline store conversion.
+  // Identity and privilege classification precede runner fixture provisioning
+  // and product effects, including the baseline store conversion.
   const identity = hostIdentity();
-  const privilege = assertStandardUser();
+  const privilege = assertAcceptancePrivilege(identity);
   const scratchParent = realpathSync(tmpdir());
   const root = mkdtempSync(join(scratchParent, 'aih-native-jvm-'));
   const source = fileURLToPath(new URL('../../', import.meta.url));
