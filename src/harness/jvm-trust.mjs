@@ -490,7 +490,7 @@ function mavenRcAmbiguous(text, os) {
   const [begin, end] = mavenMarkers(os);
   const rows = text.split(/\r?\n/);
   // Managed markers must be standalone shell/batch lines, never text in a
-  // continuation, multiline quote or here-document. Reject those uncertain
+  // continuation, multiline quote, grouping or here-document. Reject uncertain
   // contexts rather than changing a neighbor while a trust check still passes.
   for (const row of rows) {
     if (!row.trim() || (os === 'win32' ? /^\s*(?:REM(?:\s|$)|::)/i : /^\s*#/).test(row)) continue;
@@ -498,15 +498,27 @@ function mavenRcAmbiguous(text, os) {
     const trailing = os === 'win32' ? /\^+$/ : /\\+$/;
     if ((row.match(trailing)?.[0].length ?? 0) % 2) return true;
     if (os !== 'win32' && row.includes('<<')) return true;
+    if (os !== 'win32' && /(?:^|;)\s*(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|select|function)\b/.test(row)) return true;
     let quote;
+    let parentheses = 0, braces = 0;
     for (let i = 0; i < row.length; i++) {
       if (row[i] === escape && quote !== "'") { i++; continue; }
+      if (!quote && os !== 'win32' && row[i] === '#' && (i === 0 || /\s/.test(row[i - 1]))) break;
       if (row[i] === '"' || os !== 'win32' && row[i] === "'") {
         if (quote === row[i]) quote = undefined;
         else if (!quote) quote = row[i];
+      } else if (!quote) {
+        if (os !== 'win32' && row[i] === '`') return true;
+        if (row[i] === '(') parentheses++;
+        else if (row[i] === ')') parentheses--;
+        if (os !== 'win32') {
+          if (row[i] === '{') braces++;
+          else if (row[i] === '}') braces--;
+        }
+        if (parentheses < 0 || braces < 0) return true;
       }
     }
-    if (quote) return true;
+    if (quote || parentheses || braces) return true;
   }
   const starts = rows.flatMap((row, i) => row === begin ? [i] : []);
   const ends = rows.flatMap((row, i) => row === end ? [i] : []);

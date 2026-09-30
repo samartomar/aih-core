@@ -243,10 +243,15 @@ test('Maven replaces its earlier managed block instead of stacking a second one'
 test('Maven refuses continued lines and uncertain shell block contexts before changing neighboring values', () => {
   const win = process.platform === 'win32';
   const [begin, end] = win ? ['REM BEGIN AIHQ MAVEN CA', 'REM END AIHQ MAVEN CA'] : ['# BEGIN AIHQ MAVEN CA', '# END AIHQ MAVEN CA'];
-  const cases = win ? ['set OTHER=keep^\n', 'set "OTHER=unclosed\n'] : [
+  const cases = win ? ['set OTHER=keep^\n', 'set "OTHER=unclosed\n',
+    `if defined OTHER (\n${begin}\necho keep\n${end}\n)\n`] : [
     'export OTHER=keep\\\n',
     `cat <<'EOF'\n${begin}\nkeep this neighboring text\n${end}\nEOF\n`,
-    `OTHER="\n${begin}\nkeep this neighboring text\n${end}\n"\n`
+    `OTHER="\n${begin}\nkeep this neighboring text\n${end}\n"\n`,
+    `OTHER=$(\n${begin}\nprintf keep\n${end}\n)\n`,
+    `OTHER=\`\n${begin}\nprintf keep\n${end}\n\`\n`,
+    `{\n${begin}\nprintf keep\n${end}\n}\n`,
+    `if true; then\n${begin}\nprintf keep\n${end}\nfi\n`
   ];
   for (const text of [...cases, 'OTHER=keep\r']) {
     const result = prepare(['maven'], { 'maven-config': Buffer.from(text) });
