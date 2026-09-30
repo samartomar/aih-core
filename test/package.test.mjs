@@ -47,6 +47,37 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(manifest.dependencies['@aihq/harness'], undefined);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/harness')), false);
     writeFileSync(join(consumer, 'policy.json'), JSON.stringify(policy()));
+    const lifecyclePolicy = policy();
+    lifecyclePolicy.managedSelections = [{ id: 'guidance', scope: 'project', members: [lifecyclePolicy.selections[0].managementId] }];
+    writeFileSync(join(consumer, 'lifecycle-policy.json'), JSON.stringify(lifecyclePolicy));
+    writeFileSync(join(consumer, 'lifecycle.mjs'), `
+      import assert from 'node:assert/strict';
+      import {readFileSync,existsSync,mkdirSync,writeFileSync} from 'node:fs';
+      import {join} from 'node:path';
+      import {prepare,apply} from '@aihq/core';
+      import {parsePolicy} from '@aihq/core/contracts';
+      const project=join(process.env.TEST_PROJECT,'lifecycle'); mkdirSync(project);
+      const document=parsePolicy(readFileSync('lifecycle-policy.json','utf8')).document;
+      const request=policy=>({useCase:'policy',policy,target:{project}});
+      const execute=async policy=>{const p=await prepare(request(policy),{logging:'off'});
+        assert.equal(p.status,'ready',JSON.stringify(p));
+        const result=await apply(p.prepared,{approved:true,origin:'automation',reviewDigest:p.review.reviewDigest},{logging:'off'});
+        assert.equal(result.completion,'complete',JSON.stringify(result));return result;};
+      await execute(document);
+      await execute({schema:document.schema,mode:'vibe',selections:[]});
+      assert.equal(existsSync(join(project,'TEAM.md')),true);
+      const empty={schema:document.schema,mode:'vibe',selections:[],managedSelections:[{id:'guidance',scope:'project',members:[]}]};
+      const result=await execute(empty);assert.ok(result.recovery);
+      assert.equal(existsSync(join(project,'TEAM.md')),false);
+      assert.deepEqual((await execute(empty)).operations,[]);
+      writeFileSync('lifecycle-empty.json',JSON.stringify(empty));
+      console.log('packed lifecycle passed');
+    `);
+    assert.match(run('lifecycle.mjs'), /packed lifecycle passed/);
+    const lifecycleCli = execFileSync(process.execPath, [join(installed, 'dist/core/cli.js'), 'policy',
+      join(consumer, 'lifecycle-empty.json'), '--project', join(project, 'lifecycle'), '--apply', '--yes', '--json'],
+      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(JSON.parse(lifecycleCli).completion, 'complete');
     writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';

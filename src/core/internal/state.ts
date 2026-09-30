@@ -1,16 +1,16 @@
-import { chmodSync, lstatSync, mkdirSync, rmdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { chmodSync, lstatSync, mkdirSync, rmdirSync, readdirSync } from 'node:fs';
+import { join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { pathPins, pinsMatch, sha256 } from './host-files.js';
+import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
 import { containedPath } from './contained-path.js';
+import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import type { RecordStatus } from '../host-types.js';
 
-export const stateRoot = (): string => join(homedir(), '.aih', 'core');
-export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number }
-export interface Ownership { schema: 'urn:aihq:core:ownership:1.0.0'; target: string; members: Record<string, Owner> }
+export const stateRoot = (): string => join(userHomeRoot(), '.aih', 'core');
+export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[] }
+export interface Ownership { schema: 'urn:aihq:core:ownership:1.0.0'; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
 export function stateFiles(): OwnedFileTransaction {
   return new OwnedFileTransaction(stateRoot(), {
     label: 'Core state', maxFileBytes: 1_048_576, contentDirectoryMode: 0o700,
@@ -50,7 +50,7 @@ foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
 
 export function protectState(relativePaths: string[] = []): void {
   const root = stateRoot(); pathPins(root);
-  const base = join(homedir(), '.aih');
+  const base = join(userHomeRoot(), '.aih');
   try { mkdirSync(base, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
   let created = false;
   try { mkdirSync(root, { mode: 0o700 }); created = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
@@ -94,13 +94,32 @@ export function readOwnership(target: string): { value: Ownership; digest: strin
   const bytes = stateFiles().read(ownershipPath(target));
   if (!bytes) return { value: empty, digest: null };
   const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
-  if (value.schema !== empty.schema || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
-  for (const member of Object.values(value.members)) {
+  validateOwnership(value, target);
+  return { value, digest: sha256(bytes) };
+}
+
+export function validateOwnership(input: unknown, target: string): asserts input is Ownership {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('ownership-invalid');
+  const value = input as Record<string, unknown>;
+  if (value.schema !== 'urn:aihq:core:ownership:1.0.0' || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
+  if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
+  for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
-    if (typeof m.managementId !== 'string' || typeof m.recipeIdentity !== 'string' || !/^[a-f0-9]{64}$/.test(m.sha256) || !Number.isInteger(m.mode)) throw new Error('ownership-invalid');
+    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims'].includes(key))) throw new Error('ownership-invalid');
+    if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
+    if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
+    if (m.claims !== undefined && (!Array.isArray(m.claims) || !m.claims.length || m.claims.length > 4096 || !m.claims.every(validClaim) ||
+      new Set(m.claims.map(claim => `${claim.scope}:${claim.managementId}`)).size !== m.claims.length)) throw new Error('ownership-invalid');
+    if (m.claims?.some(claim => claim.scope === 'user' && target !== userHomeRoot() && !/^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), target).replaceAll('\\', '/')))) throw new Error('ownership-invalid');
+    if (typeof m.managementId !== 'string' || typeof m.recipeIdentity !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m.recipeIdentity) || !/^[a-f0-9]{64}$/.test(m.sha256) || !Number.isInteger(m.mode) || m.mode < 0 || m.mode > 0o7777) throw new Error('ownership-invalid');
   }
-  return { value: value as unknown as Ownership, digest: sha256(bytes) };
+  if (value.selections !== undefined) {
+    if (!value.selections || typeof value.selections !== 'object' || Array.isArray(value.selections) || Object.keys(value.selections).length > 4096) throw new Error('ownership-invalid');
+    for (const [key, selection] of Object.entries(value.selections)) {
+      if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== userHomeRoot()) throw new Error('ownership-invalid');
+    }
+  }
 }
 
 export function writeHistory(runId: string, result: unknown, logging: 'on' | 'off'): RecordStatus {
@@ -126,15 +145,18 @@ export function lockTarget(target: string): () => void {
 
 export function stageOwnership(target: string, runId: string, update: Ownership): () => void {
   const path = ownershipPath(target);
+  // A byte-sized receipt must also remain readable under strict admission.
+  // Reject semantic count/descriptor failures before any target effects.
+  try { validateOwnership(update, target); } catch { throw new Error('state-unwritable'); }
   const record = Buffer.from(JSON.stringify(update));
   if (record.length > 1_048_576) throw new Error('state-unwritable');
   const staged = `ownership/.pending-${runId}-${sha256(target)}.json`;
   protectState([path, staged, `recovery/${runId}`]);
   const files = stateFiles(); let stagedWritten = false;
   try {
-    // This slice only adds members, so the final receipt bounds every earlier
-    // receipt. Stage it in the actual destination directory to establish that
-    // creating a receipt there is possible before any target changes.
+    // The caller supplies a conservative bound covering intermediate custody
+    // and intent records. Stage it in the actual destination directory to prove
+    // capacity and receipt creation before any target changes.
     files.writeAtomic(staged, record, 0o600, true); stagedWritten = true;
     const current = files.read(path);
     // Existing receipts also require replacement permission. Probe that exact
@@ -149,4 +171,24 @@ export function stageOwnership(target: string, runId: string, update: Ownership)
     if (!pinsMatch(pins)) throw new Error('state-protection');
     files.remove(staged);
   };
+}
+
+/** Read inert inventory bytes; imported custody still requires readOwnership protection. */
+export function ownershipInventory(): { targets: string[]; entries: [string, string][]; unverifiable: boolean } {
+  const directory = join(stateRoot(), 'ownership');
+  try { if (!lstatSync(directory).isDirectory()) throw new Error('ownership-invalid'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { targets: [], entries: [], unverifiable: false }; throw error; }
+  pathPins(directory);
+  const names = readdirSync(directory); if (names.length > 8192) throw new Error('ownership-limit');
+  const targets: string[] = []; const entries: [string, string][] = []; let unverifiable = false;
+  for (const name of names.filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort()) {
+    try {
+      const bytes = stateFiles().read(`ownership/${name}`); if (!bytes) throw new Error('ownership-invalid');
+      entries.push([name, sha256(bytes)]);
+      const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
+      if (typeof value.target !== 'string' || !isAbsolute(value.target) || ownershipPath(value.target) !== `ownership/${name}`) throw new Error('ownership-invalid');
+      targets.push(value.target);
+    } catch { unverifiable = true; if (!entries.some(([entry]) => entry === name)) entries.push([name, 'unverifiable']); }
+  }
+  return { targets, entries, unverifiable };
 }

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 import { lstatSync, realpathSync, type BigIntStats } from 'node:fs';
 import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
@@ -61,6 +62,7 @@ export function projectRoot(project: string): string {
   if (!lstatSync(project).isDirectory()) throw new Error('project-directory');
   return realpathSync.native(project);
 }
+export const userHomeRoot = (): string => projectRoot(homedir());
 export function fileTransaction(root: string, stateRoot: string): OwnedFileTransaction {
   const assertPath = (parts: readonly string[]) => {
     if (parts.some(part => !validSegment(part))) throw new Error('invalid-path');

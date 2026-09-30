@@ -227,7 +227,8 @@ test('known ownership record capacity failure blocks a new target write', async 
   assert.equal((await apply(p.prepared, authorize(p), { logging: 'off' })).completion, 'complete');
   const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(p.review.target.project).digest('hex') + '.json');
   const record = JSON.parse(readFileSync(ownership,'utf8'));
-  const member = record.members['TEAM.md'];
+  const current = Object.values(record.members)[0];
+  const member = { managementId: current.managementId, recipeIdentity: current.recipeIdentity, sha256: current.sha256, mode: current.mode };
   // Fill a valid, protected record to just below its admitted byte ceiling.
   const entryBytes = Buffer.byteLength(JSON.stringify('retained-00000000') + ':' + JSON.stringify(member) + ',');
   const count = Math.floor((1_048_576 - 4 - Buffer.byteLength(JSON.stringify(record))) / entryBytes);
@@ -240,12 +241,59 @@ test('known ownership record capacity failure blocks a new target write', async 
   record.members[enlarged] = record.members[last]; delete record.members[last];
   writeFileSync(ownership, JSON.stringify(record));
   document.selections[0].recipe.inline.operations[0].target.segments = [{literal:'NEXT.md'}];
+  document.selections[0].managementId = 'additional-capacity-member';
   const next = await prepare({useCase:'policy',policy:document,target:{project}},{logging:'off'});
   assert.equal(next.status,'ready');
   const result = await apply(next.prepared,authorize(next),{logging:'off'});
   assert.equal(existsSync(join(project,'NEXT.md')),false);
   assert.equal(result.completion,'rejected');
   assert.equal(result.diagnostics[0].reason,'state-unwritable');
+  // An update's final receipt removes TEAM.md, but its intermediate receipt
+  // still holds both old and new members. Capacity must be proved before NEXT.
+  document.selections[0].managementId = current.managementId;
+  const update = await prepare({useCase:'policy',policy:document,target:{project}},{logging:'off'});
+  assert.equal(update.status,'ready',JSON.stringify(update));
+  const updateResult = await apply(update.prepared,authorize(update),{logging:'off'});
+  assert.equal(updateResult.completion,'rejected',JSON.stringify(updateResult));
+  assert.equal(updateResult.diagnostics[0].reason,'state-unwritable');
+  assert.equal(existsSync(join(project,'NEXT.md')),false);
+  assert.equal(existsSync(join(project,'TEAM.md')),true);
+});
+
+for (const limit of ['selection', 'claim']) test(`ownership ${limit} count capacity rejects before publishing custody or target effects`, async () => {
+  const project = target(); const document = policy();
+  const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
+  assert.equal((await apply(initial.prepared, authorize(initial), { logging: 'off' })).completion, 'complete');
+  const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(initial.review.target.project).digest('hex') + '.json');
+  const record = JSON.parse(readFileSync(ownership, 'utf8'));
+  const retained = Array.from({ length: 4096 }, (_, i) => ({ managementId: `retained-${i}`, scope: 'project', sets: [], requires: [] }));
+  if (limit === 'selection') {
+    const anchor = process.platform === 'win32' ? initial.review.target.project.toLowerCase() : initial.review.target.project;
+    const identity = createHash('sha256').update(anchor).digest('hex');
+    record.selections = Object.fromEntries(retained.map(claim => [`project:${identity}:${claim.managementId}`, claim]));
+    document.selections[0].recipe.inline.operations[0].target.segments = [{ literal: 'COUNT-NEXT.md' }];
+  } else {
+    Object.values(record.members)[0].claims = retained;
+    // A longer historical primary ID makes the overflowing proposed owner
+    // smaller in bytes. Byte reservation must not hide semantic count growth.
+    Object.values(record.members)[0].managementId = 'z'.repeat(128);
+  }
+  const before = JSON.stringify(record);
+  assert.ok(Buffer.byteLength(before) < 1_048_576);
+  writeFileSync(ownership, before);
+  document.selections[0].managementId = limit === 'claim' ? 'n' : 'new-count-owner';
+  if (limit === 'selection') document.managedSelections = [{ id: 'count', scope: 'project', members: ['new-count-owner'] }];
+  const selection = document.selections[0];
+  const resolutions = limit === 'claim' ? [{ selectionId: selection.id, operationId: selection.recipe.inline.operations[0].id,
+    choice: 'adopt', observedSha256: createHash('sha256').update(readFileSync(join(project, 'TEAM.md'))).digest('hex') }] : undefined;
+  const next = await prepare({ useCase: 'policy', policy: document, target: { project }, ...(resolutions ? { resolutions } : {}) }, { logging: 'off' });
+  assert.equal(next.status, 'ready', JSON.stringify(next));
+  const result = await apply(next.prepared, authorize(next), { logging: 'off' });
+  assert.equal(result.completion, 'rejected', JSON.stringify(result));
+  assert.equal(result.diagnostics[0].reason, 'state-unwritable');
+  assert.equal(existsSync(join(project, 'COUNT-NEXT.md')), false);
+  assert.equal(readFileSync(ownership, 'utf8'), before);
+  assert.equal((await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' })).diagnostics.some(diagnostic => diagnostic.reason === 'ownership-invalid'), false);
 });
 
 test('a protected ownership directory that denies receipt creation blocks target effects', { skip: process.platform !== 'win32' }, async () => {

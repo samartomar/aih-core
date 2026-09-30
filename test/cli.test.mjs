@@ -106,3 +106,27 @@ test('CLI applies a narrow config edit only with an exact reviewed resolution fi
     assert.match(readFileSync(join(project, 'settings.jsonc'), 'utf8'), /"mode": "new"/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('CLI explicitly reconciles a management set and accepts repeated empty-set application', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-core-lifecycle-cli-'));
+  const home = join(root, 'home'), project = join(root, 'project'); mkdirSync(home); mkdirSync(project);
+  const file = join(root, 'policy.json'), cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
+  const document = policy(); document.managedSelections = [{ id: 'guidance', scope: 'project', members: [document.selections[0].managementId] }];
+  const run = flags => spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', ...flags], {
+    encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 30_000
+  });
+  try {
+    writeFileSync(file, JSON.stringify(document));
+    const initial = run(['--apply', '--yes']); assert.equal(initial.status, 0, initial.stdout + initial.stderr);
+    writeFileSync(file, JSON.stringify({ schema: document.schema, mode: 'vibe', selections: [],
+      managedSelections: [{ id: 'guidance', scope: 'project', members: [] }] }));
+    const preview = run([]); assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+    assert.equal(JSON.parse(preview.stdout).review.operations[0].effects, 'remove-file');
+    assert.equal(existsSync(join(project, 'TEAM.md')), true);
+    const removed = run(['--apply', '--yes']); assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+    assert.equal(existsSync(join(project, 'TEAM.md')), false);
+    const again = run(['--apply', '--yes']); assert.equal(again.status, 0, again.stdout + again.stderr);
+    assert.equal(JSON.parse(again.stdout).completion, 'complete');
+    assert.deepEqual(JSON.parse(again.stdout).operations, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

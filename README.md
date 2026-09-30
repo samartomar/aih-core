@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority and broad desired-set lifecycle reconciliation remain later delivery slices. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority remains a later delivery slice. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -212,6 +212,22 @@ Reported operation and input IDs use `selectionId/localId`; `/` cannot occur in 
 `apply` requires `approved: true`, `origin` and the review's `reviewDigest`. `allowPartial` defaults to false and its default/explicit origin is recorded. Cancellation is supplied as `controls.signal` or SIGINT. Results distinguish `applied`, `already-satisfied`, `failed`, and `not-attempted`; verification independently records passed, failed, unavailable or unverified checks.
 
 Target paths are explicitly scoped and reject traversal, links, unsafe host filenames and Core's reserved state paths. Existing matching unowned bytes remain unowned. This is guarded local file handling, not a sandbox against arbitrary concurrently privileged software.
+
+## Managed lifecycle
+
+`managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
+
+A policy can name complete desired sets:
+
+```json
+"managedSelections": [{"id":"team-tools","scope":"project","members":["team-guidance"]}]
+```
+
+Members are stable management IDs of the policy's selections. Omitting a set requests no cleanup. Explicitly supplying `"members": []` proposes subtraction of that set's prior managed members. `"selections": []` supports cleanup-only policies and deliberate no-op application. Unmentioned sets and members needed by retained dependencies remain. Selection intent records dependencies and set membership separately from byte custody, including selections with only matching unowned content or approved processes. User custody follows the actual home, including Core-assigned `userState` children; roots in other projects can retain shared user dependencies.
+
+For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed.
+
+Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
 
 ## State and recovery
 
