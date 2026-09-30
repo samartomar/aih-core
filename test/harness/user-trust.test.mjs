@@ -10,7 +10,8 @@ import { repairIndex } from '../../dist/harness/contracts.mjs';
 const environmentKeys = ['APPDATA', 'XDG_CONFIG_HOME', 'CARGO_HOME', 'CONDARC', 'GIT_CONFIG_GLOBAL',
   'PIP_CERT', 'PIP_CONFIG_FILE', 'WIN_PD_OVERRIDE_APPDATA', 'WIN_PD_OVERRIDE_LOCAL_APPDATA',
   'PIP_USER', 'PIP_SITE', 'PIP_GLOBAL',
-  'GIT_SSL_CAINFO', 'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'PIP_TRUSTED_HOST', 'GIT_SSL_NO_VERIFY', 'CONDA_SSL_VERIFY'];
+  'GIT_SSL_CAINFO', 'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'PIP_TRUSTED_HOST', 'GIT_SSL_NO_VERIFY', 'CONDA_SSL_VERIFY',
+  'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'];
 const savedEnvironment = Object.fromEntries(environmentKeys.map(key => [key, process.env[key]]));
 before(() => { for (const key of environmentKeys) delete process.env[key]; });
 after(() => { for (const [key, value] of Object.entries(savedEnvironment)) {
@@ -62,6 +63,20 @@ test('Cargo refuses inherited TLS bypass before any repair definition is produce
     process.env.CARGO_HTTP_SSL_VERIFY = 'true';
     assert.equal(prepare(['cargo']).status, 'completed');
   } finally { delete process.env.CARGO_HTTP_SSL_VERIFY; }
+});
+
+test('conda refuses inherited Requests CA overrides before producing a repair', () => {
+  for (const key of ['REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) {
+    try {
+      process.env[key] = '/other/ca.pem';
+      const result = prepare(['conda']);
+      assert.equal(result.status, 'blocked');
+      assert.equal(result.diagnostics[0].reason, 'trust-override-environment');
+      assert.equal(result.bindings, undefined);
+      process.env[key] = '/x/ca.pem';
+      assert.equal(prepare(['conda']).status, 'completed');
+    } finally { delete process.env[key]; }
+  }
 });
 
 test('selected Cargo definitions bind its executable and declare extensionless config absence', () => {
@@ -267,16 +282,22 @@ test('native conda behavior uses its selected CA and rejects a mismatched path',
       const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: root, LOCALAPPDATA: root, TEMP: root, TMP: root,
         CONDARC: configPath, AIHQ_EXPECTED_CA: caPath };
       for (const name of Object.keys(env)) if (/^CONDA_(PREFIX|DEFAULT_ENV|SSL_VERIFY|SHLVL)$/.test(name)) delete env[name];
-      delete env.REQUESTS_CA_BUNDLE; delete env.SSL_CERT_FILE;
+      delete env.REQUESTS_CA_BUNDLE; delete env.CURL_CA_BUNDLE; delete env.SSL_CERT_FILE;
       const args = probe.args.map(slot => slot.literal);
-      const run = expected => spawnSync(process.env.AIHQ_TEST_CONDA_EXECUTABLE, args,
-        { cwd: root, env: { ...env, AIHQ_EXPECTED_CA: expected }, shell: false, windowsHide: true,
+      const run = (expected, inherited = {}) => spawnSync(process.env.AIHQ_TEST_CONDA_EXECUTABLE, args,
+        { cwd: root, env: { ...env, ...inherited, AIHQ_EXPECTED_CA: expected }, shell: false, windowsHide: true,
           encoding: 'utf8', timeout: probe.timeoutMs, maxBuffer: probe.maxOutputBytes });
       const accepted = run(caPath);
       assert.equal(accepted.error, undefined, `native conda error: ${accepted.error?.code}`);
       assert.equal(accepted.status, 0, `native conda exit ${accepted.status}; output bytes ${Buffer.byteLength(accepted.stdout) + Buffer.byteLength(accepted.stderr)}`);
       const rejected = run(caPath + '.mismatched');
       assert.notEqual(rejected.status, 0, 'CondaSession verification must enforce the selected CA path');
+      const overridePath = join(root, 'inherited.pem');
+      writeFileSync(overridePath, prepared.bundle);
+      for (const key of ['REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) {
+        const overridden = run(caPath, { [key]: overridePath });
+        assert.notEqual(overridden.status, 0, `${key} must not substitute the selected CA path`);
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

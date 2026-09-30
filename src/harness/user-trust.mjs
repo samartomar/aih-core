@@ -167,7 +167,8 @@ export function prepareUserToolsRepair(request) {
       variant.targets.includes('conda') && process.env.CONDA_SSL_VERIFY &&
         process.env.CONDA_SSL_VERIFY !== request.managedPath))
     return invalid('trust-bypass-environment', 'An inherited tool environment bypasses or overrides the selected TLS verification. Remove that override before preparing.', 'PREREQUISITE_UNAVAILABLE');
-  for (const [id, key] of [['pip', 'PIP_CERT'], ['git', 'GIT_SSL_CAINFO'], ['cargo', 'CARGO_HTTP_CAINFO']])
+  for (const [id, key] of [['pip', 'PIP_CERT'], ['git', 'GIT_SSL_CAINFO'], ['cargo', 'CARGO_HTTP_CAINFO'],
+    ['conda', 'REQUESTS_CA_BUNDLE'], ['conda', 'CURL_CA_BUNDLE']])
     if (variant.targets.includes(id) && process.env[key] && process.env[key] !== request.managedPath)
       return invalid('trust-override-environment', 'An inherited CA environment value overrides the selected user configuration.', 'PREREQUISITE_UNAVAILABLE');
   // All selected managers can replace their normal CA bundle; preserve roots alongside supplied CAs.
@@ -272,7 +273,9 @@ const cargoTls = toolCheckPrelude +
 // effective context used by conda's CLI before testing its connection session.
 const condaTls = ["import os", "from conda.base.context import context,reset_context", "reset_context()",
   "from conda.gateways.connection.session import CondaSession", "assert context.ssl_verify == os.environ['AIHQ_EXPECTED_CA']",
-  "r=CondaSession().get('https://repo.anaconda.com/pkgs/main/noarch/repodata.json',timeout=15,stream=True)",
+  "s=CondaSession()", "url='https://repo.anaconda.com/pkgs/main/noarch/repodata.json'",
+  "assert s.merge_environment_settings(url,{},True,None,None)['verify'] == os.environ['AIHQ_EXPECTED_CA']",
+  "r=s.get(url,timeout=15,stream=True)",
   "assert r.status_code==200", "r.close()"].join(';');
 
 export function userToolsRecipe(variant) {

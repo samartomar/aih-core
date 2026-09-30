@@ -18,7 +18,7 @@ const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE,
   APPDATA: process.env.APPDATA };
 const envOverrides = ['GIT_CONFIG_GLOBAL', 'GIT_SSL_NO_VERIFY', 'GIT_SSL_CAINFO', 'PIP_CERT', 'PIP_TRUSTED_HOST',
   'PIP_CONFIG_FILE', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'CONDARC', 'CONDA_SSL_VERIFY', 'CARGO_HOME',
-  'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'XDG_CONFIG_HOME'];
+  'CARGO_HTTP_CAINFO', 'CARGO_HTTP_SSL_VERIFY', 'XDG_CONFIG_HOME', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE'];
 const savedOverrides = Object.fromEntries(envOverrides.map(key => [key, process.env[key]]));
 const appData = join(home, 'AppData', 'Roaming');
 before(() => {

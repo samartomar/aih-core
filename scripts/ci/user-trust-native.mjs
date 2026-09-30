@@ -114,7 +114,7 @@ if (process.argv[2] === '--consumer') {
   }
   if (process.env.CONDA) env.PATH = [join(process.env.CONDA, process.platform === 'win32' ? 'Scripts' : 'bin'), env.PATH].join(delimiter);
   // The fixture uses normal verified TLS rather than inherited host overrides.
-  for (const key of Object.keys(env)) if (/^(?:npm_config_allow_scripts|node_test_context|pip_config_file|pip_cert|pip_trusted_host|requests_ca_bundle|ssl_cert_file|git_ssl_cainfo|git_ssl_no_verify|cargo_http_cainfo|cargo_http_ssl_verify|conda_ssl_verify)$/i.test(key)) delete env[key];
+  for (const key of Object.keys(env)) if (/^(?:npm_config_allow_scripts|node_test_context|pip_config_file|pip_cert|pip_trusted_host|requests_ca_bundle|curl_ca_bundle|ssl_cert_file|git_ssl_cainfo|git_ssl_no_verify|cargo_http_cainfo|cargo_http_ssl_verify|conda_ssl_verify)$/i.test(key)) delete env[key];
   const reportDirectory = join(source, 'native-trust-results');
   mkdirSync(reportDirectory, { recursive: true });
   for (const name of ['native-failure.json', 'native-result.json', 'native-repeat.json', 'native-package.json', 'native-diagnostics.json'])
