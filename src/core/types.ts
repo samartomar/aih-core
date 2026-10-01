@@ -102,6 +102,8 @@ export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
+  /** Optional assessment references; never execution authority or a findings gate. */
+  evidence?: import('./evidence/types.js').EvidenceAssociation[];
   managedSelections?: { id: string; scope: 'project' | 'user'; members: string[] }[];
   removals?: { managementId: string; scope: 'project' | 'user' }[];
   metadata?: Record<string, Json>;

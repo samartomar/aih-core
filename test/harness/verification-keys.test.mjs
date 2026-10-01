@@ -152,6 +152,19 @@ test('the shipped inventory is an explicitly empty frozen array with the documen
   assert.equal((await validateVerificationKeyRecords(verificationKeys)).valid, true);
 });
 
+test('key selection enforces trust ceilings and snapshots without invoking accessor records', async () => {
+  assert.equal((await selectVerificationKeys('scan-report', Array.from({ length: 129 }, () => keyA.record))).status, 'invalid');
+  assert.equal((await selectVerificationKeys('scan-report', [record({ publicKeySpkiBase64: 'A'.repeat(6000) })])).status, 'invalid');
+  let calls = 0;
+  const accessor = record({}); Object.defineProperty(accessor, 'identity', { enumerable: true, get() { calls++; return 'accessor'; } });
+  assert.equal((await selectVerificationKeys('scan-report', [accessor])).status, 'invalid');
+  assert.equal(calls, 0);
+  const mutable = record({});
+  const selection = selectVerificationKeys('scan-report', [mutable]);
+  mutable.identity = 'changed during hashing';
+  assert.equal((await selection).keys[0].identity, keyA.record.identity);
+});
+
 test('importing contracts.mjs pulls no node: built-ins through its import chain', () => {
   const seen = new Set();
   const visit = url => {

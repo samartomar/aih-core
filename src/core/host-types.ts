@@ -1,5 +1,6 @@
 import type { Diagnostic, ExecutionPolicy, Json } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
+import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
 export type { GitHubPolicySource } from '../harness/runtime.mjs';
 declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
@@ -16,6 +17,8 @@ export interface HostControls {
   materialRoots?: Record<string, string>;
   /** Used only to read the organization source; never serialized into reviews, state, history or diagnostics. */
   authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
+  /** Explicit optional evidence acquisition and independently selected trust. Defaults to no acquisition. */
+  evidence?: { acquire?: boolean; trust?: AuthenticationTrust; authentication?: AssociateEvidenceControls['authentication'] };
 }
 export interface Authorization {
   reviewDigest: string;
@@ -56,11 +59,13 @@ export interface PreparedReview {
   conflicts: Diagnostic[]; omissions: Diagnostic[];
   effectiveOptions: { logging: Effective<'on' | 'off'>; inputs: Record<string, { origin: 'default' | 'explicit' | 'private' }> };
   reviewDigest: string;
+  evidence?: AssociationResult[];
 }
 export interface PreparationResult {
   status: 'ready' | 'partial' | 'blocked' | 'invalid' | 'cancelled';
   runId: string; review?: PreparedReview; prepared?: PreparedHandle;
   diagnostics: Diagnostic[]; record: RecordStatus;
+  evidence?: AssociationResult[];
 }
 export interface OperationResult {
   id: string; application: 'not-attempted' | 'already-satisfied' | 'applied' | 'failed';
@@ -77,4 +82,5 @@ export interface RunResult {
   effectiveOptions: { logging: Effective<'on' | 'off'> };
   operations: OperationResult[]; checks: CheckResult[]; diagnostics: Diagnostic[];
   record: RecordStatus; recovery?: string; followUp: string[];
+  evidence?: AssociationResult[];
 }

@@ -20,6 +20,8 @@ import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
+import { readPolicyEvidence } from './internal/policy-evidence.js';
+import type { EvidenceAssociation } from './evidence/types.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
 import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 
@@ -43,6 +45,7 @@ interface PreparedState {
   selectionUpdates: Map<string, Record<string, { claim: Claim | null; requires: string[] }>>;
   inventory?: Map<string, string>; bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
   organization?: Pick<OrganizationBinding, 'source' | 'resolvedCommit' | 'blobId' | 'contentDigest'>;
+  evidence?: EvidenceAssociation[];
 }
 // Authority read outcome that is not a successful read; carried as a precise diagnostic.
 class AuthorityFailure extends Error {
@@ -82,7 +85,7 @@ export function dataObject(value: unknown, keys: string[]): void {
   }
 }
 export function validateControls(controls: HostControls): void {
-  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots', 'authentication']);
+  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots', 'authentication', 'evidence']);
   if (controls.logging !== undefined && !['on', 'off'].includes(controls.logging)) throw new Error('logging');
   if (controls.signal !== undefined && !(controls.signal instanceof AbortSignal)) throw new Error('signal');
   if (controls.authentication !== undefined) {
@@ -255,7 +258,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error('captured-prerequisite-invalid');
     }
     if (controls.signal?.aborted) throw new Error('cancelled');
-    if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 6) throw new Error('node-runtime');
+    if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 15) throw new Error('node-runtime');
     dataObject(request, ['useCase', 'policy', 'target', 'resolutions', 'organizationSource']);
     dataObject(request.target, ['project']);
     if (request.useCase !== 'policy') throw new Error('use-case-unsupported');
@@ -665,23 +668,25 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     if (steps.length > 8192) throw new Error('operation-limit');
     const bindings = [...pathPins(project), ...pathPins(homedir())];
+    const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
     const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
           helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
-      operations: steps.map(step => step.review), observations, conflicts, omissions,
+      operations: steps.map(step => step.review), observations, conflicts, omissions, evidence,
       effectiveOptions: { logging: loggingOption(controls), inputs } };
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs), nonce: randomBytes(32).toString('hex') }) });
     const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
-      diagnostics: [...conflicts, ...omissions], record: disabled };
+      diagnostics: [...conflicts, ...omissions], record: disabled, evidence };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
         privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures,
+        ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest }) } : {}) });
       result.prepared = prepared;
@@ -994,6 +999,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
+  if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
   result.record = writeHistory(runId, historySafe(result, state?.project, bearerSecrets(controls)), result.effectiveOptions.logging.value);
   if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
     'Routine history could not be saved; the returned outcomes remain available.'));

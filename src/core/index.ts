@@ -1,5 +1,8 @@
 export type * from './types.js';
 export type * from './host-types.js';
+export { authenticateEvidence, associateEvidence } from './evidence/index.js';
+export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
+  AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
 import { prepare as preparePolicy, apply as applyPolicy } from './recipe-engine.js';
 import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
 import type { Authorization, HostControls, PolicyRequest, PreparedHandle } from './host-types.js';

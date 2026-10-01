@@ -4,7 +4,7 @@ Core exposes one headless execution path to CLIs and application hosts. An autho
 
 **Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
-The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
+The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
 ## Public imports
 
@@ -12,7 +12,7 @@ The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
-| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys` (an explicitly empty development inventory), `verificationKeyPurposes`, `validateVerificationKeyRecords`, `selectVerificationKeys` |
+| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
@@ -256,6 +256,84 @@ aih policy policy.json --project /absolute/project \
 ```
 
 `--org-repository <owner/repo>`, `--org-path <path>` and `--org-ref <branch:name|tag:name|commit:sha>` are all required for an Enterprise policy and rejected for Vibe (malformed values exit 2). `--org-token-env <NAME>` names an environment variable holding the bearer token (missing or empty exits 2 without printing it); the token stays in memory and is used for both Prepare and Apply. Authority failures and denials exit 2, including previews.
+
+## Optional Scan evidence
+
+Core authenticates an explicitly supplied assessment's bytes and producer. It does
+not read findings, decide coverage of this setup, or use evidence as permission to
+execute. Policies may carry up to 32 `evidence` associations:
+
+```json
+"evidence": [{
+  "schema": "urn:aihq:scan:evidence-association:1.0.0",
+  "scanId": "scan:sha256:<64 lowercase hex characters>",
+  "location": {"kind":"file","path":"/absolute/assessment.scan.json"}
+}]
+```
+
+Use an absolute regular file or `{kind:'https',url:'https://...'}` without userinfo
+or fragment. Acquisition defaults off. `aih policy policy.json --evidence` opts in
+and selects the installed Harness `scan-report` trust; `--apply --yes` still
+controls setup. Evidence results appear in the preparation, review and run output.
+Skipped or unverifiable evidence leaves setup completion and CLI exit status alone.
+
+```js
+import { authenticateEvidence, associateEvidence, prepare, apply } from '@aihq/core';
+import { selectVerificationKeys, selectVerificationPublishers } from '@aihq/core/harness';
+
+const keys = await selectVerificationKeys('scan-report');
+const publishers = selectVerificationPublishers('scan-report');
+if (keys.status !== 'selected' || publishers.status !== 'selected') throw new Error('Invalid trust selection');
+const trust = { keys: keys.keys, publishers: publishers.publishers };
+const evidence = await authenticateEvidence({ bytes, expectedScanId, trust });
+const acquired = await associateEvidence({ association, acquire: true, trust });
+const controls = { evidence: { acquire: true, trust } };
+const preview = await prepare({ useCase: 'policy', policy, target: { project } }, controls);
+// Review preview.review, then explicitly authorize Apply with the same controls.
+```
+
+`authenticateEvidence` verifies bytes without IO. `associateEvidence` performs
+only the explicit acquisition; omitted association returns `skipped/not-supplied`,
+and omitted/false `acquire` returns `skipped/not-requested`. HTTPS acquisition has
+a 60-second total budget and five redirects, never forwards a bearer credential
+to another origin, and accepts credentials only through its explicit
+`{authentication:{kind:'bearer',token}}` controls. Policy hosts use
+`controls.evidence.authentication`. File acquisition rejects links and changed
+file identity. Apply uses that call's trust and acquisition controls again;
+explicit distrust can change evidence status without rejecting the reviewed setup.
+
+Successful results have `status:'authenticated'`, the matched `scanId`, an
+independently selected `producerIdentity`, and `keyId` for Ed25519 only. Core
+returns `reportRead:'not-requested'`, including for partial and unknown report
+generations; detailed reading belongs to Scan. Refusals have `status:'unverifiable'`
+and a finite reason: `unavailable`, `unsupported-artifact`, `malformed`,
+`id-mismatch`, `byte-mismatch`, `unsigned`, `unknown-producer`, `untrusted-key`,
+`invalid-signature`, or `resource-limit`.
+
+The narrow consumer accepts the artifact v1 and Sigstore v0.3 DSSE profiles:
+AIHQ's maintained exact certificate issuer/SAN/OID policy with independent roots,
+or separately selected organization Ed25519 keys. Neither path falls back to the
+other. Original signed payload bytes, report length/digest/Scan ID and all annex
+bytes/descriptors must agree. There is no report TTL, online trust refresh or
+artifact-derived trust. Retained historical keys, roots and publisher policies
+continue to verify historical reports, including after leaf-certificate expiry
+when the bundled signing-time witnesses verify.
+
+Harness exports inert frozen `verificationPublishers`, an empty default
+`verificationKeys` organization-key inventory, `verificationKeyPurposes`,
+`validateVerificationKeyRecords`, `validateVerificationPublisherRecords`,
+`selectVerificationKeys`, and `selectVerificationPublishers`. Importing metadata
+performs no crypto, IO or helper import. Publisher validation is structural;
+authentication remains a Core host operation. Callers may supply their own
+independently maintained records and explicitly remove distrusted records.
+Changing shipped trust requires a new Core release; associating another report
+does not require a Core or Catalog update.
+
+Bounds include 96 MiB artifact JSON, 16 MiB report/individual annex, 64 MiB total
+decoded report+annex bytes, 1 MiB attestation, 128 KiB signed statement, and 1 MiB
+selected trust with at most 128 keys and 32 publishers. Inputs exceeding bounds
+are refused rather than truncated. The verifier dependencies are pinned; Core
+imports neither the Scan engine nor Catalog.
 
 ## State and recovery
 

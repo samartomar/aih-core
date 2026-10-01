@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { repairIndex } from '../harness/contracts.mjs';
+import { repairIndex, selectVerificationKeys, selectVerificationPublishers } from '../harness/contracts.mjs';
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
@@ -40,6 +40,7 @@ try {
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
     'probe-configured-mcp': { type: 'boolean' },
+    evidence: { type: 'boolean' },
     'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' }
   } });
   const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
@@ -47,11 +48,11 @@ try {
   json = values.json ?? false;
   if (values.help) {
     process.stdout.write('aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n' +
-      'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--json]\n' +
+      'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--json]\n' +
       'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--json]\n');
   } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
-      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags) {
+      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence) {
     const result = await inspect({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
@@ -63,7 +64,7 @@ try {
     const definition = repairIndex.find(item => item.id === positionals[1]);
     if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
         !values.target?.length || values.target.some(id => !definition.targets.includes(id)) ||
-        values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags ||
+        values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags || values.evidence ||
         values['material-root']?.length || values.yes && !values.apply ||
         values['allow-partial'] && !values.apply) refused('INPUT_INVALID', 'cli-options');
     else {
@@ -137,6 +138,14 @@ try {
           path: values['org-path']!, revision: { kind: revision[1] as 'branch' | 'tag' | 'commit', value: revision[2]! } };
       } else if (hasOrganizationFlags) throw new Error('organization-flags');
       const controls: HostControls = { signal: controller.signal, privateInputs: Object.create(null) };
+      if (values.evidence) {
+        const keys = await selectVerificationKeys('scan-report');
+        const publishers = selectVerificationPublishers('scan-report');
+        controls.evidence = { acquire: true, trust: {
+          keys: keys.status === 'selected' ? keys.keys : [],
+          publishers: publishers.status === 'selected' ? publishers.publishers : []
+        } };
+      }
       if (values['org-token-env'] !== undefined) {
         // Only the named variable is read; its value is held in memory for Prepare and Apply and never printed.
         const name = values['org-token-env'];
@@ -190,7 +199,8 @@ try {
             const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
               origin: values.yes ? 'automation' : 'interactive',
               ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
-            }, { signal: controller.signal, ...(controls.authentication ? { authentication: controls.authentication } : {}) });
+            }, { signal: controller.signal, ...(controls.authentication ? { authentication: controls.authentication } : {}),
+              ...(controls.evidence ? { evidence: controls.evidence } : {}) });
             emit(result, exitCode(result));
           }
         }
