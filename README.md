@@ -229,6 +229,33 @@ For selected removal use `"removals": [{"managementId":"team-guidance","scope":"
 
 Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
 
+## Enterprise policies
+
+An Enterprise execution policy (`"mode": "enterprise"`, every selection carrying `organizationSelectionId`) is admitted only against an organization policy document that **you select separately** from the policy. Preparation reads that document from GitHub through the Harness reader, validates it, and compares every derived selection (recipe identity, scope, inputs, lifecycle requests) with it. Any finding blocks the whole request: no handle is returned and no subset runs.
+
+```js
+const prepared = await prepare({
+  useCase: 'policy', policy, target: { project },
+  organizationSource: { provider: 'github', repository: { owner: 'example-org', name: 'org-policy' },
+    path: 'policy/org.json', revision: { kind: 'branch', value: 'main' } }   // or 'tag' / full 'commit'
+}, { authentication: { kind: 'bearer', token } });                          // omit for unauthenticated access
+```
+
+- `organizationSource` is required for Enterprise and rejected for Vibe. `controls.authentication` is `{ kind: 'none' }` or `{ kind: 'bearer', token }`; omission is unauthenticated, and no environment or `gh` credential is ever discovered.
+- The review reports `mode: "enterprise"` and `inputs.organization` (normalized source, `resolvedCommit`, `blobId`, `contentDigest`, `policyId`, reader identity). The credential is never serialized into reviews, results, history or diagnostics.
+- `apply` reads the organization again with **that call's** `controls.authentication`; a missing credential is not replaced by Prepare's success. A failed read rejects with `AUTHORITY_UNAVAILABLE`, `INPUT_INVALID` or `CANCELLED`; any change of source, resolved commit, blob or content digest (including a moved branch or tag) rejects with `REVIEW_STALE`. Nothing is cached and no history is used as fallback.
+- Unreachable or unauthorized sources prepare as `blocked` with `AUTHORITY_UNAVAILABLE` and the reader's reason (`authentication-required-or-denied`, `source-missing-or-inaccessible`, `rate-limited`, `network-failed`, …); permission refusals are `AUTHORITY_DENIED`. A private repository can answer 404 for a missing credential.
+- Harness repair (`useCase: 'repair'`, `aih repair`) never consults an organization source and rejects an `organizationSource` field. A recipe that merely calls itself Harness receives no exemption.
+
+```sh
+export ORG_TOKEN=...   # only the named variable is read
+aih policy policy.json --project /absolute/project \
+  --org-repository example-org/org-policy --org-path policy/org.json --org-ref branch:main \
+  --org-token-env ORG_TOKEN --apply --yes --json
+```
+
+`--org-repository <owner/repo>`, `--org-path <path>` and `--org-ref <branch:name|tag:name|commit:sha>` are all required for an Enterprise policy and rejected for Vibe (malformed values exit 2). `--org-token-env <NAME>` names an environment variable holding the bearer token (missing or empty exits 2 without printing it); the token stays in memory and is used for both Prepare and Apply. Authority failures and denials exit 2, including previews.
+
 ## State and recovery
 
 Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records remain.

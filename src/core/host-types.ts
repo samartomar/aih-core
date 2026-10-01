@@ -1,8 +1,12 @@
 import type { Diagnostic, ExecutionPolicy, Json } from './types.js';
+import type { GitHubPolicySource } from '../harness/runtime.mjs';
+export type { GitHubPolicySource } from '../harness/runtime.mjs';
 declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
 export interface PolicyRequest {
   useCase: 'policy'; policy: ExecutionPolicy; target: { project: string };
+  /** Required exactly when `policy.mode` is `enterprise`; selected independently of the policy document. */
+  organizationSource?: GitHubPolicySource;
   resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
 }
 export interface HostControls {
@@ -10,6 +14,8 @@ export interface HostControls {
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
   materialRoots?: Record<string, string>;
+  /** Used only to read the organization source; never serialized into reviews, state, history or diagnostics. */
+  authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
 }
 export interface Authorization {
   reviewDigest: string;
@@ -35,10 +41,14 @@ export interface ReviewOperation {
 }
 export interface ReviewCheck { id: string; purpose: string; kind: 'file.sha256' | 'process.exit';
   details: ReviewOperation['details'] }
+export interface OrganizationBinding {
+  source: GitHubPolicySource; resolvedCommit: string; blobId: string; contentDigest: string; policyId: string;
+  helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
+}
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
-  inputs: { policySha256: string; package: { name: string; version: string } } |
+  inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
       helperSha256: string; package: { name: string; version: string } };
   operations: ReviewOperation[];

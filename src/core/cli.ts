@@ -26,6 +26,8 @@ function refused(code: string, reason: string): void {
 }
 function exitCode(result: PreparationResult | RunResult): number {
   if ('completion' in result) return ({ complete: 0, incomplete: 1, rejected: 2, cancelled: 130 })[result.completion];
+  // Required authority failure or denial is a rejection, not merely blocked work.
+  if (result.status === 'blocked' && result.diagnostics.some(item => item.code.startsWith('AUTHORITY_'))) return 2;
   return ({ ready: 0, partial: 1, blocked: 1, invalid: 2, cancelled: 130 })[result.status];
 }
 
@@ -37,16 +39,19 @@ try {
     'material-root': { type: 'string', multiple: true }, 'resolutions': { type: 'string' },
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
-    'probe-configured-mcp': { type: 'boolean' }
+    'probe-configured-mcp': { type: 'boolean' },
+    'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' }
   } });
+  const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
+  const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
   json = values.json ?? false;
   if (values.help) {
     process.stdout.write('aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n' +
-      'aih policy <policy.json> [--project <path>] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--json]\n' +
+      'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--json]\n' +
       'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--json]\n');
   } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
-      !values['material-root']?.length && !values.resolutions && !values['inputs-file']) {
+      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags) {
     const result = await inspect({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
@@ -58,7 +63,7 @@ try {
     const definition = repairIndex.find(item => item.id === positionals[1]);
     if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
         !values.target?.length || values.target.some(id => !definition.targets.includes(id)) ||
-        values.project || values['probe-configured-mcp'] || values['private-input']?.length ||
+        values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags ||
         values['material-root']?.length || values.yes && !values.apply ||
         values['allow-partial'] && !values.apply) refused('INPUT_INVALID', 'cli-options');
     else {
@@ -121,7 +126,24 @@ try {
     const parsed = parsePolicy(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
     if (!parsed.valid || !parsed.document) emit({ status: 'invalid', diagnostics: parsed.diagnostics }, 2);
     else {
+      const sourceFlags = ['org-repository', 'org-path', 'org-ref'] as const;
+      let organizationSource: PolicyRequest['organizationSource'];
+      if (parsed.document.mode === 'enterprise') {
+        if (sourceFlags.some(name => !values[name])) throw new Error('organization-flags');
+        const repository = /^([^/\s]+)\/([^/\s]+)$/.exec(values['org-repository']!);
+        const revision = /^(branch|tag|commit):(.+)$/s.exec(values['org-ref']!);
+        if (!repository || !revision) throw new Error('organization-flags');
+        organizationSource = { provider: 'github', repository: { owner: repository[1]!, name: repository[2]! },
+          path: values['org-path']!, revision: { kind: revision[1] as 'branch' | 'tag' | 'commit', value: revision[2]! } };
+      } else if (hasOrganizationFlags) throw new Error('organization-flags');
       const controls: HostControls = { signal: controller.signal, privateInputs: Object.create(null) };
+      if (values['org-token-env'] !== undefined) {
+        // Only the named variable is read; its value is held in memory for Prepare and Apply and never printed.
+        const name = values['org-token-env'];
+        const token = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? process.env[name] : undefined;
+        if (!token) throw new Error('organization-token');
+        controls.authentication = { kind: 'bearer', token };
+      }
       if (values['material-root']?.length) controls.materialRoots = Object.create(null);
       for (const mapping of values['material-root'] ?? []) {
         const split = mapping.indexOf('='); const id = mapping.slice(0, split); const root = mapping.slice(split + 1);
@@ -148,7 +170,7 @@ try {
         resolutions = parsedResolutions.resolutions as PolicyRequest['resolutions']; resolutionsDigest = sha256(input);
       }
       const p = await prepare({ useCase: 'policy', policy: parsed.document, target: { project: resolve(values.project ?? process.cwd()) },
-        ...(resolutions ? { resolutions } : {}) }, controls);
+        ...(resolutions ? { resolutions } : {}), ...(organizationSource ? { organizationSource } : {}) }, controls);
       if (!values.apply || !p.prepared || !p.review) emit(p, exitCode(p));
       else {
         let approved = values.yes === true;
@@ -168,7 +190,7 @@ try {
             const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
               origin: values.yes ? 'automation' : 'interactive',
               ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
-            }, { signal: controller.signal });
+            }, { signal: controller.signal, ...(controls.authentication ? { authentication: controls.authentication } : {}) });
             emit(result, exitCode(result));
           }
         }
