@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, copyFileSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
@@ -40,14 +40,18 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|npm-shrinkwrap\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
     }
-    assert.ok(packed.files.some(entry => entry.path === 'npm-shrinkwrap.json'),
-      'The published artifact must lock the complete verifier dependency tree.');
+    for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
+      assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
+        `The published artifact must carry the reviewed @sigstore/${name} bytes.`);
+    }
+    // The cryptography tree must come from the selected artifact, even without
+    // registry access. Other ordinary dependencies retain their normal registry.
+    writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
-    const locked = JSON.parse(readFileSync(join(installed, 'npm-shrinkwrap.json'), 'utf8'));
     const coreRequire = createRequire(join(installed, 'package.json'));
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
@@ -57,8 +61,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       '@sigstore/verify': '4.1.2', '@sigstore/core': '4.0.1',
       '@sigstore/bundle': '5.0.0', '@sigstore/protobuf-specs': '0.5.0'
     })) {
-      assert.equal(locked.packages[`node_modules/${name}`].version, expected, name);
-      assert.equal(installedVersion(name === '@sigstore/verify' ? coreRequire : verifierRequire, name),
+      const resolveFrom = name === '@sigstore/verify' ? coreRequire : verifierRequire;
+      assert.ok(resolveFrom.resolve(name).startsWith(join(installed, 'node_modules') + sep),
+        `Bundled resolution of ${name}`);
+      assert.equal(installedVersion(resolveFrom, name),
         expected, `Actual verifier resolution of ${name}`);
     }
     assert.equal(installedVersion(bundleRequire, '@sigstore/protobuf-specs'), '0.5.0');
@@ -238,7 +244,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     // A Harness edit ships in a new Core version built from standalone source.
     const updated = join(root, 'updated-core'); mkdirSync(updated);
     for (const name of ['src', 'scripts']) cpSync(join(packageRoot, name), join(updated, name), { recursive: true });
-    for (const name of ['package.json', 'npm-shrinkwrap.json', 'tsconfig.json', 'README.md', 'CHANGELOG.md', 'LICENSE'])
+    for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'CHANGELOG.md', 'LICENSE'])
       copyFileSync(join(packageRoot, name), join(updated, name));
     mkdirSync(join(updated, 'test'));
     for (const name of ['harness', 'fixtures']) cpSync(join(packageRoot, 'test', name), join(updated, 'test', name), { recursive: true });
@@ -248,9 +254,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const nextManifest = JSON.parse(readFileSync(join(updated, 'package.json'), 'utf8'));
     nextManifest.version = nextVersion;
     writeFileSync(join(updated, 'package.json'), JSON.stringify(nextManifest));
-    const nextLock = JSON.parse(readFileSync(join(updated, 'npm-shrinkwrap.json'), 'utf8'));
+    const nextLock = JSON.parse(readFileSync(join(updated, 'package-lock.json'), 'utf8'));
     nextLock.version = nextLock.packages[''].version = nextVersion;
-    writeFileSync(join(updated, 'npm-shrinkwrap.json'), JSON.stringify(nextLock));
+    writeFileSync(join(updated, 'package-lock.json'), JSON.stringify(nextLock));
     const helper = join(updated, 'src/harness/runtime.mjs');
     const originalHelper = readFileSync(helper, 'utf8');
     const changedHelper = originalHelper.replace('Set user npm cafile without changing other npm settings',

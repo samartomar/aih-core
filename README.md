@@ -308,8 +308,9 @@ explicit distrust can change evidence status without rejecting the reviewed setu
 Associations run sequentially in each phase, so 32 slow associations can take
 up to 32 minutes in Prepare and again in Apply. A host can use `controls.signal`
 to bound the whole call; the signal also cancels setup work where applicable.
-The published `npm-shrinkwrap.json` fixes the verifier's complete dependency tree,
-including its transitive cryptography implementation, to the reviewed versions.
+The Core artifact bundles the reviewed Sigstore verifier dependency tree,
+including its transitive cryptography implementation. Installing the artifact
+does not resolve newer Sigstore code from the registry.
 
 Successful results have `status:'authenticated'`, the matched `scanId`, an
 independently selected `producerIdentity`, and `keyId` for Ed25519 only. Core
