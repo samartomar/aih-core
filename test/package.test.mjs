@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, copyFileSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { build, stop } from 'esbuild';
@@ -39,13 +40,59 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
     }
+    for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
+      assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
+        `The published artifact must carry the reviewed @sigstore/${name} bytes.`);
+    }
+    // The cryptography tree must come from the selected artifact, even without
+    // registry access. Other ordinary dependencies retain their normal registry.
+    writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
+    const coreRequire = createRequire(join(installed, 'package.json'));
+    const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
+    const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
+    const installedVersion = (resolveFrom, name) =>
+      JSON.parse(readFileSync(join(dirname(resolveFrom.resolve(name)), '../package.json'), 'utf8')).version;
+    for (const [name, expected] of Object.entries({
+      '@sigstore/verify': '4.1.2', '@sigstore/core': '4.0.1',
+      '@sigstore/bundle': '5.0.0', '@sigstore/protobuf-specs': '0.5.0'
+    })) {
+      const resolveFrom = name === '@sigstore/verify' ? coreRequire : verifierRequire;
+      assert.ok(resolveFrom.resolve(name).startsWith(join(installed, 'node_modules') + sep),
+        `Bundled resolution of ${name}`);
+      assert.equal(installedVersion(resolveFrom, name),
+        expected, `Actual verifier resolution of ${name}`);
+    }
+    assert.equal(installedVersion(bundleRequire, '@sigstore/protobuf-specs'), '0.5.0');
     assert.equal(manifest.dependencies['@aihq/harness'], undefined);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/harness')), false);
+    assert.equal(existsSync(join(consumer, 'node_modules/@aihq/scan')), false);
+    assert.equal(existsSync(join(consumer, 'node_modules/@aihq/catalog')), false);
+    copyFileSync(new URL('./fixtures/evidence/production.scan.json', import.meta.url), join(consumer, 'production.scan.json'));
+    copyFileSync(new URL('./fixtures/evidence/test-dsse-0.0.2.artifact.json', import.meta.url), join(consumer, 'partial.scan.json'));
+    copyFileSync(new URL('./fixtures/evidence/test-dsse-0.0.2.trust.json', import.meta.url), join(consumer, 'partial-trust.json'));
+    writeFileSync(join(consumer, 'evidence.mjs'), `
+      import assert from 'node:assert/strict';
+      import {readFileSync} from 'node:fs';
+      import {authenticateEvidence} from '@aihq/core';
+      import {selectVerificationKeys,selectVerificationPublishers} from '@aihq/core/harness';
+      const keys=await selectVerificationKeys('scan-report'), publishers=selectVerificationPublishers('scan-report');
+      assert.equal(keys.status,'selected'); assert.equal(publishers.status,'selected');
+      globalThis.fetch=()=>{throw new Error('unexpected network')};
+      for(const [file,trust] of [['production.scan.json',{keys:keys.keys,publishers:publishers.publishers}],
+        ['partial.scan.json',JSON.parse(readFileSync('partial-trust.json','utf8'))]]) {
+        const bytes=readFileSync(file), expectedScanId=JSON.parse(bytes).scanId;
+        const result=await authenticateEvidence({bytes,expectedScanId,trust});
+        assert.equal(result.status,'authenticated',JSON.stringify(result));
+        assert.equal(result.reportRead,'not-requested');
+      }
+      console.log('packed production and later partial evidence passed');
+    `);
+    assert.match(run('evidence.mjs'), /packed production and later partial evidence passed/);
     writeFileSync(join(consumer, 'policy.json'), JSON.stringify(policy()));
     const lifecyclePolicy = policy();
     lifecyclePolicy.managedSelections = [{ id: 'guidance', scope: 'project', members: [lifecyclePolicy.selections[0].managementId] }];
@@ -148,18 +195,22 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.match(run('run.mjs'), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
       import {parsePolicy,contractSupport} from '@aihq/core/contracts';
-      import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys} from '@aihq/core/harness';
+      import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers} from '@aihq/core/harness';
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
-        contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length];`, resolveDir: consumer },
+        contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length,
+        verificationPublishers.length,selectVerificationPublishers('scan-report').status];`, resolveDir: consumer },
       bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/harness\/(?:runtime|ca|candidate|user-trust)\.mjs$/.test(name)), false);
-    const browserGlobals = { TextEncoder, TextDecoder };
+    assert.equal(Object.keys(browser.metafile.inputs).some(name=>/core\/evidence\/|@sigstore\//.test(name)), false);
+    const browserGlobals = { TextEncoder, TextDecoder, atob, btoa };
     runInNewContext(browser.outputFiles[0].text, browserGlobals, { timeout: 5000 });
     assert.equal(browserGlobals.portable[0], true);
     assert.equal(browserGlobals.portable[1].name, '@aihq/core');
     assert.equal(browserGlobals.portable[2].version, version);
     assert.ok(browserGlobals.portable[3] > 0);
     assert.equal(browserGlobals.portable[4], 'node-npm-ca');
+    assert.equal(browserGlobals.portable[6], 1);
+    assert.equal(browserGlobals.portable[7], 'selected');
     const cliResult = execFileSync(process.execPath, [join(installed, manifest.bin.aih), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--apply', '--yes', '--json'],
       { cwd: consumer, env, encoding: 'utf8', timeout: 20_000 });

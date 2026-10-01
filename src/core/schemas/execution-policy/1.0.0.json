@@ -7,6 +7,19 @@
   "properties": {
     "schema": { "const": "urn:aihq:core:execution-policy:1.0.0" }, "mode": { "enum": ["vibe", "enterprise"] },
     "metadata": { "type": "object" },
+    "evidence": { "type": "array", "maxItems": 32, "items": {
+      "type": "object", "additionalProperties": false, "required": ["schema", "scanId", "location"],
+      "properties": {
+        "schema": { "const": "urn:aihq:scan:evidence-association:1.0.0" },
+        "scanId": { "type": "string", "pattern": "^scan:sha256:[a-f0-9]{64}$" },
+        "location": { "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+            "properties": { "kind": { "const": "file" }, "path": { "type": "string", "minLength": 1, "maxLength": 4096 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "url"],
+            "properties": { "kind": { "const": "https" }, "url": { "type": "string", "minLength": 1, "maxLength": 2048 } } }
+        ] }
+      }
+    } },
     "managedSelections": { "type": "array", "maxItems": 4096, "items": {
       "type": "object", "additionalProperties": false, "required": ["id", "scope", "members"],
       "properties": { "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },

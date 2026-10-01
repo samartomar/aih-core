@@ -2,13 +2,15 @@
 import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
+import { snapshotTrustData } from './trust-data.mjs';
+export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:harness:support:1.0.0',
   package: distribution,
   contracts: Object.freeze(['urn:aihq:harness:diagnostic:1.0.0', 'urn:aihq:harness:repair:1.0.0']),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
-    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.6.0 <25' }
+    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' }
   ])
 });
 
@@ -47,8 +49,8 @@ export const repairIndex = Object.freeze([Object.freeze({
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
   offlineVerification: Object.freeze([])
 }), userToolsRepair, jvmRepair]);
-// verificationKeys is an explicitly empty development inventory. Production
-// trust data is delivered separately; test keys never ship here.
+// Organization keys are selected independently. AIHQ publisher trust is carried
+// by verificationPublishers; test keys never ship in either inventory.
 export const verificationKeys = Object.freeze([]);
 export const verificationKeyPurposes = Object.freeze(['scan-report']);
 
@@ -64,7 +66,7 @@ const keyHex = bytes => [...bytes].map(byte => byte.toString(16).padStart(2, '0'
 const keyDiagnostic = (reason, message, path) => ({ code: 'INPUT_INVALID', reason, message, path });
 
 function decodeCanonicalBase64(value) {
-  if (typeof value !== 'string' || !KEY_BASE64_RE.test(value)) return undefined;
+  if (typeof value !== 'string' || value.length > 5464 || !KEY_BASE64_RE.test(value)) return undefined;
   let binary;
   try {
     binary = atob(value);
@@ -77,9 +79,11 @@ function decodeCanonicalBase64(value) {
 }
 
 export async function validateVerificationKeyRecords(records) {
+  try { records = snapshotTrustData(records); }
+  catch { return { valid: false, diagnostics: [keyDiagnostic('record-shape', 'Verification keys must be bounded plain data.', '')] }; }
   if (!Array.isArray(records))
     return { valid: false, diagnostics: [keyDiagnostic('records-not-array', 'Verification key records must be an array.', '')] };
-  if (records.length > 256)
+  if (records.length > 128)
     return { valid: false, diagnostics: [keyDiagnostic('records-count', 'Verification key records exceed the bounded inventory size.', '')] };
   const diagnostics = [];
   const seenKeyIds = new Set();
@@ -95,7 +99,8 @@ export async function validateVerificationKeyRecords(records) {
     if (record.algorithm !== 'Ed25519')
       diagnostics.push(keyDiagnostic('algorithm', "A verification key record's algorithm must be 'Ed25519'.", `${base}/algorithm`));
     if (typeof record.identity !== 'string' || record.identity.length === 0 ||
-        record.identity.length > 256 || /[\x00-\x1f\x7f]/.test(record.identity))
+        record.identity.length > 256 || new TextEncoder().encode(record.identity).length > 256 ||
+        !record.identity.isWellFormed() || record.identity.normalize('NFC') !== record.identity || /[\x00-\x1f\x7f]/.test(record.identity))
       diagnostics.push(keyDiagnostic('identity',
         'A verification key identity must be a nonempty bounded string without control characters.', `${base}/identity`));
     const purposes = record.purposes;
@@ -129,6 +134,8 @@ export async function selectVerificationKeys(purpose, records = verificationKeys
   if (typeof purpose !== 'string' || !verificationKeyPurposes.includes(purpose))
     return { status: 'invalid', diagnostics: [keyDiagnostic('purpose-unsupported',
       'The requested verification-key purpose is not supported.', '/purpose')] };
+  try { records = snapshotTrustData(records); }
+  catch { return { status: 'invalid', diagnostics: [keyDiagnostic('record-shape', 'Verification keys must be bounded plain data.', '')] }; }
   const validation = await validateVerificationKeyRecords(records);
   if (!validation.valid) return { status: 'invalid', diagnostics: validation.diagnostics };
   return {

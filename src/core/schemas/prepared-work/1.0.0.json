@@ -4,6 +4,18 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "evidence": { "type": "array", "maxItems": 32, "items": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {
+        "scanId": { "type": "string", "pattern": "^scan:sha256:[a-f0-9]{64}$" },
+        "status": { "enum": ["skipped", "authenticated", "unverifiable"] },
+        "reason": { "enum": ["not-supplied", "not-requested", "unavailable", "unsupported-artifact", "malformed",
+          "id-mismatch", "byte-mismatch", "unsigned", "unknown-producer", "untrusted-key", "invalid-signature", "resource-limit"] },
+        "producerIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "keyId": { "type": "string", "pattern": "^ed25519:[a-f0-9]{64}$" },
+        "reportRead": { "enum": ["supported", "unsupported", "not-requested"] }
+      }
+    } },
     "schema": {
       "const": "urn:aihq:core:prepared-work:1.0.0"
     },

@@ -9,6 +9,51 @@ import { createHash } from 'node:crypto';
 import { policy } from './fixture.mjs';
 import { COMMIT, TOKEN, enterprisePolicy, failingRoutes, orgRoutes } from './fixtures/github-org.mjs';
 
+test('CLI evidence opt-in reports unavailable evidence without changing setup exit status', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-cli-evidence-'));
+  const home = join(root, 'home'), project = join(root, 'project'); mkdirSync(home); mkdirSync(project);
+  const document = policy();
+  document.evidence = [{ schema: 'urn:aihq:scan:evidence-association:1.0.0', scanId: `scan:sha256:${'a'.repeat(64)}`,
+    location: { kind: 'file', path: join(root, 'missing.scan.json') } }];
+  const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(document));
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
+  const run = flags => spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', ...flags], {
+    encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 20_000
+  });
+  try {
+    const skipped = run([]); assert.equal(skipped.status, 0, skipped.stderr);
+    assert.equal(JSON.parse(skipped.stdout).evidence[0].reason, 'not-requested');
+    const preview = run(['--evidence']); assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+    assert.equal(JSON.parse(preview.stdout).evidence[0].reason, 'unavailable');
+    const applied = run(['--evidence', '--apply', '--yes']); assert.equal(applied.status, 0, applied.stdout + applied.stderr);
+    const result = JSON.parse(applied.stdout);
+    assert.equal(result.completion, 'complete'); assert.equal(result.evidence[0].reason, 'unavailable');
+    assert.equal(readFileSync(join(project, 'TEAM.md'), 'utf8'), "Read the project's contribution guide.\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI reports authenticated production and malformed evidence through the same successful setup path', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-cli-production-evidence-'));
+  const home = join(root, 'home'), project = join(root, 'project'); mkdirSync(home); mkdirSync(project);
+  const bytes = readFileSync(new URL('./fixtures/evidence/production.scan.json', import.meta.url));
+  const artifactPath = join(root, 'report.scan.json'), file = join(root, 'policy.json');
+  const document = policy(); document.evidence = [{ schema: 'urn:aihq:scan:evidence-association:1.0.0',
+    scanId: JSON.parse(bytes).scanId, location: { kind: 'file', path: artifactPath } }];
+  writeFileSync(file, JSON.stringify(document));
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
+  try {
+    for (const [input, expected] of [[bytes, 'authenticated'], [Buffer.from('{bad'), 'malformed']]) {
+      writeFileSync(artifactPath, input);
+      const run = spawnSync(process.execPath, [cli, 'policy', file, '--project', project, '--json', '--evidence', '--apply', '--yes'], {
+        encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 20_000
+      });
+      assert.equal(run.status, 0, run.stdout + run.stderr);
+      const result = JSON.parse(run.stdout); assert.equal(result.completion, 'complete');
+      assert.equal(result.evidence[0].reason ?? result.evidence[0].status, expected);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('CLI previews by default and applies only deliberate automation through the shared host', () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-core-cli-'));
   const home = join(root, 'home'); const project = join(root, 'project');
