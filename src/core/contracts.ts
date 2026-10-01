@@ -4,21 +4,23 @@ import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'j
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import preparedSchema from './schemas/prepared-work/1.0.0.json' with { type: 'json' };
 import resultSchema from './schemas/run-result/1.0.0.json' with { type: 'json' };
+import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
-import type { ExecutionPolicy, ParseResult, Recipe, ValidationResult } from './types.js';
-import { policySemantics, recipeSemantics } from './internal/policy-validation.js';
+import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, Recipe, ValidationResult } from './types.js';
+import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 export type * from './types.js';
 
 const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
 const checkPolicy = validator.compile(policySchema);
 const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
+const checkOrganization = validator.compile(organizationSchema);
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
-  contracts: [policySchema, recipeSchema, preparedSchema, resultSchema].map(schema => ({
-    id: schema.$id, role: schema === policySchema || schema === recipeSchema ? 'accepts' : 'produces',
+  contracts: [policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema].map(schema => ({
+    id: schema.$id, role: schema === preparedSchema || schema === resultSchema ? 'produces' : 'accepts',
     schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/1.0.0.json`
   })),
   entries: [
@@ -41,7 +43,9 @@ function validate(value: unknown, schema: string, check: ValidateFunction): Vali
     };
     const valid = check(safe);
     if (valid) {
-      const diagnostics = schema === policySchema.$id ? policySemantics(safe as ExecutionPolicy) : recipeSemantics(safe as Recipe);
+      const diagnostics = schema === policySchema.$id ? policySemantics(safe as ExecutionPolicy)
+        : schema === organizationSchema.$id ? organizationSemantics(safe as OrganizationPolicy)
+        : recipeSemantics(safe as Recipe);
       return { valid: diagnostics.length === 0, schema, diagnostics };
     }
     return { valid, ...(typeof found === 'string' ? { schema: found } : {}), diagnostics: valid ? [] :
@@ -53,12 +57,24 @@ function validate(value: unknown, schema: string, check: ValidateFunction): Vali
 }
 export const validatePolicy = (value: unknown): ValidationResult => validate(value, policySchema.$id, checkPolicy);
 export const validateRecipe = (value: unknown): ValidationResult => validate(value, recipeSchema.$id, checkRecipe);
+export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
+  validate(value, organizationSchema.$id, checkOrganization);
 export function parsePolicy(text: string): ParseResult {
   try {
     if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');
     const document = parseStrictJsonObjectV1(text, 'policy');
     const result = validatePolicy(document);
     return result.valid ? { ...result, document: document as unknown as ExecutionPolicy } : result;
+  } catch {
+    return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };
+  }
+}
+export function parseOrganizationPolicy(text: string): OrganizationParseResult {
+  try {
+    if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');
+    const document = parseStrictJsonObjectV1(text, 'organization policy');
+    const result = validateOrganizationPolicy(document);
+    return result.valid ? { ...result, document: document as unknown as OrganizationPolicy } : result;
   } catch {
     return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };
   }

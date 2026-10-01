@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:organization-policy:1.0.0",
+  "title": "Core organization policy (initial development slice)",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "selections"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:organization-policy:1.0.0" },
+    "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+    "metadata": { "type": "object" },
+    "selections": {
+      "type": "array", "maxItems": 4096,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["selectionId", "recipeIdentity", "scopes", "inputs"],
+        "properties": {
+          "selectionId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+          "recipeIdentity": { "$ref": "#/$defs/recipeIdentity" },
+          "scopes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["project", "user"] } },
+          "inputs": { "type": "object", "propertyNames": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+            "additionalProperties": { "$ref": "#/$defs/inputPermission" } },
+          "lifecycle": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "replace": { "type": "boolean" }, "adopt": { "type": "boolean" }, "remove": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "recipeIdentity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "inputPermission": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["fixed"], "properties": { "fixed": {} } },
+      { "type": "object", "additionalProperties": false, "required": ["choices"], "properties": {
+        "choices": { "type": "array", "minItems": 1, "uniqueItems": true } } },
+      { "type": "object", "additionalProperties": false, "required": ["allowDeclared"], "properties": {
+        "allowDeclared": { "const": true } } }
+    ] }
+  }
+}

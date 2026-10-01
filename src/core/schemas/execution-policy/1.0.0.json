@@ -5,7 +5,7 @@
   "type": "object", "additionalProperties": false,
   "required": ["schema", "mode", "selections"],
   "properties": {
-    "schema": { "const": "urn:aihq:core:execution-policy:1.0.0" }, "mode": { "const": "vibe" },
+    "schema": { "const": "urn:aihq:core:execution-policy:1.0.0" }, "mode": { "enum": ["vibe", "enterprise"] },
     "metadata": { "type": "object" },
     "managedSelections": { "type": "array", "maxItems": 4096, "items": {
       "type": "object", "additionalProperties": false, "required": ["id", "scope", "members"],
@@ -26,6 +26,7 @@
           "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
           "managementId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
           "scope": { "enum": ["project", "user"] }, "configuration": { "type": "object" },
+          "organizationSelectionId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
           "requires": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/ids" },
           "recipe": { "oneOf": [
             { "type": "object", "additionalProperties": false, "required": ["inline"], "properties": { "inline": { "$ref": "urn:aihq:core:recipe:1.0.0" } } },
