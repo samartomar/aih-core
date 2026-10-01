@@ -110,8 +110,13 @@ export function admitOrganizationSelections(organization: OrganizationPolicy, se
   }
   for (const item of lifecycle) {
     if (item.action === 'remove') {
-      const permitted = organization.selections.some(entry => entry.recipeIdentity === item.recipeIdentity &&
-        entry.scopes.includes(item.scope) && entry.lifecycle?.remove === true);
+      // A retained selection's obsolete members follow its own current entry; a removed
+      // selection needs an entry admitting the exact identity that wrote the member.
+      const permits = (entry: OrganizationSelection) => entry.scopes.includes(item.scope) && entry.lifecycle?.remove === true;
+      const permitted = item.organizationSelectionId === undefined ?
+        organization.selections.some(entry => entry.recipeIdentity === item.recipeIdentity && permits(entry)) :
+        organization.selections.some(entry => entry.selectionId === item.organizationSelectionId &&
+          entry.recipeIdentity === item.recipeIdentity && permits(entry));
       if (!permitted) finding('AUTHORITY_DENIED', 'lifecycle-remove', item.path, MESSAGES['lifecycle-remove']);
       continue;
     }

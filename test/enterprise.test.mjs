@@ -272,6 +272,35 @@ test('explicit replace needs the organization lifecycle grant', async () => {
   }
 });
 
+test('obsolete members of an updated selection follow its current entry, not a stale identity', async () => {
+  const withNotes = enterprisePolicy(document => {
+    const operations = document.selections[0].recipe.inline.operations;
+    operations.push({ ...structuredClone(operations[0]), id: 'notes', purpose: 'Write notes',
+      target: { root: 'project', segments: [{ literal: 'NOTES.md' }] } });
+  });
+  const updated = enterprisePolicy();
+  const target = project();
+  stub(orgRoutes({ bytes: bytesOf(orgDocument(withNotes)) }));
+  const first = await prepare(request(target, withNotes), { logging: 'off' });
+  assert.equal((await apply(first.prepared, authorize(first), { logging: 'off' })).completion, 'complete');
+  assert.equal(existsSync(join(target, 'NOTES.md')), true);
+  // Current entry admits the updated identity but grants no removal; a stale entry for the old identity cannot grant it.
+  const stale = orgDocument(withNotes, { selectionId: 'retired-guidance', lifecycle: { remove: true } });
+  const current = orgDocument(updated);
+  stub(orgRoutes({ bytes: bytesOf({ ...current, selections: [...current.selections, ...stale.selections] }) }));
+  const denied = await prepare(request(target, updated), { logging: 'off' });
+  assert.equal(denied.status, 'blocked', JSON.stringify(denied.diagnostics));
+  assert.equal(denied.prepared, undefined);
+  assert.deepEqual([denied.diagnostics[0].code, denied.diagnostics[0].reason, denied.diagnostics[0].path],
+    ['AUTHORITY_DENIED', 'lifecycle-remove', '/selections/0']);
+  stub(orgRoutes({ bytes: bytesOf(orgDocument(updated, { lifecycle: { remove: true } })) }));
+  const permitted = await prepare(request(target, updated), { logging: 'off' });
+  assert.equal(permitted.status, 'ready', JSON.stringify(permitted.diagnostics));
+  assert.equal((await apply(permitted.prepared, authorize(permitted), { logging: 'off' })).completion, 'complete');
+  assert.equal(existsSync(join(target, 'NOTES.md')), false);
+  assert.equal(existsSync(join(target, 'TEAM.md')), true);
+});
+
 test('managed removal needs an organization entry with lifecycle.remove', async () => {
   const policy = enterprisePolicy(); const identity = recipeIdentity(policy.selections[0].recipe.inline);
   const target = project();

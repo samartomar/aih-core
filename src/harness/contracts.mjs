@@ -48,7 +48,7 @@ export const repairIndex = Object.freeze([Object.freeze({
   offlineVerification: Object.freeze([])
 }), userToolsRepair, jvmRepair]);
 // verificationKeys is an explicitly empty development inventory. Production
-// trust data belongs to the Scan/Core evidence tickets; test keys never ship here.
+// trust data is delivered separately; test keys never ship here.
 export const verificationKeys = Object.freeze([]);
 export const verificationKeyPurposes = Object.freeze(['scan-report']);
 

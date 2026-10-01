@@ -108,6 +108,15 @@ test('a branch ref pointing at a non-commit object is response-invalid', async (
   assert.equal(result.reason, 'response-invalid');
 });
 
+test('a ref response naming a different ref than the exact selection is response-invalid', async () => {
+  const routes = commitRoutes();
+  routes.set('/repos/example-org/policy.repo/git/ref/heads/main',
+    jsonResponse({ ref: 'refs/heads/main-old', object: { sha: COMMIT, type: 'commit' } }));
+  const result = await read(routes, source({ kind: 'branch', value: 'main' }));
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.reason, 'response-invalid');
+});
+
 test('lightweight tag resolves directly; annotated tags peel to a commit', async () => {
   const light = commitRoutes();
   light.set('/repos/example-org/policy.repo/git/ref/tags/v1',
@@ -203,6 +212,8 @@ test('HTTP status mapping covers 401, 403, rate limits and 404', async () => {
     ['403 with exhausted rate limit', jsonResponse({ message: 'API rate limit exceeded' }, 403,
       { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000060' }), 'rate-limited', 60],
     ['429 with retry-after', jsonResponse({ message: 'Too many requests' }, 429, { 'retry-after': '17' }), 'rate-limited', 17],
+    ['403 secondary rate limit', jsonResponse({ message: 'You have exceeded a secondary rate limit' }, 403,
+      { 'x-ratelimit-remaining': '4999', 'retry-after': '45' }), 'rate-limited', 45],
     ['404', jsonResponse({ message: 'Not Found' }, 404), 'source-missing-or-inaccessible', undefined]
   ];
   for (const [label, denial, reason, retryAfterSeconds] of cases) {

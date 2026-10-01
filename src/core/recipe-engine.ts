@@ -60,6 +60,10 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
   if (read.status !== 'read') throw authorityFailure(read);
   return read;
 }
+// Unavailable material has no computed identity: admission borrows the named entry's
+// identity (membership and scope still apply; the selection has no effects) or, with
+// no entry, uses this value, which no admitted recipe can hash to.
+const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
@@ -332,7 +336,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // Without captured material the identity is unknown; the selection still needs a matching entry.
           const entry = organization.document.selections.find(item => item.selectionId === selection.organizationSelectionId);
           admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
-            recipeIdentity: entry?.recipeIdentity ?? `sha256:${'0'.repeat(64)}`, inputs: {}, configuration: selection.configuration,
+            recipeIdentity: entry?.recipeIdentity ?? UNMATCHED_RECIPE_IDENTITY, inputs: {}, configuration: selection.configuration,
             privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
         }
         continue;
@@ -634,8 +638,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(selection.organizationSelectionId === undefined ? {} : { organizationSelectionId: selection.organizationSelectionId }),
           path: `/selections/${index}` });
       }
-      for (const [step, removedIds] of removedIdentities) {
-        const removal = (policy.removals ?? []).findIndex(item => removedIds.includes(claimId(item)));
+      for (const [step, removedIds] of removedIdentities) for (const removedId of removedIds) {
+        const index = policy.selections.findIndex(selection => claimId(selection) === removedId);
+        if (index >= 0) {
+          // Obsolete members of a retained selection: governed by its newly admitted identity.
+          const selection = policy.selections[index]!;
+          if (seenLifecycle.has(`${index}:remove`)) continue;
+          seenLifecycle.add(`${index}:remove`);
+          lifecycle.push({ action: 'remove', scope: selection.scope, organizationSelectionId: selection.organizationSelectionId!,
+            recipeIdentity: admissions.find(entry => entry.id === selection.id)!.recipeIdentity, path: `/selections/${index}` });
+          continue;
+        }
+        const removal = (policy.removals ?? []).findIndex(item => claimId(item) === removedId);
         const set = (policy.managedSelections ?? []).findIndex(item => item.scope === step.review.scope);
         lifecycle.push({ action: 'remove', scope: step.review.scope, recipeIdentity: step.recipeIdentity,
           path: removal >= 0 ? `/removals/${removal}` : set >= 0 ? `/managedSelections/${set}` : '/selections' });

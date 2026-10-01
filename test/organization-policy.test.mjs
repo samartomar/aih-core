@@ -147,7 +147,7 @@ test('a selection with no matching organization entry is denied', () => {
   assert.equal(findings[0].path, '/selections/0');
 });
 
-test('P06: a same-named selection with an altered recipe identity is denied', () => {
+test('a same-named selection with an altered recipe identity is denied', () => {
   const altered = { ...organization(), selections: [orgEntry({ recipeIdentity: `sha256:${'b'.repeat(64)}` })] };
   const findings = admitOrganizationSelections(altered, [admission()], []);
   assert.deepEqual(reasons(findings), ['recipe-identity']);
@@ -239,6 +239,13 @@ test('lifecycle permissions gate replace, adopt and remove', () => {
   assert.deepEqual(reasons(admitOrganizationSelections(organization(), [], [removeItem])), ['lifecycle-remove']);
   const otherEntry = orgEntry({ selectionId: 'other', recipeIdentity: `sha256:${'c'.repeat(64)}`, scopes: ['project'], lifecycle: { remove: true } });
   assert.deepEqual(reasons(admitOrganizationSelections({ ...organization(), selections: [otherEntry] }, [], [removeItem])), ['lifecycle-remove']);
+
+  // A retained selection's obsolete members use only its own current entry.
+  const retainedRemove = { ...removeItem, organizationSelectionId: 'project-guidance' };
+  assert.deepEqual(admitOrganizationSelections(remove, [], [retainedRemove]), []);
+  const sameIdentityElsewhere = orgEntry({ selectionId: 'other', scopes: ['project'], lifecycle: { remove: true } });
+  assert.deepEqual(reasons(admitOrganizationSelections({ ...organization(), selections: [orgEntry(), sameIdentityElsewhere] }, [],
+    [retainedRemove])), ['lifecycle-remove']);
 });
 
 test('unrelated organization edits never affect admission', () => {

@@ -1,4 +1,4 @@
-// Q95 GitHub organization-policy reader: reads one exact regular file from the
+// GitHub organization-policy reader: reads one exact regular file from the
 // fixed github.com API origin through refs/trees/blobs, with bounded requests,
 // bytes and time. No logging, no file writes, no redirect following.
 import { createHash } from 'node:crypto';
@@ -169,7 +169,8 @@ export async function readGitHubPolicyWith(deps, source, controls) {
       if (response.status === 401)
         fail('authentication-required-or-denied', 'The GitHub API requires authentication or denied the supplied credential.');
       if (response.status === 403) {
-        if (response.headers?.get?.('x-ratelimit-remaining') === '0')
+        // Primary limits report zero remaining; secondary limits send retry-after.
+        if (response.headers?.get?.('x-ratelimit-remaining') === '0' || response.headers?.get?.('retry-after') != null)
           fail('rate-limited', 'The GitHub API rate limit is exhausted.', retryAfterSeconds);
         fail('authentication-required-or-denied', 'The GitHub API denied access to the selected source.');
       }
@@ -263,6 +264,8 @@ export async function readGitHubPolicyWith(deps, source, controls) {
       await request(`${repositoryPath}/git/ref/${kind === 'branch' ? 'heads' : 'tags'}/${encodeRef(value)}`),
       'The GitHub ref response');
     if (!isPlainObject(ref) || !isPlainObject(ref.object)) invalidShape('The GitHub ref response');
+    if (ref.ref !== `refs/${kind === 'branch' ? 'heads' : 'tags'}/${value}`)
+      fail('response-invalid', 'The GitHub ref response named a different ref than the exact selection.');
     let objectSha = shaOf(ref.object.sha);
     if (objectSha === undefined || typeof ref.object.type !== 'string') invalidShape('The GitHub ref response');
     if (ref.object.type === 'commit') return objectSha;

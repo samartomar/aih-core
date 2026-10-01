@@ -39,6 +39,25 @@ test('a valid record validates and selects by purpose with the Scan accepted-key
   assert.equal(Object.isFrozen(selected.keys[0]), true);
 });
 
+test('a rotated historical key stays selectable beside its successor; records carry no expiry', async () => {
+  const historical = record({ identity: 'AIHQ Test Signing 2025' });
+  const selected = await selectVerificationKeys('scan-report', [historical, keyB.record]);
+  assert.equal(selected.status, 'selected', JSON.stringify(selected));
+  assert.deepEqual(selected.keys.map(key => key.keyId), [historical.keyId, keyB.record.keyId]);
+  const expiring = await validateVerificationKeyRecords([{ ...historical, notAfter: '2026-01-01T00:00:00Z' }]);
+  assert.equal(expiring.valid, false);
+  assert.equal(expiring.diagnostics[0].reason, 'record-shape');
+});
+
+test('selection uses only the independently supplied records', async () => {
+  // A key that would arrive inside an artifact is not trusted unless the caller supplies it.
+  const embedded = makeKey();
+  const selected = await selectVerificationKeys('scan-report', [keyA.record]);
+  assert.equal(selected.keys.some(key => key.keyId === embedded.record.keyId), false);
+  const shipped = await selectVerificationKeys('scan-report');
+  assert.deepEqual(shipped, { status: 'selected', keys: [] });
+});
+
 test('an empty record set selects no keys; an unsupported purpose is invalid', async () => {
   const empty = await selectVerificationKeys('scan-report', []);
   assert.deepEqual(empty, { status: 'selected', keys: [] });
