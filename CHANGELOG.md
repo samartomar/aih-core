@@ -16,6 +16,18 @@ TypeScript declarations. Repair definitions and diagnostic result shapes remain
 unchanged; callers select the diagnostic schema externally. These changes
 await the next uniquely versioned Core distribution and do not publish a package.
 
+Consumers of Harness support metadata must inspect record IDs and roles instead
+of matching strings, and can resolve the advertised schema export:
+
+```js
+// Before
+support.contracts.includes('urn:aihq:harness:repair:1.0.0');
+// After
+support.contracts.some(contract => contract.id === 'urn:aihq:harness:repair:1.0.0' &&
+  (contract.role === 'produces' || contract.role === 'both'));
+// Each record's schemaExport names its public JSON Schema export.
+```
+
 Adds optional Scan evidence through `authenticateEvidence`, `associateEvidence`, policy `evidence` associations and `aih policy --evidence`. Exact artifact/report/annex bytes and original DSSE payloads authenticate against independently selected certificate publisher policies or organization Ed25519 keys. Partial and opaque reports remain evidence only; skipped or unverifiable evidence never blocks setup or changes its completion/exit status.
 
 Bundled Harness now supplies inert production publisher policies and retained Sigstore roots, bounded purpose selectors and historical trust support. Authentication performs no network trust lookup and needs no Scan or Catalog runtime. The Node floor is now `>=24.15.0 <25`. These changes await the next Core distribution release; no npm publication is implied.

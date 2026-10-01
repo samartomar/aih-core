@@ -314,7 +314,7 @@ async function showReport(file) {
     return;
   }
   if (presentation.kind === 'invalid') {
-    status.textContent = 'Malformed report bytes.';
+    status.textContent = 'Report or artifact could not be read. See diagnostics for format, contract or integrity failures.';
     renderDiagnostics(view, presentation.diagnostics);
     return;
   }

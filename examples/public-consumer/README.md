@@ -98,6 +98,14 @@ loads the generated `browser/app.bundle.js`; the artifact gate uses Core's
 existing development bundler to build it from `browser/app.js`. Runtime imports are
 only the installed public packages; the bundler is build tooling only.
 
+This is an unauthenticated, single-user demo for a trusted local machine. The
+Host/Origin checks protect the browser boundary; they do not authenticate local
+clients or other OS users, who can forge those headers. The host accepts inline
+recipes, including permitted process operations, and Apply runs with the demo
+process's privileges. Do not run it on a shared or untrusted machine, expose the
+port beyond loopback, or use it as a service. An application built from this
+example must supply its own transport authentication and authorization.
+
 The installed portable validators compile their shipped JSON Schemas with Ajv
 at runtime, so the demo CSP permits `unsafe-eval` for that compilation. It still
 loads scripts only from this origin and renders supplied content as text. This
@@ -115,9 +123,11 @@ in flight. Tampered artifacts keep their invalid diagnostics instead of being
 reinterpreted as another document kind.
 
 The report view performs portable reading. It labels authenticity as unchecked;
-Core evidence authentication is exercised separately through host controls and
-the prepared policy's evidence results. The artifact gate verifies the retained
-production artifact and deliberately unsigned partial display fixtures separately.
+the browser demo does not configure evidence authentication. The artifact gate
+separately calls Core's public `authenticateEvidence` with the retained production
+artifact and independently selected bundled trust. The example's evidence tests
+exercise optional policy evidence through explicit host controls. Neither result
+authenticates the deliberately unsigned display fixtures.
 
 ## Boundaries
 
@@ -128,4 +138,5 @@ production artifact and deliberately unsigned partial display fixtures separatel
 - Core evidence authentication is optional and separate: skipped or
   unverifiable evidence is reported honestly and does not gate setup.
 - Sensitive inputs and credentials stay out of the browser and exported
-  policies; the host passes private inputs through Core host controls.
+  policies. The browser demo supplies none; a caller of `createHost` can supply
+  them through Core host controls in its own trusted Node process.

@@ -2,30 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { disposableHome, disposableProject, installedRelease } from './helpers.mjs';
+import { disposableHome, disposableProject, installedRelease, inlinePolicyText } from './helpers.mjs';
 import { authorPolicy, exportPolicy } from '../src/authoring.js';
 import { createHost } from '../src/host.js';
 
 disposableHome();
 
-const inlinePolicy = JSON.stringify({
-  schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe',
-  selections: [{
-    id: 'guidance', managementId: 'team-guidance', scope: 'project',
-    configuration: { text: 'Read the public consumer example notes.\n' }, requires: [],
-    recipe: { inline: {
-      schema: 'urn:aihq:core:recipe:1.0.0', id: 'guidance-file',
-      description: 'Deliver project guidance',
-      inputs: { text: { type: 'string', required: true, maxLength: 65536 } },
-      materials: [], targets: ['project'], prerequisites: [],
-      operations: [{
-        id: 'write', purpose: 'Write shared project guidance', kind: 'file.write',
-        scope: 'project', target: { root: 'project', segments: [{ literal: 'TEAM.md' }] },
-        content: { input: 'text' }, requires: [], checks: []
-      }], checks: []
-    } }
-  }]
-});
+const inlinePolicy = inlinePolicyText();
 
 test('prepare returns a serializable review and opaque session id; approved apply executes in the target', async () => {
   const project = disposableProject();
