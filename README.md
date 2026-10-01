@@ -276,6 +276,10 @@ or fragment. Acquisition defaults off. `aih policy policy.json --evidence` opts 
 and selects the installed Harness `scan-report` trust; `--apply --yes` still
 controls setup. Evidence results appear in the preparation, review and run output.
 Skipped or unverifiable evidence leaves setup completion and CLI exit status alone.
+The policy itself must still satisfy its closed schema: unknown association
+fields, an invalid `scanId`, or more than 32 associations make the policy invalid.
+For a valid declaration, an unusable locator or malformed artifact is a
+nonblocking `unverifiable` result when acquisition is requested.
 
 ```js
 import { authenticateEvidence, associateEvidence, prepare, apply } from '@aihq/core';
@@ -294,13 +298,18 @@ const preview = await prepare({ useCase: 'policy', policy, target: { project } }
 
 `authenticateEvidence` verifies bytes without IO. `associateEvidence` performs
 only the explicit acquisition; omitted association returns `skipped/not-supplied`,
-and omitted/false `acquire` returns `skipped/not-requested`. HTTPS acquisition has
-a 60-second total budget and five redirects, never forwards a bearer credential
+and omitted/false `acquire` returns `skipped/not-requested`. Each HTTPS association has
+a 60-second acquisition budget and five redirects, never forwards a bearer credential
 to another origin, and accepts credentials only through its explicit
 `{authentication:{kind:'bearer',token}}` controls. Policy hosts use
 `controls.evidence.authentication`. File acquisition rejects links and changed
 file identity. Apply uses that call's trust and acquisition controls again;
 explicit distrust can change evidence status without rejecting the reviewed setup.
+Associations run sequentially in each phase, so 32 slow associations can take
+up to 32 minutes in Prepare and again in Apply. A host can use `controls.signal`
+to bound the whole call; the signal also cancels setup work where applicable.
+The published `npm-shrinkwrap.json` fixes the verifier's complete dependency tree,
+including its transitive cryptography implementation, to the reviewed versions.
 
 Successful results have `status:'authenticated'`, the matched `scanId`, an
 independently selected `producerIdentity`, and `keyId` for Ed25519 only. Core

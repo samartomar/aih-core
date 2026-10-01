@@ -14,7 +14,7 @@ on:
       - 'scripts/build.mjs'
       - 'scripts/ci/jvm-trust-native.mjs'
       - 'package.json'
-      - 'package-lock.json'
+      - 'npm-shrinkwrap.json'
       - '.github/workflows/jvm-trust-native.yml'
   workflow_dispatch:
 

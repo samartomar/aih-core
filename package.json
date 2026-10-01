@@ -16,7 +16,7 @@
     "./schemas/run-result/1.0.0.json": "./dist/core/schemas/run-result/1.0.0.json"
   },
   "bin": { "aih": "./dist/core/cli.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": ["dist", "npm-shrinkwrap.json", "README.md", "CHANGELOG.md", "LICENSE"],
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",

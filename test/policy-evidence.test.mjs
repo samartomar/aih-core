@@ -38,6 +38,19 @@ const document = evidence => ({ schema: 'urn:aihq:core:execution-policy:1.0.0', 
   }] });
 const authorization = p => ({ approved: true, origin: 'automation', reviewDigest: p.review.reviewDigest });
 
+test('evidence declarations obey the closed policy schema before optional acquisition', () => {
+  const valid = association(join(scratch, 'missing.scan.json'));
+  for (const evidence of [
+    [{ ...valid, scanId: `scan:sha256:${'A'.repeat(64)}` }],
+    [{ ...valid, extra: true }],
+    Array.from({ length: 33 }, () => valid)
+  ]) {
+    const parsed = parsePolicy(JSON.stringify(document(evidence)));
+    assert.equal(parsed.valid, false);
+    assert.ok(parsed.diagnostics.length > 0);
+  }
+});
+
 test('unavailable optional evidence is reported while the requested setup still completes', async () => {
   const project = mkdtempSync(join(scratch, 'unavailable-'));
   const policy = document([association(join(scratch, 'missing.scan.json'))]);
@@ -67,6 +80,11 @@ test('omitted, refused and authenticated partial or opaque evidence never change
   for (const [name, evidence, options, expected] of [
     ['omitted', undefined, undefined, 'not-supplied'],
     ['off', selected(partialPath), undefined, 'not-requested'],
+    ['relative-locator', selected('relative.scan.json'), { acquire: true, trust: partial.trust }, 'malformed'],
+    ['http-locator', [{ ...association(partialPath), location: { kind: 'https', url: 'http://example.test/report' } }],
+      { acquire: true, trust: partial.trust }, 'malformed'],
+    ['userinfo-locator', [{ ...association(partialPath), location: { kind: 'https', url: 'https://user@example.test/report' } }],
+      { acquire: true, trust: partial.trust }, 'malformed'],
     ['malformed', selected(malformedPath), { acquire: true, trust: partial.trust }, 'malformed'],
     ['changed', selected(changedPath), { acquire: true, trust: partial.trust }, 'byte-mismatch'],
     ['id-mismatch', selected(partialPath, `scan:sha256:${'0'.repeat(64)}`), { acquire: true, trust: partial.trust }, 'id-mismatch'],
