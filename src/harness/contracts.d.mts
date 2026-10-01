@@ -1,9 +1,14 @@
 export interface TargetDefinition {
   id: string; label: string; binaries: readonly string[]; configDirs: readonly string[]; origins: readonly string[];
 }
+export interface SupportedContract {
+  readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
+}
+export type PublicEntry = { readonly export: string; readonly runtime: 'portable' } |
+  { readonly export: string; readonly runtime: 'node'; readonly nodeRange: string };
 export declare const contractSupport: {
-  readonly schema: string; readonly package: { readonly name: string; readonly version: string };
-  readonly contracts: readonly string[]; readonly entries: readonly { export: string; runtime: string; nodeRange?: string }[];
+  readonly schema: 'urn:aihq:package-support:1.0.0'; readonly package: { readonly name: string; readonly version: string };
+  readonly contracts: readonly SupportedContract[]; readonly entries: readonly PublicEntry[];
 };
 export declare const repairIndex: readonly { id: string; description: string;
   schema: 'urn:aihq:harness:repair:1.0.0'; scope: 'user'; managementId: string; materialName: string;

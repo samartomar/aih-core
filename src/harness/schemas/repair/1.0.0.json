@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:repair:1.0.0",
+  "title": "Harness repair definition",
+  "description": "One existing repairIndex entry. The portable repairIndex remains an array of these definitions; recipe resolution and input binding are runtime responsibilities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "description",
+    "schema",
+    "scope",
+    "managementId",
+    "materialName",
+    "variants",
+    "targets",
+    "inputs",
+    "limits",
+    "offlineVerification"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/text"
+    },
+    "description": {
+      "$ref": "#/$defs/text"
+    },
+    "schema": {
+      "const": "urn:aihq:harness:repair:1.0.0"
+    },
+    "scope": {
+      "const": "user"
+    },
+    "managementId": {
+      "$ref": "#/$defs/text"
+    },
+    "materialName": {
+      "$ref": "#/$defs/text"
+    },
+    "candidateDiagnostic": {
+      "$ref": "#/$defs/text"
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/variant"
+      }
+    },
+    "targets": {
+      "$ref": "#/$defs/identifiers"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/input"
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBytes",
+        "certificateBlocks",
+        "blockBytes"
+      ],
+      "properties": {
+        "sourceBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "certificateBlocks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "blockBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "offlineVerification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "operationId",
+          "checkId"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/$defs/text"
+          },
+          "operationId": {
+            "$ref": "#/$defs/text"
+          },
+          "checkId": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifiers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "segments"
+      ],
+      "properties": {
+        "root": {
+          "const": "userHome"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "literal"
+            ],
+            "properties": {
+              "literal": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "required",
+        "description"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "file",
+            "string",
+            "boolean",
+            "number"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architectures",
+        "targets",
+        "network",
+        "recipeRef",
+        "transformId"
+      ],
+      "properties": {
+        "os": {
+          "enum": [
+            "win32",
+            "darwin",
+            "linux"
+          ]
+        },
+        "architectures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "x64",
+              "arm64"
+            ]
+          }
+        },
+        "targets": {
+          "$ref": "#/$defs/identifiers"
+        },
+        "network": {
+          "enum": [
+            "declared",
+            "off"
+          ]
+        },
+        "candidate": {
+          "enum": [
+            "system-ca",
+            "extra-ca"
+          ]
+        },
+        "recipeRef": {
+          "$ref": "#/$defs/text"
+        },
+        "transformId": {
+          "$ref": "#/$defs/text"
+        },
+        "configFiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operationId",
+              "target",
+              "maxBytes"
+            ],
+            "properties": {
+              "operationId": {
+                "$ref": "#/$defs/text"
+              },
+              "target": {
+                "$ref": "#/$defs/target"
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "executableBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "pathInput"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/text"
+              },
+              "pathInput": {
+                "$ref": "#/$defs/text"
+              },
+              "kind": {
+                "const": "launcher"
+              }
+            }
+          }
+        },
+        "requiredAbsences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target",
+              "reason",
+              "purpose"
+            ],
+            "properties": {
+              "target": {
+                "$ref": "#/$defs/target"
+              },
+              "reason": {
+                "$ref": "#/$defs/text"
+              },
+              "purpose": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

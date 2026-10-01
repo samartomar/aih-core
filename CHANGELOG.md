@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Adds an isolated public consumer example and explicit packed-artifact acceptance
+gate for policy authoring/reopening, complete Scan presentation and UI-owned
+Prepare/Apply. Compatible Catalog content and new report bytes use the same
+consumer code. Core continues to ship Harness as one distribution; the package
+acceptance also proves a versioned Harness update, stale-review rejection and
+reinstall of the original artifact.
+
+Harness support metadata now uses package-support records with `id`, `role` and
+`schemaExport`, replacing its string-only contract list. Public repair,
+diagnostic and package-support JSON Schemas are exported with matching
+TypeScript declarations. Repair definitions and diagnostic result shapes remain
+unchanged; callers select the diagnostic schema externally. These changes
+await the next uniquely versioned Core distribution and do not publish a package.
+
 Adds optional Scan evidence through `authenticateEvidence`, `associateEvidence`, policy `evidence` associations and `aih policy --evidence`. Exact artifact/report/annex bytes and original DSSE payloads authenticate against independently selected certificate publisher policies or organization Ed25519 keys. Partial and opaque reports remain evidence only; skipped or unverifiable evidence never blocks setup or changes its completion/exit status.
 
 Bundled Harness now supplies inert production publisher policies and retained Sigstore roots, bounded purpose selectors and historical trust support. Authentication performs no network trust lookup and needs no Scan or Catalog runtime. The Node floor is now `>=24.15.0 <25`. These changes await the next Core distribution release; no npm publication is implied.

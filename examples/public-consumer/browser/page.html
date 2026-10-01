@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AIH public consumer example</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 72rem; }
+  section { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; }
+  fieldset { border: 1px solid #ddd; margin: 0.5rem 0; }
+  .children { margin-left: 1.25rem; }
+  .label { color: #555; }
+  .error { color: #a00; }
+  .ok { color: #060; }
+  textarea { width: 100%; min-height: 12rem; font-family: monospace; }
+  button { margin: 0.25rem 0.25rem 0.25rem 0; }
+  .hint { color: #777; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<h1>AIH public consumer example</h1>
+<p class="hint">Authors a policy from verified Catalog release data, prepares/applies it through
+a UI-owned Node host, and presents complete Scan reports. All rendering uses plain text.</p>
+
+<section id="catalog-section">
+  <h2>1. Browse the verified Catalog release</h2>
+  <p>Release identity: <code id="release-identity">loading…</code></p>
+  <label>Item <select id="item-select" disabled></select></label>
+  <p id="item-description" class="hint"></p>
+  <div id="item-required"></div>
+  <div id="item-inputs"></div>
+  <button id="author-button" disabled>Author policy</button>
+</section>
+
+<section id="policy-section">
+  <h2>2. Policy JSON — export and reopen</h2>
+  <textarea id="policy-json" spellcheck="false"></textarea>
+  <div>
+    <button id="export-button">Download policy.json</button>
+    <button id="reopen-button">Reopen (parsePolicy)</button>
+  </div>
+  <div id="reopen-result"></div>
+</section>
+
+<section id="host-section">
+  <h2>3. UI-owned host — prepare, review, approve</h2>
+  <p class="hint">The live prepared handle stays in the Node host; this page only receives a
+  serializable review and an opaque session id. Approval must name the exact review digest.</p>
+  <button id="prepare-button">Prepare on host</button>
+  <button id="approve-button" disabled>Approve and apply</button>
+  <p id="session-line" class="hint"></p>
+  <div id="review-view"></div>
+  <div id="apply-view"></div>
+</section>
+
+<section id="report-section">
+  <h2>4. Complete Scan report view</h2>
+  <input type="file" id="report-file" accept=".json,.scan.json,application/json">
+  <p id="report-status" class="hint"></p>
+  <div id="report-view"></div>
+</section>
+
+<script type="module" src="/app.bundle.js"></script>
+</body>
+</html>

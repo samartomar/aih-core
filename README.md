@@ -19,8 +19,18 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
+| `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
+| `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
+| `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
+
+Both modules use `urn:aihq:package-support:1.0.0`: each contract record names its
+`id`, `role` (`accepts`, `produces` or `both`) and resolvable `schemaExport`.
+Harness's former string-only contract list has been replaced by these records.
+`repairIndex` remains an array of repair definitions. A caller selects the
+diagnostic schema explicitly when validating a Harness `diagnose` result; the
+result retains its existing shape without a `schema` property.
 
 JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, check/material references, input definitions and bindings. These checks do not grant organization authority or permission to execute.
 
@@ -378,6 +388,25 @@ change, builds and installs a new Core version with changed Harness content, and
 restores the original artifact. Never target a source checkout with the product
 CLI during development. Build/pack needs no donor checkout, Catalog, Scan, vendor
 engine or private engineering files.
+
+The separate [public consumer example](https://github.com/samartomar/aih-core/tree/main/examples/public-consumer)
+authors and reopens Catalog-backed policies, presents complete Scan reports,
+and owns its live Node Prepare/Apply sessions. Its artifact gate takes selected
+tarballs explicitly; Catalog and Scan remain independent outputs and are not
+Core dependencies. Run after building and packing Core:
+
+```sh
+npm run verify:public-consumer -- --core /artifacts/core.tgz --catalog /artifacts/catalog.tgz --catalog-baseline /artifacts/catalog-before.tgz --scan /artifacts/scan.tgz --output /new/consumer-evidence
+```
+
+The output directory must not exist. The gate retains both isolated installs,
+artifact SHA-256 identities, logs, browser bundles and `acceptance.json`. It
+compares the same example against two compatible Catalog artifacts, validates
+the installed declarations and schema exports, and generates unsigned synthetic
+partial reports for display checks. The retained signed production artifact is
+checked separately using independently selected bundled trust. Neither a report
+view nor successful authentication authorizes installation. The example is
+source-only and excluded from the Core npm artifact.
 
 The build removes obsolete generated output and copies only shipped Harness
 files. Portable package identity is generated from the root manifest, shared by
