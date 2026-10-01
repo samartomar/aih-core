@@ -9,6 +9,9 @@
     "./contracts": { "types": "./dist/core/contracts.d.ts", "import": "./dist/core/contracts.js" },
     "./harness": { "types": "./dist/harness/contracts.d.mts", "import": "./dist/harness/contracts.mjs" },
     "./harness/runtime": { "types": "./dist/harness/runtime.d.mts", "import": "./dist/harness/runtime.mjs" },
+    "./harness/schemas/repair/1.0.0.json": "./dist/harness/schemas/repair/1.0.0.json",
+    "./harness/schemas/diagnostic/1.0.0.json": "./dist/harness/schemas/diagnostic/1.0.0.json",
+    "./schemas/package-support/1.0.0.json": "./dist/harness/schemas/package-support/1.0.0.json",
     "./schemas/execution-policy/1.0.0.json": "./dist/core/schemas/execution-policy/1.0.0.json",
     "./schemas/recipe/1.0.0.json": "./dist/core/schemas/recipe/1.0.0.json",
     "./schemas/organization-policy/1.0.0.json": "./dist/core/schemas/organization-policy/1.0.0.json",
@@ -21,6 +24,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
+    "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
     "test": "node --test test/*.test.mjs test/harness/*.test.mjs",
     "prepack": "npm run build"
   },

@@ -40,7 +40,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -52,6 +52,33 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
+    writeFileSync(join(consumer, 'contracts.mts'), `
+      import {contractSupport,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
+      import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
+      import {diagnose} from '@aihq/core/harness/runtime';
+      import type {DiagnoseResult} from '@aihq/core/harness/runtime';
+      const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
+      const contract: SupportedContract = contractSupport.contracts[0]!;
+      const role: 'accepts'|'produces'|'both' = contract.role;
+      const schemaExport: string = contract.schemaExport;
+      // @ts-expect-error Contract records replace the old string-only support list.
+      const oldString: string = contract;
+      const entry: PublicEntry = contractSupport.entries[0]!;
+      if (entry.runtime === 'node') { const range: string = entry.nodeRange; }
+      else {
+        // @ts-expect-error Portable entries do not promise a Node runtime range.
+        const range: string = entry.nodeRange;
+      }
+      const repairSchema: 'urn:aihq:harness:repair:1.0.0' = repairIndex[0]!.schema;
+      const result: DiagnoseResult = await diagnose({requestId:'types',targets:['node'],network:'off'});
+      const selected = selectVerificationPublishers('scan-report');
+      if (selected.status === 'selected') { const records: readonly VerificationPublisherRecord[] = selected.publishers; }
+    `);
+    const compilerManifest = createRequire(import.meta.url).resolve('typescript/package.json');
+    const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
+    execFileSync(process.execPath, [compiler,
+      '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
+      '--target', 'ES2023', 'contracts.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
     const coreRequire = createRequire(join(installed, 'package.json'));
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
@@ -133,12 +160,29 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {prepare,apply,inspect} from '@aihq/core';
       import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
       import {repairIndex,contractSupport as harnessSupport} from '@aihq/core/harness';
-      import {getRepairRecipe} from '@aihq/core/harness/runtime';
+      import {getRepairRecipe,diagnose} from '@aihq/core/harness/runtime';
       import {Ajv2020} from 'ajv/dist/2020.js';
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts)
         ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
       assert.equal(contractSupport.contracts.length,5);
+      for (const entry of harnessSupport.contracts) {
+        const schema=(await import(entry.schemaExport,{with:{type:'json'}})).default;
+        assert.equal(schema.$id,entry.id);
+        assert.equal(schema.$schema,'https://json-schema.org/draft/2020-12/schema');
+        if (!ajv.getSchema(schema.$id)) ajv.addSchema(schema);
+      }
+      const supportSchema=(await import('@aihq/core/schemas/package-support/1.0.0.json',{with:{type:'json'}})).default;
+      ajv.addSchema(supportSchema);
+      for (const declaration of [contractSupport,harnessSupport])
+        assert.equal(ajv.validate(supportSchema.$id,declaration),true,JSON.stringify(ajv.errors));
+      for (const definition of repairIndex)
+        assert.equal(ajv.validate(definition.schema,definition),true,JSON.stringify(ajv.errors));
+      const diagnostic=await diagnose({requestId:'packed-diagnostic',targets:['node'],network:'off'});
+      assert.equal(diagnostic.status,'completed');
+      assert.equal(diagnostic.tools.find(tool=>tool.id==='node').state,'runnable');
+      assert.equal(Object.hasOwn(diagnostic,'schema'),false);
+      assert.equal(ajv.validate('urn:aihq:harness:diagnostic:1.0.0',diagnostic),true,JSON.stringify(ajv.errors));
       assert.ok(contractSupport.contracts.some(entry=>entry.id==='urn:aihq:core:organization-policy:1.0.0'&&entry.role==='accepts'));
       assert.deepEqual(harnessSupport.package,contractSupport.package);
       assert.deepEqual(contractSupport.package,{name:'@aihq/core',version:${JSON.stringify(version)}});

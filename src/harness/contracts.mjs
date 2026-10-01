@@ -5,9 +5,16 @@ import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { snapshotTrustData } from './trust-data.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
 export const contractSupport = Object.freeze({
-  schema: 'urn:aihq:harness:support:1.0.0',
+  schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
-  contracts: Object.freeze(['urn:aihq:harness:diagnostic:1.0.0', 'urn:aihq:harness:repair:1.0.0']),
+  contracts: Object.freeze([
+    Object.freeze({ id: 'urn:aihq:harness:diagnostic:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/diagnostic/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:repair:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/repair/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' })
+  ]),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
     { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' }

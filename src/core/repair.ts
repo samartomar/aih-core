@@ -68,7 +68,8 @@ function installedHelperSha256(id: string): string {
   const root = dirname(packageFile);
   const actual = installedDistribution();
   if (actual.name !== harnessSupport.package.name || actual.version !== harnessSupport.package.version ||
-      !harnessSupport.contracts.includes('urn:aihq:harness:repair:1.0.0') ||
+      !harnessSupport.contracts.some(contract => contract.id === 'urn:aihq:harness:repair:1.0.0' &&
+        (contract.role === 'produces' || contract.role === 'both')) ||
       !repairIndex.some(item => item.id === id)) throw new Error('harness-unsupported');
   const digest = createHash('sha256');
   for (const name of ['package.json', 'dist/distribution.mjs', 'dist/harness/contracts.mjs',

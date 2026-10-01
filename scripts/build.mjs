@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ rmSync(dist, { recursive: true, force: true });
 execFileSync(process.execPath, [resolve(dirname(compilerManifest), compiler), '-p', 'tsconfig.json'],
   { cwd: root, stdio: 'inherit' });
 mkdirSync(new URL('harness/', dist), { recursive: true });
+cpSync(new URL('../src/harness/schemas/', import.meta.url), new URL('harness/schemas/', dist), { recursive: true });
 for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.d.mts', 'ca.mjs', 'candidate.mjs', 'github-policy.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs', 'scan-trust.mjs', 'verification-publishers.mjs', 'trust-data.mjs'])
   copyFileSync(new URL(`../src/harness/${name}`, import.meta.url), new URL(`harness/${name}`, dist));
 writeFileSync(new URL('distribution.mjs', dist),
