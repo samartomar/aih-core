@@ -52,3 +52,23 @@ export declare function assessRepairObservations(request: { id: string; managedP
   observations: { id: string; output: string }[] }):
   { id: string; operationId: string; raw: string; expectedRaw: string; conflict: boolean;
     observedValue: string | null; reason: string }[];
+export interface GitHubPolicySource {
+  provider: 'github'; repository: { owner: string; name: string }; path: string;
+  revision: { kind: 'commit' | 'branch' | 'tag'; value: string };
+}
+export interface GitHubPolicyReaderControls {
+  authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
+  signal?: AbortSignal;
+}
+export interface GitHubPolicyReaderIdentity { id: 'github-policy-reader'; package: { name: string; version: string } }
+export interface GitHubPolicyReaderAccounting { requests: number; responseBytes: number }
+export type ReadGitHubPolicyResult =
+  | { status: 'read'; source: GitHubPolicySource; resolvedCommit: string; blobId: string; bytes: Uint8Array;
+      contentDigest: string; retrievedAt: string;
+      helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting }
+  | { status: 'invalid' | 'unavailable' | 'cancelled'; code: 'INPUT_INVALID' | 'AUTHORITY_UNAVAILABLE' | 'CANCELLED';
+      reason: 'source-invalid' | 'authentication-required-or-denied' | 'source-missing-or-inaccessible' | 'rate-limited' |
+        'network-failed' | 'deadline' | 'request-count' | 'response-bytes' | 'source-not-regular-file' | 'response-invalid' | 'cancelled';
+      message: string; source?: GitHubPolicySource; retryAfterSeconds?: number;
+      helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting };
+export declare function readGitHubPolicy(source: unknown, controls?: GitHubPolicyReaderControls): Promise<ReadGitHubPolicyResult>;

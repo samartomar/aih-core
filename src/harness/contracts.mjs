@@ -47,7 +47,99 @@ export const repairIndex = Object.freeze([Object.freeze({
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
   offlineVerification: Object.freeze([])
 }), userToolsRepair, jvmRepair]);
+// verificationKeys is an explicitly empty development inventory. Production
+// trust data belongs to the Scan/Core evidence tickets; test keys never ship here.
 export const verificationKeys = Object.freeze([]);
+export const verificationKeyPurposes = Object.freeze(['scan-report']);
+
+const keyRecordIsPlainObject = value => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+const KEY_RECORD_FIELDS = ['keyId', 'algorithm', 'publicKeySpkiBase64', 'identity', 'purposes'];
+const KEY_BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const ED25519_SPKI_PREFIX_HEX = '302a300506032b6570032100';
+const keyHex = bytes => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+const keyDiagnostic = (reason, message, path) => ({ code: 'INPUT_INVALID', reason, message, path });
+
+function decodeCanonicalBase64(value) {
+  if (typeof value !== 'string' || !KEY_BASE64_RE.test(value)) return undefined;
+  let binary;
+  try {
+    binary = atob(value);
+  } catch {
+    return undefined;
+  }
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  if (btoa(String.fromCharCode(...bytes)) !== value) return undefined;
+  return bytes;
+}
+
+export async function validateVerificationKeyRecords(records) {
+  if (!Array.isArray(records))
+    return { valid: false, diagnostics: [keyDiagnostic('records-not-array', 'Verification key records must be an array.', '')] };
+  if (records.length > 256)
+    return { valid: false, diagnostics: [keyDiagnostic('records-count', 'Verification key records exceed the bounded inventory size.', '')] };
+  const diagnostics = [];
+  const seenKeyIds = new Set();
+  for (const [index, record] of records.entries()) {
+    const base = `/${index}`;
+    if (!keyRecordIsPlainObject(record) ||
+        Object.keys(record).length !== KEY_RECORD_FIELDS.length ||
+        !KEY_RECORD_FIELDS.every(field => Object.hasOwn(record, field))) {
+      diagnostics.push(keyDiagnostic('record-shape',
+        'A verification key record must be a plain object with exactly the keyId, algorithm, publicKeySpkiBase64, identity and purposes fields.', base));
+      continue;
+    }
+    if (record.algorithm !== 'Ed25519')
+      diagnostics.push(keyDiagnostic('algorithm', "A verification key record's algorithm must be 'Ed25519'.", `${base}/algorithm`));
+    if (typeof record.identity !== 'string' || record.identity.length === 0 ||
+        record.identity.length > 256 || /[\x00-\x1f\x7f]/.test(record.identity))
+      diagnostics.push(keyDiagnostic('identity',
+        'A verification key identity must be a nonempty bounded string without control characters.', `${base}/identity`));
+    const purposes = record.purposes;
+    if (!Array.isArray(purposes) || purposes.length === 0 || new Set(purposes).size !== purposes.length ||
+        purposes.some(purpose => typeof purpose !== 'string' || !verificationKeyPurposes.includes(purpose)))
+      diagnostics.push(keyDiagnostic('purposes',
+        'A verification key record must declare a nonempty set of unique supported purposes.', `${base}/purposes`));
+    const der = decodeCanonicalBase64(record.publicKeySpkiBase64);
+    if (der === undefined)
+      diagnostics.push(keyDiagnostic('public-key-base64',
+        'publicKeySpkiBase64 must be canonical Base64 of the SPKI DER.', `${base}/publicKeySpkiBase64`));
+    else if (der.length !== 44 || keyHex(der.subarray(0, 12)) !== ED25519_SPKI_PREFIX_HEX)
+      diagnostics.push(keyDiagnostic('public-key-der',
+        'publicKeySpkiBase64 must decode to the 44-byte Ed25519 SPKI DER.', `${base}/publicKeySpkiBase64`));
+    else {
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', der);
+      if (record.keyId !== `ed25519:${keyHex(new Uint8Array(digest))}`)
+        diagnostics.push(keyDiagnostic('key-id',
+          'keyId must equal ed25519: plus the lowercase SHA-256 of the decoded SPKI DER.', `${base}/keyId`));
+    }
+    if (typeof record.keyId === 'string') {
+      if (seenKeyIds.has(record.keyId))
+        diagnostics.push(keyDiagnostic('key-id-duplicate', 'Verification key records must not repeat a keyId.', `${base}/keyId`));
+      seenKeyIds.add(record.keyId);
+    }
+  }
+  return { valid: diagnostics.length === 0, diagnostics };
+}
+
+export async function selectVerificationKeys(purpose, records = verificationKeys) {
+  if (typeof purpose !== 'string' || !verificationKeyPurposes.includes(purpose))
+    return { status: 'invalid', diagnostics: [keyDiagnostic('purpose-unsupported',
+      'The requested verification-key purpose is not supported.', '/purpose')] };
+  const validation = await validateVerificationKeyRecords(records);
+  if (!validation.valid) return { status: 'invalid', diagnostics: validation.diagnostics };
+  return {
+    status: 'selected',
+    keys: Object.freeze(records
+      .filter(record => record.purposes.includes(purpose))
+      .map(record => Object.freeze({
+        identity: record.identity, keyId: record.keyId, publicKeySpkiBase64: record.publicKeySpkiBase64
+      })))
+  };
+}
 export const helperMetadata = Object.freeze({
   repairs: Object.freeze([
     { id: 'node-npm-ca', helper: 'renderRepair', targets: ['node', 'npm'] },

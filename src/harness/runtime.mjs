@@ -15,6 +15,7 @@ import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { jvmRecipe, renderJvmRepair, prepareJvmRepair } from './jvm-trust.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
+export { readGitHubPolicy } from './github-policy.mjs';
 
 const literal = value => ({ literal: value });
 const userTarget = (...segments) => ({ root: 'userHome', segments: segments.map(literal) });
