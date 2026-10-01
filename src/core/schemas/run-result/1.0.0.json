@@ -29,6 +29,52 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "organization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "provider": { "const": "github" },
+                "repository": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": { "owner": { "type": "string" }, "name": { "type": "string" } },
+                  "required": ["owner", "name"]
+                },
+                "path": { "type": "string" },
+                "revision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": { "kind": { "enum": ["commit", "branch", "tag"] }, "value": { "type": "string" } },
+                  "required": ["kind", "value"]
+                }
+              },
+              "required": ["provider", "repository", "path", "revision"]
+            },
+            "resolvedCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "blobId": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "contentDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "policyId": { "type": "string" },
+            "helper": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": { "const": "github-policy-reader" },
+                "package": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+                  "required": ["name", "version"]
+                }
+              },
+              "required": ["id", "package"]
+            }
+          },
+          "required": ["source", "resolvedCommit", "blobId", "contentDigest", "policyId", "helper"]
+        },
         "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "helperSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "candidateKind": { "enum": ["system-ca", "extra-ca"] },

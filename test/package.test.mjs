@@ -39,7 +39,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs))$/.test(entry.path), entry.path);
     }
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
@@ -91,7 +91,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts)
         ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
-      assert.equal(contractSupport.contracts.length,4);
+      assert.equal(contractSupport.contracts.length,5);
+      assert.ok(contractSupport.contracts.some(entry=>entry.id==='urn:aihq:core:organization-policy:1.0.0'&&entry.role==='accepts'));
       assert.deepEqual(harnessSupport.package,contractSupport.package);
       assert.deepEqual(contractSupport.package,{name:'@aihq/core',version:${JSON.stringify(version)}});
       const inspection = await inspect({targets:['node'],network:'off'});

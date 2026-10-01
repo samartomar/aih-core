@@ -1,5 +1,5 @@
 import { canonicalJson } from './canonical.js';
-import type { Diagnostic, ExecutionPolicy, InputSpec, Json, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
+import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
   if (spec.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== spec.type) return false;
@@ -112,6 +112,17 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   return diagnostics;
 }
 
+export function organizationSemantics(policy: OrganizationPolicy): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const seen = new Set<string>();
+  policy.selections.forEach((selection, index) => {
+    if (seen.has(selection.selectionId)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'duplicate-selection-id',
+      path: `/selections/${index}/selectionId`, message: 'The organization document has a duplicate selection identity.' });
+    seen.add(selection.selectionId);
+  });
+  return diagnostics;
+}
+
 export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path,
@@ -123,6 +134,11 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     const manager = `${selection.scope}:${selection.managementId}`;
     if (managers.has(manager)) invalid('duplicate-management-id', base);
     managers.add(manager);
+    if (policy.mode === 'enterprise') {
+      if (selection.organizationSelectionId === undefined) invalid('organization-selection-required', `${base}/organizationSelectionId`);
+    } else if (selection.organizationSelectionId !== undefined) {
+      invalid('organization-selection-vibe', `${base}/organizationSelectionId`);
+    }
     if (!('inline' in selection.recipe)) return; // Bounded acquisition precedes resolved validation.
     const recipe = selection.recipe.inline;
     diagnostics.push(...recipeSemantics(recipe).map(d => ({ ...d, path: `${base}/recipe/inline${d.path}` })));

@@ -74,7 +74,7 @@ function installedHelperSha256(id: string): string {
   for (const name of ['package.json', 'dist/distribution.mjs', 'dist/harness/contracts.mjs',
     'dist/harness/runtime.mjs', 'dist/harness/ca.mjs', 'dist/harness/candidate.mjs',
     'dist/harness/user-trust-definitions.mjs', 'dist/harness/user-trust.mjs',
-    'dist/harness/jvm-trust-definitions.mjs', 'dist/harness/jvm-trust.mjs']) {
+    'dist/harness/jvm-trust-definitions.mjs', 'dist/harness/jvm-trust.mjs', 'dist/harness/github-policy.mjs']) {
     const bytes = readRegularFile(join(root, name), { maxBytes: 2_000_000 });
     if (!bytes) throw new Error('harness-unavailable');
     digest.update(name).update('\0').update(bytes).update('\0');

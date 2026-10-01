@@ -17,7 +17,7 @@ rmSync(dist, { recursive: true, force: true });
 execFileSync(process.execPath, [resolve(dirname(compilerManifest), compiler), '-p', 'tsconfig.json'],
   { cwd: root, stdio: 'inherit' });
 mkdirSync(new URL('harness/', dist), { recursive: true });
-for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.d.mts', 'ca.mjs', 'candidate.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs'])
+for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.d.mts', 'ca.mjs', 'candidate.mjs', 'github-policy.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs'])
   copyFileSync(new URL(`../src/harness/${name}`, import.meta.url), new URL(`harness/${name}`, dist));
 writeFileSync(new URL('distribution.mjs', dist),
   `// Generated from package.json.\nexport const distribution = Object.freeze(${JSON.stringify({ name: manifest.name, version: manifest.version })});\n`);

@@ -95,13 +95,29 @@ export interface Selection {
   scope: 'project' | 'user';
   configuration: Record<string, Json>;
   requires: string[];
+  organizationSelectionId?: string;
   recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
 }
 export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0';
-  mode: 'vibe';
+  mode: 'vibe' | 'enterprise';
   selections: Selection[];
   managedSelections?: { id: string; scope: 'project' | 'user'; members: string[] }[];
   removals?: { managementId: string; scope: 'project' | 'user' }[];
   metadata?: Record<string, Json>;
 }
+export type OrganizationInputPermission = { fixed: Json } | { choices: Json[] } | { allowDeclared: true };
+export interface OrganizationSelection {
+  selectionId: string;
+  recipeIdentity: string;
+  scopes: ('project' | 'user')[];
+  inputs: Record<string, OrganizationInputPermission>;
+  lifecycle?: { replace?: boolean; adopt?: boolean; remove?: boolean };
+}
+export interface OrganizationPolicy {
+  schema: 'urn:aihq:core:organization-policy:1.0.0';
+  id: string;
+  selections: OrganizationSelection[];
+  metadata?: Record<string, Json>;
+}
+export interface OrganizationParseResult extends ValidationResult { document?: OrganizationPolicy }

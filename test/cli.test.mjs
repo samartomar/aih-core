@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { policy } from './fixture.mjs';
+import { COMMIT, TOKEN, enterprisePolicy, failingRoutes, orgRoutes } from './fixtures/github-org.mjs';
 
 test('CLI previews by default and applies only deliberate automation through the shared host', () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-core-cli-'));
@@ -129,4 +130,101 @@ test('CLI explicitly reconciles a management set and accepts repeated empty-set 
     assert.equal(JSON.parse(again.stdout).completion, 'complete');
     assert.deepEqual(JSON.parse(again.stdout).operations, []);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function enterpriseCli(routes) {
+  const root = mkdtempSync(join(tmpdir(), 'aih-core-enterprise-cli-'));
+  const home = join(root, 'home'); const project = join(root, 'project'); mkdirSync(home); mkdirSync(project);
+  const file = join(root, 'policy.json'); writeFileSync(file, JSON.stringify(enterprisePolicy()));
+  const fixture = join(root, 'github.json'); writeFileSync(fixture, JSON.stringify({ routes }));
+  const calls = join(root, 'calls.jsonl');
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
+  const preload = new URL('./fixtures/fake-github-fetch.mjs', import.meta.url).href;
+  const flags = ['--org-repository', 'Example-Org/Org-Policy', '--org-path', 'policy/org.json', '--org-ref', `commit:${COMMIT}`];
+  const run = (args, env = {}, policyFile = file) => spawnSync(process.execPath, ['--import', preload, cli, 'policy', policyFile,
+    '--project', project, '--json', ...args], { encoding: 'utf8', timeout: 30_000,
+    env: { ...process.env, HOME: home, USERPROFILE: home, AIH_TEST_GITHUB_FIXTURE: fixture, AIH_TEST_GITHUB_CALLS: calls, ...env } });
+  const requests = () => existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+  return { root, home, project, file, flags, run, requests, cli };
+}
+function leaks(directory, text) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory() ? leaks(path, text) : readFileSync(path).includes(text)) return true;
+  }
+  return false;
+}
+
+test('CLI Enterprise preview and apply read the organization with one in-memory credential and never print it', () => {
+  const fixture = enterpriseCli(orgRoutes());
+  try {
+    const env = { AIH_TEST_ORG_TOKEN: TOKEN };
+    const preview = fixture.run([...fixture.flags, '--org-token-env', 'AIH_TEST_ORG_TOKEN'], env);
+    assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+    assert.equal(JSON.parse(preview.stdout).review.mode, 'enterprise');
+    assert.equal(existsSync(join(fixture.project, 'TEAM.md')), false);
+    const applied = fixture.run([...fixture.flags, '--org-token-env', 'AIH_TEST_ORG_TOKEN', '--apply', '--yes'], env);
+    assert.equal(applied.status, 0, applied.stdout + applied.stderr);
+    assert.equal(JSON.parse(applied.stdout).completion, 'complete');
+    assert.equal(readFileSync(join(fixture.project, 'TEAM.md'), 'utf8'), "Read the project's contribution guide.\n");
+    const requests = fixture.requests();
+    assert.equal(requests.length, 4 + 4 + 4, 'preview, Prepare and Apply each read the organization');
+    assert.ok(requests.every(request => request.authorization === `Bearer ${TOKEN}`));
+    for (const output of [preview, applied]) assert.equal((output.stdout + output.stderr).includes(TOKEN), false);
+    assert.equal(leaks(fixture.home, TOKEN), false);
+    assert.equal(leaks(fixture.project, TOKEN), false);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test('CLI without a token flag reads unauthenticated and ignores ambient token variables', () => {
+  const fixture = enterpriseCli(orgRoutes());
+  try {
+    const result = fixture.run(fixture.flags, { GITHUB_TOKEN: TOKEN, GH_TOKEN: TOKEN });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.ok(fixture.requests().every(request => request.authorization === undefined));
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test('CLI validates the organization flags before reading anything', () => {
+  const fixture = enterpriseCli(orgRoutes());
+  const vibe = join(fixture.root, 'vibe.json'); writeFileSync(vibe, JSON.stringify(policy()));
+  try {
+    const [repository, path, ref] = [fixture.flags.slice(0, 2), fixture.flags.slice(2, 4), fixture.flags.slice(4)];
+    const rejected = [
+      fixture.run([]), fixture.run([...repository, ...path]), fixture.run([...repository, ...ref]),
+      fixture.run([...repository, ...path, '--org-ref', 'main']), fixture.run([...repository, ...path, '--org-ref', 'commit:']),
+      fixture.run(['--org-repository', 'no-slash', ...path, ...ref]),
+      fixture.run([...fixture.flags, '--org-token-env', 'AIH_TEST_UNSET_TOKEN']),
+      fixture.run([...fixture.flags, '--org-token-env', 'AIH_TEST_EMPTY_TOKEN'], { AIH_TEST_EMPTY_TOKEN: '' }),
+      fixture.run(fixture.flags, {}, vibe), fixture.run(['--org-token-env', 'AIH_TEST_ORG_TOKEN'], { AIH_TEST_ORG_TOKEN: TOKEN }, vibe)
+    ];
+    for (const result of rejected) assert.equal(result.status, 2, result.stdout + result.stderr);
+    for (const result of rejected) assert.equal((result.stdout + result.stderr).includes(TOKEN), false);
+    assert.equal(fixture.requests().length, 0);
+    const repair = spawnSync(process.execPath, [fixture.cli, 'repair', 'node-npm-ca', '--target', 'node', '--inputs-file',
+      join(fixture.root, 'inputs.json'), ...fixture.flags, '--json'], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(repair.status, 2);
+    assert.equal(JSON.parse(repair.stdout).diagnostics[0].reason, 'cli-options');
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test('CLI maps authority failure and denial previews to exit 2 without leaking the credential', () => {
+  const failing = enterpriseCli(failingRoutes(401));
+  try {
+    const result = failing.run([...failing.flags, '--org-token-env', 'AIH_TEST_ORG_TOKEN'], { AIH_TEST_ORG_TOKEN: TOKEN });
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    const body = JSON.parse(result.stdout);
+    assert.equal(body.status, 'blocked');
+    assert.equal(body.diagnostics[0].code, 'AUTHORITY_UNAVAILABLE');
+    assert.equal((result.stdout + result.stderr).includes(TOKEN), false);
+    assert.equal(leaks(failing.home, TOKEN), false);
+  } finally { rmSync(failing.root, { recursive: true, force: true }); }
+  const denying = enterpriseCli(orgRoutes({ bytes: Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.0.0',
+    id: 'other', selections: [{ selectionId: 'someone-else', recipeIdentity: `sha256:${'2'.repeat(64)}`, scopes: ['project'], inputs: {} }] })) }));
+  try {
+    const result = denying.run(denying.flags);
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.equal(JSON.parse(result.stdout).diagnostics[0].reason, 'selection-not-admitted');
+    assert.equal(existsSync(join(denying.project, 'TEAM.md')), false);
+  } finally { rmSync(denying.root, { recursive: true, force: true }); }
 });

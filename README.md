@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise authority remains a later delivery slice. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -11,11 +11,12 @@ The Node host requires **Node >=24.6.0 <25**. The contracts and Harness metadata
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
-| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys` |
-| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment and fixed repair helpers |
+| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
+| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys` (an explicitly empty development inventory), `verificationKeyPurposes`, `validateVerificationKeyRecords`, `selectVerificationKeys` |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
+| `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 
@@ -228,6 +229,33 @@ Members are stable management IDs of the policy's selections. Omitting a set req
 For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed.
 
 Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
+
+## Enterprise policies
+
+An Enterprise execution policy (`"mode": "enterprise"`, every selection carrying `organizationSelectionId`) is admitted only against an organization policy document that **you select separately** from the policy. Preparation reads that document from GitHub through the Harness reader, validates it, and compares every derived selection (recipe identity, scope, inputs, lifecycle requests) with it. Any finding blocks the whole request: no handle is returned and no subset runs.
+
+```js
+const prepared = await prepare({
+  useCase: 'policy', policy, target: { project },
+  organizationSource: { provider: 'github', repository: { owner: 'example-org', name: 'org-policy' },
+    path: 'policy/org.json', revision: { kind: 'branch', value: 'main' } }   // or 'tag' / full 'commit'
+}, { authentication: { kind: 'bearer', token } });                          // omit for unauthenticated access
+```
+
+- `organizationSource` is required for Enterprise and rejected for Vibe. `controls.authentication` is `{ kind: 'none' }` or `{ kind: 'bearer', token }`; omission is unauthenticated, and no environment or `gh` credential is ever discovered.
+- The review reports `mode: "enterprise"` and `inputs.organization` (normalized source, `resolvedCommit`, `blobId`, `contentDigest`, `policyId`, reader identity). The credential is never serialized into reviews, results, history or diagnostics.
+- `apply` reads the organization again with **that call's** `controls.authentication`; a missing credential is not replaced by Prepare's success. A failed read rejects with `AUTHORITY_UNAVAILABLE`, `INPUT_INVALID` or `CANCELLED`; any change of source, resolved commit, blob or content digest (including a moved branch or tag) rejects with `REVIEW_STALE`. Nothing is cached and no history is used as fallback.
+- Unreachable or unauthorized sources prepare as `blocked` with `AUTHORITY_UNAVAILABLE` and the reader's reason (`authentication-required-or-denied`, `source-missing-or-inaccessible`, `rate-limited`, `network-failed`, …); permission refusals are `AUTHORITY_DENIED`. A private repository can answer 404 for a missing credential.
+- Harness repair (`useCase: 'repair'`, `aih repair`) never consults an organization source and rejects an `organizationSource` field. A recipe that merely calls itself Harness receives no exemption.
+
+```sh
+export ORG_TOKEN=...   # only the named variable is read
+aih policy policy.json --project /absolute/project \
+  --org-repository example-org/org-policy --org-path policy/org.json --org-ref branch:main \
+  --org-token-env ORG_TOKEN --apply --yes --json
+```
+
+`--org-repository <owner/repo>`, `--org-path <path>` and `--org-ref <branch:name|tag:name|commit:sha>` are all required for an Enterprise policy and rejected for Vibe (malformed values exit 2). `--org-token-env <NAME>` names an environment variable holding the bearer token (missing or empty exits 2 without printing it); the token stays in memory and is used for both Prepare and Apply. Authority failures and denials exit 2, including previews.
 
 ## State and recovery
 

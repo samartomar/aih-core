@@ -4,7 +4,9 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
-import { contractSupport, validatePolicy, validateRecipe } from './contracts.js';
+import { contractSupport, parseOrganizationPolicy, validatePolicy, validateRecipe } from './contracts.js';
+import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
+import { admitOrganizationSelections, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
@@ -18,8 +20,8 @@ import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
-import type { Diagnostic, ExecutionPolicy, Json, Operation, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
-import type { Authorization, CheckResult, Effective, HostControls, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
+import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
+import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -40,7 +42,28 @@ interface PreparedState {
   ownership: Map<string, { value: Ownership; digest: string | null }>;
   selectionUpdates: Map<string, Record<string, { claim: Claim | null; requires: string[] }>>;
   inventory?: Map<string, string>; bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
+  organization?: Pick<OrganizationBinding, 'source' | 'resolvedCommit' | 'blobId' | 'contentDigest'>;
 }
+// Authority read outcome that is not a successful read; carried as a precise diagnostic.
+class AuthorityFailure extends Error {
+  constructor(readonly status: 'invalid' | 'blocked' | 'cancelled', readonly detail: Diagnostic) { super(detail.reason); }
+}
+function authorityFailure(read: Exclude<ReadGitHubPolicyResult, { status: 'read' }>): AuthorityFailure {
+  const detail: Diagnostic = { code: read.code, reason: read.reason, message: read.message,
+    ...(read.retryAfterSeconds === undefined ? {} : { guidance: `Retry after ${read.retryAfterSeconds} seconds.` }) };
+  return new AuthorityFailure(read.status === 'invalid' ? 'invalid' : read.status === 'cancelled' ? 'cancelled' : 'blocked', detail);
+}
+async function readOrganization(source: unknown, controls: HostControls): Promise<Extract<ReadGitHubPolicyResult, { status: 'read' }>> {
+  const read = await readGitHubPolicy(source, {
+    ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }),
+    ...(controls.signal === undefined ? {} : { signal: controls.signal }) });
+  if (read.status !== 'read') throw authorityFailure(read);
+  return read;
+}
+// Unavailable material has no computed identity: admission borrows the named entry's
+// identity (membership and scope still apply; the selection has no effects) or, with
+// no entry, uses this value, which no admitted recipe can hash to.
+const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
@@ -59,15 +82,28 @@ export function dataObject(value: unknown, keys: string[]): void {
   }
 }
 export function validateControls(controls: HostControls): void {
-  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots']);
+  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots', 'authentication']);
   if (controls.logging !== undefined && !['on', 'off'].includes(controls.logging)) throw new Error('logging');
   if (controls.signal !== undefined && !(controls.signal instanceof AbortSignal)) throw new Error('signal');
+  if (controls.authentication !== undefined) {
+    const authentication = controls.authentication as { kind?: unknown; token?: unknown };
+    if (authentication?.kind === 'none') dataObject(authentication, ['kind']);
+    else {
+      dataObject(authentication, ['kind', 'token']);
+      if (authentication.kind !== 'bearer' || typeof authentication.token !== 'string' || authentication.token.length === 0 ||
+          authentication.token.length > 4096 || /[\x00-\x1f\x7f]/.test(authentication.token)) throw new Error('authentication');
+    }
+  }
   if (controls.privateInputs !== undefined) assertStrictJsonValueV1(clone(controls.privateInputs), 'private inputs');
   if (controls.materialRoots !== undefined) {
     dataObject(controls.materialRoots, Object.keys(controls.materialRoots));
     for (const [id, root] of Object.entries(controls.materialRoots))
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || typeof root !== 'string' || !isAbsolute(root)) throw new Error('material-root');
   }
+}
+function bearerSecrets(controls: HostControls): string[] {
+  const authentication = controls?.authentication as { kind?: unknown; token?: unknown } | undefined;
+  return authentication?.kind === 'bearer' && typeof authentication.token === 'string' ? [authentication.token] : [];
 }
 function safeText(text: string, privateValues: string[]): string {
   let result = text;
@@ -86,8 +122,9 @@ function redactJson(value: Json, privateValues: string[]): Json {
     [redactExact(key, privateValues), redactJson(item, privateValues)]));
   return value;
 }
-function historySafe(result: unknown, project?: string): unknown {
+function historySafe(result: unknown, project?: string, secrets: string[] = []): unknown {
   let text = JSON.stringify(result);
+  for (const secret of secrets) if (secret) text = text.split(JSON.stringify(secret).slice(1, -1)).join('[REDACTED]');
   for (const [path, label] of [[project, '<project>'], [homedir(), '<home>']])
     if (path) for (const variant of [path, path.replaceAll('\\', '/')]) text = text.split(JSON.stringify(variant).slice(1, -1)).join(label!);
   return JSON.parse(text);
@@ -206,9 +243,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     unavailableInvocations?: CapturedUnavailableInvocations): Promise<PreparationResult> {
   const runId = randomUUID();
   let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled };
-  let logging: 'on' | 'off' = 'off'; let project: string | undefined;
+  let logging: 'on' | 'off' = 'off'; let project: string | undefined; let secrets: string[] = [];
   try {
-    validateControls(controls); logging = loggingOption(controls).value;
+    validateControls(controls); logging = loggingOption(controls).value; secrets = bearerSecrets(controls);
     const capturedUnavailable = clone(unavailableInvocations ?? { operations: {}, checks: {} });
     dataObject(capturedUnavailable, ['operations', 'checks']);
     for (const entries of [capturedUnavailable.operations, capturedUnavailable.checks]) {
@@ -219,12 +256,21 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     }
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 6) throw new Error('node-runtime');
-    dataObject(request, ['useCase', 'policy', 'target', 'resolutions']);
+    dataObject(request, ['useCase', 'policy', 'target', 'resolutions', 'organizationSource']);
     dataObject(request.target, ['project']);
     if (request.useCase !== 'policy') throw new Error('use-case-unsupported');
     const validation = validatePolicy(request.policy);
     if (!validation.valid) { result.diagnostics = validation.diagnostics; return finish(); }
     const policy = clone(request.policy);
+    const enterprise = policy.mode === 'enterprise';
+    if (enterprise && request.organizationSource === undefined) {
+      result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-required', 'Enterprise preparation requires an independently selected organization source.')];
+      return finish();
+    }
+    if (!enterprise && request.organizationSource !== undefined) {
+      result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-vibe', 'A Vibe policy does not accept an organization source.')];
+      return finish();
+    }
     const captureBudget = createMaterialCaptureBudget();
     for (const selection of policy.selections) {
       if ('reference' in selection.recipe) captureBudget.declareReference(selection.recipe.reference);
@@ -250,6 +296,22 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           throw new Error('private-input-unknown');
     }
     const privateValues = Object.values(privateInputs).flatMap(inputs => Object.values(inputs)).map(String);
+    privateValues.push(...secrets);
+    // Fresh authority read precedes any material capture; failure yields no handle.
+    let organization: { read: Awaited<ReturnType<typeof readOrganization>>; document: OrganizationPolicy } | undefined;
+    if (enterprise) {
+      const read = await readOrganization(clone(request.organizationSource), controls);
+      let text: string;
+      try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(read.bytes); }
+      catch {
+        result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-document-encoding', 'The organization document is not valid UTF-8.')];
+        return finish();
+      }
+      const parsed = parseOrganizationPolicy(text);
+      if (!parsed.valid || !parsed.document) { result.diagnostics = parsed.diagnostics; return finish(); }
+      organization = { read, document: parsed.document };
+    }
+    const admissions: AdmissionSelection[] = [];
     const steps: PreparedStep[] = [];
     const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string }>();
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
@@ -269,7 +331,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           'local-file-unavailable', 'local-root-unavailable', 'acquisition-deadline'].includes(error.reason)) throw error;
         omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', error.reason,
           `Selected material for ${safeText(selection.id, privateValues)} is unavailable.`));
-        unavailableSelections.add(selection.id); selectionOps.set(selection.id, []); continue;
+        unavailableSelections.add(selection.id); selectionOps.set(selection.id, []);
+        if (organization) {
+          // Without captured material the identity is unknown; the selection still needs a matching entry.
+          const entry = organization.document.selections.find(item => item.selectionId === selection.organizationSelectionId);
+          admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
+            recipeIdentity: entry?.recipeIdentity ?? UNMATCHED_RECIPE_IDENTITY, inputs: {}, configuration: selection.configuration,
+            privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
+        }
+        continue;
       }
       const { recipe, recipeSha256, material } = captured;
       for (const op of recipe.operations) if (op.kind === 'process.run') knownProcesses.add(`${selection.id}/${op.id}`);
@@ -294,6 +364,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       }
       const recipeIdentity = `sha256:${digest({ schema: 'urn:aihq:core:recipe-identity:1.0.0', recipeSha256,
         materials: recipe.materials.map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => a.id.localeCompare(b.id)) })}`;
+      if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
+        recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
+        privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
       const priorSelections = selection.requires.flatMap(id => selectionOps.get(id) ?? []);
       const currentIds: string[] = [];
       const checkMap = new Map(recipe.checks.map(check => [check.id, check]));
@@ -554,12 +627,49 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       update.requires = [...removedIdentities].filter(([, identities]) => identities.includes(key)).map(([step]) => step.review.id);
     }
     if (usedResolutions.size !== resolutions.length) throw new Error('resolution-unknown');
+    if (organization) {
+      const lifecycle: AdmissionLifecycle[] = []; const seenLifecycle = new Set<string>();
+      for (const item of resolutions) {
+        const index = policy.selections.findIndex(candidate => candidate.id === item.selectionId);
+        const selection = policy.selections[index]!;
+        if (seenLifecycle.has(`${index}:${item.choice}`)) continue;
+        seenLifecycle.add(`${index}:${item.choice}`);
+        lifecycle.push({ action: item.choice, scope: selection.scope, recipeIdentity: admissions.find(entry => entry.id === selection.id)!.recipeIdentity,
+          ...(selection.organizationSelectionId === undefined ? {} : { organizationSelectionId: selection.organizationSelectionId }),
+          path: `/selections/${index}` });
+      }
+      for (const [step, removedIds] of removedIdentities) for (const removedId of removedIds) {
+        const index = policy.selections.findIndex(selection => claimId(selection) === removedId);
+        if (index >= 0) {
+          // Obsolete members of a retained selection: governed by its newly admitted identity.
+          const selection = policy.selections[index]!;
+          if (seenLifecycle.has(`${index}:remove`)) continue;
+          seenLifecycle.add(`${index}:remove`);
+          lifecycle.push({ action: 'remove', scope: selection.scope, organizationSelectionId: selection.organizationSelectionId!,
+            recipeIdentity: admissions.find(entry => entry.id === selection.id)!.recipeIdentity, path: `/selections/${index}` });
+          continue;
+        }
+        const removal = (policy.removals ?? []).findIndex(item => claimId(item) === removedId);
+        const set = (policy.managedSelections ?? []).findIndex(item => item.scope === step.review.scope);
+        lifecycle.push({ action: 'remove', scope: step.review.scope, recipeIdentity: step.recipeIdentity,
+          path: removal >= 0 ? `/removals/${removal}` : set >= 0 ? `/managedSelections/${set}` : '/selections' });
+      }
+      const findings = admitOrganizationSelections(organization.document, admissions, lifecycle);
+      if (findings.length) {
+        result.status = findings.some(finding => finding.code === 'INPUT_INVALID') ? 'invalid' : 'blocked';
+        result.diagnostics = findings;
+        return finish();
+      }
+    }
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     if (steps.length > 8192) throw new Error('operation-limit');
     const bindings = [...pathPins(project), ...pathPins(homedir())];
-    const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: 'vibe' as const,
-      target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package },
+    const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+      target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
+        ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
+          blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
+          helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
       operations: steps.map(step => step.review), observations, conflicts, omissions,
       effectiveOptions: { logging: loggingOption(controls), inputs } };
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
@@ -571,10 +681,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures });
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures,
+        ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
+          blobId: organization.read.blobId, contentDigest: organization.read.contentDigest }) } : {}) });
       result.prepared = prepared;
     }
   } catch (error) {
+    if (error instanceof AuthorityFailure) { result.status = error.status; result.diagnostics = [error.detail]; return finish(); }
     const reason = error instanceof MaterialCaptureError ? error.reason : error instanceof Error ? error.message : 'preparation-failed';
     result.status = reason === 'cancelled' ? 'cancelled' : 'invalid';
     const unavailable = ['archive-download-failed', 'archive-decompression-failed', 'archive-incomplete',
@@ -588,7 +701,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       review: result.review ? { ...result.review, operations: result.review.operations.map(op => ({ ...op,
         checks: op.checks.map(check => ({ ...check, details: historyDetails(check.details) })),
         details: historyDetails(op.details) })) } : undefined };
-    result.record = writeHistory(runId, historySafe(record, project), logging);
+    result.record = writeHistory(runId, historySafe(record, project, secrets), logging);
     if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
       'Routine history could not be saved; the returned outcomes remain available.'));
     return result;
@@ -642,6 +755,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     result.authorization = { origin: authorization.origin,
       allowPartial: { value: allowPartial, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' } };
     if (controls.signal?.aborted) throw new Error('cancelled');
+    if (state.organization) {
+      // Fresh online authority for this Apply call; Prepare's credential and result are never reused.
+      const read = await readOrganization(state.organization.source, controls);
+      if (canonicalJson(read.source) !== canonicalJson(state.organization.source) || read.resolvedCommit !== state.organization.resolvedCommit ||
+          read.blobId !== state.organization.blobId || read.contentDigest !== state.organization.contentDigest) throw new Error('review-stale');
+    }
     const assertInputs = () => {
       try {
         if (!state || homedir() !== state.home || digest(clone(state.request)) !== state.requestDigest ||
@@ -858,6 +977,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
   } catch (error) {
+    const authority = error instanceof AuthorityFailure ? error : undefined;
     const reason = error instanceof Error ? error.message : 'execution-failed';
     const safeReason = /^[a-z-]{1,64}$/.test(reason) ? reason : 'execution-failed';
     result.completion = reason === 'cancelled' ? 'cancelled' : started ? 'incomplete' : 'rejected';
@@ -868,13 +988,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       reason === 'approval-required' || reason === 'partial-approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
       reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
-    result.diagnostics.push(diagnostic(code, safeReason, 'The run could not complete the requested work.'));
+    result.diagnostics.push(authority ? authority.detail : diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');
   } finally {
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-  result.record = writeHistory(runId, historySafe(result, state?.project), result.effectiveOptions.logging.value);
+  result.record = writeHistory(runId, historySafe(result, state?.project, bearerSecrets(controls)), result.effectiveOptions.logging.value);
   if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
     'Routine history could not be saved; the returned outcomes remain available.'));
   return result;
