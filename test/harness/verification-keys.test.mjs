@@ -49,11 +49,9 @@ test('a rotated historical key stays selectable beside its successor; records ca
   assert.equal(expiring.diagnostics[0].reason, 'record-shape');
 });
 
-test('selection uses only the independently supplied records', async () => {
-  // A key that would arrive inside an artifact is not trusted unless the caller supplies it.
-  const embedded = makeKey();
+test('selection returns exactly the supplied records, and the shipped default is empty', async () => {
   const selected = await selectVerificationKeys('scan-report', [keyA.record]);
-  assert.equal(selected.keys.some(key => key.keyId === embedded.record.keyId), false);
+  assert.deepEqual(selected.keys.map(key => key.keyId), [keyA.record.keyId]);
   const shipped = await selectVerificationKeys('scan-report');
   assert.deepEqual(shipped, { status: 'selected', keys: [] });
 });
