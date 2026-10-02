@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { inspect } from '../dist/core/index.js';
@@ -12,9 +12,12 @@ const NEW_TARGETS = [...HELPERS, ...CLIENTS];
 
 const win = process.platform === 'win32';
 const targetDefinition = id => targets.find(target => target.id === id);
+// keytool fixtures succeed only for the documented -J-version probe argv.
 const writeExecutable = (dir, name) => {
   const file = join(dir, win ? `${name}.cmd` : name);
-  writeFileSync(file, win ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+  writeFileSync(file, name === 'keytool'
+    ? (win ? '@echo off\r\nif "%~1"=="-J-version" exit /b 0\r\nexit /b 3\r\n' : '#!/bin/sh\n[ "$1" = "-J-version" ] && exit 0\nexit 3\n')
+    : (win ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n'));
   if (!win) chmodSync(file, 0o755);
   return file;
 };
@@ -25,6 +28,9 @@ const sandbox = () => {
   return { root, home, bin };
 };
 const saveEnvironment = () => ({ PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE });
+const restoreEnvironment = before => {
+  for (const [name, value] of Object.entries(before)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+};
 const useSandboxEnvironment = ({ home, bin }) => {
   process.env.PATH = bin; process.env.HOME = home; process.env.USERPROFILE = home;
 };
@@ -58,7 +64,7 @@ test('requested helpers with fixture executables are runnable and pass their ver
       assert.equal(check.outcome, 'passed', `${id}: ${JSON.stringify(check)}`);
     }
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -83,7 +89,7 @@ test('requested helpers missing executables report executable-missing attributed
       assert.equal(choice.kind, 'manual-guidance');
     }
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -103,7 +109,7 @@ test('unselected absent helpers stay unselected and add no checks or observation
       assert.equal(result.observations.some(entry => entry.target === id), false);
     }
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -121,7 +127,7 @@ test('fd resolves through fdfind when only fdfind exists', async () => {
     assert.equal(tool.state, 'runnable', JSON.stringify(result.tools));
     assert.equal(result.checks.find(entry => entry.id === 'fd/version').outcome, 'passed');
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -138,13 +144,14 @@ test('ambiguous PATH resolution emits a resolution observation; a single candida
     const observation = ambiguous.observations.find(entry => entry.id === 'rg/resolution');
     assert.ok(observation, 'no rg/resolution observation for two PATH candidates');
     assert.equal(observation.target, 'rg');
-    assert.match(observation.detail, /other candidate/);
+    assert.match(observation.detail, /PATH entry 1\. 1 other candidate resolves on PATH\./);
+    assert.equal(observation.detail.includes(root), false, 'resolution detail must not expose absolute paths');
     process.env.PATH = bin;
     const single = await inspect({ targets: ['rg'], network: 'off' });
     assert.equal(single.observations.some(entry => entry.id === 'rg/resolution'), false,
       JSON.stringify(single.observations));
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -174,7 +181,7 @@ test('clients with fixture binaries are runnable and native loading stays unveri
     assertLoading(await inspect({ targets: [...CLIENTS], network: 'off' }), 'requested');
     assertLoading(await inspect({ network: 'off' }), 'detected');
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -205,7 +212,7 @@ test('config-only clients keep the version check unavailable and loading unverif
       assert.equal(choice.kind, 'manual-guidance');
     }
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -225,7 +232,7 @@ test('absent unselected clients add no checks and no loading observation', async
       assert.equal(result.observations.some(entry => entry.target === id), false);
     }
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -256,7 +263,7 @@ test('helper and client results preserve the published diagnostic contract', asy
     }
     for (const choice of result.repairChoices) assert.equal(choice.kind, 'manual-guidance');
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -274,7 +281,7 @@ test('existing targets are unaffected: claude config-only emits no loading obser
     assert.equal(result.observations.some(entry => entry.id === 'claude/loading'), false);
     assert.equal(result.repairChoices.some(entry => entry.reason === 'loading-unverified'), false);
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -294,7 +301,39 @@ test('a Windows WSL bash launcher is reported as ambiguous and never started', {
     assert.match(result.observations.find(entry => entry.id === 'bash/resolution').detail, /WSL launcher/);
     assert.equal(result.tools.find(tool => tool.id === 'bash').state, 'binary');
   } finally {
-    Object.assign(process.env, before);
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('symlinked PATH entries and alternate names in one install are not ambiguity', { skip: win }, async () => {
+  const { root, home, bin } = sandbox();
+  const alias = join(root, 'bin-alias'); symlinkSync(bin, alias);
+  const before = saveEnvironment();
+  try {
+    writeExecutable(bin, 'rg'); writeExecutable(bin, 'zed'); writeExecutable(bin, 'zeditor');
+    useSandboxEnvironment({ home, bin });
+    process.env.PATH = bin + delimiter + alias;
+    const result = await inspect({ targets: ['rg', 'zed'], network: 'off' });
+    assert.equal(result.observations.some(entry => entry.id.endsWith('/resolution')), false,
+      JSON.stringify(result.observations));
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('two names in one Windows install directory are not ambiguity', { skip: !win }, async () => {
+  const { root, home, bin } = sandbox();
+  const before = saveEnvironment();
+  try {
+    writeExecutable(bin, 'zed'); writeExecutable(bin, 'zeditor');
+    useSandboxEnvironment({ home, bin });
+    const result = await inspect({ targets: ['zed'], network: 'off' });
+    assert.equal(result.observations.some(entry => entry.id === 'zed/resolution'), false,
+      JSON.stringify(result.observations));
+  } finally {
+    restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -197,8 +197,8 @@ export const targets = Object.freeze([
   { id: 'bash', label: 'Bash', binaries: ['bash'], configDirs: [], origins: [] },
   // Clients: signals from vendor docs (antigravity.google, zed.dev). Presence never proves native loading.
   { id: 'antigravity', label: 'Google Antigravity', binaries: ['agy', 'antigravity'],
-    configDirs: ['.gemini/antigravity-cli', '.gemini/config'], origins: [] },
-  { id: 'zed', label: 'Zed', binaries: ['zed', 'zeditor'],
+    configDirs: ['.gemini/antigravity-cli', '.gemini/antigravity', '.gemini/config'], origins: [] },
+  { id: 'zed', label: 'Zed', binaries: ['zed', 'zeditor', 'zedit'],
     configDirs: ['.config/zed', 'AppData/Roaming/Zed'], origins: [] }
 ]);
 for (const target of targets) {

@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, delimiter, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { isProxy } from 'node:util/types';
 import tls from 'node:tls';
@@ -429,8 +429,8 @@ function executable(name) {
 }
 
 // Internal probe data keyed by target id; the public TargetDefinition shape is unchanged.
-// keytool has no version command of its own: its documented -J option passes -version to
-// the Java launcher, which prints the runtime version and exits.
+// keytool's own -version exists only in newer JDKs; its documented -J option passes -version
+// to the Java launcher on every supported JDK, which prints the runtime version and exits.
 const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
 const resolutionTargets = new Set(['rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
 const clientTargets = Object.freeze({
@@ -438,7 +438,12 @@ const clientTargets = Object.freeze({
   zed: 'In Zed, open the Agent panel settings and the settings file, and confirm the expected servers or extensions are listed and active; inspection does not start Zed sessions.'
 });
 
+const realKey = path => {
+  let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
+  return process.platform === 'win32' ? real.toLowerCase() : real;
+};
 // Distinct PATH candidates for a target's binary names, as 1-based PATH-entry index and file name only.
+// Real file and directory paths collapse symlinked PATH entries (merged /usr) and alternate names in one install.
 function pathCandidates(target) {
   const win = process.platform === 'win32';
   const extensions = win ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';') : [''];
@@ -452,8 +457,9 @@ function pathCandidates(target) {
       try {
         const stat = lstatSync(candidate);
         if (!stat.isFile() && !stat.isSymbolicLink()) continue;
-        const key = win ? candidate.toLowerCase() : candidate;
-        if (!seen.has(key)) { seen.add(key); found.push({ index, file: candidate }); }
+        const keys = [realKey(candidate), 'dir:' + realKey(dirname(candidate))];
+        if (!keys.some(item => seen.has(item))) found.push({ index, file: candidate, real: keys[0] });
+        for (const item of keys) seen.add(item);
         break;
       } catch { /* A PATH entry may be inaccessible. */ }
     }
@@ -787,13 +793,13 @@ export async function diagnose(request, controls = {}) {
     let wsl = false;
     if (binary && resolutionTargets.has(target.id)) {
       const candidates = pathCandidates(target);
-      const used = candidates.find(item => item.file === binary);
+      const used = candidates.find(item => item.real === realKey(binary));
       const others = candidates.length - (used ? 1 : 0);
       wsl = process.platform === 'win32' && target.id === 'bash' &&
         /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i.test(binary);
       if (wsl || others > 0) observations.push({ id: `${target.id}/resolution`, target: target.id,
         detail: clean(`Used ${used ? basename(used.file) : target.binaries[0]} from PATH entry ${used?.index ?? '?'}.` +
-          (others > 0 ? ` ${others} other candidate${others === 1 ? '' : 's'} resolve on PATH.` : '') +
+          (others > 0 ? ` ${others} other candidate${others === 1 ? ' resolves' : 's resolve'} on PATH.` : '') +
           (wsl ? ' This bash is a WSL launcher (System32 or WindowsApps), not Git Bash; the resolution is ambiguous.' : '')) });
     }
     if (!binary) {
