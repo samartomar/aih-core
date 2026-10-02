@@ -206,6 +206,9 @@ test('CLI repair --no-log disables run history for Prepare and Apply', () => {
     assert.ok(['complete', 'incomplete'].includes(result.completion), applied.stdout + applied.stderr);
     assert.deepEqual(result.record, { status: 'disabled', reason: 'logging-off' });
     assert.equal(result.effectiveOptions.logging.value, 'off');
+    assert.ok(result.operations.some(operation => operation.application === 'applied'), applied.stdout);
     assert.equal(existsSync(runs) ? readdirSync(runs).length : 0, 0);
+    for (const name of ['ownership', 'recovery'])
+      assert.ok(readdirSync(join(home, '.aih', 'core', name)).length > 0, `${name} records remain`);
   } finally { close(); }
 });
