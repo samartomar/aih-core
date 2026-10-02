@@ -442,6 +442,16 @@ const realKey = path => {
   let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
   return process.platform === 'win32' ? real.toLowerCase() : real;
 };
+// 1-based index of the PATH entry that contains the resolved executable.
+function pathIndex(file) {
+  const win = process.platform === 'win32'; const same = (a, b) => win ? a.toLowerCase() === b.toLowerCase() : a === b;
+  let index = 0;
+  for (const path of (process.env.PATH || '').split(delimiter)) {
+    if (!path) continue;
+    index++;
+    if (same(join(path, basename(file)), file)) return index;
+  }
+}
 // Distinct PATH candidates for a target's binary names, as 1-based PATH-entry index and file name only.
 // Real file and directory paths collapse symlinked PATH entries (merged /usr) and alternate names in one install.
 function pathCandidates(target) {
@@ -792,13 +802,13 @@ export async function diagnose(request, controls = {}) {
     }
     let wsl = false;
     if (binary && resolutionTargets.has(target.id)) {
-      const candidates = pathCandidates(target);
-      const used = candidates.find(item => item.real === realKey(binary));
-      const others = candidates.length - (used ? 1 : 0);
-      wsl = process.platform === 'win32' && target.id === 'bash' &&
-        /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i.test(binary);
+      // Report the executable that actually runs; de-duplication only counts the alternatives.
+      const usedReal = realKey(binary);
+      const others = pathCandidates(target).filter(item => item.real !== usedReal).length;
+      const launcher = /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i;
+      wsl = process.platform === 'win32' && target.id === 'bash' && (launcher.test(binary) || launcher.test(usedReal));
       if (wsl || others > 0) observations.push({ id: `${target.id}/resolution`, target: target.id,
-        detail: clean(`Used ${used ? basename(used.file) : target.binaries[0]} from PATH entry ${used?.index ?? '?'}.` +
+        detail: clean(`Used ${basename(binary)} from PATH entry ${pathIndex(binary) ?? '?'}.` +
           (others > 0 ? ` ${others} other candidate${others === 1 ? ' resolves' : 's resolve'} on PATH.` : '') +
           (wsl ? ' This bash is a WSL launcher (System32 or WindowsApps), not Git Bash; the resolution is ambiguous.' : '')) });
     }

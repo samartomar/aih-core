@@ -399,3 +399,40 @@ test('the Antigravity IDE directory alone is an Antigravity configuration trace'
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a WSL bash launcher reached through a junction is still never started', { skip: !win }, async () => {
+  const { root, home } = sandbox();
+  const system32 = join(root, 'System32'); mkdirSync(system32);
+  writeFileSync(join(system32, 'bash.exe'), 'not a program');
+  const linked = join(root, 'linked-bin'); symlinkSync(system32, linked, 'junction');
+  const before = saveEnvironment();
+  try {
+    useSandboxEnvironment({ home, bin: linked });
+    const result = await inspect({ targets: ['bash'], network: 'off' });
+    const version = result.checks.find(check => check.id === 'bash/version');
+    assert.equal(version.outcome, 'skipped');
+    assert.equal(version.reason, 'wsl-launcher');
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolution names the executable that runs, not an earlier alias of it', { skip: win }, async () => {
+  const { root, home, bin } = sandbox();
+  const second = join(root, 'bin-second'); const third = join(root, 'bin-third');
+  mkdirSync(second); mkdirSync(third);
+  const before = saveEnvironment();
+  try {
+    const fd = writeExecutable(second, 'fd'); writeExecutable(third, 'fd');
+    symlinkSync(fd, join(bin, 'fdfind'));
+    useSandboxEnvironment({ home, bin });
+    process.env.PATH = [bin, second, third].join(delimiter);
+    const result = await inspect({ targets: ['fd'], network: 'off' });
+    assert.equal(result.observations.find(entry => entry.id === 'fd/resolution').detail,
+      'Used fd from PATH entry 2. 1 other candidate resolves on PATH.');
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
