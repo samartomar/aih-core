@@ -4,20 +4,27 @@
 // an admin product: the administrator publishes the organization document to the
 // selected GitHub source, and Core re-admits every selection at Prepare and Apply.
 import { parsePolicy, validateOrganizationPolicy } from '@aihq/core/contracts';
-import { getItem } from '@aihq/catalog/reader';
+import { checkConfiguration, getItem } from '@aihq/catalog/reader';
 import { authorPolicy } from './authoring.js';
 import { presentReport, readScanBytes } from './report-view.js';
 
 const ORGANIZATION_SCHEMA = 'urn:aihq:core:organization-policy:1.0.0';
 const RECIPE_IDENTITY_SCHEMA = 'urn:aihq:core:recipe-identity:1.0.0';
 
-// Core's canonical JSON: keys sorted by UTF-16 code unit, no whitespace.
+// Core's canonical JSON: keys sorted by UTF-16 code unit, no whitespace. Like Core,
+// it throws on values with no canonical form instead of normalizing them.
 function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || Object.is(value, -0)) throw new TypeError('canonical JSON numbers must be finite and not negative zero');
+    return JSON.stringify(value);
   }
-  return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  const prototype = typeof value === 'object' ? Object.getPrototypeOf(value) : undefined;
+  if (typeof value !== 'object' || (prototype !== Object.prototype && prototype !== null)) {
+    throw new TypeError(`canonical JSON does not support ${typeof value}`);
+  }
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 }
 async function digest(value) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(value)));
@@ -44,6 +51,28 @@ export async function reviewReport(artifactBytes) {
   return { ...view, authenticity: 'unchecked' };
 }
 
+// Core rejects (organization-input-spec) a fixed value or choice the recipe input would
+// not accept, and permits a sensitive input only with allowDeclared. Mirror both so the
+// administrator learns at authoring time; values go through the Catalog reader's own
+// input check. Core re-checks everything when it reads the published document.
+function permissionProblems(item, name, permission, path) {
+  const spec = item.inputs[name];
+  const invalid = message => [problem('INPUT_INVALID', 'organization-input-spec', message, path)];
+  if (spec.sensitive === true) {
+    return Object.hasOwn(permission, 'allowDeclared') ? [] : invalid('A sensitive input may only be permitted with allowDeclared.');
+  }
+  const values = Object.hasOwn(permission, 'fixed') ? [permission.fixed]
+    : Array.isArray(permission.choices) ? permission.choices : [];
+  for (const value of values) {
+    const found = [];
+    checkConfiguration(item, { [name]: value }, found, { path: '' });
+    if (found.some(entry => entry.path === `/${name}`)) {
+      return invalid('The organization entry permits a value incompatible with the recipe input definition.');
+    }
+  }
+  return [];
+}
+
 // permitted: [{ selectionId, itemId, scopes, inputs: {name: {fixed}|{choices}|{allowDeclared:true}}, lifecycle? }]
 // Evidence is deliberately absent: it lives on the derived execution policy.
 export async function authorOrganizationPolicy({ release, id, permitted }) {
@@ -63,6 +92,9 @@ export async function authorOrganizationPolicy({ release, id, permitted }) {
       if (!Object.hasOwn(item.inputs, name)) {
         diagnostics.push(problem('INPUT_INVALID', 'input-undeclared', `${entry.itemId} declares no input ${name}.`, `${path}/inputs/${name}`));
       }
+    }
+    for (const [name, permission] of Object.entries(entry.inputs ?? {})) {
+      if (Object.hasOwn(item.inputs, name)) diagnostics.push(...permissionProblems(item, name, permission, `${path}/inputs/${name}`));
     }
     selections.push({
       selectionId: entry.selectionId,
@@ -102,7 +134,11 @@ async function precheck(release, organization, policy, choices) {
       const inputPath = `${path}/inputs/${name}`;
       if (permission === undefined) {
         if (explicit) findings.push(problem('AUTHORITY_DENIED', 'input-not-permitted', 'The organization entry does not permit this input.', inputPath));
-        else if (spec.default === undefined) findings.push(problem('AUTHORITY_DENIED', 'organization-permission-incomplete', 'The organization entry does not name this input and the recipe has no default.', inputPath));
+        else if (spec.sensitive === true || spec.default === undefined) findings.push(problem('AUTHORITY_DENIED', 'organization-permission-incomplete', 'The organization entry does not name this input and the recipe has no default.', inputPath));
+        continue;
+      }
+      if (spec.sensitive === true) {
+        if (!Object.hasOwn(permission, 'allowDeclared')) findings.push(problem('AUTHORITY_DENIED', 'input-value', 'A sensitive input may only be permitted with allowDeclared.', inputPath));
         continue;
       }
       const value = explicit ? selection.configuration[name] : spec.default;

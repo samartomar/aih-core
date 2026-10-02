@@ -25,7 +25,8 @@ export function serveOrganization(document, { commit = COMMIT } = {}) {
   const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async url => {
-    const pathname = new URL(String(url)).pathname;
+    const { origin, pathname } = new URL(String(url));
+    if (origin !== 'https://api.github.com') throw new Error(`Unexpected organization source request to ${origin}`);
     calls.push(pathname);
     return Object.hasOwn(routes, pathname) ? json(200, routes[pathname]) : json(404, { message: 'Not Found' });
   };

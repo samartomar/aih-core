@@ -169,8 +169,15 @@ authenticates the deliberately unsigned display fixtures.
    `AUTHORITY_DENIED`. A lost prepared handle needs a fresh Prepare and approval.
 
 The artifact gate runs this end to end against an acceptance-only organization
-source stub (`acceptance/org-source.mjs`, not part of the example), including the
-rejected out-of-policy and unsupported-evidence examples.
+source stub (`scripts/public-consumer/org-source.mjs`, copied to `acceptance/` by the
+gate and not part of the example), including the rejected out-of-policy and
+unsupported-evidence examples.
+
+Authoring and derivation also mirror two Core input rules: a `fixed` or `choices`
+value must satisfy the recipe input definition, and a sensitive input can only be
+permitted with `allowDeclared` (an unnamed sensitive input is incomplete even with a
+default). Sensitive inputs are not exercised by the shipped Catalog items, so those
+branches are covered by Core's own tests rather than this example's.
 
 ## Boundaries
 

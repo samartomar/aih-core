@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { parsePolicy, validateOrganizationPolicy } from '@aihq/core/contracts';
 import { listItems } from '@aihq/catalog/reader';
 import { installedRelease } from './helpers.mjs';
-import { authorOrganizationPolicy, deriveExecutionPolicy, reviewReport } from '../src/admin.js';
+import { authorOrganizationPolicy, deriveExecutionPolicy, recipeIdentity, reviewReport } from '../src/admin.js';
 
 const FIXTURE = process.env.SCAN_ARTIFACT_FIXTURE;
 const SCAN_ID = 'scan:sha256:fd5e886dc290901110d82ec45e2f444b8fa1b2c05f1bbe7028cbbb4e880bc4dd';
@@ -254,4 +254,32 @@ test('admin.js imports only browser-safe public entries', () => {
   assert.ok(!/(?:from|import)\s*'@aihq\/core'/.test(text), 'bare @aihq/core Node entry import');
   assert.ok(!text.includes('harness/runtime'), 'harness/runtime import');
   assert.ok(!text.includes('artifact/host'), 'artifact/host import');
+});
+
+test('authorOrganizationPolicy rejects fixed values and choices the recipe input would not accept', async () => {
+  const { release, standalone, inputName } = await setup();
+  const entry = permission => ({ selectionId: 'entry', itemId: standalone.id, scopes: [...standalone.scopes],
+    inputs: { [inputName]: permission } });
+  for (const permission of [{ fixed: 42 }, { fixed: 'x'.repeat(10_000) }, { choices: ['.ok', 42] }]) {
+    const authored = await authorOrganizationPolicy({ release, id: 'org', permitted: [entry(permission)] });
+    assert.equal(authored.valid, false, JSON.stringify(permission));
+    assert.ok(authored.diagnostics.some(item => item.reason === 'organization-input-spec'), JSON.stringify(authored.diagnostics));
+  }
+  const ok = await authorOrganizationPolicy({ release, id: 'org', permitted: [entry({ fixed: '.ok' })] });
+  assert.equal(ok.valid, true, JSON.stringify(ok.diagnostics));
+});
+
+test('recipeIdentity reproduces identities recorded from real Core admission for this Catalog artifact', async () => {
+  const { release } = await installedRelease();
+  const items = Object.fromEntries(listItems(release).map(item => [item.id, item]));
+  const grillMe = items['mattpocock.grill-me'];
+  const grilling = items['mattpocock.grilling'];
+  if (!grillMe || !grilling) return;
+  const known = new Map([
+    [grillMe, 'sha256:4c750b521072244bd16dbcf24d912ccbadc7f021e9a37b1074e4c502f94563f6'],
+    [grilling, 'sha256:030f93d25ef92482f72051093bd2e36199bb4fc7f9312f95a12b45b79d8b0c07']
+  ]);
+  for (const [item, identity] of known) {
+    assert.equal(await recipeIdentity({ recipeSha256: item.recipe.sha256, materials: item.materials }), identity);
+  }
 });
