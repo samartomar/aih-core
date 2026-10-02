@@ -7,7 +7,7 @@ import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, parseOrganizationPolicy, validatePolicy, validateRecipe } from './contracts.js';
 import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
 import { admitOrganizationSelections, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
-import { canonicalJson } from './internal/canonical.js';
+import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
@@ -181,8 +181,8 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
     const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });
     const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
     if (!validateRecipe(recipe).valid) throw new Error('recipe-invalid');
-    const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => a.id.localeCompare(b.id));
-    const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => a.id.localeCompare(b.id));
+    const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
+    const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     if (canonicalJson(declared) !== canonicalJson(acquired)) throw new Error('material-closure');
     return { recipe, recipeSha256: captured.recipeSha256, material: captured };
   }
@@ -366,7 +366,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
       const recipeIdentity = `sha256:${digest({ schema: 'urn:aihq:core:recipe-identity:1.0.0', recipeSha256,
-        materials: recipe.materials.map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => a.id.localeCompare(b.id)) })}`;
+        materials: recipe.materials.map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id)) })}`;
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
         privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
