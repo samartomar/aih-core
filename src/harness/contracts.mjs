@@ -163,7 +163,8 @@ export const helperMetadata = Object.freeze({
   ]),
   diagnostics: Object.freeze([
     { id: 'existing-tools', kind: 'diagnostic', purpose: 'Inspect installed tools and their declared TLS origins',
-      targets: ['node', 'npm', 'git', 'python', 'pip', 'cargo', 'conda', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro'],
+      targets: ['node', 'npm', 'git', 'python', 'pip', 'cargo', 'conda', 'claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro',
+        'rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed'],
       profile: { phaseMs: 180000, maxActiveProbes: 2, localProcessMs: 30000, networkProcessMs: 25000,
         networkSocketMs: 20000, outputBytes: 65536, checkDetailBytes: 4096, phaseDetailBytes: 65536,
         configuredMcpOrigins: 3, configuredMcpMs: 60000 } }
@@ -181,12 +182,24 @@ export const targets = Object.freeze([
   { id: 'claude', label: 'Claude Code', binaries: ['claude'], configDirs: ['.claude'], origins: [] },
   { id: 'codex', label: 'Codex CLI', binaries: ['codex'], configDirs: ['.codex'], origins: [] },
   { id: 'cursor', label: 'Cursor', binaries: ['cursor', 'cursor-agent', 'agent'], configDirs: ['.cursor'], origins: [] },
-  { id: 'gemini', label: 'Gemini CLI', binaries: ['gemini'], configDirs: ['.gemini'], origins: [] },
+  { id: 'gemini', label: 'Gemini CLI', binaries: ['gemini'], configDirs: ['.gemini/tmp', '.gemini/extensions', '.gemini/commands', '.gemini/history'], origins: [] },
   { id: 'copilot', label: 'GitHub Copilot', binaries: ['copilot'], configDirs: ['.config/github-copilot', '.copilot'], origins: [] },
   { id: 'windsurf', label: 'Windsurf', binaries: ['windsurf'], configDirs: ['.codeium/windsurf', '.windsurf'], origins: [] },
   { id: 'opencode', label: 'OpenCode', binaries: ['opencode'], configDirs: ['.config/opencode', '.opencode'], origins: [] },
   { id: 'kimi', label: 'Kimi Code', binaries: ['kimi'], configDirs: ['.kimi-code'], origins: [] },
-  { id: 'kiro', label: 'Kiro', binaries: ['kiro-cli'], configDirs: ['.kiro'], origins: ['https://kiro.dev'] }
+  { id: 'kiro', label: 'Kiro', binaries: ['kiro-cli'], configDirs: ['.kiro'], origins: ['https://kiro.dev'] },
+  // Helpers: presence and a version probe only; no general tool inventory.
+  { id: 'rg', label: 'ripgrep', binaries: ['rg'], configDirs: [], origins: [] },
+  { id: 'fd', label: 'fd', binaries: ['fd', 'fdfind'], configDirs: [], origins: [] },
+  { id: 'jq', label: 'jq', binaries: ['jq'], configDirs: [], origins: [] },
+  { id: 'curl', label: 'curl', binaries: ['curl'], configDirs: [], origins: [] },
+  { id: 'keytool', label: 'Java keytool', binaries: ['keytool'], configDirs: [], origins: [] },
+  { id: 'bash', label: 'Bash', binaries: ['bash'], configDirs: [], origins: [] },
+  // Clients: signals from vendor docs (antigravity.google, zed.dev). Presence never proves native loading.
+  { id: 'antigravity', label: 'Google Antigravity', binaries: ['agy', 'antigravity'],
+    configDirs: ['.gemini/antigravity-cli', '.gemini/antigravity', '.gemini/config'], origins: [] },
+  { id: 'zed', label: 'Zed', binaries: ['zed', 'zeditor', 'zedit'],
+    configDirs: ['.config/zed', 'AppData/Roaming/Zed'], origins: [] }
 ]);
 for (const target of targets) {
   Object.freeze(target.binaries);

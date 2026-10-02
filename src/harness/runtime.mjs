@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { isProxy } from 'node:util/types';
 import tls from 'node:tls';
@@ -428,6 +428,55 @@ function executable(name) {
   }
 }
 
+// Internal probe data keyed by target id; the public TargetDefinition shape is unchanged.
+// keytool's own -version exists only in newer JDKs; its documented -J option passes -version
+// to the Java launcher on every supported JDK, which prints the runtime version and exits.
+const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
+const resolutionTargets = new Set(['rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
+const clientTargets = Object.freeze({
+  antigravity: 'In Antigravity, open its own settings or MCP, rules and skills views and confirm the expected items are listed and enabled; inspection does not start Antigravity sessions.',
+  zed: 'In Zed, open the Agent panel settings and the settings file, and confirm the expected servers or extensions are listed and active; inspection does not start Zed sessions.'
+});
+
+const realKey = path => {
+  let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
+  return process.platform === 'win32' ? real.toLowerCase() : real;
+};
+// 1-based index of the PATH entry that contains the resolved executable.
+function pathIndex(file) {
+  const win = process.platform === 'win32'; const same = (a, b) => win ? a.toLowerCase() === b.toLowerCase() : a === b;
+  let index = 0;
+  for (const path of (process.env.PATH || '').split(delimiter)) {
+    if (!path) continue;
+    index++;
+    if (same(join(path, basename(file)), file)) return index;
+  }
+}
+// Distinct PATH candidates for a target's binary names, as 1-based PATH-entry index and file name only.
+// Real file and directory paths collapse symlinked PATH entries (merged /usr) and alternate names in one install.
+function pathCandidates(target) {
+  const win = process.platform === 'win32';
+  const extensions = win ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';') : [''];
+  const found = []; const seen = new Set();
+  let index = 0;
+  for (const path of (process.env.PATH || '').split(delimiter)) {
+    if (!path) continue;
+    index++;
+    for (const name of target.binaries) for (const extension of extensions) {
+      const candidate = join(path, win && !name.toLowerCase().endsWith(extension.toLowerCase()) ? name + extension : name);
+      try {
+        const stat = lstatSync(candidate);
+        if (!stat.isFile() && !stat.isSymbolicLink()) continue;
+        const keys = [realKey(candidate), 'dir:' + realKey(dirname(candidate))];
+        if (!keys.some(item => seen.has(item))) found.push({ index, file: candidate, real: keys[0] });
+        for (const item of keys) seen.add(item);
+        break;
+      } catch { /* A PATH entry may be inaccessible. */ }
+    }
+  }
+  return found;
+}
+
 function configTrace(target, home) {
   for (const relative of target.configDirs) {
     const path = resolve(home, relative);
@@ -746,12 +795,32 @@ export async function diagnose(request, controls = {}) {
     const state = binary ? 'binary' : config ? 'config-only' : 'absent';
     tools.push({ id: target.id, label: target.label, state, selection, ...(config ? { config } : {}) });
     if (!selected.has(target.id)) continue;
+    if (target.id in clientTargets && detected) {
+      observations.push({ id: `${target.id}/loading`, target: target.id,
+        detail: 'Installation or configuration observed; native loading was not verified.' });
+      repairChoices.push({ target: target.id, kind: 'manual-guidance', reason: 'loading-unverified', guidance: clientTargets[target.id] });
+    }
+    let wsl = false;
+    if (binary && resolutionTargets.has(target.id)) {
+      // Report the executable that actually runs; de-duplication only counts the alternatives.
+      const usedReal = realKey(binary);
+      const others = pathCandidates(target).filter(item => item.real !== usedReal).length;
+      const launcher = /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i;
+      wsl = process.platform === 'win32' && target.id === 'bash' && (launcher.test(binary) || launcher.test(usedReal));
+      if (wsl || others > 0) observations.push({ id: `${target.id}/resolution`, target: target.id,
+        detail: clean(`Used ${basename(binary)} from PATH entry ${pathIndex(binary) ?? '?'}.` +
+          (others > 0 ? ` ${others} other candidate${others === 1 ? ' resolves' : 's resolve'} on PATH.` : '') +
+          (wsl ? ' This bash is a WSL launcher (System32 or WindowsApps), not Git Bash; the resolution is ambiguous.' : '')) });
+    }
     if (!binary) {
       if (requested) push(`${target.id}/version`, target.id, 'unavailable', 'executable-missing',
         config ? 'Configuration exists, but no runnable executable was found.' : 'The requested executable was not found on PATH.');
       continue;
     }
-    const version = await runProcess(binary, ['--version'], deadline, profile.localProcessMs, controls.signal);
+    // Running the WSL launcher can start a distribution or an install prompt; inspection never does that.
+    if (wsl) { push(`${target.id}/version`, target.id, 'skipped', 'wsl-launcher',
+      'The resolved bash is the Windows WSL launcher; its version command was not run.'); continue; }
+    const version = await runProcess(binary, versionArgs[target.id] ?? ['--version'], deadline, profile.localProcessMs, controls.signal);
     if (version.terminationUnresolved) {
       diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
       if (version.initialReason === 'deadline') diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'deadline', 'The diagnostic child exceeded its deadline before cancellation.'));

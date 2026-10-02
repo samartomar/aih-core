@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Inspection adds the helpers `rg`, `fd`, `jq`, `curl`, `keytool` and `bash` and the clients Antigravity and Zed, using the existing result schema. Multiple PATH candidates and a Windows WSL `bash` launcher surface as `<id>/resolution` observations (the WSL launcher's version command is skipped, never started); detected Antigravity or Zed adds an `<id>/loading` observation with manual guidance because native loading is not verified. Gemini CLI configuration detection now requires a Gemini-CLI-specific `~/.gemini` subdirectory (`tmp`, `extensions`, `commands`, `history`), so an Antigravity-only `~/.gemini` no longer reports `gemini` as `config-only`; the reported `config` trace for `gemini` now names the matching subdirectory (for example `.gemini/tmp`) instead of `.gemini`. No public schema, repair or JVM changes; these await the next uniquely versioned Core distribution.
+
 The `aih` CLI adds `--version`/`-V`, command help with examples (`aih help [command]`, `-h`), pure `aih validate <execution-policy|organization-policy|recipe> <file>` and a `--no-log` option for `policy` and `repair` that disables routine history for Prepare and Apply. Version, help and validation perform no target inspection, network access or state writes. No public schema or API changes; these await the next uniquely versioned Core distribution.
 
 Adds an isolated public consumer example and explicit packed-artifact acceptance
