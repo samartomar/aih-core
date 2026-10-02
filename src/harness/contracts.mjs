@@ -182,7 +182,7 @@ export const targets = Object.freeze([
   { id: 'claude', label: 'Claude Code', binaries: ['claude'], configDirs: ['.claude'], origins: [] },
   { id: 'codex', label: 'Codex CLI', binaries: ['codex'], configDirs: ['.codex'], origins: [] },
   { id: 'cursor', label: 'Cursor', binaries: ['cursor', 'cursor-agent', 'agent'], configDirs: ['.cursor'], origins: [] },
-  { id: 'gemini', label: 'Gemini CLI', binaries: ['gemini'], configDirs: ['.gemini'], origins: [] },
+  { id: 'gemini', label: 'Gemini CLI', binaries: ['gemini'], configDirs: ['.gemini/tmp', '.gemini/extensions', '.gemini/commands', '.gemini/history'], origins: [] },
   { id: 'copilot', label: 'GitHub Copilot', binaries: ['copilot'], configDirs: ['.config/github-copilot', '.copilot'], origins: [] },
   { id: 'windsurf', label: 'Windsurf', binaries: ['windsurf'], configDirs: ['.codeium/windsurf', '.windsurf'], origins: [] },
   { id: 'opencode', label: 'OpenCode', binaries: ['opencode'], configDirs: ['.config/opencode', '.opencode'], origins: [] },

@@ -337,3 +337,61 @@ test('two names in one Windows install directory are not ambiguity', { skip: !wi
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('an Antigravity-only ~/.gemini does not make gemini config-only', async () => {
+  const { root, home, bin } = sandbox();
+  const before = saveEnvironment();
+  try {
+    for (const dir of ['antigravity', 'antigravity-cli', 'config']) mkdirSync(join(home, '.gemini', dir), { recursive: true });
+    writeFileSync(join(home, '.gemini', 'GEMINI.md'), '# Antigravity global rules\n');
+    useSandboxEnvironment({ home, bin });
+    const detected = await inspect({ targets: ['node'], network: 'off' });
+    const gemini = detected.tools.find(entry => entry.id === 'gemini');
+    assert.equal(gemini.state, 'absent');
+    assert.equal(gemini.selection, 'unselected');
+    assert.equal(detected.checks.some(entry => entry.target === 'gemini'), false);
+    assert.equal(detected.tools.find(entry => entry.id === 'antigravity').state, 'config-only');
+    const everything = await inspect({ network: 'off' });
+    assert.equal(everything.tools.find(entry => entry.id === 'gemini').state, 'absent');
+    assert.equal(everything.tools.find(entry => entry.id === 'gemini').selection, 'unselected');
+    const requested = await inspect({ targets: ['gemini'], network: 'off' });
+    const tool = requested.tools.find(entry => entry.id === 'gemini');
+    assert.equal(tool.selection, 'requested');
+    assert.notEqual(tool.state, 'config-only');
+    assert.ok(requested.checks.some(entry => entry.target === 'gemini' && entry.reason === 'executable-missing'));
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a Gemini-CLI-specific ~/.gemini directory alone makes gemini config-only', async () => {
+  const { root, home, bin } = sandbox();
+  const before = saveEnvironment();
+  try {
+    mkdirSync(join(home, '.gemini', 'tmp'), { recursive: true });
+    useSandboxEnvironment({ home, bin });
+    const result = await inspect({ targets: ['gemini'], network: 'off' });
+    assert.equal(result.tools.find(entry => entry.id === 'gemini').state, 'config-only');
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the Antigravity IDE directory alone is an Antigravity configuration trace', async () => {
+  const { root, home, bin } = sandbox();
+  const before = saveEnvironment();
+  try {
+    mkdirSync(join(home, '.gemini', 'antigravity'), { recursive: true });
+    useSandboxEnvironment({ home, bin });
+    const result = await inspect({ targets: ['antigravity', 'gemini'], network: 'off' });
+    const antigravity = result.tools.find(tool => tool.id === 'antigravity');
+    assert.equal(antigravity.state, 'config-only');
+    assert.equal(antigravity.config, '.gemini/antigravity');
+    assert.equal(result.tools.find(tool => tool.id === 'gemini').state, 'absent');
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
