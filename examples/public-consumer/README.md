@@ -31,6 +31,10 @@ The example:
    diagnostics. Report authenticity from reading (`unchecked`) is shown
    separately from Core's producer authentication, and authentic-but-partial or
    unverifiable evidence never appears as a clean result or a setup gate.
+4. **Authors Enterprise administrator material portably.** `src/admin.js`
+   reviews a report (`reviewReport`, authenticity always `unchecked`), authors an
+   organization policy (`authorOrganizationPolicy`) and derives an Enterprise
+   execution policy (`deriveExecutionPolicy`); see Enterprise administrator flow.
 
 ## Layout
 
@@ -39,8 +43,12 @@ The example:
 - `src/report-view.js` — portable Scan reading and complete presentation model
   (`@aihq/scan/read`, `@aihq/scan/contracts`). Output is plain data; render
   with `textContent`, never `innerHTML`.
+- `src/admin.js` — portable Enterprise administrator authoring (browser-safe
+  imports only: `@aihq/core/contracts`, `@aihq/catalog/reader`,
+  `@aihq/scan/read`; digests use WebCrypto).
 - `src/host.js` — UI-owned Node host (`@aihq/core`, optional
-  `@aihq/catalog/node` acquisition by the caller).
+  `@aihq/catalog/node` acquisition by the caller, optional host-configured
+  `organizationSource`).
 - `src/server.js` — bounded loopback demo server (static page, catalog bytes,
   prepare/apply endpoints).
 - `browser/` — one-page UI (`page.html`, `app.js`).
@@ -128,6 +136,41 @@ separately calls Core's public `authenticateEvidence` with the retained producti
 artifact and independently selected bundled trust. The example's evidence tests
 exercise optional policy evidence through explicit host controls. Neither result
 authenticates the deliberately unsigned display fixtures.
+
+## Enterprise administrator flow
+
+`src/admin.js` is portable example code, not a supported administrator UI.
+
+1. `reviewReport(bytes)` presents a Scan artifact or report with its `scanId`.
+   Authenticity stays `unchecked`: a readable unsigned report is not
+   authenticated by being displayed. Core authenticates the producer at Prepare
+   and Apply, only for evidence the derived policy associates.
+2. `authorOrganizationPolicy({ release, id, permitted })` builds the organization
+   document from permitted selections (`selectionId`, `itemId`, `scopes`, per-input
+   `fixed`, `choices` or `allowDeclared`, optional `lifecycle`). It is async
+   because each `recipeIdentity` is computed with WebCrypto by Core's documented
+   rule: sha256 of the canonical JSON of `{ schema:
+   'urn:aihq:core:recipe-identity:1.0.0', recipeSha256, materials: [{id, sha256,
+   byteLength}] sorted by id }`, using the release's pinned recipe and material
+   identities. The document is validated with `validateOrganizationPolicy` and has
+   no evidence field.
+3. `deriveExecutionPolicy({ release, organization, choices, evidence,
+   materialSource })` builds the `mode: 'enterprise'` policy (each selection
+   carrying `organizationSelectionId`) and copies the administrator-selected
+   `{ schema, scanId, location }` associations into the policy's `evidence`. A
+   local pre-check rejects choices outside the organization permissions before
+   export; `parsePolicy` rejects unsupported association schemas or malformed scan
+   IDs. Evidence is not permission and never a setup gate.
+4. The administrator publishes the organization document to the GitHub source they
+   select; this example does not publish it. The Node host is created with that
+   `organizationSource` (host configuration, never browser input), and Core
+   re-reads and re-admits it at Prepare and again at Apply. The local pre-check
+   only mirrors Core for early feedback: a value forced past it is still
+   `AUTHORITY_DENIED`. A lost prepared handle needs a fresh Prepare and approval.
+
+The artifact gate runs this end to end against an acceptance-only organization
+source stub (`acceptance/org-source.mjs`, not part of the example), including the
+rejected out-of-policy and unsupported-evidence examples.
 
 ## Boundaries
 

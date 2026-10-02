@@ -96,7 +96,11 @@ try {
       outfile: join(consumer, 'browser/app.bundle.js'), bundle: true, platform: 'browser', format: 'esm',
       metafile: true, logLevel: 'silent' });
     assert.ok(Object.keys(example.metafile.inputs).every(path => !/^(?:node:)|harness\/runtime|\/artifact\/host/.test(path)));
+    const admin = await build({ entryPoints: [join(consumer, 'src/admin.js')], bundle: true, platform: 'browser', format: 'esm',
+      write: false, metafile: true, logLevel: 'silent' });
+    assert.ok(Object.keys(admin.metafile.inputs).every(path => !/^(?:node:)|harness\/runtime|\/artifact\/host/.test(path)));
     record.checks[`${variant}ExampleBundle`] = { inputs: Object.keys(example.metafile.inputs).length };
+    record.checks[`${variant}AdminBundle`] = { inputs: Object.keys(admin.metafile.inputs).length };
     save();
   }
   const current = join(options.output, 'current');

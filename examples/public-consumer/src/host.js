@@ -14,7 +14,8 @@ const lostResult = () => ({
   }]
 });
 
-export function createHost({ projectRoot, materialRoots, controls: hostControls } = {}) {
+// organizationSource (Enterprise only) is host configuration, never browser input.
+export function createHost({ projectRoot, materialRoots, organizationSource, controls: hostControls } = {}) {
   if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
     throw new TypeError('createHost requires a host-configured projectRoot');
   }
@@ -30,7 +31,8 @@ export function createHost({ projectRoot, materialRoots, controls: hostControls 
       const parsed = parsePolicy(policyText);
       if (!parsed.valid) return { status: 'invalid', diagnostics: parsed.diagnostics };
       const preparation = await prepare(
-        { useCase: 'policy', policy: parsed.document, target: { project: projectRoot } },
+        { useCase: 'policy', policy: parsed.document, target: { project: projectRoot },
+          ...(organizationSource !== undefined ? { organizationSource } : {}) },
         controlsFor(controls)
       );
       const result = { status: preparation.status, diagnostics: preparation.diagnostics };

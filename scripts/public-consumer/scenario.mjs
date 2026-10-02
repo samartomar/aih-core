@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readInstalledRelease } from '@aihq/catalog/node';
 import { authorPolicy, catalogItems, exportPolicy, policyOrigins, reopenPolicy, requiredItems } from '../src/authoring.js';
 import { createHost } from '../src/host.js';
+import { verifyAdministrator } from './admin-walkthrough.mjs';
 import { verifyReports } from './reports.mjs';
 
 const variant = process.argv[2];
@@ -87,6 +88,7 @@ if (variant === 'current') {
   result.addedContent = await execute(exportPolicy(added.policy), 'target-context');
   assert.ok(result.addedContent.files.some(file => file.path.endsWith('RULE_ROUTER.md')));
   result.reports = await verifyReports();
+  result.administrator = await verifyAdministrator({ release, source, materialRoots });
 } else {
   assert.equal(items.some(item => item.id === 'aihq.project-context'), false);
 }

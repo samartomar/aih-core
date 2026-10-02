@@ -13,6 +13,16 @@ consumer code. Core continues to ship Harness as one distribution; the package
 acceptance also proves a versioned Harness update, stale-review rejection and
 reinstall of the original artifact.
 
+The public consumer example adds a portable Enterprise administrator module
+(`src/admin.js`) and acceptance walkthrough: review a Scan report without
+authenticating it, author an organization policy with recipe identities computed
+by the documented Core rule, derive an Enterprise execution policy that keeps
+selected Scan evidence associations, reject out-of-policy and unsupported-evidence
+examples, and prove Core admission, lost-handle fresh approval and Apply re-reads
+through an acceptance-only organization-source stub. The example Node host accepts
+a host-configured `organizationSource`. It is not a supported administrator UI or a
+published organization source; no Core, Catalog or Scan schema, export or API changes.
+
 Harness support metadata now uses package-support records with `id`, `role` and
 `schemaExport`, replacing its string-only contract list. Public repair,
 diagnostic and package-support JSON Schemas are exported with matching
