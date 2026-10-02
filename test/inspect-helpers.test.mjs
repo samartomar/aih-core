@@ -365,17 +365,21 @@ test('an Antigravity-only ~/.gemini does not make gemini config-only', async () 
   }
 });
 
-test('a Gemini-CLI-specific ~/.gemini directory alone makes gemini config-only', async () => {
-  const { root, home, bin } = sandbox();
+test('each Gemini-CLI-specific ~/.gemini directory alone makes gemini config-only', async () => {
   const before = saveEnvironment();
-  try {
-    mkdirSync(join(home, '.gemini', 'tmp'), { recursive: true });
-    useSandboxEnvironment({ home, bin });
-    const result = await inspect({ targets: ['gemini'], network: 'off' });
-    assert.equal(result.tools.find(entry => entry.id === 'gemini').state, 'config-only');
-  } finally {
-    restoreEnvironment(before);
-    rmSync(root, { recursive: true, force: true });
+  for (const relative of ['tmp', 'extensions', 'commands', 'history']) {
+    const { root, home, bin } = sandbox();
+    try {
+      mkdirSync(join(home, '.gemini', relative), { recursive: true });
+      useSandboxEnvironment({ home, bin });
+      const result = await inspect({ targets: ['gemini'], network: 'off' });
+      const tool = result.tools.find(entry => entry.id === 'gemini');
+      assert.equal(tool.state, 'config-only', relative);
+      assert.equal(tool.config, `.gemini/${relative}`);
+    } finally {
+      restoreEnvironment(before);
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
