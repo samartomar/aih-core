@@ -261,7 +261,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(JSON.parse(cliResult).operations[0].application, 'already-satisfied');
 
     // The installed bin serves version, pure validation and --no-log runs.
-    const bin = (args, binEnv = env) => spawnSync(process.execPath, [join(installed, 'dist/core/cli.js'), ...args],
+    const bin = (args, binEnv = env) => spawnSync(process.execPath, [join(installed, manifest.bin.aih), ...args],
       { cwd: consumer, env: binEnv, encoding: 'utf8', timeout: 30_000 });
     const binVersion = bin(['--version']);
     assert.equal(binVersion.status, 0, binVersion.stdout + binVersion.stderr);
@@ -283,6 +283,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.deepEqual(JSON.parse(noLog.stdout).record, { status: 'disabled', reason: 'logging-off' });
     assert.ok(readdirSync(join(noLogHome, '.aih/core/ownership')).length > 0);
     assert.ok(readdirSync(join(noLogHome, '.aih/core/recovery')).length > 0);
+    assert.equal(existsSync(join(noLogHome, '.aih/core/runs')), false);
 
     // Mutate only this disposable installation, keeping the preparing module
     // instance alive. Changed bundled bytes must invalidate the reviewed work.

@@ -145,13 +145,14 @@ test('CLI version, help and validate leave no state and attempt no network', () 
   ].join('\n'));
   const pure = args => spawn(['--import', pathToFileURL(preload).href, cli, ...args], { AIH_TEST_NET_MARKER: marker });
   try {
+    const organization = join(root, 'organization.json'); writeFileSync(organization, JSON.stringify(orgDocument()));
+    const recipe = join(root, 'recipe.json'); writeFileSync(recipe, JSON.stringify(policy().selections[0].recipe.inline));
     const before = tree(root);
-    const versioned = pure(['--version']);
-    assert.equal(versioned.status, 0, versioned.stdout + versioned.stderr);
-    const help = pure(['--help']);
-    assert.equal(help.status, 0, help.stdout + help.stderr);
-    const validated = pure(['validate', 'execution-policy', file]);
-    assert.equal(validated.status, 0, validated.stdout + validated.stderr);
+    for (const args of [['--version'], ['-V', '--json'], ['--help'], ['help', 'policy'], ['repair', '-h'],
+      ['validate', 'execution-policy', file], ['validate', 'organization-policy', organization], ['validate', 'recipe', recipe]]) {
+      const result = pure(args);
+      assert.equal(result.status, 0, args.join(' ') + result.stdout + result.stderr);
+    }
     assert.equal(existsSync(join(home, '.aih')), false);
     assert.equal(existsSync(marker) ? readFileSync(marker, 'utf8') : '', '');
     assert.deepEqual(tree(root), before);
@@ -181,10 +182,30 @@ test('CLI --no-log disables run history but preserves ownership and recovery rec
     assert.ok(readdirSync(join(loggedHome, '.aih', 'core', 'runs')).some(name => name.endsWith('.json')));
     const preview = run(['policy', file, '--project', project, '--no-log']);
     assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+    assert.deepEqual(state('runs'), []);
     for (const args of [['inspect', '--no-log'], ['validate', 'execution-policy', file, '--no-log']]) {
       const refused = run(args);
       assert.equal(refused.status, 2, args.join(' '));
       assert.equal(JSON.parse(refused.stdout).diagnostics[0].code, 'INPUT_INVALID');
     }
+  } finally { close(); }
+});
+
+test('CLI repair --no-log disables run history for Prepare and Apply', () => {
+  const { root, home, run, close } = fixture('aih-cli-repair-no-log-');
+  const source = join(root, 'root.pem'); writeFileSync(source, readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
+  const inputs = join(root, 'repair-inputs.json'); writeFileSync(inputs, JSON.stringify({ 'node-npm-ca': { caFile: source } }));
+  const runs = join(home, '.aih', 'core', 'runs');
+  try {
+    const args = ['repair', 'node-npm-ca', '--target', 'npm', '--inputs-file', inputs, '--offline', '--no-log', '--json'];
+    const preview = run(args);
+    assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+    assert.deepEqual(JSON.parse(preview.stdout).record, { status: 'disabled', reason: 'logging-off' });
+    const applied = run([...args, '--apply', '--yes']);
+    const result = JSON.parse(applied.stdout);
+    assert.ok(['complete', 'incomplete'].includes(result.completion), applied.stdout + applied.stderr);
+    assert.deepEqual(result.record, { status: 'disabled', reason: 'logging-off' });
+    assert.equal(result.effectiveOptions.logging.value, 'off');
+    assert.equal(existsSync(runs) ? readdirSync(runs).length : 0, 0);
   } finally { close(); }
 });

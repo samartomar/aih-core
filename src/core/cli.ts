@@ -59,7 +59,7 @@ try {
   const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
   const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
   json = values.json ?? false;
-  const command = positionals.length === 1 ? commands.find(name => name === positionals[0]) : undefined;
+  const command = commands.find(name => name === positionals[0]);
   const helpWord = positionals[0] === 'help';
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
@@ -76,7 +76,7 @@ try {
     if (topic) process.stdout.write(usage[topic] + examples[topic]);
     else process.stdout.write(commands.map(name => usage[name]).join('') +
       'aih --version | -V [--json]    Print the installed package version.\n' +
-      'aih help [<command>] | aih <command> --help    Show usage and examples.\n' +
+      'aih help [<command>] | aih <command> --help | -h    Show usage and examples.\n' +
       '--no-log (policy and repair only) turns routine history off for Prepare and Apply.\n');
   } else if (positionals[0] === 'validate') {
     const kind = ['execution-policy', 'organization-policy', 'recipe'].find(name => name === positionals[1]);
