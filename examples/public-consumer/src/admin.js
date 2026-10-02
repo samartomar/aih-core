@@ -130,7 +130,13 @@ async function precheck(release, organization, policy, choices) {
     if (!entry.scopes.includes(selection.scope)) {
       findings.push(problem('AUTHORITY_DENIED', 'scope', 'The organization entry does not admit this scope.', `${path}/scope`));
     }
-    for (const [name, spec] of Object.entries(getItem(release, choices[index].itemId).item.inputs)) {
+    const { item } = getItem(release, choices[index].itemId);
+    // Core rejects the whole entry when any permitted value breaks the input definition,
+    // even one this selection does not use; an imported document is checked the same way.
+    for (const [name, permission] of Object.entries(entry.inputs)) {
+      if (Object.hasOwn(item.inputs, name)) findings.push(...permissionProblems(item, name, permission, `${path}/inputs/${name}`));
+    }
+    for (const [name, spec] of Object.entries(item.inputs)) {
       const permission = entry.inputs[name];
       const explicit = Object.hasOwn(selection.configuration, name);
       const inputPath = `${path}/inputs/${name}`;

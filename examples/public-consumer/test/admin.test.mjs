@@ -269,17 +269,37 @@ test('authorOrganizationPolicy rejects fixed values and choices the recipe input
   assert.equal(ok.valid, true, JSON.stringify(ok.diagnostics));
 });
 
-test('recipeIdentity reproduces identities recorded from real Core admission for this Catalog artifact', async t => {
-  const { release } = await installedRelease();
-  const items = Object.fromEntries(listItems(release).map(item => [item.id, item]));
-  const grillMe = items['mattpocock.grill-me'];
-  const grilling = items['mattpocock.grilling'];
-  if (!grillMe || !grilling) { t.skip('known-answer items are not in this Catalog artifact'); return; }
-  const known = new Map([
-    [grillMe, 'sha256:4c750b521072244bd16dbcf24d912ccbadc7f021e9a37b1074e4c502f94563f6'],
-    [grilling, 'sha256:030f93d25ef92482f72051093bd2e36199bb4fc7f9312f95a12b45b79d8b0c07']
-  ]);
-  for (const [item, identity] of known) {
-    assert.equal(await recipeIdentity({ recipeSha256: item.recipe.sha256, materials: item.materials }), identity);
-  }
+// Fixed inputs and identities recorded from a packed run in which Core itself admitted
+// these items (Catalog q1/rel-license f2b51599); independent of whichever Catalog is installed.
+const KNOWN_IDENTITIES = [
+  { recipeSha256: '3c5d4c15ec80b6747d8dc3a0ae4e94807b712b7c1158d5f9ee320914c94cc35b',
+    materials: [{ id: 'skill', sha256: 'caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637', byteLength: 157 },
+      { id: 'license', sha256: '0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5', byteLength: 1068 }],
+    identity: 'sha256:4c750b521072244bd16dbcf24d912ccbadc7f021e9a37b1074e4c502f94563f6' },
+  { recipeSha256: '28e96f904cd0fd13a992a6e0289013072fa413fea705edcd46f555156152c336',
+    materials: [{ id: 'license', sha256: '0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5', byteLength: 1068 },
+      { id: 'skill', sha256: '10ff989e7498b23b5acb49d5048f11dcd906757d2f79c5cdf8a00001381296f2', byteLength: 1987 }],
+    identity: 'sha256:030f93d25ef92482f72051093bd2e36199bb4fc7f9312f95a12b45b79d8b0c07' }
+];
+
+test('recipeIdentity reproduces identities Core admitted for fixed recipe and material digests', async () => {
+  for (const { recipeSha256, materials, identity } of KNOWN_IDENTITIES)
+    assert.equal(await recipeIdentity({ recipeSha256, materials }), identity);
+});
+
+test('deriveExecutionPolicy rejects an imported organization entry whose unused choice breaks the input definition', async () => {
+  const { release, source } = await installedRelease();
+  const item = listItems(release).find(candidate => candidate.dependencies.requires.length === 0 &&
+    Object.values(candidate.inputs).some(spec => spec.type === 'string' && !spec.sensitive));
+  assert.ok(item, 'a standalone item with a string input');
+  const name = Object.entries(item.inputs).find(([, spec]) => spec.type === 'string' && !spec.sensitive)[0];
+  const organization = { schema: 'urn:aihq:core:organization-policy:1.0.0', id: 'imported', selections: [{
+    selectionId: 'entry', recipeIdentity: await recipeIdentity({ recipeSha256: item.recipe.sha256, materials: item.materials }),
+    scopes: [item.scopes[0]], inputs: { [name]: { choices: ['ok-value', 42] } } }] };
+  const derived = await deriveExecutionPolicy({ release, organization, materialSource: source, evidence: [], choices: [{
+    id: 'chosen', organizationSelectionId: 'entry', managementId: 'consumer-imported', scope: item.scopes[0],
+    itemId: item.id, configuration: { [name]: 'ok-value' } }] });
+  assert.equal(derived.valid, false);
+  assert.equal(derived.policy, undefined);
+  assert.ok(derived.diagnostics.some(entry => entry.reason === 'organization-input-spec'), JSON.stringify(derived.diagnostics));
 });
