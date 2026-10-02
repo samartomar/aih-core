@@ -57,6 +57,8 @@ export async function reviewReport(artifactBytes) {
 // input check. Core re-checks everything when it reads the published document.
 function permissionProblems(item, name, permission, path) {
   const spec = item.inputs[name];
+  // A non-object permission is a shape error that validateOrganizationPolicy reports.
+  if (!permission || typeof permission !== 'object' || Array.isArray(permission)) return [];
   const invalid = message => [problem('INPUT_INVALID', 'organization-input-spec', message, path)];
   if (spec.sensitive === true) {
     return Object.hasOwn(permission, 'allowDeclared') ? [] : invalid('A sensitive input may only be permitted with allowDeclared.');

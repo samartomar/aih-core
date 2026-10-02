@@ -269,12 +269,12 @@ test('authorOrganizationPolicy rejects fixed values and choices the recipe input
   assert.equal(ok.valid, true, JSON.stringify(ok.diagnostics));
 });
 
-test('recipeIdentity reproduces identities recorded from real Core admission for this Catalog artifact', async () => {
+test('recipeIdentity reproduces identities recorded from real Core admission for this Catalog artifact', async t => {
   const { release } = await installedRelease();
   const items = Object.fromEntries(listItems(release).map(item => [item.id, item]));
   const grillMe = items['mattpocock.grill-me'];
   const grilling = items['mattpocock.grilling'];
-  if (!grillMe || !grilling) return;
+  if (!grillMe || !grilling) { t.skip('known-answer items are not in this Catalog artifact'); return; }
   const known = new Map([
     [grillMe, 'sha256:4c750b521072244bd16dbcf24d912ccbadc7f021e9a37b1074e4c502f94563f6'],
     [grilling, 'sha256:030f93d25ef92482f72051093bd2e36199bb4fc7f9312f95a12b45b79d8b0c07']
