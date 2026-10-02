@@ -4,7 +4,7 @@ import { repairIndex, selectVerificationKeys, selectVerificationPublishers } fro
 import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
-import { parsePolicy } from './contracts.js';
+import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe } from './contracts.js';
 import { prepare, apply, inspect } from './index.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { sha256 } from './internal/host-files.js';
@@ -24,6 +24,19 @@ function refused(code: string, reason: string): void {
   emit({ status: 'invalid', diagnostics: [{ code, reason,
     message: 'Check the policy, target and explicit approval options.' }] }, code === 'CANCELLED' ? 130 : 2);
 }
+const usage = {
+  inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n',
+  policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--json]\n',
+  repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--json]\n',
+  validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n'
+};
+const examples: Record<keyof typeof usage, string> = {
+  inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n',
+  policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n',
+  repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n',
+  validate: 'Examples:\n  aih validate execution-policy policy.json\n  aih validate recipe recipe.json --json\n'
+};
+const commands = Object.keys(usage) as (keyof typeof usage)[];
 function exitCode(result: PreparationResult | RunResult): number {
   if ('completion' in result) return ({ complete: 0, incomplete: 1, rejected: 2, cancelled: 130 })[result.completion];
   // Required authority failure or denial is a rejection, not merely blocked work.
@@ -34,7 +47,7 @@ function exitCode(result: PreparationResult | RunResult): number {
 try {
   const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
     project: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' },
-    'allow-partial': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean' },
+    'allow-partial': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'V' }, 'no-log': { type: 'boolean' },
     'private-input': { type: 'string', multiple: true },
     'material-root': { type: 'string', multiple: true }, 'resolutions': { type: 'string' },
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
@@ -46,13 +59,45 @@ try {
   const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
   const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
   json = values.json ?? false;
-  if (values.help) {
-    process.stdout.write('aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n' +
-      'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--json]\n' +
-      'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--json]\n');
+  const command = positionals.length === 1 ? commands.find(name => name === positionals[0]) : undefined;
+  const helpWord = positionals[0] === 'help';
+  const onlyJson = !Object.keys(values).some(name => name !== 'json');
+  const logging = values['no-log'] ? { logging: 'off' as const } : {};
+  // Version, help and validate answer before any target, network, history or state access.
+  if (values.version) {
+    if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
+    else if (json) emit({ name: contractSupport.package.name, version: contractSupport.package.version }, 0);
+    else process.stdout.write(`${contractSupport.package.name} ${contractSupport.package.version}\n`);
+  } else if (helpWord && (positionals.length > 2 || !onlyJson ||
+      positionals.length === 2 && !commands.some(name => name === positionals[1]))) {
+    refused('INPUT_INVALID', 'cli-options');
+  } else if (helpWord || values.help) {
+    const topic = helpWord ? commands.find(name => name === positionals[1]) : command;
+    if (topic) process.stdout.write(usage[topic] + examples[topic]);
+    else process.stdout.write(commands.map(name => usage[name]).join('') +
+      'aih --version | -V [--json]    Print the installed package version.\n' +
+      'aih help [<command>] | aih <command> --help    Show usage and examples.\n' +
+      '--no-log (policy and repair only) turns routine history off for Prepare and Apply.\n');
+  } else if (positionals[0] === 'validate') {
+    const kind = ['execution-policy', 'organization-policy', 'recipe'].find(name => name === positionals[1]);
+    if (positionals.length !== 3 || !kind || !onlyJson) refused('INPUT_INVALID', 'cli-options');
+    else {
+      const bytes = readRegularFile(resolve(positionals[2]!), { maxBytes: 1_000_000 });
+      if (!bytes) throw new Error('validate-file');
+      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      let result: { valid: boolean; schema?: string; diagnostics: unknown[] };
+      if (kind === 'execution-policy') result = parsePolicy(text);
+      else if (kind === 'organization-policy') result = parseOrganizationPolicy(text);
+      else {
+        try { result = validateRecipe(parseStrictJsonObjectV1(text, 'recipe')); }
+        catch { result = { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] }; }
+      }
+      emit({ status: result.valid ? 'valid' : 'invalid', kind, ...(result.schema ? { schema: result.schema } : {}),
+        diagnostics: result.diagnostics }, result.valid ? 0 : 2);
+    }
   } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
-      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence) {
+      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log']) {
     const result = await inspect({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
@@ -93,7 +138,7 @@ try {
         request.resolutions = parsed.resolutions as RepairRequest['resolutions'];
         resolutionsDigest = sha256(bytes);
       }
-      const p = await prepare(request, { signal: controller.signal });
+      const p = await prepare(request, { signal: controller.signal, ...logging });
       if (!values.apply || !p.prepared || !p.review) emit(p, exitCode(p));
       else {
         let approved = values.yes === true;
@@ -113,7 +158,7 @@ try {
           else { const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
             origin: values.yes ? 'automation' : 'interactive',
             ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
-          }, { signal: controller.signal }); emit(result, exitCode(result)); }
+          }, { signal: controller.signal, ...logging }); emit(result, exitCode(result)); }
         }
       }
     }
@@ -137,7 +182,7 @@ try {
         organizationSource = { provider: 'github', repository: { owner: repository[1]!, name: repository[2]! },
           path: values['org-path']!, revision: { kind: revision[1] as 'branch' | 'tag' | 'commit', value: revision[2]! } };
       } else if (hasOrganizationFlags) throw new Error('organization-flags');
-      const controls: HostControls = { signal: controller.signal, privateInputs: Object.create(null) };
+      const controls: HostControls = { signal: controller.signal, privateInputs: Object.create(null), ...logging };
       if (values.evidence) {
         const keys = await selectVerificationKeys('scan-report');
         const publishers = selectVerificationPublishers('scan-report');
@@ -199,7 +244,7 @@ try {
             const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
               origin: values.yes ? 'automation' : 'interactive',
               ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
-            }, { signal: controller.signal, ...(controls.authentication ? { authentication: controls.authentication } : {}),
+            }, { signal: controller.signal, ...logging, ...(controls.authentication ? { authentication: controls.authentication } : {}),
               ...(controls.evidence ? { evidence: controls.evidence } : {}) });
             emit(result, exitCode(result));
           }

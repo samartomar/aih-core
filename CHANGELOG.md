@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+The `aih` CLI adds `--version`/`-V`, command help with examples (`aih help [command]`, `-h`), pure `aih validate <execution-policy|organization-policy|recipe> <file>` and a `--no-log` option for `policy` and `repair` that disables routine history for Prepare and Apply. Version, help and validation perform no target inspection, network access or state writes. No public schema or API changes; these await the next uniquely versioned Core distribution.
+
 Adds an isolated public consumer example and explicit packed-artifact acceptance
 gate for policy authoring/reopening, complete Scan presentation and UI-owned
 Prepare/Apply. Compatible Catalog content and new report bytes use the same

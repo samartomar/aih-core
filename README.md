@@ -34,6 +34,16 @@ result retains its existing shape without a `schema` property.
 
 JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, check/material references, input definitions and bindings. These checks do not grant organization authority or permission to execute.
 
+## Discover the CLI
+
+`aih --version` (or `-V`) prints `@aihq/core <version>` from the installed package; with `--json` it emits `{"name","version"}`. `aih --help`, `-h` or `aih help` lists every command; `aih help <command>` or `aih <command> --help` adds concise examples. `aih validate <execution-policy|organization-policy|recipe> <file> [--json]` checks a file with the portable validators and returns `{status, kind, schema, diagnostics}` (exit 0 valid, 2 invalid) with their diagnostics unchanged. Version, help and validate read only the named file: no target inspection, network access, history or state. Unknown commands, kinds or option combinations exit 2 with the usual `INPUT_INVALID` refusal. Nothing checks for updates.
+
+```sh
+aih --version --json
+aih help validate
+aih validate recipe recipe.json --json
+```
+
 ## Inspect existing tools
 
 Inspection reads the locally bundled Harness definitions and reports the actual installed `@aihq/core` distribution version. It requires no policy, Catalog or Scan. It observes detected tools by default, runs only their declared bounded diagnostics, and makes no repair or history changes.
@@ -173,9 +183,11 @@ aih policy policy.json --project /absolute/project --json
 aih policy policy.json --project /absolute/project --apply
 # Explicit automation authorization for this invocation:
 aih policy policy.json --project /absolute/project --apply --yes --json
+# Same, with routine history off:
+aih policy policy.json --project /absolute/project --apply --yes --no-log --json
 ```
 
-Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
+Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. `--no-log` (accepted by `policy` and `repair` only) turns routine history off for both Prepare and Apply, so the result record is `{"status":"disabled","reason":"logging-off"}`; ownership, recovery and approval are unchanged. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
 
 An author may use `config.entries` for selected JSON/JSONC or unambiguous scalar TOML keys, `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. The prepared review shows resolved edits and checks, including executable byte hashes, argv, environment, accepted exit codes and bounds; private values are redacted. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
 
