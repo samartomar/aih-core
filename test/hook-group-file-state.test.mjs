@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkFileState } from '../dist/core/index.js';
-import { SETTINGS, groupOf, hookOp, hookSelection, policy11, sandbox } from './hook-group-fixture.mjs';
+import { SETTINGS, sha, groupOf, hookOp, hookSelection, policy11, sandbox } from './hook-group-fixture.mjs';
 import { compact, guard, neighbor, run } from './hook-group-harness.mjs';
 
 const check = (s, policy) => checkFileState({ policy, target: { project: s.project } });
@@ -69,5 +70,25 @@ test('file-state folds an earlier hook operation into a later operation on the s
     assert.deepEqual(outcome(await check(s, both)), ['changed', 'content-changed']);
     await run(s, both);
     assert.deepEqual(outcome(await check(s, both)), ['match', 'content-match']);
+  } finally { s.dispose(); }
+});
+
+test('file-state refuses a 1.0 policy that acquires a 1.1 recipe by reference, as Prepare does', async () => {
+  const s = sandbox();
+  const source = mkdtempSync(join(tmpdir(), 'aih-hook-source-'));
+  try {
+    const raw = Buffer.from(JSON.stringify(hookSelection('guard-a', [hookOp('add', 'guard-a')]).recipe.inline));
+    writeFileSync(join(source, 'recipe.json'), raw);
+    const selection = { id: 'guard-a', managementId: 'guard-a', scope: 'project', configuration: {}, requires: [],
+      recipe: { reference: { source: { kind: 'local', input: 'source' }, path: 'recipe.json', sha256: sha(raw), byteLength: raw.length, materials: [] } } };
+    s.write(SETTINGS, compact([groupOf('guard-a')]));
+    const old = await checkFileState({ policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [selection] },
+      target: { project: s.project } }, { materialRoots: { source } });
+    assert.equal(old.status, 'invalid');
+    assert.equal(old.fileState, 'unverified');
+    assert.equal(old.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
+    assert.equal(old.diagnostics[0].reason, 'recipe-schema');
+    const current = await checkFileState({ policy: policy11([selection]), target: { project: s.project } }, { materialRoots: { source } });
+    assert.deepEqual(outcome(current), ['match', 'content-match'], 'the same recipe is admitted under a 1.1 policy');
   } finally { s.dispose(); }
 });

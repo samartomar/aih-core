@@ -7,7 +7,7 @@ import type { GuidanceFact, GuidanceRequest } from '../harness/guidance.mjs';
 import { repairIndex } from '../harness/contracts.mjs';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, jsonOwnEntriesV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
-import { HOOK_REASONS, isHookReason } from './internal/hook-guidance.js';
+import { HOOK_REASONS, isHookConflict, isHookReason } from './internal/hook-guidance.js';
 
 export type SupportPlatform = 'win32' | 'darwin' | 'linux' | 'unknown';
 export interface SupportRepairContext { id: string; targets: string[] }
@@ -230,8 +230,8 @@ function derive(adapted: Adapted): GuidanceItem[] {
       steps: [...guidance.steps], evidenceIds: [`/review/operations/${index}`], repairs: [] });
   });
   if (!specific.length) return generic;
-  (review.conflicts as Data[]).forEach((item, index) => { if (isHookReason(item.reason)) covered.add(`/review/conflicts/${index}`); });
-  (adapted.result.diagnostics as Data[]).forEach((item, index) => { if (item.code === 'STATE_CONFLICT' && isHookReason(item.reason)) covered.add(`/diagnostics/${index}`); });
+  (review.conflicts as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/review/conflicts/${index}`); });
+  (adapted.result.diagnostics as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/diagnostics/${index}`); });
   const kept = generic.filter(item => !(item.id === 'diagnostic-review' && item.evidenceIds.some(id => covered.has(id))));
   return [...kept.filter(item => item.audience === 'developer'), ...specific, ...kept.filter(item => item.audience === 'administrator')];
 }

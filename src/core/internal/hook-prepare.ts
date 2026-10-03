@@ -30,6 +30,8 @@ export interface HookDecision {
   custodyOnly: boolean;
   managed: boolean;
   details: HookDetails;
+  /** Group ID of a different retained group that blocked this step, so the conflict never blames the current group. */
+  neighbor?: string;
 }
 export interface HookStepInput {
   authored: HookAuthored; path: string; key: string; before: Buffer | null; owner: Owner | undefined;
@@ -44,11 +46,12 @@ const canonicalDigest = (value: unknown): string => sha256(canonicalJson(value))
 const sameSelector = (a: { path: (string | number)[]; valueSha256: string }, b: { path: (string | number)[]; valueSha256: string }): boolean =>
   a.valueSha256 === b.valueSha256 && canonicalJson(a.path) === canonicalJson(b.path);
 
+type ImageProblem = { reason: string; neighbor?: string };
 /** Before/after-image proof that every retained descriptor still selects exactly its own distinct element. */
 function imageConflict(a: HookAuthored, before: Buffer | null, after: Buffer | null, retained: RetainedHook[],
-    current: { key: string; selector: { path: (string | number)[]; valueSha256: string } } | null, currentWasPresent: boolean): string | undefined {
-  const all = [...retained.map(item => ({ key: item.key, selector: item.descriptor.selector, other: true })),
-    ...(current ? [{ key: current.key, selector: current.selector, other: false }] : [])];
+    current: { key: string; selector: { path: (string | number)[]; valueSha256: string } } | null, currentWasPresent: boolean): ImageProblem | undefined {
+  const all = [...retained.map(item => ({ key: item.key, groupId: item.descriptor.groupId, selector: item.descriptor.selector, other: true })),
+    ...(current ? [{ key: current.key, groupId: a.groupId, selector: current.selector, other: false }] : [])];
   const locate = (bytes: Buffer | null) => all.map(item => ({ ...item, found: locateHookGroups(a.format, bytes, a.container, item.selector) }));
   const distinct = (rows: ReturnType<typeof locate>): boolean => {
     const claimed = new Set<number>();
@@ -59,18 +62,18 @@ function imageConflict(a: HookAuthored, before: Buffer | null, after: Buffer | n
     return true;
   };
   const prior = locate(before);
-  for (const row of prior) if (row.other && row.found.candidates.length !== 1)
-    return row.found.candidates.length ? 'hook-selector-ambiguous' : 'owned-hook-missing';
-  if (!distinct(prior.filter(row => row.other || currentWasPresent))) return 'hook-selector-overlap';
+  // A different retained group that is missing or ambiguous cannot be proven distinct; the fix is manual and never a replace of this group.
+  for (const row of prior) if (row.other && row.found.candidates.length !== 1) return { reason: 'hook-selector-overlap', neighbor: row.groupId };
+  if (!distinct(prior.filter(row => row.other || currentWasPresent))) return { reason: 'hook-selector-overlap' };
   if (after === before || after !== null && before !== null && after.equals(before)) return undefined;
   const next = locate(after);
   for (const row of next) {
-    if (row.found.candidates.length !== 1) return row.other ? 'hook-selector-overlap' : 'hook-after-collision';
+    if (row.found.candidates.length !== 1) return row.other ? { reason: 'hook-selector-overlap', neighbor: row.groupId } : { reason: 'hook-after-collision' };
     const element = row.found.candidates[0]!;
-    if (row.other && element.rawSha256 !== prior.find(item => item.key === row.key)!.found.candidates[0]!.rawSha256) return 'hook-selector-overlap';
-    if (row.found.elements.filter(item => item.canonicalSha256 === element.canonicalSha256).length > 1) return 'hook-after-collision';
+    if (row.other && element.rawSha256 !== prior.find(item => item.key === row.key)!.found.candidates[0]!.rawSha256) return { reason: 'hook-selector-overlap', neighbor: row.groupId };
+    if (row.found.elements.filter(item => item.canonicalSha256 === element.canonicalSha256).length > 1) return { reason: 'hook-after-collision' };
   }
-  return distinct(next) ? undefined : 'hook-selector-overlap';
+  return distinct(next) ? undefined : { reason: 'hook-selector-overlap' };
 }
 
 function details(a: HookAuthored, before: Buffer | null, location: HookLocation | undefined, memberAfter: string | null,
@@ -90,8 +93,8 @@ export function decideHookStep(i: HookStepInput): HookDecision {
   const wanted = a.action === 'set' ? canonicalDigest(a.group) : null;
   const shell = (location: HookLocation | undefined, memberAfter: string | null) => details(a, i.before, location, memberAfter, a.group);
   let location: HookLocation | undefined;
-  const conflict = (reason: string): HookDecision => ({ effect: 'conflict', reason, after: i.before, custody: owner ?? null, custodyOnly: false,
-    managed: false, details: shell(location, null) });
+  const conflict = (reason: string, neighbor?: string): HookDecision => ({ effect: 'conflict', reason, after: i.before, custody: owner ?? null, custodyOnly: false,
+    managed: false, details: shell(location, null), ...(neighbor ? { neighbor } : {}) });
   if (i.forced) return conflict(i.forced);
   try { location = locateHookGroups(a.format, i.before, a.container, selector); }
   catch (error) { if (error instanceof RecipeEditError) return conflict(error.reason); throw error; }
@@ -111,7 +114,7 @@ export function decideHookStep(i: HookStepInput): HookDecision {
   const finish = (after: Buffer | null, claimList: Claim[], retained: boolean, reason?: string): HookDecision => {
     const written = !(after === null && i.before === null) && !(after !== null && i.before !== null && after.equals(i.before));
     const problem = imageConflict(a, i.before, after, i.retained, retained ? { key: i.key, selector } : null, !!found);
-    if (problem) return conflict(problem);
+    if (problem) return conflict(problem.reason, problem.neighbor);
     const element = retained ? locateHookGroups(a.format, after, a.container, selector).candidates[0] : undefined;
     const effect = !written ? 'already-satisfied' : i.before === null ? 'create-file' : 'replace-file';
     const identity = a.action === 'set' ? i.recipeIdentity : owner?.recipeIdentity ?? i.recipeIdentity;
@@ -164,13 +167,19 @@ export function decideHookStep(i: HookStepInput): HookDecision {
   // Authored remove: only a claim this selection holds is revoked; an unowned or foreign group is never guessed at.
   if (adopt) throw new Error('resolution-invalid');
   if (!found) return attempt(() => finish(i.before, mine ? others : claims, others.length > 0 || !mine && claims.length > 0));
-  if (!owner || !mine) return conflict('existing-content');
+  if (!owner) return conflict('existing-content');
+  if (!mine) {
+    // Another claim still owns the group and this selection holds none: the removal is already satisfied and changes nothing.
+    const problem = imageConflict(a, i.before, i.before, i.retained, { key: i.key, selector }, true);
+    if (problem) return conflict(problem.reason, problem.neighbor);
+    return { effect: 'already-satisfied', after: i.before, custody: owner, custodyOnly: false, managed: false, details: shell(location, found.canonicalSha256) };
+  }
   const canonicalDrift = found.canonicalSha256 !== owner.canonicalSha256;
   const rawDrift = found.rawSha256 !== owner.sha256;
   const retainedGroup = (reason?: string): HookDecision => {
     const refreshed = { ...owner, claims: others, managementId: others[0]!.managementId, sha256: found.rawSha256, canonicalSha256: found.canonicalSha256 };
     const problem = imageConflict(a, i.before, i.before, i.retained, { key: i.key, selector }, true);
-    if (problem) return conflict(problem);
+    if (problem) return conflict(problem.reason, problem.neighbor);
     return { effect: 'already-satisfied', ...(reason ? { reason } : {}), after: i.before, custody: refreshed, custodyOnly: true, managed: ownerState,
       details: shell(location, found.canonicalSha256) };
   };
@@ -211,7 +220,8 @@ export function decideHookCleanup(i: HookCleanupInput): HookDecision {
     action: 'remove', matchedIndex: location?.candidates[0]?.index ?? null, memberBeforeSha256: location?.candidates[0]?.canonicalSha256 ?? null,
     memberAfterSha256: memberAfter, targetBeforeSha256: digestOf(i.before), desiredGroup: null });
   let location: HookLocation | undefined;
-  const conflict = (reason: string): HookDecision => ({ effect: 'conflict', reason, after: i.before, custody: i.owner, custodyOnly: false, managed: false, details: base(location, null) });
+  const conflict = (reason: string, neighbor?: string): HookDecision => ({ effect: 'conflict', reason, after: i.before, custody: i.owner, custodyOnly: false, managed: false, details: base(location, null),
+    ...(neighbor ? { neighbor } : {}) });
   if (i.forced) return conflict(i.forced);
   try { location = locateHookGroups(descriptor.format, i.before, descriptor.container, descriptor.selector); }
   catch (error) { if (error instanceof RecipeEditError) return conflict(error.reason); throw error; }
@@ -222,13 +232,13 @@ export function decideHookCleanup(i: HookCleanupInput): HookDecision {
   if (found.rawSha256 !== i.owner.sha256 || found.canonicalSha256 !== i.owner.canonicalSha256) return conflict('managed-content-changed');
   if (remaining) {
     const problem = imageConflict(authored, i.before, i.before, i.retained, { key: i.key, selector: descriptor.selector }, true);
-    if (problem) return conflict(problem);
+    if (problem) return conflict(problem.reason, problem.neighbor);
     return { effect: 'already-satisfied', after: i.before, custody: remaining, custodyOnly: true, managed: true, details: base(location, found.canonicalSha256) };
   }
   try {
     const after = removeHookGroup(descriptor.format, i.before!, descriptor.container, found.index);
     const problem = imageConflict(authored, i.before, after, i.retained, null, true);
-    if (problem) return conflict(problem);
+    if (problem) return conflict(problem.reason, problem.neighbor);
     return { effect: 'replace-file', after, custody: null, custodyOnly: false, managed: true, details: base(location, null) };
   } catch (error) { if (error instanceof RecipeEditError) return conflict(error.reason); throw error; }
 }

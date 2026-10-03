@@ -306,6 +306,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         } catch { throw new Error('recipe-invalid'); }
         const recipeValidation = validateRecipe(recipe);
         if (!recipeValidation.valid) return failWith('validation', recipeValidation.diagnostics);
+        // The enclosing policy version gates acquired recipe bytes exactly as Prepare does.
+        if (policy.schema !== 'urn:aihq:core:execution-policy:1.1.0' && recipe.schema === 'urn:aihq:core:recipe:1.1.0')
+          return failWith('recipe-schema', [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
+            encountered: recipe.schema, supported: ['urn:aihq:core:recipe:1.0.0'], guidance: 'Author an execution-policy 1.1.0 document to select a recipe 1.1.0.' }]);
         const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))
           .sort((a, b) => codeUnitCompare(a.id, b.id));
         const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))

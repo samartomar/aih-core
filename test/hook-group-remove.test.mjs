@@ -17,8 +17,10 @@ async function owned(s, layout) {
 }
 
 const layouts = {
-  first: ['[\n      OWNED,\n      {"a":1},\n      {"b":2}\n    ]', '[\n      \n      {"a":1},\n      {"b":2}\n    ]'],
-  middle: ['[\n      {"a":1},\n      OWNED,\n      {"b":2}\n    ]', '[\n      {"a":1},\n      \n      {"b":2}\n    ]'],
+  first: ['[\n      OWNED,\n      {"a":1},\n      {"b":2}\n    ]', '[\n      {"a":1},\n      {"b":2}\n    ]'],
+  middle: ['[\n      {"a":1},\n      OWNED,\n      {"b":2}\n    ]', '[\n      {"a":1},\n      {"b":2}\n    ]'],
+  'first on one line': ['[OWNED, {"a":1}]', '[{"a":1}]'],
+  'middle minified': ['[{"a":1},OWNED,{"b":2}]', '[{"a":1},{"b":2}]'],
   last: ['[\n      {"a":1},\n      {"b":2},\n      OWNED\n    ]', '[\n      {"a":1},\n      {"b":2}\n    ]'],
   'last with trailing comma': ['[{"a":1},OWNED,]', '[{"a":1}]'],
   singleton: ['[\n      OWNED\n    ]', '[\n      \n    ]'],

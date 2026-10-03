@@ -223,3 +223,28 @@ test('implicit obsolete-member cleanup of an edited group preserves custody with
     assert.match(prepared.review.conflicts[0].guidance, /Restore the recorded content or reconcile every claim manually/);
   } finally { s.dispose(); }
 });
+
+test('repeating a removal after its claim was revoked is already satisfied while another claim keeps the group', async () => {
+  const s = sandbox();
+  try {
+    const before = await shared(s, 'claim-a', 'claim-b');
+    await run(s, drop(['claim-a']));
+    const { prepared, result } = await run(s, drop(['claim-a']));
+    assert.equal(prepared.review.operations[0].effects, 'already-satisfied');
+    assert.deepEqual(prepared.review.conflicts, []);
+    assert.equal(result.completion, 'complete');
+    assert.equal(result.operations[0].application, 'already-satisfied');
+    assert.equal(s.read(SETTINGS), before, 'the shared group is untouched');
+    assert.deepEqual(claimants(s), ['claim-b'], 'the surviving claim keeps custody');
+    assert.equal((await prep(s, drop(['claim-a']))).status, 'ready', 'and the removal stays repeatable');
+  } finally { s.dispose(); }
+});
+
+test('an unowned identical group is still existing content for a removal that holds no claim', async () => {
+  const s = sandbox();
+  try {
+    s.write(SETTINGS, compact([neighbor('a'), GROUP]));
+    const prepared = await prep(s, drop(['claim-a']));
+    assert.deepEqual(reasons(prepared), ['existing-content']);
+  } finally { s.dispose(); }
+});

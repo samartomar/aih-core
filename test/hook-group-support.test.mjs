@@ -50,3 +50,44 @@ test('support accepts 1.1 run results, including cleanup-only runs, and still re
     }
   } finally { s.dispose(); }
 });
+
+test('support keeps generic guidance for a non-hook conflict that shares a reason with a hook conflict', async () => {
+  const s = sandbox();
+  try {
+    s.write(SETTINGS, compact([neighbor('a'), groupOf('guard-a', { matcher: 'Other' })]));
+    s.write('TEAM.md', 'user-authored\n');
+    const teamOnly = hookSelection('team', [{ id: 'write', purpose: 'Write team guidance', kind: 'file.write', scope: 'project', requires: [], checks: [],
+      target: { root: 'project', segments: [{ literal: 'TEAM.md' }] }, content: { literal: 'managed\n' } }]);
+    const hookOnly = guard();
+    const generic = getGuidance({ kind: 'prepare', result: await prep(s, policy11([teamOnly])) }, options);
+    const control = generic.items.filter(item => item.id === 'diagnostic-review').length;
+    assert.ok(control > 0, 'the control: a lone file conflict gets generic guidance');
+    const both = await prep(s, policy11([...hookOnly.selections, teamOnly]));
+    assert.deepEqual(both.review.conflicts.map(item => item.reason).sort(), ['existing-content', 'existing-content']);
+    const guidance = getGuidance({ kind: 'prepare', result: both }, options);
+    assert.equal(guidance.items.filter(item => item.id === 'hook-group-conflict').length, 1);
+    const kept = guidance.items.filter(item => item.id === 'diagnostic-review');
+    assert.equal(kept.length, control, 'the TEAM.md conflict keeps exactly the generic guidance it has alone');
+  } finally { s.dispose(); }
+});
+
+test('guidance for a structurally unreadable target names the real problem, never the comment-adjacency text', async () => {
+  const s = sandbox();
+  try {
+    const cases = [
+      ['duplicate-json-key', '{"hooks":{"PreToolUse":[]},"hooks":{"PreToolUse":[]}}', /key/i],
+      ['unsupported-json-syntax', '{"hooks":{"PreToolUse":[}}', /syntax/i],
+      ['hook-edit-unsafe', '{"hooks":{"PreToolUse":{}}}', /array/i]
+    ];
+    for (const [reason, text, expected] of cases) {
+      s.write(SETTINGS, text);
+      const blocked = await prep(s, guard());
+      assert.equal(blocked.review.conflicts[0].reason, reason);
+      assert.match(blocked.review.conflicts[0].message, /guard-a/, 'the group is attributed');
+      const steps = getGuidance({ kind: 'prepare', result: blocked }, options).items.find(item => item.id === 'hook-group-conflict').steps.join(' ');
+      assert.match(steps, expected, reason);
+      assert.equal(/adjacent/i.test(steps), reason === 'hook-edit-unsafe', reason);
+      assert.equal(blocked.review.conflicts[0].guidance.includes('adjacent'), reason === 'hook-edit-unsafe', reason);
+    }
+  } finally { s.dispose(); }
+});

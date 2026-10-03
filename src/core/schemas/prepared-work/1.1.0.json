@@ -223,7 +223,10 @@
           "requires",
           "checks",
           "details"
-        ]
+        ],
+        "if": { "properties": { "kind": { "const": "hook.group" } }, "required": ["kind"] },
+        "then": { "properties": { "details": { "type": "object", "properties": { "hookGroup": {} }, "required": ["hookGroup"] } } },
+        "else": { "properties": { "details": { "not": { "type": "object", "properties": { "hookGroup": {} }, "required": ["hookGroup"] } } } }
       }
     },
     "observations": {

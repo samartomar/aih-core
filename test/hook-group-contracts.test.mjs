@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/core/contracts.js';
 import { policy } from './fixture.mjs';
-import { POLICY_11, RECIPE_11, PREPARED_11, RESULT_11, hookOp, hookSelection, policy11, groupOf } from './hook-group-fixture.mjs';
+import { guard, run, validPrepared, validResult } from './hook-group-harness.mjs';
+import { POLICY_11, RECIPE_11, PREPARED_11, RESULT_11, hookOp, hookSelection, policy11, groupOf, sandbox } from './hook-group-fixture.mjs';
 
 const baseHashes = {
   'execution-policy': '3dd28436e048396f51fcf101a7939530ce75110e1dae92c7c9d6f7879d9f7117',
@@ -91,4 +92,22 @@ test('invalid hook descriptors use input diagnostics', () => {
   assert.equal(validatePolicy(sibling).valid, true, 'distinct group IDs may share a container');
   const otherContainer = policy11([hookSelection('guard', [hookOp('one', 'guard-a'), hookOp('two', 'guard-a', { container: ['hooks', 'PostToolUse'] })])]);
   assert.equal(validatePolicy(otherContainer).valid, true);
+});
+
+test('the published 1.1 schemas require hook details on a hook.group operation and keep run results to the policy use case', async () => {
+  const s = sandbox();
+  try {
+    const { prepared, result } = await run(s, guard());
+    const review = structuredClone(prepared.review);
+    assert.equal(validPrepared(review), true, JSON.stringify(validPrepared.errors));
+    delete review.operations[0].details.hookGroup;
+    assert.equal(validPrepared(review), false, 'a hook.group operation without details.hookGroup is rejected');
+    const fileLike = structuredClone(prepared.review);
+    fileLike.operations[0].kind = 'file.write';
+    assert.equal(validPrepared(fileLike), false, 'hook details on any other operation kind are rejected');
+    const repair = structuredClone(result);
+    assert.equal(validResult(repair), true, JSON.stringify(validResult.errors));
+    repair.useCase = 'repair';
+    assert.equal(validResult(repair), false, 'run-result 1.1 is policy-only, like prepared-work 1.1');
+  } finally { s.dispose(); }
 });

@@ -23,7 +23,7 @@
       "type": "string"
     },
     "useCase": {
-      "enum": ["policy", "repair"]
+      "enum": ["policy"]
     },
     "completion": {
       "enum": [

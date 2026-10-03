@@ -1,8 +1,6 @@
 import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
-import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock, RecipeEditError } from './recipe-editors.js';
-import { locateHookGroups } from './hook-group.js';
-import { decode } from './recipe-editors.js';
+import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock } from './recipe-editors.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
@@ -16,20 +14,15 @@ export function memberKey(member: MemberDescriptor): string {
     kind: member.kind, format: member.format, container: member.container, groupId: member.groupId }));
   return 'member:' + sha256(canonicalJson({ ...member, path: process.platform === 'win32' ? member.path.toLowerCase() : member.path }));
 }
-export function memberBytes(member: MemberDescriptor, bytes: Buffer | null): Buffer | null {
+/** Whole-file, entry and block members only: a hook member is decided by `decideHookStep` / `decideHookCleanup`, never by raw member bytes. */
+export type ByteMember = Exclude<MemberDescriptor, HookDescriptor>;
+export function memberBytes(member: ByteMember, bytes: Buffer | null): Buffer | null {
   if (member.kind === 'file') return bytes;
-  if (member.kind === 'hook') {
-    const found = locateHookGroups(member.format, bytes, member.container, member.selector);
-    if (found.candidates.length > 1) throw new RecipeEditError('hook-selector-ambiguous');
-    const only = found.candidates[0];
-    return only ? Buffer.from(decode(bytes).slice(only.offset, only.offset + only.length), 'utf8') : null;
-  }
   if (member.kind === 'entry') return configMemberBytes(member.format, bytes, member.entry);
   return blockMemberBytes(bytes, { ...member, action: 'remove' });
 }
-export function subtractMember(member: MemberDescriptor, bytes: Buffer | null): Buffer | null {
+export function subtractMember(member: ByteMember, bytes: Buffer | null): Buffer | null {
   if (member.kind === 'file') return null;
-  if (member.kind === 'hook') throw new RecipeEditError('hook-edit-unsafe'); // Hook cleanup has its own reviewed path.
   if (member.kind === 'entry') return bytes === null ? null : renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
   return renderTextBlock(bytes, { ...member, action: 'remove' });
 }
@@ -53,7 +46,8 @@ export function validDescriptor(value: unknown): value is MemberDescriptor {
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function validHook(member: HookDescriptor): boolean {
   const selector = member.selector as unknown;
-  const sound = (value: unknown, bound: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= bound && !/[\p{Cc}\p{Cf}]/u.test(value);
+  // The recipe schema bounds strings in code points (Ajv), so custody must too or an admitted recipe could never be written.
+  const sound = (value: unknown, bound: number): value is string => typeof value === 'string' && value.length > 0 && [...value].length <= bound && !/[\p{Cc}\p{Cf}]/u.test(value);
   return ['json', 'jsonc'].includes(member.format) && Array.isArray(member.container) && member.container.length >= 1 && member.container.length <= 32 &&
     member.container.every(part => sound(part, 256)) && typeof member.groupId === 'string' && idPattern.test(member.groupId) &&
     !!selector && typeof selector === 'object' && !Array.isArray(selector) &&

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prepare, apply } from '../dist/core/index.js';
-import { SETTINGS, authorize, canonicalSha, groupOf, request, sandbox, sha } from './hook-group-fixture.mjs';
+import { SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11, request, sandbox, sha } from './hook-group-fixture.mjs';
 import { compact, controls, guard, guardWith, groupsOf, neighbor, only, prep, resolveOp, run } from './hook-group-harness.mjs';
 
 test('an update replaces the owned group at its located index after neighbors edit in place and append', async () => {
@@ -154,5 +154,29 @@ test('an unreadable or empty target is a conflict and never a crash', async () =
       assert.equal(blocked.review.conflicts[0].code, 'STATE_CONFLICT');
       assert.equal(s.read(SETTINGS), text);
     }
+  } finally { s.dispose(); }
+});
+
+test('a deleted retained neighbor blocks other operations naming that neighbor with manual-reconciliation guidance, not a replace', async () => {
+  const s = sandbox();
+  try {
+    s.write(SETTINGS, compact([neighbor('a')]));
+    await run(s, policy11([hookSelection('guard-a', [hookOp('add', 'guard-a')]), hookSelection('guard-b', [hookOp('add', 'guard-b')])]));
+    const dropped = s.read(SETTINGS).replace(',{"hooks":[{"command":"hooks/guard-b.sh","type":"command"}],"matcher":"Bash"}', '');
+    assert.equal(groupsOf(s).length, 3);
+    s.write(SETTINGS, dropped);
+    assert.equal(groupsOf(s).length, 2, 'guard-b was deleted by hand');
+    const next = policy11([hookSelection('guard-a', [hookOp('add', 'guard-a', { group: groupOf('guard-a', { matcher: 'Changed' }) })])]);
+    const blocked = await prep(s, next);
+    assert.equal(blocked.status, 'blocked');
+    const conflict = blocked.review.conflicts[0];
+    assert.equal(conflict.reason, 'hook-selector-overlap');
+    assert.match(conflict.message, /guard-b/, 'the missing neighbor is named');
+    assert.doesNotMatch(conflict.guidance, /replace/i, 'a replace of the current group is never offered as the fix');
+    assert.match(conflict.guidance, /manually/);
+    const forced = await prep(s, next, [resolveOp(blocked, 'guard-a', 'add')]);
+    assert.equal(forced.status, 'blocked');
+    assert.equal(forced.review.conflicts[0].reason, 'hook-selector-overlap');
+    assert.equal(s.read(SETTINGS), dropped, 'nothing was written');
   } finally { s.dispose(); }
 });

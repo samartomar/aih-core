@@ -75,3 +75,17 @@ test('the first group upgrades the ownership root to 1.1 and stores only digests
     assert.equal(readFileSync(join(s.home, '.aih', 'core', 'ownership', roots[0].name), 'utf8').includes('"matcher"'), false);
   } finally { s.dispose(); }
 });
+
+test('container keys and selector path keys are bounded in code points, so every admitted recipe can be applied', async () => {
+  const s = sandbox();
+  try {
+    const emoji = '😀'.repeat(200); // 200 code points, 400 UTF-16 units: within the published 256 bound
+    const container = ['hooks', emoji];
+    const group = { matcher: 'Bash', [emoji]: [{ type: 'command', command: 'hooks/guard-a.sh' }] };
+    const policy = policy11([hookSelection('guard-a', [hookOp('add', 'guard-a', { container, group, selector: { path: [emoji, 0, 'command'], value: 'hooks/guard-a.sh' } })])]);
+    const { prepared, result } = await run(s, policy);
+    assert.equal(prepared.review.operations[0].effects, 'create-file');
+    assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
+    assert.deepEqual(JSON.parse(s.read(SETTINGS)).hooks[emoji], [group]);
+  } finally { s.dispose(); }
+});

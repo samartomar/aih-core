@@ -74,6 +74,20 @@ test('a packed Core consumer adds, updates, conflicts, resolves and removes an o
       const second=await run('update.json');
       assert.equal(second.p.review.operations[0].details.hookGroup.matchedIndex,1);
       assert.equal((await checkFileState(fsRequest('add.json'))).fileState,'changed');
+      // A neighbor edit between Prepare and Apply stales the review and writes nothing.
+      const fs=await import('node:fs');
+      const reviewed=await prepare(request('add.json'),{logging:'off'});
+      assert.equal(reviewed.status,'ready');
+      const original=fs.readFileSync(process.env.TEST_SETTINGS,'utf8');
+      const neighborEdited=original.replace('mine/a.sh','mine/a-edited-after-review.sh');
+      assert.notEqual(neighborEdited,original);
+      fs.writeFileSync(process.env.TEST_SETTINGS,neighborEdited);
+      const stale=await apply(reviewed.prepared,approve(reviewed),{logging:'off'});
+      assert.equal(stale.completion,'rejected');
+      assert.equal(stale.diagnostics.at(-1).code,'REVIEW_STALE');
+      assert.deepEqual(stale.operations.map(item=>item.application),['not-attempted']);
+      assert.equal(fs.readFileSync(process.env.TEST_SETTINGS,'utf8'),neighborEdited,'a stale Apply mutates nothing');
+      fs.writeFileSync(process.env.TEST_SETTINGS,original);
       // A reviewed conflict, with safe public guidance.
       const edited=readFileSync(process.env.TEST_SETTINGS,'utf8');
       const text=edited.replace('"Write"','"Locally-edited"');

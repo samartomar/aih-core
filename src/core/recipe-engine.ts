@@ -15,9 +15,9 @@ import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwners
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
-import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
+import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type RetainedHook } from './internal/hook-prepare.js';
-import { hookGuidanceText } from './internal/hook-guidance.js';
+import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
@@ -79,8 +79,9 @@ const PREPARED_11 = 'urn:aihq:core:prepared-work:1.1.0' as const;
 const RESULT_10 = 'urn:aihq:core:run-result:1.0.0' as const;
 const RESULT_11 = 'urn:aihq:core:run-result:1.1.0' as const;
 const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
-function hookConflict(reason: string, groupId: string, path: string, privateValues: string[]): Diagnostic {
-  return { code: 'STATE_CONFLICT', reason, message: `Hook group ${safeText(groupId, privateValues)} has a conflict that needs review.`,
+function hookConflict(decision: HookDecision, groupId: string, path: string, privateValues: string[]): Diagnostic {
+  const reason = decision.reason!;
+  return { code: 'STATE_CONFLICT', reason, message: hookConflictMessage(safeText(groupId, privateValues), decision.neighbor === undefined ? undefined : safeText(decision.neighbor, privateValues)),
     path: safeText(path, privateValues), guidance: hookGuidanceText(reason) };
 }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
@@ -473,7 +474,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             details = { target: safeText(target.absolute, privateValues), format: op.format, mode: mode!,
               ...(decision.reason ? { reason: decision.reason } : {}), hookGroup: { ...decision.details, desiredGroup } };
             if (effect === 'conflict') {
-              conflicts.push(hookConflict(decision.reason!, op.groupId, path, privateValues));
+              conflicts.push(hookConflict(decision, op.groupId, path, privateValues));
               hookConflicts.set(`${root}:${hookKey}`, id);
             } else overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
             emit();
@@ -504,7 +505,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else after = null;
           if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
-          const descriptors: MemberDescriptor[] = op.kind === 'config.entries' ? op.entries.map(entry => ({ path: path!, kind: 'entry', format: op.format, entry: entry.path })) :
+          const descriptors: ByteMember[] = op.kind === 'config.entries' ? op.entries.map(entry => ({ path: path!, kind: 'entry', format: op.format, entry: entry.path })) :
             op.kind === 'text.block' ? [{ path, kind: 'block', blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker }] : [{ path, kind: 'file' }];
           try {
             const claim: Claim = { managementId: selection.managementId, scope: selection.scope, sets: (policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id), requires: selection.requires.map(id => { const dependency = policy.selections.find(item => item.id === id)!; return claimIdentity(dependency.scope, dependency.managementId, project!); }) };
@@ -695,7 +696,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
-        if (!matching) conflicts.push(hookConflict(hookDecision.reason!, hookDecision.details.groupId, descriptor.path, []));
+        if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
       else if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
       else if (before !== null && after === null) effect = 'remove-file';
@@ -845,6 +846,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     validateControls(controls); result.effectiveOptions.logging = loggingOption(controls);
     await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
+    // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
     result.schema = state.review.schema === PREPARED_11 ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
@@ -1033,7 +1035,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
               if (invocation.cwdPins.some(pin => pin.identity === 'absent' && createdParents.some(parent => parent.path === pin.path)))
                 invocation.cwdPins = pathPins(invocation.cwd);
           }
-        } catch (error) {
+        } catch {
           operation.application = 'failed'; operation.reason = 'file-effect'; operation.effectsUncertain = true;
         }
       }
