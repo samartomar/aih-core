@@ -10,8 +10,9 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `writeSupportReport`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
+| `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
@@ -370,6 +371,54 @@ decoded report+annex bytes, 1 MiB attestation, 128 KiB signed statement, and 1 M
 selected trust with at most 128 keys and 32 publishers. Inputs exceeding bounds
 are refused rather than truncated. The verifier dependencies are pinned; Core
 imports neither the Scan engine nor Catalog.
+
+## Guidance and support reports
+
+The portable `@aihq/core/support` entry derives actionable guidance from an
+existing public result without any host access, process execution, network,
+writes or state lookup. Wrap the result you already have as
+`{kind: 'inspect'|'prepare'|'run', result, repair?}` (`repair` carries only the
+published repair `id` and selected `targets`) and pass an explicit
+`{platform}` (`win32`/`darwin`/`linux`/`unknown`):
+
+```js
+import { getGuidance, renderSupportMarkdown } from '@aihq/core/support';
+
+const guidance = getGuidance({ kind: 'inspect', result: inspection }, { platform: 'win32' });
+const rendered = renderSupportMarkdown({ kind: 'inspect', result: inspection }, { platform: 'win32' });
+```
+
+`getGuidance` returns ordered items naming the audience, summary, steps and any
+applicable published repair with its required inputs; `renderSupportMarkdown`
+returns a sanitized Markdown summary of the same content. Guidance never
+executes a command, reruns an observation, or authorizes anything; a suggested
+repair still needs its own explicit Prepare/Apply review.
+
+The Node host adds `writeSupportReport(input, {platform, path, signal?})` on
+`@aihq/core`, and the CLI adds `--support-markdown <path>` to `inspect`,
+`policy` and `repair` (preview and `--apply` forms export the one final result
+of that invocation):
+
+```sh
+aih inspect --target node --offline --json --support-markdown inspection-report.md
+```
+
+The report is written only on this explicit request, to the exact absolute path
+(a relative path is resolved against the current directory by the CLI). The
+path must end in `.md`, its directory must already exist, and creation is
+exclusive: an existing file is left byte-for-byte untouched, links and
+nonregular destinations are refused, nothing creates directories, chooses
+suffixes, overwrites, shares or uploads. JSON stdout is unchanged with or
+without the flag; stderr carries one receipt (`Support report written: <path>`)
+or one failure line (`Support report not written: <reason>`). A successful
+operation whose export fails exits 1; existing nonzero exits are preserved.
+Non-JSON `inspect` and `repair` invocations also append the same human next
+actions to stderr; JSON mode never prints that prose.
+
+Report content follows a strict allowlist rather than secret-pattern search:
+freeform diagnostic messages, check details, paths, URLs, configuration and
+credential material are omitted, so a report is safe to review. Review the
+report yourself before sharing it — nothing shares it for you.
 
 ## State and recovery
 
