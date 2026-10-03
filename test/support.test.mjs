@@ -259,3 +259,40 @@ test('local dist support entry bundles and runs without filesystem/process/netwo
     assert.equal(globals.presentation[0].items.find(item => item.id === 'missing-curl').target, 'curl');
   } finally { stop(); }
 });
+
+test('policy access failures keep developer and administrator actions without tool classification', () => {
+  for (const input of [run('incomplete'), prepare('blocked')]) {
+    input.result.diagnostics = [diagnostic('state-protection')];
+    const { guidance } = privacy(input);
+    const access = guidance.items.filter(item => item.reason === 'state-protection');
+    assert.deepEqual(access.map(item => [item.id, item.audience, item.target]),
+      [['access-review', 'developer', 'policy'], ['managed-access', 'administrator', 'policy']]);
+  }
+  const tool = run('incomplete'); tool.result.diagnostics = [diagnostic('executable-missing')];
+  assert.equal(privacy(tool).guidance.items.some(item => item.id === 'missing-executable'), false);
+});
+
+test('policy operations distinguish failed application, failed verification and missing verification', () => {
+  const expectations = [
+    [{ application: 'failed', verification: { status: 'unverified', reason: 'not-attempted' } }, 'execution-failed'],
+    [{ application: 'applied', verification: { status: 'failed', reason: 'check-failed' } }, 'verification-failed'],
+    [{ application: 'applied', verification: { status: 'unavailable', reason: 'offline' } }, 'verification-unavailable'],
+    [{ application: 'applied', verification: { status: 'skipped', reason: 'offline' } }, 'verification-skipped'],
+    [{ application: 'applied', verification: { status: 'unverified', reason: 'no-supplied-check' } }, 'verification-missing']
+  ];
+  for (const [operation, reason] of expectations) {
+    const input = run('incomplete'); input.result.operations = [{ id: sentinel, ...operation }];
+    const { guidance, markdown } = privacy(input);
+    const item = guidance.items.find(entry => entry.evidenceIds.includes('/operations/0'));
+    assert.equal(item.reason, reason, JSON.stringify(operation));
+    if (reason !== 'verification-failed') assert.doesNotMatch(markdown, /Verification failed/);
+  }
+});
+
+test('contradictory policy and repair input bindings are rejected as malformed public results', () => {
+  const both = run(); both.result.inputs = { ...review('policy').inputs, ...review('repair').inputs };
+  invalid(both);
+  const repairWithOrganization = run('complete', 'repair');
+  repairWithOrganization.result.inputs = { ...review('repair').inputs, organization: {} };
+  invalid(repairWithOrganization);
+});

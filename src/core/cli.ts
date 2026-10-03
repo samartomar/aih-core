@@ -28,7 +28,8 @@ function refused(code: string, reason: string): void {
     message: 'Check the policy, target and explicit approval options.' }] }, code === 'CANCELLED' ? 130 : 2);
   // A refusal is not a public result; a requested report is never written for it.
   if (process.argv.some(arg => arg === '--support-markdown' || arg.startsWith('--support-markdown=')))
-    stderr.write(`Support report not written: ${code === 'CANCELLED' ? 'cancelled' : 'input-rejected'}\n`);
+    stderr.write(`Support report not written: ${({ CANCELLED: 'cancelled', APPROVAL_REQUIRED: 'approval-required',
+      REVIEW_STALE: 'review-stale' } as Record<string, string>)[code] ?? 'input-rejected'}\n`);
 }
 const usage = {
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
@@ -53,9 +54,10 @@ function exitCode(result: PreparationResult | RunResult): number {
 let supportMarkdown: string | undefined;
 const supportPlatform: SupportPlatform =
   process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' ? process.platform : 'unknown';
-/** Printed paths never carry control characters into the terminal. */
+/** Printed paths never carry control or bidirectional formatting characters into the terminal. */
 const escapeReportPath = (value: string): string =>
-  value.replace(/\p{Cc}/gu, char => `\\x${char.codePointAt(0)!.toString(16).padStart(2, '0')}`);
+  value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202A-\u202E\u2066-\u2069]/g,
+    char => `\\u${char.codePointAt(0)!.toString(16).padStart(4, '0')}`);
 /**
  * Optional report export and non-JSON next actions after the one final result
  * an invocation emitted. Never throws, never changes stdout, and preserves the
@@ -185,7 +187,8 @@ try {
         resolutionsDigest = sha256(bytes);
       }
       const p = await prepare(request, { signal: controller.signal, ...logging });
-      const repairContext = { id: definition.id, targets: values.target! };
+      // Report context only; duplicate CLI targets must not make a real result unexportable.
+      const repairContext = { id: definition.id, targets: [...new Set(values.target!)] };
       if (!values.apply || !p.prepared || !p.review) {
         const code = exitCode(p);
         emit(p, code);

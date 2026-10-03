@@ -435,6 +435,8 @@ function executable(name) {
 const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
 const resolutionTargets = new Set(['rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
 const clientTargets = new Set(clientGuidanceTargets);
+// Guidance rules accept only their published platforms; other hosts get platform-neutral steps.
+const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
 const realKey = path => {
   let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
@@ -796,7 +798,7 @@ export async function diagnose(request, controls = {}) {
     if (clientTargets.has(target.id) && detected) {
       observations.push({ id: `${target.id}/loading`, target: target.id,
         detail: 'Installation or configuration observed; native loading was not verified.' });
-      const item = deriveGuidance({ kind: 'inspect', platform: process.platform,
+      const item = deriveGuidance({ kind: 'inspect', platform: guidancePlatform,
         facts: [{ kind: 'observation', id: `${target.id}/loading`, target: target.id, evidenceId: `/observations/${observations.length - 1}` }] })[0];
       repairChoices.push({ target: target.id, kind: 'manual-guidance', reason: 'loading-unverified', guidance: [item.summary, ...item.steps].join(' ') });
     }
@@ -907,10 +909,12 @@ export async function diagnose(request, controls = {}) {
   for (const check of checks) {
     if (!['node-certificate-chain', 'connection-failed', 'version-exit', 'executable-missing'].includes(check.reason) &&
         !(check.target === 'mcp' && check.reason === 'certificate-chain')) continue;
-    const item = deriveGuidance({ kind: 'inspect', platform: process.platform,
+    const item = deriveGuidance({ kind: 'inspect', platform: guidancePlatform,
       facts: [{ kind: 'check', evidenceId: `/checks/${checks.indexOf(check)}`, ...check }] })[0];
-    if (item) repairChoices.push({ target: item.target, kind: 'manual-guidance', reason: check.reason,
-      guidance: [item.summary, ...item.steps].join(' ') });
+    const guidance = item && [item.summary, ...item.steps].join(' ');
+    // One missing helper can affect several probed targets; list each manual choice once.
+    if (item && !repairChoices.some(choice => choice.target === item.target && choice.reason === check.reason &&
+        choice.guidance === guidance)) repairChoices.push({ target: item.target, kind: 'manual-guidance', reason: check.reason, guidance });
   }
   return { requestId: request.requestId, helper: contractSupport.package,
     status: cancelled ? 'cancelled' : 'completed', tools, observations, checks, diagnostics, repairChoices,

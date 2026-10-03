@@ -4,7 +4,7 @@
 import { constants, lstatSync, realpathSync, unlinkSync } from 'node:fs';
 import { open, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
-import { pathPins, pinsMatch, type PathPin } from './host-files.js';
+import { pathPins, pinsMatch, validSegment, type PathPin } from './host-files.js';
 import type { Diagnostic } from '../types.js';
 
 export type ReportFileStatus = 'written' | 'exists' | 'invalid' | 'failed' | 'cancelled';
@@ -18,7 +18,7 @@ const invalid = (reason: string, message: string): ReportFileResult =>
 const failed = (reason = 'failed', path?: string): ReportFileResult => ({
   status: 'failed',
   diagnostics: [{ code: 'WRITE_FAILED', reason, message: reason === 'partial-report-retained' ?
-    'A partial report could not be removed; review and delete it yourself.' : 'The report could not be written safely.',
+    'A partial report may remain at this path; review it before deleting anything.' : 'The report could not be written safely.',
     ...(path === undefined ? {} : { path }) }]
 });
 const cancelled = (): ReportFileResult =>
@@ -53,12 +53,14 @@ export async function writeExclusiveReportFile(
 ): Promise<ReportFileResult> {
   const { signal } = options;
   if (signal?.aborted) return cancelled();
-  if (typeof path !== 'string' || !isAbsolute(path) || /\p{Cc}/u.test(path) || !/\.md$/i.test(path))
-    return invalid('invalid-path', 'Use an absolute path ending in .md without control characters.');
+  // validSegment also refuses Windows alternate data streams and reserved device names.
+  if (typeof path !== 'string' || !isAbsolute(path) || /\p{Cc}/u.test(path) || !/\.md$/i.test(path) ||
+      !validSegment(basename(path)))
+    return invalid('invalid-path', 'Use an absolute path ending in .md with a plain file name and no control characters.');
   const directory = dirname(path);
   let pins: PathPin[];
   try { pins = pathPins(directory); }
-  catch { return invalid('unsafe-parent', 'The report directory chain must not contain links.'); }
+  catch { return invalid('unsafe-parent', 'The report directory chain must be accessible and must not contain links.'); }
   if (pins.at(-1)?.identity === 'absent')
     return invalid('parent-missing', 'The report directory must already exist.');
   let directoryStats;
@@ -66,7 +68,9 @@ export async function writeExclusiveReportFile(
   catch { return failed(); }
   if (!directoryStats.isDirectory())
     return invalid('parent-not-directory', 'The report path parent must be a directory.');
-  const canonical = join(realpathSync.native(directory), basename(path));
+  let canonical: string;
+  try { canonical = join(realpathSync.native(directory), basename(path)); }
+  catch { return failed(); }
   try {
     const existing = lstatSync(path);
     if (!existing.isSymbolicLink() && existing.isFile())
@@ -112,13 +116,14 @@ export async function writeExclusiveReportFile(
     // Without the created identity the file cannot be safely attributed to
     // this invocation; retain it for user review rather than unlinking blindly.
     const cleanup = (): boolean => identity === undefined || removeCreated(path, identity);
+    // A created file that cannot be removed safely is always reported with its path.
     if (error instanceof UnsafeDestination) {
-      cleanup();
+      if (cleanup()) return failed('partial-report-retained', canonical);
       return invalid('unsafe-destination', 'The destination must not be a link, directory or other non-file.');
     }
     if (error instanceof UnsafeParent) {
-      cleanup();
-      return invalid('unsafe-parent', 'The report directory chain must not contain links.');
+      if (cleanup()) return failed('partial-report-retained', canonical);
+      return invalid('unsafe-parent', 'The report directory chain must be accessible and must not contain links.');
     }
     const wasCancelled = error instanceof AbortWrite || signal?.aborted === true;
     if (cleanup()) return failed('partial-report-retained', canonical);

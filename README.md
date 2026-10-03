@@ -405,7 +405,7 @@ aih inspect --target node --offline --json --support-markdown inspection-report.
 
 The report is written only on this explicit request, to the exact absolute path
 (a relative path is resolved against the current directory by the CLI). The
-path must end in `.md`, its directory must already exist, and creation is
+path must end in `.md` (any letter case) with a plain file name, its directory must already exist, and creation is
 exclusive: an existing file is left byte-for-byte untouched, links and
 nonregular destinations are refused, nothing creates directories, chooses
 suffixes, overwrites, shares or uploads. JSON stdout is unchanged with or

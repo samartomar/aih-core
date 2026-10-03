@@ -51,7 +51,9 @@ function record(value: unknown): boolean {
 }
 function inputs(value: unknown): boolean {
   return object(value) && fields(value.package, ['name', 'version']) &&
-    (typeof value.policySha256 === 'string' || (fields(value, ['sourceSha256', 'helperSha256']) && strings(value.certificates))) &&
+    // The policy and repair bindings are mutually exclusive in the run-result schema.
+    (typeof value.policySha256 === 'string' ? !['sourceSha256', 'helperSha256', 'certificates', 'candidateKind'].some(key => Object.hasOwn(value, key)) :
+      fields(value, ['sourceSha256', 'helperSha256']) && strings(value.certificates) && !Object.hasOwn(value, 'organization')) &&
     (!Object.hasOwn(value, 'organization') || organizationBinding(value.organization));
 }
 function organizationBinding(value: unknown): boolean {
@@ -187,18 +189,18 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
       ...(kind === 'inspect' || useCase === 'repair' ? { id: item.id as string } : {}),
       ...(kind === 'inspect' ? { target: item.target as string } : {}), outcome: (kind === 'inspect' ? item.outcome : item.status) as string,
       reason: useCase === 'policy' ? '' : item.reason as string }));
-    each(result.diagnostics, (item, index) => facts.push({ kind: 'diagnostic', evidenceId: `/diagnostics/${index}`, code: item.code as string, reason: useCase === 'policy' ? '' : item.reason as string }));
+    each(result.diagnostics, (item, index) => facts.push({ kind: 'diagnostic', evidenceId: `/diagnostics/${index}`, code: item.code as string, reason: item.reason as string }));
     if (kind === 'run') each(result.operations, (item, index) => facts.push({ kind: 'operation', evidenceId: `/operations/${index}`,
       ...(useCase === 'repair' ? { id: item.id as string } : {}),
       application: item.application as string, verification: (item.verification as Data).status as string,
-      reason: useCase === 'policy' ? '' : typeof item.reason === 'string' ? item.reason : (item.verification as Data).reason as string }));
+      reason: typeof item.reason === 'string' ? item.reason : (item.verification as Data).reason as string }));
     if (kind === 'prepare' && object(result.review)) {
-      for (const name of ['conflicts', 'omissions']) each(result.review[name], (item, index) => facts.push({ kind: 'diagnostic', evidenceId: `/review/${name}/${index}`, code: item.code as string, reason: useCase === 'policy' ? '' : item.reason as string }));
+      for (const name of ['conflicts', 'omissions']) each(result.review[name], (item, index) => facts.push({ kind: 'diagnostic', evidenceId: `/review/${name}/${index}`, code: item.code as string, reason: item.reason as string }));
       each(result.review.operations, (item, index) => {
         if (['conflict', 'unavailable'].includes(item.effects as string)) facts.push({ kind: 'operation', evidenceId: `/review/operations/${index}`,
           ...(useCase === 'repair' ? { id: item.id as string } : {}),
           application: 'not-attempted', verification: 'unavailable', scope: item.scope as 'user' | 'project',
-          reason: useCase === 'policy' ? '' : typeof (item.details as Data).reason === 'string' ? (item.details as Data).reason as string : 'prerequisite-unavailable' });
+          reason: useCase === 'policy' ? item.effects === 'conflict' ? 'conflict' : 'prerequisite-unavailable' : typeof (item.details as Data).reason === 'string' ? (item.details as Data).reason as string : 'prerequisite-unavailable' });
       });
     }
     return { kind, result, request: { kind, platform: optionData.platform, facts, ...(useCase ? { useCase } : {}), ...(repair ? { repair } : {}) } };

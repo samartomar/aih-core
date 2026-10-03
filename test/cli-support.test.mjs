@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { policy } from './fixture.mjs';
+import { getGuidance } from '../dist/core/support.js';
+import { formatGuidanceText } from '../dist/core/internal/guidance-text.js';
+
+const supportPlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
 const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
 
@@ -172,5 +176,73 @@ test('non-JSON inspect prints human next actions on stderr only when guidance ex
     assert.match(human.stderr, /Next actions:/, human.stdout + human.stderr);
     const structured = run(['inspect', '--offline', '--target', 'jq', '--json'], { PATH: emptyPath });
     assert.equal(structured.stderr.includes('Next actions:'), false, structured.stderr);
+  } finally { close(); }
+});
+
+test('repair Apply exports the run result with its repair context and preserves the operation exit', () => {
+  const { root, home, run, close } = fixture('aih-cli-support-repair-apply-');
+  const source = join(root, 'root.pem');
+  const inputs = join(root, 'repair-inputs.json');
+  const target = join(root, 'repair-run.md');
+  try {
+    writeFileSync(source, readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
+    writeFileSync(inputs, JSON.stringify({ 'node-npm-ca': { caFile: source } }));
+    const applied = run(['repair', 'node-npm-ca', '--target', 'npm', '--inputs-file', inputs,
+      '--offline', '--no-log', '--apply', '--yes', '--json', '--support-markdown', target]);
+    const result = JSON.parse(applied.stdout);
+    assert.equal(result.schema, 'urn:aihq:core:run-result:1.0.0', applied.stdout + applied.stderr);
+    assert.equal(applied.status, { complete: 0, incomplete: 1, rejected: 2, cancelled: 130 }[result.completion]);
+    assert.equal(applied.stderr, `Support report written: ${join(realpathSync.native(root), 'repair-run.md')}\n`);
+    assert.match(readFileSync(target, 'utf8'), /\brun\b/i);
+    assert.equal(readFileSync(target, 'utf8').includes(home), false);
+    // A semantically invalid Prepare (duplicate targets) is still a public result and is exported.
+    const duplicateTarget = join(root, 'duplicate.md');
+    const duplicate = run(['repair', 'node-npm-ca', '--target', 'npm', '--target', 'npm', '--inputs-file', inputs,
+      '--offline', '--no-log', '--json', '--support-markdown', duplicateTarget]);
+    assert.equal(duplicate.status, 2, duplicate.stdout + duplicate.stderr);
+    assert.equal(JSON.parse(duplicate.stdout).status, 'invalid');
+    assert.equal(duplicate.stderr, `Support report written: ${join(realpathSync.native(root), 'duplicate.md')}\n`);
+    assert.match(readFileSync(duplicateTarget, 'utf8'), /Status: invalid/);
+  } finally { close(); }
+});
+
+test('a declined Apply writes no report and names the refusal', () => {
+  const { root, run, close } = fixture('aih-cli-support-declined-');
+  const source = join(root, 'root.pem');
+  const inputs = join(root, 'repair-inputs.json');
+  const target = join(root, 'declined.md');
+  try {
+    writeFileSync(source, readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
+    writeFileSync(inputs, JSON.stringify({ 'node-npm-ca': { caFile: source } }));
+    const declined = run(['repair', 'node-npm-ca', '--target', 'npm', '--inputs-file', inputs,
+      '--offline', '--no-log', '--apply', '--json', '--support-markdown', target]);
+    assert.equal(declined.status, 2, declined.stdout + declined.stderr);
+    assert.equal(JSON.parse(declined.stdout).diagnostics[0].code, 'APPROVAL_REQUIRED');
+    assert.equal(declined.stderr, 'Support report not written: approval-required\n');
+    assert.equal(existsSync(target), false);
+  } finally { close(); }
+});
+
+test('human next actions on stderr equal the structured guidance for the emitted result', () => {
+  const { root, run, close } = fixture('aih-cli-support-equivalence-');
+  const emptyPath = join(root, 'empty-path'); mkdirSync(emptyPath);
+  try {
+    const human = run(['inspect', '--offline', '--target', 'jq', '--target', 'rg'], { PATH: emptyPath });
+    const guidance = getGuidance({ kind: 'inspect', result: JSON.parse(human.stdout) }, { platform: supportPlatform });
+    assert.equal(guidance.status, 'complete');
+    assert.ok(guidance.items.length >= 2);
+    assert.equal(human.stderr, formatGuidanceText(guidance.items));
+  } finally { close(); }
+});
+
+test('a relative report path is resolved against the current directory', () => {
+  const { root, home, close } = fixture('aih-cli-support-relative-');
+  try {
+    const relative = spawnSync(process.execPath, [cli, 'inspect', '--offline', '--target', 'node', '--json',
+      '--support-markdown', 'relative-report.md'], { cwd: root, encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, HOME: home, USERPROFILE: home } });
+    assert.equal(relative.status, 0, relative.stdout + relative.stderr);
+    assert.equal(relative.stderr, `Support report written: ${join(realpathSync.native(root), 'relative-report.md')}\n`);
+    assert.ok(readFileSync(join(root, 'relative-report.md'), 'utf8').startsWith('# Support report'));
   } finally { close(); }
 });

@@ -26,6 +26,8 @@ const reasons = Object.freeze({
   'candidate-count': 'Diagnostic candidate limit reached', 'review-stale': 'Review is stale',
   'input-invalid': 'Input invalid', 'schema-unsupported': 'Format unsupported', 'prerequisite-unavailable': 'Prerequisite unavailable',
   'execution-failed': 'Execution failed', 'verification-failed': 'Verification failed', 'conflict': 'Review conflict',
+  'verification-unavailable': 'Verification unavailable', 'verification-skipped': 'Verification skipped',
+  'verification-missing': 'Verification not performed',
   'ready': 'Ready for review', 'complete': 'Complete', 'incomplete': 'Incomplete', 'partial': 'Partial',
   'blocked': 'Blocked', 'invalid': 'Invalid', 'cancelled': 'Cancelled', 'rejected': 'Rejected',
   'unrecognized-diagnostic': 'Unrecognized diagnostic', 'guidance-omitted': 'Additional guidance omitted'
@@ -83,13 +85,19 @@ export function deriveGuidance(request) {
     }
     if (fact.kind === 'tool') continue;
     if (fact.kind === 'diagnostic') {
-      // Policy classification uses diagnostic codes only, never authored IDs or reason text.
-      reason = request.useCase === 'policy' ? codeReasons[fact.code] :
+      // Policy classification uses diagnostic codes and engine access reasons only,
+      // never authored IDs or tool names; the target stays the literal policy.
+      reason = request.useCase === 'policy' ? permissions.has(reason) ? reason : codeReasons[fact.code] :
         fact.code === 'AUTHORITY_DENIED' ? 'authority-denied' : reason;
     }
     if (fact.kind === 'operation') {
       if (fact.application !== 'failed' && !['failed', 'unavailable', 'unverified', 'skipped'].includes(fact.verification)) continue;
-      reason = request.useCase === 'policy' ? 'verification-failed' : reason;
+      // Failed application, failed verification and missing verification stay distinct.
+      if (request.useCase === 'policy') reason = permissions.has(reason) ? reason :
+        fact.application === 'not-attempted' && ['conflict', 'prerequisite-unavailable'].includes(reason) ? reason :
+        fact.application === 'failed' ? 'execution-failed' : fact.verification === 'failed' ? 'verification-failed' :
+        fact.verification === 'unavailable' ? 'verification-unavailable' : fact.verification === 'skipped' ? 'verification-skipped' :
+        'verification-missing';
     }
     if (request.useCase === 'repair' && ['operation', 'check'].includes(fact.kind)) {
       const definitions = request.repair ? repairIndex.filter(entry => entry.id === request.repair.id) : repairIndex;

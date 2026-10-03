@@ -10,6 +10,8 @@ import tls from 'node:tls';
 import { inspect } from '../dist/core/index.js';
 import { getGuidance } from '@aihq/core/support';
 
+const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
+
 async function fixture(run) {
   const root = mkdtempSync(join(tmpdir(), 'aih-guidance-'));
   const bin = join(root, 'bin'), home = join(root, 'home'), project = join(root, 'project');
@@ -49,7 +51,7 @@ test('OS TLS missing prerequisite remains a npm check but manual guidance names 
     assert.equal(choice.target, 'curl');
     assert.match(choice.guidance, /curl/);
     assert.doesNotMatch(choice.guidance, /npm.*(?:absent|missing)|requested tool is absent/i);
-    const item = getGuidance({ kind: 'inspect', result }, { platform: process.platform }).items.find(item => item.id === 'missing-curl');
+    const item = getGuidance({ kind: 'inspect', result }, { platform: guidancePlatform }).items.find(item => item.id === 'missing-curl');
     assert.equal(choice.guidance, [item.summary, ...item.steps].join(' '));
   });
 });
@@ -64,7 +66,7 @@ test('configured MCP certificate evidence receives diagnostic Node guidance with
     assert.match(choice.guidance, /diagnostic Node TLS probe/);
     assert.match(choice.guidance, /Confirm which runtime/);
     assert.match(choice.guidance, /does not prove/);
-    const item = getGuidance({ kind: 'inspect', result }, { platform: process.platform }).items.find(item => item.id === 'mcp-node-trust');
+    const item = getGuidance({ kind: 'inspect', result }, { platform: guidancePlatform }).items.find(item => item.id === 'mcp-node-trust');
     assert.equal(choice.guidance, [item.summary, ...item.steps].join(' '));
   });
 });

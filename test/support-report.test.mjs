@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,23 +80,26 @@ test('report file refuses a symlink destination and a linked parent directory', 
   const realFile = join(root, 'real.md'); writeFileSync(realFile, 'original\n');
   const realDir = join(root, 'real-dir'); mkdirSync(realDir);
   const linkFile = join(root, 'link.md'), linkDir = join(root, 'link-dir');
+  // Directory junctions need no privilege on Windows, so a refused file symlink skips only its own case.
+  const refusal = create => { try { create(); return undefined; } catch (error) { return error.code ?? error.message; } };
+  const fileRefused = refusal(() => symlinkSync(realFile, linkFile));
+  const dirRefused = refusal(() => symlinkSync(realDir, linkDir, 'junction'));
   try {
-    symlinkSync(realFile, linkFile);
-    symlinkSync(realDir, linkDir, 'junction');
-  } catch (error) {
-    t.skip(`the OS refused symlink creation: ${error.code ?? error.message}`);
-    close();
-    return;
-  }
-  try {
-    const atLink = await writeExclusiveReportFile(linkFile, bytes('x'));
-    assert.equal(atLink.status, 'invalid');
-    assert.equal(atLink.diagnostics[0].reason, 'unsafe-destination');
-    assert.equal(readFileSync(realFile, 'utf8'), 'original\n');
-    const throughLink = await writeExclusiveReportFile(join(linkDir, 'report.md'), bytes('x'));
-    assert.equal(throughLink.status, 'invalid');
-    assert.equal(throughLink.diagnostics[0].reason, 'unsafe-parent');
-    assert.deepEqual(readdirSync(realDir), []);
+    if (fileRefused) t.diagnostic(`file symlink case skipped: the OS refused creation (${fileRefused})`);
+    else {
+      const atLink = await writeExclusiveReportFile(linkFile, bytes('x'));
+      assert.equal(atLink.status, 'invalid');
+      assert.equal(atLink.diagnostics[0].reason, 'unsafe-destination');
+      assert.equal(readFileSync(realFile, 'utf8'), 'original\n');
+    }
+    if (dirRefused) t.diagnostic(`linked parent case skipped: the OS refused creation (${dirRefused})`);
+    else {
+      const throughLink = await writeExclusiveReportFile(join(linkDir, 'report.md'), bytes('x'));
+      assert.equal(throughLink.status, 'invalid');
+      assert.equal(throughLink.diagnostics[0].reason, 'unsafe-parent');
+      assert.deepEqual(readdirSync(realDir), []);
+    }
+    if (fileRefused && dirRefused) t.skip('the OS refused both link kinds');
   } finally { close(); }
 });
 
@@ -227,4 +230,73 @@ test('a written support report equals the rendered Markdown and never contains f
     assert.equal(text.includes(SENTINEL), false, 'the allowlisted report must omit freeform detail/message/path fields');
     if (process.platform !== 'win32') assert.equal(statSync(result.path).mode & 0o777, 0o600);
   } finally { close(); }
+});
+
+test('a created file that cannot be attributed for cleanup is always reported with its path', async () => {
+  const { root, close } = fixture('aih-report-unattributed-');
+  const target = join(root, 'report.md');
+  const original = FileHandleProto.stat;
+  // A descriptor that does not look like the created regular file blocks success,
+  // and its identity cannot match the path, so cleanup must retain and report it.
+  FileHandleProto.stat = async function () { return { dev: 1n, ino: 1n, isFile: () => false }; };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('report\n'));
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+    assert.equal(result.diagnostics[0].path, join(realpathSync.native(root), 'report.md'));
+    assert.equal(existsSync(target), true);
+  } finally { FileHandleProto.stat = original; close(); }
+});
+
+test('a parent directory replaced after creation reports the retained file', async t => {
+  const { root, close } = fixture('aih-report-parent-swap-');
+  const parent = join(root, 'out'); mkdirSync(parent);
+  const target = join(parent, 'report.md');
+  const original = FileHandleProto.stat;
+  let refused = false;
+  FileHandleProto.stat = async function (...args) {
+    const stats = await original.apply(this, args);
+    try { renameSync(parent, join(root, 'moved')); mkdirSync(parent); } catch { refused = true; }
+    return stats;
+  };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('report\n'));
+    if (refused) { t.skip('this platform refuses renaming a directory that holds an open file'); return; }
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+    assert.equal(existsSync(join(root, 'moved', 'report.md')), true);
+    assert.equal(existsSync(target), false);
+  } finally { FileHandleProto.stat = original; close(); }
+});
+
+test('alternate data streams and reserved device names are refused as report paths', async () => {
+  const { root, close } = fixture('aih-report-segment-');
+  writeFileSync(join(root, 'file.txt'), 'original\n');
+  try {
+    const names = ['file.txt:stream.md', ...(process.platform === 'win32' ? ['CON.md', 'report.md '] : [])];
+    for (const name of names) {
+      const result = await writeExclusiveReportFile(join(root, name), bytes('report\n'));
+      assert.equal(result.status, 'invalid', name);
+      assert.equal(result.diagnostics[0].reason, 'invalid-path', name);
+    }
+    assert.equal(readFileSync(join(root, 'file.txt'), 'utf8'), 'original\n');
+    assert.deepEqual(readdirSync(root), ['file.txt']);
+  } finally { close(); }
+});
+
+test('cancellation after the complete file is closed still returns written', async () => {
+  const { root, close } = fixture('aih-report-late-abort-');
+  const target = join(root, 'report.md');
+  const controller = new AbortController();
+  const original = FileHandleProto.close;
+  FileHandleProto.close = async function (...args) {
+    const closed = await original.apply(this, args);
+    controller.abort();
+    return closed;
+  };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('complete report\n'), { signal: controller.signal });
+    assert.equal(result.status, 'written', JSON.stringify(result));
+    assert.equal(readFileSync(target, 'utf8'), 'complete report\n');
+  } finally { FileHandleProto.close = original; close(); }
 });
