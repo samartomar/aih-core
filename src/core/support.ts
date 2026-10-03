@@ -75,7 +75,10 @@ function reviewOperation(value: unknown): boolean {
 function review(value: unknown): value is Data {
   return object(value) && value.schema === 'urn:aihq:core:prepared-work:1.0.0' && oneOf(value.useCase, ['policy', 'repair']) &&
     oneOf(value.mode, ['vibe', 'enterprise', 'standalone']) && object(value.target) && oneOf(value.target.scope, ['project', 'user']) &&
-    typeof value.target.project === 'string' && inputs(value.inputs) && list(value.operations, reviewOperation) &&
+    typeof value.target.project === 'string' && inputs(value.inputs) &&
+    // prepared-work allOf: an organization binding (with a policy digest) exactly in enterprise mode.
+    (value.mode === 'enterprise') === Object.hasOwn(value.inputs as Data, 'organization') &&
+    (value.mode !== 'enterprise' || Object.hasOwn(value.inputs as Data, 'policySha256')) && list(value.operations, reviewOperation) &&
     list(value.observations, item => fields(item, ['id', 'reason'])) && diagnostics(value.conflicts) && diagnostics(value.omissions) &&
     logging(value.effectiveOptions) && object(value.effectiveOptions) && object(value.effectiveOptions.inputs) &&
     Object.values(value.effectiveOptions.inputs).every(item => object(item) && oneOf(item.origin, ['default', 'explicit', 'private'])) &&

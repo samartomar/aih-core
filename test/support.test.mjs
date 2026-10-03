@@ -87,6 +87,7 @@ test('all freeform result fields and unknown fields are omitted by allowlist', (
     input.result.diagnostics = [diagnostic('state-protection')];
     input.result.unrecognized = { args: [payload], env: { SAFE_LOOKING: sentinel }, certificate: payload, sourceId: sentinel, policyName: sentinel };
     if (input.kind === 'prepare') {
+      input.result.review.mode = 'enterprise';
       input.result.review.inputs.organization = { source: { provider: 'github', repository: { owner: sentinel, name: sentinel }, path: payload,
         revision: { kind: 'branch', value: sentinel } }, policyId: sentinel, contentDigest: sentinel, resolvedCommit: sentinel, blobId: sentinel,
         helper: { id: 'github-policy-reader', package: { ...pkg } } };
@@ -299,4 +300,14 @@ test('contradictory policy and repair input bindings are rejected as malformed p
   assert.equal(getGuidance(partialRepair, platform).status, 'complete');
   const candidate = run('complete', 'repair'); candidate.result.inputs = { ...review('repair').inputs, candidateKind: 'system-ca' };
   assert.equal(getGuidance(candidate, platform).status, 'complete');
+  // prepared-work admits an organization binding exactly in enterprise mode.
+  const organization = { source: { provider: 'github', repository: { owner: sentinel, name: sentinel }, path: sentinel,
+    revision: { kind: 'branch', value: sentinel } }, resolvedCommit: sentinel, blobId: sentinel, contentDigest: sentinel,
+    policyId: sentinel, helper: { id: 'github-policy-reader', package: { ...pkg } } };
+  const standalone = prepare('ready', 'repair'); standalone.result.review.inputs.organization = organization;
+  invalid(standalone);
+  const enterpriseWithout = prepare(); enterpriseWithout.result.review.mode = 'enterprise';
+  invalid(enterpriseWithout);
+  const enterprise = prepare(); enterprise.result.review.mode = 'enterprise'; enterprise.result.review.inputs.organization = organization;
+  privacy(enterprise);
 });
