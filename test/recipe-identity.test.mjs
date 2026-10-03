@@ -8,7 +8,7 @@ import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepare } from '../dist/core/index.js';
@@ -121,6 +121,9 @@ const tag = process.env.AIH_PROBE_LOCALE;
 if (tag) {
   const collator = new Intl.Collator(tag);
   String.prototype.localeCompare = function (that) { return collator.compare(String(this), String(that)); };
+  const NativeCollator = Intl.Collator;
+  Intl.Collator = function (locales, options) { return new NativeCollator(locales ?? tag, options); };
+  Intl.Collator.prototype = NativeCollator.prototype; Intl.Collator.supportedLocalesOf = NativeCollator.supportedLocalesOf;
 }
 const home = process.env.AIH_PROBE_HOME;
 mkdirSync(home, { recursive: true });
@@ -152,7 +155,7 @@ test('identity and admission outcomes are identical across runtime locales', () 
   const locales = [
     ['en-US', 'en_US.UTF-8', enUsOrder], ['da', 'da_DK.UTF-8', daOrder],
     ['tr', 'tr_TR.UTF-8', enUsOrder], ['sv', 'sv_SE.UTF-8', enUsOrder],
-    ['', '', enUsOrder] // unmodified runtime default locale
+    ['', '', null] // unmodified runtime default locale: order follows the host's own collation
   ];
   const expected = {
     codeUnit: { status: 'ready', findings: [] },
@@ -177,10 +180,15 @@ test('identity and admission outcomes are identical across runtime locales', () 
     });
     assert.equal(child.status, 0, `${label} probe failed: ${child.stderr}\n${child.stdout}`);
     const outcome = JSON.parse(child.stdout);
-    assert.deepEqual(outcome.order, expectedOrder, `${label} collation did not take effect`);
+    assert.deepEqual(outcome.order, expectedOrder ?? [...outcome.order].sort(new Intl.Collator().compare), `${label} collation did not take effect`);
     outcomes.push([label, { codeUnit: outcome.codeUnit, legacy: outcome.legacy }]);
   }
   for (const [label, outcome] of outcomes) assert.deepEqual(outcome, expected, `${label}: ${JSON.stringify(outcome)}`);
   assert.deepEqual(outcomes.map(([, outcome]) => outcome), outcomes.map(() => outcomes[0][1]),
     `locale-dependent outcomes: ${JSON.stringify(outcomes)}`);
+});
+
+test('the built recipe engine orders nothing by locale collation', () => {
+  const built = readFileSync(new URL('../dist/core/recipe-engine.js', import.meta.url), 'utf8');
+  assert.equal(/localeCompare|Intl\.Collator/.test(built), false);
 });
