@@ -45,7 +45,7 @@ test('removal preserves a group when a pre-fix receipt has a second format owner
   try {
     await run(s, policy11([hookSelection('first', [hookOp('add', 'shared', { format: 'json' })])]));
     const before = s.read(SETTINGS);
-    const root = ownershipRoots(s).find(item => item.target === s.project);
+    const root = ownershipRoots(s).find(item => Object.values(item.members).some(member => member.managementId === 'first'));
     assert.ok(root);
     const owner = Object.values(root.members)[0];
     const descriptor = { ...owner.descriptor, format: 'jsonc' };
