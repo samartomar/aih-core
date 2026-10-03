@@ -859,7 +859,7 @@ test('cancellation during the final observation is reported with every completed
   finally { fs.openSync = original; syncBuiltinESMExports(); }
   assert.equal(result.status, 'cancelled');
   assert.equal(result.diagnostics[0].code, 'CANCELLED');
-  assert.equal(result.targets[0].outcome, 'match');
+  assert.deepEqual(result.targets.map(row => row.outcome), ['match', 'match'], 'the final completed row is retained too');
 });
 
 test('a renderer failure leaves an independent digest check of the same live file comparable', async () => {
@@ -1018,4 +1018,64 @@ test('leaf and material-source symlinks are unavailable, never followed', { skip
   const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }, { materialRoots: { selected: source } }));
   assert.deepEqual(result.targets.map(row => [row.id, row.outcome, row.reason]), [
     ['leaf/write', 'unavailable', 'target-unreadable'], ['material/write', 'unavailable', 'material-unavailable']]);
+});
+
+test('a declaration larger than the whole byte bound is unavailable, not invalid, and independent targets still compare', async () => {
+  const dir = project();
+  writeFileSync(join(dir, 'TEAM.md'), 'team');
+  const members = Array.from({ length: 33 }, (_, index) => ({ id: `m${String(index).padStart(2, '0')}`,
+    path: `m${String(index).padStart(2, '0')}.bin`, sha256: 'a'.repeat(64), byteLength: 16 * 1024 * 1024 }));
+  const document = policyOf([
+    { id: 'huge', managementId: 'huge-management', scope: 'project', configuration: {}, requires: [],
+      recipe: { reference: { source: { kind: 'local', input: 'catalog' }, path: 'recipe.json', sha256: 'b'.repeat(64),
+        byteLength: 100, materials: members } } },
+    selection('small', [writeOp('write', 'TEAM.md', 'team')])
+  ]);
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+  assert.deepEqual(result.notChecked, [{ kind: 'recipe', id: 'huge', reason: 'limit-exceeded' }]);
+  assert.deepEqual(result.targets.map(row => [row.id, row.outcome]), [['small/write', 'match']]);
+  assert.deepEqual([result.status, result.fileState, result.limits.materialBytes], ['incomplete', 'unverified', 0]);
+});
+
+test('cancellation after the budget ran out marks every later unfinished target cancelled', async () => {
+  const dir = project();
+  const names = ['A.md', 'B.md', 'C.md', 'D.md'];
+  for (const name of names) writeFileSync(join(dir, name), name);
+  const document = writePolicy(names.map((name, index) => writeOp(`write-${index}`, name, name)));
+  const controller = new AbortController();
+  let slowed = false;
+  const original = fs.openSync;
+  fs.openSync = function (...args) {
+    const fd = original.apply(this, args);
+    if (!slowed && String(args[0]) === join(dir, 'A.md')) {
+      slowed = true;
+      // Outlast the budget, then abort two host turns later: B is stopped by the
+      // budget first, and the abort then reaches C before it is observed.
+      const until = performance.now() + 1500; while (performance.now() < until);
+      setImmediate(() => setImmediate(() => controller.abort()));
+    }
+    return fd;
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await check({ policy: document, target: { project: dir } }, { signal: controller.signal, budgetMs: 1000 }); }
+  finally { fs.openSync = original; syncBuiltinESMExports(); }
+  assert.deepEqual(result.targets.map(row => [row.outcome, row.reason]), [['match', 'content-match'],
+    ['unavailable', 'budget-exhausted'], ['unavailable', 'cancelled'], ['unavailable', 'cancelled']]);
+  assert.equal(result.status, 'cancelled');
+});
+
+test('material IDs that alias one pinned source file both compare from the shared capture', async () => {
+  const dir = project(); const source = join(fixtureRoot, 'alias-material'); mkdirSync(source);
+  const payload = Buffer.from('shared payload');
+  writeFileSync(join(source, 'payload.txt'), payload);
+  writeFileSync(join(dir, 'ONE.md'), payload); writeFileSync(join(dir, 'TWO.md'), payload);
+  const write = (id, name, materialId) => ({ id, purpose: `Write ${name}`, kind: 'file.write', scope: 'project',
+    target: { root: 'project', segments: [{ literal: name }] }, material: materialId, requires: [], checks: [] });
+  const pin = id => ({ id, path: 'payload.txt', sha256: sha256(payload), byteLength: payload.length, source: { kind: 'local', input: 'selected' } });
+  const document = policyOf([selection('alias', [write('one', 'ONE.md', 'a'), write('two', 'TWO.md', 'b')], {},
+    { materials: [pin('a'), pin('b')] })]);
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }, { materialRoots: { selected: source } }));
+  assert.deepEqual([result.status, result.fileState, result.limits.materialBytes], ['complete', 'match', payload.length]);
+  assert.deepEqual(result.targets.map(row => row.outcome), ['match', 'match']);
 });

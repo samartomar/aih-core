@@ -211,7 +211,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         if ('reference' in selection.recipe) declared.declareReference(selection.recipe.reference);
         else declared.declareInline(selection.recipe.inline.materials);
       } catch (error) {
-        throw new Error(error instanceof MaterialCaptureError && SAFE_REASON.test(error.reason) ? error.reason : 'material-invalid');
+        // The byte total is checked after every descriptor rule, so an oversized but
+        // otherwise valid declaration is reported as limit-exceeded during admission.
+        if (!(error instanceof MaterialCaptureError && error.reason === 'captured-byte-limit'))
+          throw new Error(error instanceof MaterialCaptureError && SAFE_REASON.test(error.reason) ? error.reason : 'material-invalid');
       }
       if (!('inline' in selection.recipe)) continue;
       const bound = bindInputs(selection, selection.recipe.inline, privateInputs[selection.id]);
@@ -255,9 +258,11 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     const materialRoots = controls.materialRoots ?? {};
     // Acquisition shares the caller's absolute budget, checked between bounded reads.
     const captureOptions = { ...(controls.signal === undefined ? {} : { signal: controls.signal }), deadline: start + budgetMs };
-    // Once captured material plus target bytes would pass the total, remaining work is unavailable.
+    // An item larger than the whole total can never fit and is unavailable by itself;
+    // once captured material plus target bytes would pass the total, remaining work is unavailable.
     let bytesExhausted = false;
     const fitsTotal = (bytes: number): boolean => {
+      if (bytes > MAX_TOTAL_BYTES) return false;
       if (!bytesExhausted && targetBytes + materialBytes + bytes > MAX_TOTAL_BYTES) bytesExhausted = true;
       return !bytesExhausted;
     };
@@ -351,11 +356,16 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       const bound = inlineBindings.get(selection.id) ?? bindInputs(selection, recipe, privateInputs[selection.id]);
       if (!inlineBindings.has(selection.id)) admitAuthoredSlots(recipe, bound);
       const selectionKey = sha256(`${selection.scope === 'user' ? userHomeRoot() : project}\u0000${selection.scope}\u0000${selection.managementId}`);
-      // One retained copy per captured material, however many operations use it.
+      // One retained copy per captured source file and pin, however many operations or alias IDs use it.
+      const members: { id: string; path: string; sha256: string; source?: InlineMaterialDescriptor['source'] }[] =
+        'reference' in selection.recipe ? selection.recipe.reference.materials : recipe.materials as InlineMaterialDescriptor[];
+      const identities = new Map(members.map(item => [item.id,
+        `${item.source === undefined ? '' : item.source.kind === 'archive' ? item.source.url : item.source.input}\u0000${item.path}\u0000${item.sha256}`]));
       const materialBuffers = new Map<string, Buffer | undefined>();
       const material = (id: string): Buffer | undefined => {
-        if (!materialBuffers.has(id)) materialBuffers.set(id, readMaterial(id));
-        return materialBuffers.get(id);
+        const identity = identities.get(id) ?? id;
+        if (!materialBuffers.has(identity)) materialBuffers.set(identity, readMaterial(id));
+        return materialBuffers.get(identity);
       };
       let platformUnsupported = false;
       for (const [index, requirement] of recipe.prerequisites.entries()) {
@@ -574,7 +584,8 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     const outcomes = new Map<string, KeyOutcome>();
     for (const key of workQueue) {
       await yieldToHost();
-      if (terminated === null && controls.signal?.aborted) terminated = 'cancelled';
+      // Cancellation supersedes an earlier budget stop for every later unfinished item.
+      if (terminated !== 'cancelled' && controls.signal?.aborted) terminated = 'cancelled';
       if (terminated === null && overBudget()) terminated = 'budget-exhausted';
       if (terminated !== null) {
         outcomes.set(key, { error: terminated });
