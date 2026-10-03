@@ -171,7 +171,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts)
         ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
-      assert.equal(contractSupport.contracts.length,6);
+      assert.equal(contractSupport.contracts.length,10);
       assert.deepEqual(contractSupport.contracts.at(-1),{id:'urn:aihq:core:file-state-result:1.0.0',
         role:'produces',schemaExport:'@aihq/core/schemas/file-state-result/1.0.0.json'});
       for (const entry of harnessSupport.contracts) {

@@ -1,4 +1,4 @@
-import type { Diagnostic, ExecutionPolicy, Json } from './types.js';
+import type { Diagnostic, ExecutionPolicy, Json, JsonObject } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
 export type { GitHubPolicySource } from '../harness/runtime.mjs';
@@ -30,7 +30,7 @@ export interface Effective<T> { value: T; origin: 'default' | 'explicit' }
 export type RecordStatus = { status: 'written'; reference: string } | { status: 'disabled'; reason: 'logging-off' } |
   { status: 'failed'; reason: 'record-limit' | 'record-write'; diagnosticId: string };
 export interface ReviewOperation {
-  id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'text.block' | 'file.remove' | 'process.run'; scope: 'project' | 'user';
+  id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'text.block' | 'file.remove' | 'process.run' | 'hook.group'; scope: 'project' | 'user';
   effects: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'opaque-process' | 'unavailable';
   ownership: 'managed' | 'unowned';
   requires: string[]; checks: ReviewCheck[];
@@ -40,7 +40,14 @@ export interface ReviewOperation {
     timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; acceptedExitCodes?: number[];
     declaredEffects?: string[]; reason?: string;
     format?: 'json' | 'jsonc' | 'toml'; entries?: { path: string[]; action: 'set' | 'remove'; value?: string }[];
-    blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove' };
+    blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove';
+    /** Present exactly for `hook.group` operations (prepared-work 1.1.0). */
+    hookGroup?: HookGroupReview };
+}
+export interface HookGroupReview {
+  container: string[]; groupId: string; selector: { path: (string | number)[]; valueSha256: string }; action: 'set' | 'remove';
+  matchedIndex: number | null; memberBeforeSha256: string | null; memberAfterSha256: string | null;
+  targetBeforeSha256: string | null; desiredGroup: JsonObject | null;
 }
 export interface ReviewCheck { id: string; purpose: string; kind: 'file.sha256' | 'process.exit';
   details: ReviewOperation['details'] }
@@ -49,7 +56,7 @@ export interface OrganizationBinding {
   helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
 }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
@@ -75,7 +82,7 @@ export interface OperationResult {
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
-  schema: 'urn:aihq:core:run-result:1.0.0'; runId: string; useCase: 'policy' | 'repair';
+  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0'; runId: string; useCase: 'policy' | 'repair';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };

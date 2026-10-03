@@ -10,6 +10,7 @@ import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } 
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type InlineMaterialDescriptor, type MaterialRecipeReference } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
+import { foldHookGroup } from './internal/hook-prepare.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
 import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
 import type { FileStateCheck, FileStateControls, FileStateOmission, FileStateRequest, FileStateResult,
@@ -305,6 +306,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         } catch { throw new Error('recipe-invalid'); }
         const recipeValidation = validateRecipe(recipe);
         if (!recipeValidation.valid) return failWith('validation', recipeValidation.diagnostics);
+        // The enclosing policy version gates acquired recipe bytes exactly as Prepare does.
+        if (policy.schema !== 'urn:aihq:core:execution-policy:1.1.0' && recipe.schema === 'urn:aihq:core:recipe:1.1.0')
+          return failWith('recipe-schema', [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
+            encountered: recipe.schema, supported: ['urn:aihq:core:recipe:1.0.0'], guidance: 'Author an execution-policy 1.1.0 document to select a recipe 1.1.0.' }]);
         const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))
           .sort((a, b) => codeUnitCompare(a.id, b.id));
         const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))
@@ -445,6 +450,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
             if (reason === undefined) fold = before => renderTextBlock(before, { blockId: op.blockId,
               startMarker: op.startMarker, endMarker: op.endMarker, action: op.action,
               ...(content === undefined ? {} : { content }) });
+          } else if (op.kind === 'hook.group') {
+            const authored = { format: op.format, container: op.container, groupId: op.groupId, selector: op.selector, action: op.action,
+              ...(op.group ? { group: op.group.literal } : {}) };
+            fold = before => foldHookGroup(authored, before);
           } else fold = () => null;
         }
         let group = groups.get(key);

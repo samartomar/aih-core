@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:recipe:1.1.0",
+  "title": "Core recipe (adds hook.group)",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "description", "inputs", "materials", "targets", "prerequisites", "operations", "checks"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:recipe:1.1.0" },
+    "id": { "$ref": "#/$defs/id" },
+    "description": { "type": "string", "maxLength": 4096 },
+    "inputs": { "type": "object", "propertyNames": { "$ref": "#/$defs/id" }, "additionalProperties": { "$ref": "#/$defs/input" } },
+    "materials": { "type": "array", "items": { "$ref": "#/$defs/material" } },
+    "targets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["project", "user"] } },
+    "prerequisites": { "type": "array", "items": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["kind", "os", "architectures"], "properties": { "kind": { "const": "platform" }, "os": { "enum": ["win32", "darwin", "linux"] }, "architectures": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["x64", "arm64"] } } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "name"], "properties": { "kind": { "const": "executable" }, "name": { "type": "string", "minLength": 1, "maxLength": 256 } } }
+    ] } },
+    "operations": { "type": "array", "minItems": 1, "items": { "oneOf": [
+      { "$ref": "#/$defs/file" }, { "$ref": "#/$defs/config" }, { "$ref": "#/$defs/block" },
+      { "$ref": "#/$defs/remove" }, { "$ref": "#/$defs/process" }, { "$ref": "#/$defs/hookGroup" }
+    ] } },
+    "checks": { "type": "array", "items": { "oneOf": [ { "$ref": "#/$defs/fileCheck" }, { "$ref": "#/$defs/processCheck" } ] } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "slot": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["literal"], "properties": { "literal": {} } },
+      { "type": "object", "additionalProperties": false, "required": ["input"], "properties": { "input": { "$ref": "#/$defs/id" } } }
+    ]},
+    "input": {
+      "type": "object", "additionalProperties": false, "required": ["type", "required"],
+      "properties": {
+        "type": { "enum": ["string", "boolean", "integer", "number"] }, "required": { "type": "boolean" },
+        "default": {}, "enum": { "type": "array", "minItems": 1, "uniqueItems": true },
+        "description": { "type": "string", "maxLength": 4096 }, "sensitive": { "type": "boolean" },
+        "minLength": { "type": "integer", "minimum": 0 }, "maxLength": { "type": "integer", "minimum": 0 },
+        "minimum": { "type": "number" }, "maximum": { "type": "number" }
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["root", "segments"],
+      "properties": {
+        "root": { "enum": ["project", "userHome", "userState"] },
+        "segments": { "type": "array", "items": { "$ref": "#/$defs/slot" } }
+      }
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["kind", "url", "sha256", "byteLength"], "properties": { "kind": { "const": "archive" }, "url": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" }, "byteLength": { "type": "integer", "minimum": 1, "maximum": 67108864 } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "input"], "properties": { "kind": { "const": "local" }, "input": { "$ref": "#/$defs/id" } } }
+    ] },
+    "material": { "oneOf": [ { "$ref": "#/$defs/inlineMaterial" }, { "$ref": "#/$defs/materialDescriptor" } ] },
+    "materialDescriptor": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "byteLength"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/sha256" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 16777216 }
+    } },
+    "inlineMaterial": { "type": "object", "additionalProperties": false, "required": ["id", "source", "path", "sha256", "byteLength"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "source": { "$ref": "#/$defs/source" }, "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 16777216 }
+    } },
+    "common": { "type": "object", "required": ["id", "purpose", "kind", "scope", "requires", "checks"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 },
+      "scope": { "enum": ["project", "user"] }, "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+    } },
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "purpose", "kind", "scope", "target", "requires", "checks"],
+      "oneOf": [
+        { "required": ["content"], "properties": { "content": { "$ref": "#/$defs/slot" } } },
+        { "required": ["material"], "properties": { "material": { "$ref": "#/$defs/id" } } }
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "kind": { "const": "file.write" }, "scope": { "enum": ["project", "user"] },
+        "target": { "$ref": "#/$defs/target" }, "content": { "$ref": "#/$defs/slot" },
+        "material": { "$ref": "#/$defs/id" }, "mode": { "type": "integer", "minimum": 0, "maximum": 511 },
+        "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+      }
+    },
+    "entry": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["path", "action", "value"], "properties": { "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "action": { "const": "set" }, "value": { "$ref": "#/$defs/slot" } } },
+      { "type": "object", "additionalProperties": false, "required": ["path", "action"], "properties": { "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }, "action": { "const": "remove" } } }
+    ] },
+    "config": { "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "scope", "target", "format", "entries", "requires", "checks"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 }, "kind": { "const": "config.entries" }, "scope": { "enum": ["project", "user"] }, "target": { "$ref": "#/$defs/target" }, "format": { "enum": ["json", "jsonc", "toml"] }, "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/entry" } }, "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+    } },
+    "block": { "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "scope", "target", "blockId", "startMarker", "endMarker", "action", "requires", "checks"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 }, "kind": { "const": "text.block" }, "scope": { "enum": ["project", "user"] }, "target": { "$ref": "#/$defs/target" }, "blockId": { "$ref": "#/$defs/id" }, "startMarker": { "type": "string", "minLength": 1, "maxLength": 256 }, "endMarker": { "type": "string", "minLength": 1, "maxLength": 256 }, "action": { "enum": ["set", "remove"] }, "content": { "$ref": "#/$defs/slot" }, "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+    }, "allOf": [{ "if": { "properties": { "action": { "const": "set" } } }, "then": { "required": ["content"], "properties": { "content": { "$ref": "#/$defs/slot" } } }, "else": { "not": { "required": ["content"], "properties": { "content": {} } } } }] },
+    "remove": { "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "scope", "target", "requires", "checks"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 }, "kind": { "const": "file.remove" }, "scope": { "enum": ["project", "user"] }, "target": { "$ref": "#/$defs/target" }, "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+    } },
+    "hookGroup": { "type": "object", "additionalProperties": false,
+      "required": ["id", "purpose", "kind", "scope", "target", "format", "container", "groupId", "selector", "action", "requires", "checks"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 }, "kind": { "const": "hook.group" },
+        "scope": { "enum": ["project", "user"] }, "target": { "$ref": "#/$defs/target" }, "format": { "enum": ["json", "jsonc"] },
+        "container": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+        "groupId": { "$ref": "#/$defs/id" },
+        "selector": { "type": "object", "additionalProperties": false, "required": ["path", "value"], "properties": {
+          "path": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "integer", "minimum": 0, "maximum": 1023 } ] } },
+          "value": { "type": "string", "minLength": 1, "maxLength": 4096 } } },
+        "action": { "enum": ["set", "remove"] },
+        "group": { "type": "object", "additionalProperties": false, "required": ["literal"], "properties": { "literal": { "type": "object" } } },
+        "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+      },
+      "allOf": [{ "if": { "properties": { "action": { "const": "set" } } }, "then": { "required": ["group"], "properties": { "group": {} } }, "else": { "not": { "required": ["group"], "properties": { "group": {} } } } }]
+    },
+    "invocation": { "type": "object", "required": ["executable", "args", "cwd", "env", "acceptedExitCodes"], "properties": {
+      "executable": { "oneOf": [ { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 } } }, { "type": "object", "additionalProperties": false, "required": ["material"], "properties": { "material": { "$ref": "#/$defs/id" } } } ] },
+      "args": { "type": "array", "items": { "$ref": "#/$defs/slot" } }, "cwd": { "$ref": "#/$defs/target" }, "env": { "type": "object", "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "additionalProperties": { "$ref": "#/$defs/slot" } }, "stdin": { "$ref": "#/$defs/slot" }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 900000 }, "maxOutputBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }, "acceptedExitCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
+    } },
+    "process": { "allOf": [ { "$ref": "#/$defs/invocation" } ], "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "scope", "executable", "args", "cwd", "env", "acceptedExitCodes", "effects", "requires", "checks"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 4096 }, "kind": { "const": "process.run" }, "scope": { "enum": ["project", "user"] }, "executable": { "$ref": "#/$defs/invocation/properties/executable" }, "args": { "$ref": "#/$defs/invocation/properties/args" }, "cwd": { "$ref": "#/$defs/target" }, "env": { "$ref": "#/$defs/invocation/properties/env" }, "stdin": { "$ref": "#/$defs/slot" }, "timeoutMs": { "$ref": "#/$defs/invocation/properties/timeoutMs" }, "maxOutputBytes": { "$ref": "#/$defs/invocation/properties/maxOutputBytes" }, "acceptedExitCodes": { "$ref": "#/$defs/invocation/properties/acceptedExitCodes" }, "effects": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }, "requires": { "$ref": "#/$defs/ids" }, "checks": { "$ref": "#/$defs/ids" }
+    } },
+    "fileCheck": { "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "target", "sha256"], "properties": { "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1 }, "kind": { "const": "file.sha256" }, "target": { "$ref": "#/$defs/target" }, "sha256": { "$ref": "#/$defs/sha256" } } },
+    "processCheck": { "type": "object", "additionalProperties": false, "required": ["id", "purpose", "kind", "executable", "args", "cwd", "env", "acceptedExitCodes"], "properties": { "id": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1 }, "kind": { "const": "process.exit" }, "executable": { "$ref": "#/$defs/invocation/properties/executable" }, "args": { "$ref": "#/$defs/invocation/properties/args" }, "cwd": { "$ref": "#/$defs/target" }, "env": { "$ref": "#/$defs/invocation/properties/env" }, "stdin": { "$ref": "#/$defs/slot" }, "timeoutMs": { "$ref": "#/$defs/invocation/properties/timeoutMs" }, "maxOutputBytes": { "$ref": "#/$defs/invocation/properties/maxOutputBytes" }, "acceptedExitCodes": { "$ref": "#/$defs/invocation/properties/acceptedExitCodes" } } }
+  }
+}

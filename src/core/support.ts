@@ -7,6 +7,7 @@ import type { GuidanceFact, GuidanceRequest } from '../harness/guidance.mjs';
 import { repairIndex } from '../harness/contracts.mjs';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, jsonOwnEntriesV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
+import { HOOK_REASONS, isHookConflict, isHookReason } from './internal/hook-guidance.js';
 
 export type SupportPlatform = 'win32' | 'darwin' | 'linux' | 'unknown';
 export interface SupportRepairContext { id: string; targets: string[] }
@@ -30,6 +31,8 @@ export interface GuidanceItem {
 export interface GuidanceResult { status: 'complete' | 'invalid'; items: GuidanceItem[]; diagnostics: Diagnostic[] }
 export interface SupportMarkdownResult { status: 'rendered' | 'invalid'; markdown?: string; diagnostics: Diagnostic[] }
 
+const PREPARED = ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0'] as const;
+const RESULT = ['urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0'] as const;
 const invalid = (): Diagnostic => ({ code: 'INPUT_INVALID', reason: 'support-input', message: 'Use a supported public result.' });
 const unsupported = (): Diagnostic => ({ code: 'SCHEMA_UNSUPPORTED', reason: 'schema-id', message: 'This result format is not supported.' });
 type Data = Record<string, unknown>;
@@ -68,12 +71,12 @@ function reviewCheck(value: unknown): boolean {
   return fields(value, ['id', 'purpose']) && oneOf(value.kind, ['file.sha256', 'process.exit']) && object(value.details);
 }
 function reviewOperation(value: unknown): boolean {
-  return fields(value, ['id', 'purpose']) && oneOf(value.kind, ['file.write', 'config.entries', 'text.block', 'file.remove', 'process.run']) &&
+  return fields(value, ['id', 'purpose']) && oneOf(value.kind, ['file.write', 'config.entries', 'text.block', 'file.remove', 'process.run', 'hook.group']) &&
     oneOf(value.scope, ['project', 'user']) && oneOf(value.effects, ['create-file', 'replace-file', 'remove-file', 'already-satisfied', 'conflict', 'opaque-process', 'unavailable']) &&
     oneOf(value.ownership, ['managed', 'unowned']) && strings(value.requires) && list(value.checks, reviewCheck) && object(value.details);
 }
 function review(value: unknown): value is Data {
-  return object(value) && value.schema === 'urn:aihq:core:prepared-work:1.0.0' && oneOf(value.useCase, ['policy', 'repair']) &&
+  return object(value) && oneOf(value.schema, PREPARED) && oneOf(value.useCase, value.schema === PREPARED[1] ? ['policy'] : ['policy', 'repair']) &&
     oneOf(value.mode, ['vibe', 'enterprise', 'standalone']) && object(value.target) && oneOf(value.target.scope, ['project', 'user']) &&
     typeof value.target.project === 'string' && inputs(value.inputs) &&
     // prepared-work allOf: an organization binding (with a policy digest) exactly in enterprise mode.
@@ -100,7 +103,7 @@ function preparationResult(value: Data): boolean {
     diagnostics(value.diagnostics) && record(value.record) && (!Object.hasOwn(value, 'review') || review(value.review));
 }
 function runResult(value: Data): boolean {
-  return value.schema === 'urn:aihq:core:run-result:1.0.0' && typeof value.runId === 'string' && oneOf(value.useCase, ['policy', 'repair']) &&
+  return oneOf(value.schema, RESULT) && typeof value.runId === 'string' && oneOf(value.useCase, value.schema === RESULT[1] ? ['policy'] : ['policy', 'repair']) &&
     oneOf(value.completion, ['complete', 'incomplete', 'cancelled', 'rejected']) && logging(value.effectiveOptions) &&
     list(value.operations, item => fields(item, ['id']) && oneOf(item.application, ['not-attempted', 'already-satisfied', 'applied', 'failed']) &&
       fields(item.verification, ['reason']) && oneOf(item.verification.status, [...outcomes, 'unverified'])) &&
@@ -167,9 +170,9 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
     if (new TextEncoder().encode(canonicalJson(snapshot)).length > 1_000_000) return invalid();
     const result = snapshot.result as Data;
     const kind = snapshot.kind as SupportInput['kind'];
-    if ((kind === 'run' && Object.hasOwn(result, 'schema') && result.schema !== 'urn:aihq:core:run-result:1.0.0') ||
+    if ((kind === 'run' && Object.hasOwn(result, 'schema') && !oneOf(result.schema, RESULT)) ||
         (kind === 'prepare' && object(result.review) && Object.hasOwn(result.review, 'schema') &&
-          result.review.schema !== 'urn:aihq:core:prepared-work:1.0.0')) return unsupported();
+          !oneOf(result.review.schema, PREPARED))) return unsupported();
     if (!(kind === 'inspect' ? inspectResult(result) : kind === 'prepare' ? preparationResult(result) : runResult(result))) return invalid();
     const useCase = kind === 'inspect' ? undefined : kind === 'run' ? result.useCase as 'repair' | 'policy' :
       object(result.review) ? result.review.useCase as 'repair' | 'policy' : snapshot.repair ? 'repair' : 'policy';
@@ -212,10 +215,31 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
   } catch { return invalid(); }
 }
 
+/** Generic guidance plus fixed hook-group recovery items; no observed group content is read. */
+function derive(adapted: Adapted): GuidanceItem[] {
+  const generic = deriveGuidance(adapted.request) as GuidanceItem[];
+  const review = adapted.kind === 'prepare' && object(adapted.result.review) ? adapted.result.review : undefined;
+  if (!review || !Array.isArray(review.operations)) return generic;
+  const specific: GuidanceItem[] = []; const covered = new Set<string>();
+  (review.operations as Data[]).forEach((operation, index) => {
+    const reason = object(operation.details) ? operation.details.reason : undefined;
+    if (operation.kind !== 'hook.group' || operation.effects !== 'conflict' || !isHookReason(reason)) return;
+    const guidance = HOOK_REASONS[reason]!;
+    covered.add(`/review/operations/${index}`);
+    specific.push({ id: 'hook-group-conflict', target: 'policy', reason, audience: 'developer', summary: guidance.summary,
+      steps: [...guidance.steps], evidenceIds: [`/review/operations/${index}`], repairs: [] });
+  });
+  if (!specific.length) return generic;
+  (review.conflicts as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/review/conflicts/${index}`); });
+  (adapted.result.diagnostics as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/diagnostics/${index}`); });
+  const kept = generic.filter(item => !(item.id === 'diagnostic-review' && item.evidenceIds.some(id => covered.has(id))));
+  return [...kept.filter(item => item.audience === 'developer'), ...specific, ...kept.filter(item => item.audience === 'administrator')];
+}
+
 export function getGuidance(input: SupportInput, options: SupportOptions): GuidanceResult {
   const adapted = adapt(input, options);
   if ('code' in adapted) return { status: 'invalid', items: [], diagnostics: [adapted] };
-  return { status: 'complete', items: deriveGuidance(adapted.request), diagnostics: [] };
+  return { status: 'complete', items: derive(adapted), diagnostics: [] };
 }
 
 /**
@@ -236,8 +260,8 @@ function identity(value: unknown): string {
 export function renderSupportMarkdown(input: SupportInput, options: SupportOptions): SupportMarkdownResult {
   const adapted = adapt(input, options);
   if ('code' in adapted) return { status: 'invalid', diagnostics: [adapted] };
-  const { kind, result, request } = adapted;
-  const items = deriveGuidance(request);
+  const { kind, result } = adapted;
+  const items = derive(adapted);
   const packageData = kind === 'inspect' ? result.package : kind === 'prepare' ?
     object(result.review) && object(result.review.inputs) ? result.review.inputs.package : undefined : object(result.inputs) ? result.inputs.package : undefined;
   const checks = Array.isArray(result.checks) ? result.checks as Data[] : [];

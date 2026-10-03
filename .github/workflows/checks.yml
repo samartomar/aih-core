@@ -24,6 +24,9 @@ jobs:
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The old-Core compatibility test builds the pre-feature base commit from history; a shallow clone would skip it.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
