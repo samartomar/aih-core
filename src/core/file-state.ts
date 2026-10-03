@@ -6,12 +6,12 @@ import { installedDistribution } from './internal/installed-distribution.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
-import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256 } from './internal/host-files.js';
-import { captureRecipeReference, captureInlineMaterials, MaterialCaptureError,
+import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } from './internal/host-files.js';
+import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type InlineMaterialDescriptor, type MaterialRecipeReference } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
-import type { Diagnostic, Json, Recipe, Slot } from './types.js';
+import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
 import type { FileStateCheck, FileStateControls, FileStateOmission, FileStateRequest, FileStateResult,
   FileStateTarget } from './file-state-types.js';
 
@@ -55,7 +55,10 @@ interface CheckMeta {
   key?: string; sha256?: string;
 }
 interface KeyOutcome {
+  /** Capture or recheck failure: the target row and its digest checks are unavailable. */
   error?: string;
+  /** Fold failure: only the target row is unavailable. */
+  rowError?: string;
   live?: { present: boolean; bytes?: Buffer };
   rowOutcome?: 'match' | 'changed' | 'absent';
   rowReason?: string;
@@ -79,6 +82,66 @@ function membersDeclaredBytes(members: InlineMaterialDescriptor[]): number {
   }
   return total;
 }
+type Bound = Record<string, Json>;
+// An omitted private value is missing (its comparison is unavailable); an unbound
+// non-sensitive slot is an authoring error exactly as in Prepare.
+const missingInput = (recipe: Recipe, bound: Bound, slot: Slot): boolean =>
+  'input' in slot && !Object.hasOwn(bound, slot.input) && recipe.inputs[slot.input]?.sensitive === true;
+const unboundInput = (recipe: Recipe, bound: Bound, slot: Slot): boolean =>
+  'input' in slot && !Object.hasOwn(bound, slot.input) && recipe.inputs[slot.input]?.sensitive !== true;
+
+/** Binds declared inputs with Prepare's rules, leaving an omitted private value unbound. */
+function bindInputs(selection: Selection, recipe: Recipe, supplied: Record<string, Json> | undefined): Bound {
+  for (const name of Object.keys(supplied ?? {}))
+    if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
+  for (const [name, value] of Object.entries(selection.configuration))
+    if (!Object.hasOwn(recipe.inputs, name) || recipe.inputs[name]!.sensitive || !inputAccepts(recipe.inputs[name]!, value))
+      throw new Error('input-value');
+  const bound: Bound = Object.create(null);
+  for (const [name, spec] of Object.entries(recipe.inputs)) {
+    const value = spec.sensitive ? supplied?.[name] :
+      Object.hasOwn(selection.configuration, name) ? selection.configuration[name] : spec.default;
+    if (value === undefined) {
+      if (spec.sensitive || !spec.required) continue;
+      throw new Error('input-value');
+    }
+    if (!inputAccepts(spec, value)) throw new Error('input-value');
+    bound[name] = value;
+  }
+  return bound;
+}
+
+/**
+ * Rejects what Prepare would reject before any target read: unsafe resolved path
+ * segments and unbound non-sensitive slots in operations and referenced checks.
+ * Paths that need an omitted private value are left for unavailable rows.
+ */
+function admitAuthoredSlots(recipe: Recipe, bound: Bound): void {
+  const referenced = new Set(recipe.operations.flatMap(op => op.checks));
+  const slots = (items: (Slot | undefined)[]) => {
+    for (const slot of items) if (slot && unboundInput(recipe, bound, slot)) throw new Error('input-unbound');
+  };
+  const path = (target: TargetPath, required: boolean) => {
+    if (target.segments.some(slot => missingInput(recipe, bound, slot))) return;
+    if (target.segments.some(slot => unboundInput(recipe, bound, slot))) { if (required) throw new Error('input-unbound'); return; }
+    if (target.segments.some(slot => !validSegment(resolveString(slot, bound)))) throw new Error('invalid-path');
+  };
+  const invocation = (item: ProcessInvocation) => {
+    path(item.cwd, true);
+    slots([...item.args, ...Object.values(item.env), item.stdin]);
+  };
+  for (const op of recipe.operations) {
+    if (op.kind === 'process.run') { invocation(op); continue; }
+    path(op.target, true);
+    if (op.kind === 'file.write' || op.kind === 'text.block') slots([op.content]);
+    else if (op.kind === 'config.entries') slots(op.entries.map(entry => entry.action === 'set' ? entry.value : undefined));
+  }
+  for (const check of recipe.checks) {
+    if (check.kind === 'process.exit') { if (referenced.has(check.id)) invocation(check); }
+    else path(check.target, referenced.has(check.id));
+  }
+}
+
 const UNAVAILABLE_MATERIAL: Record<string, string> = {
   'local-root-unavailable': 'material-unavailable', 'local-file-unavailable': 'material-unavailable',
   'unsafe-local-root': 'material-unavailable', 'unsafe-local-path': 'material-unavailable',
@@ -133,17 +196,27 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       throw new Error(error instanceof Error && SAFE_REASON.test(error.message) ? error.message : 'project-directory');
     }
     const validation = validatePolicy(request.policy);
-    if (!validation.valid) return failWith('validation', validation.diagnostics);
+    // Diagnostic pointers are relative to the request, whose policy is one member.
+    if (!validation.valid) return failWith('validation', validation.diagnostics.map(item =>
+      item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
     const policy = cloneJsonValueStructureV1(request.policy, 'request', 32);
-    for (const [selectionId, values] of Object.entries(privateInputs)) {
-      const selection = policy.selections.find(item => item.id === selectionId);
-      if (!selection) throw new Error('private-input-unknown');
-      if ('inline' in selection.recipe) for (const [name, value] of Object.entries(values)) {
-        const spec = selection.recipe.inline.inputs[name];
-        if (!Object.hasOwn(selection.recipe.inline.inputs, name) || !spec?.sensitive) throw new Error('private-input-unknown');
-        // Validation precedes cancellation, so a supplied value is type-checked here too.
-        if (!inputAccepts(spec, value)) throw new Error('input-value');
+    for (const selectionId of Object.keys(privateInputs))
+      if (!policy.selections.some(item => item.id === selectionId)) throw new Error('private-input-unknown');
+    // Every check that needs no I/O precedes cancellation: strict material
+    // descriptors (including archive sources), input binding and authored paths.
+    const inlineBindings = new Map<string, Bound>();
+    for (const selection of policy.selections) {
+      try {
+        const declared = createMaterialCaptureBudget();
+        if ('reference' in selection.recipe) declared.declareReference(selection.recipe.reference);
+        else declared.declareInline(selection.recipe.inline.materials);
+      } catch (error) {
+        throw new Error(error instanceof MaterialCaptureError && SAFE_REASON.test(error.reason) ? error.reason : 'material-invalid');
       }
+      if (!('inline' in selection.recipe)) continue;
+      const bound = bindInputs(selection, selection.recipe.inline, privateInputs[selection.id]);
+      admitAuthoredSlots(selection.recipe.inline, bound);
+      inlineBindings.set(selection.id, bound);
     }
     const privateValues = Object.values(privateInputs).flatMap(values => Object.values(values)).map(String);
     const redact = (text: string): string => {
@@ -180,7 +253,14 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       return { missing: false, value: resolveString(slot, bound) };
     };
     const materialRoots = controls.materialRoots ?? {};
-    const captureOptions = controls.signal === undefined ? {} : { signal: controls.signal };
+    // Acquisition shares the caller's absolute budget, checked between bounded reads.
+    const captureOptions = { ...(controls.signal === undefined ? {} : { signal: controls.signal }), deadline: start + budgetMs };
+    // Once captured material plus target bytes would pass the total, remaining work is unavailable.
+    let bytesExhausted = false;
+    const fitsTotal = (bytes: number): boolean => {
+      if (!bytesExhausted && targetBytes + materialBytes + bytes > MAX_TOTAL_BYTES) bytesExhausted = true;
+      return !bytesExhausted;
+    };
     // Selections whose admission finished, including unread ones that already carry an omission.
     const admitted = new Set<string>();
     const ordered = dependencyOrder(policy.selections);
@@ -203,7 +283,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       if ('reference' in selection.recipe) {
         const reference = selection.recipe.reference;
         if (reference.source.kind === 'archive') { unread('remote-material-not-admitted'); continue; }
-        if (materialBytes + referenceDeclaredBytes(reference) > MAX_TOTAL_BYTES) { unread('limit-exceeded'); continue; }
+        if (!fitsTotal(referenceDeclaredBytes(reference))) { unread('limit-exceeded'); continue; }
         let captured: Awaited<ReturnType<typeof captureRecipeReference>>;
         try { captured = await captureRecipeReference(reference, materialRoots, captureOptions); }
         catch (error) {
@@ -228,7 +308,6 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         readMaterial = id => captured.readMaterial(id);
       } else {
         recipe = selection.recipe.inline;
-        if (recipe.materials.some(item => !('source' in item))) throw new Error('material-source-missing');
         const sourceGroups = new Map<string, InlineMaterialDescriptor[]>();
         for (const member of recipe.materials as InlineMaterialDescriptor[]) {
           if (member.source.kind === 'archive') {
@@ -243,7 +322,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         for (const members of sourceGroups.values()) {
           if (controls.signal?.aborted) { terminated = 'cancelled'; break admission; }
           if (overBudget()) { terminated = 'budget-exhausted'; break admission; }
-          if (materialBytes + membersDeclaredBytes(members) > MAX_TOTAL_BYTES) {
+          if (!fitsTotal(membersDeclaredBytes(members))) {
             for (const member of members) materialReasons.set(member.id, 'limit-exceeded');
             continue;
           }
@@ -268,23 +347,16 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       }
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope))
         throw new Error('scope-mismatch');
-      for (const name of Object.keys(privateInputs[selection.id] ?? {}))
-        if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
+      // Inline recipes were bound and checked before cancellation; a captured reference is checked now.
+      const bound = inlineBindings.get(selection.id) ?? bindInputs(selection, recipe, privateInputs[selection.id]);
+      if (!inlineBindings.has(selection.id)) admitAuthoredSlots(recipe, bound);
       const selectionKey = sha256(`${selection.scope === 'user' ? userHomeRoot() : project}\u0000${selection.scope}\u0000${selection.managementId}`);
-      const bound: Record<string, Json> = Object.create(null);
-      for (const [name, value] of Object.entries(selection.configuration))
-        if (!Object.hasOwn(recipe.inputs, name) || recipe.inputs[name]!.sensitive || !inputAccepts(recipe.inputs[name]!, value))
-          throw new Error('input-value');
-      for (const [name, spec] of Object.entries(recipe.inputs)) {
-        const value = spec.sensitive ? privateInputs[selection.id]?.[name] :
-          Object.hasOwn(selection.configuration, name) ? selection.configuration[name] : spec.default;
-        if (value === undefined) {
-          if (spec.sensitive || !spec.required) continue;
-          throw new Error('input-value');
-        }
-        if (!inputAccepts(spec, value)) throw new Error('input-value');
-        bound[name] = value;
-      }
+      // One retained copy per captured material, however many operations use it.
+      const materialBuffers = new Map<string, Buffer | undefined>();
+      const material = (id: string): Buffer | undefined => {
+        if (!materialBuffers.has(id)) materialBuffers.set(id, readMaterial(id));
+        return materialBuffers.get(id);
+      };
       let platformUnsupported = false;
       for (const [index, requirement] of recipe.prerequisites.entries()) {
         if (requirement.kind === 'platform') {
@@ -302,21 +374,25 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         const id = `${selection.id}/${op.id}`;
         opIds.push(id);
         const deps = [...priorSelections, ...op.requires.map(required => `${selection.id}/${required}`)];
-        const depsTainted = deps.some(dep => taintedOps.has(dep));
         // Process dependency is transitive through file operations and required selections.
-        if (depsTainted) taintedOps.add(id);
+        const taint = () => { if (deps.some(dep => taintedOps.has(dep))) taintedOps.add(id); };
         if (op.kind === 'process.run') {
           taintedOps.add(id);
           omissions.push({ kind: 'process', id, reason: 'process-not-checked' });
           continue;
         }
-        const missingPathInput = op.target.segments.some(slot =>
-          'input' in slot && !Object.hasOwn(bound, slot.input) && recipe.inputs[slot.input]?.sensitive);
-        if (missingPathInput) {
+        if (op.target.segments.some(slot => missingInput(recipe, bound, slot))) {
+          taint();
           rows.push({ kind: 'null', id, reason: 'input-unavailable' });
           continue;
         }
         const resolved = resolvePath(op.target, op.scope, bound, project, selectionKey);
+        const key = `${resolved.root}:${process.platform === 'win32' ? resolved.path.toLowerCase() : resolved.path}`;
+        // As in Prepare, a later operation on the same target is ordered after the earlier one.
+        const prior = groups.get(key)?.contributions.at(-1);
+        if (prior !== undefined) deps.push(prior.id);
+        taint();
+        const depsTainted = taintedOps.has(id);
         let reason: string | undefined = platformUnsupported ? 'platform-unsupported' :
           inherited ?? (depsTainted ? 'process-dependency-not-checked' : undefined);
         let fold: Contribution['fold'];
@@ -328,9 +404,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
               const unavailable = materialReasons.get(op.material);
               if (unavailable !== undefined) reason = unavailable;
               else {
-                const bytes = readMaterial(op.material);
+                const bytes = material(op.material);
+                // Renderers never mutate their input, so the retained buffer is shared.
                 if (bytes === undefined) reason = 'material-unavailable';
-                else fold = () => Buffer.from(bytes);
+                else fold = () => bytes;
               }
             } else {
               const content = slotText(recipe, bound, op.content!);
@@ -360,7 +437,6 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
               ...(content === undefined ? {} : { content }) });
           } else fold = () => null;
         }
-        const key = `${resolved.root}:${process.platform === 'win32' ? resolved.path.toLowerCase() : resolved.path}`;
         let group = groups.get(key);
         if (group === undefined) {
           group = { key, id, operationIds: [], label: op.target.root, root: resolved.root, path: resolved.path,
@@ -393,9 +469,9 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
           checkMetas.push({ id, preset: { outcome: 'unavailable', reason: 'platform-unsupported' } });
           continue;
         }
-        const missingPathInput = check.target.segments.some(slot =>
-          'input' in slot && !Object.hasOwn(bound, slot.input) && recipe.inputs[slot.input]?.sensitive);
-        if (missingPathInput) {
+        // A referenced check with an unbound authored input was already rejected; an
+        // unreferenced one (which Prepare never resolves) is reported, not guessed.
+        if (check.target.segments.some(slot => missingInput(recipe, bound, slot) || unboundInput(recipe, bound, slot))) {
           checkMetas.push({ id, preset: { outcome: 'unavailable', reason: 'input-unavailable' } });
           continue;
         }
@@ -429,12 +505,12 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
 
     const observe = (key: string): KeyOutcome => {
       const target = groups.get(key) ?? checkOnlyTargets.get(key)!;
+      if (bytesExhausted) return { error: 'limit-exceeded' };
       let pins: ReturnType<typeof pathPins>;
       try { pins = pathPins(target.absolute); } catch { return { error: 'target-unreadable' }; }
       try {
         const leaf = lstatSync(target.absolute);
-        if (leaf.size > MAX_TARGET_BYTES || targetBytes + materialBytes + leaf.size > MAX_TOTAL_BYTES)
-          return { error: 'limit-exceeded' };
+        if (leaf.size > MAX_TARGET_BYTES || !fitsTotal(leaf.size)) return { error: 'limit-exceeded' };
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return { error: 'target-unreadable' };
       }
@@ -443,18 +519,24 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       if (live.state === 'present') targetBytes += live.bytes.length;
       const outcome: KeyOutcome = { live: live.state === 'present' ? { present: true, bytes: live.bytes } : { present: false } };
       const group = groups.get(key);
-      if (group !== undefined && group.contributions.every(contribution => contribution.reason === undefined)) {
+      // A fold failure affects only the target row; digest checks still use the live capture.
+      const fold = (): Buffer | null | undefined => {
         let desired: Buffer | null = live.state === 'present' ? live.bytes : null;
         try {
-          for (const contribution of group.contributions) {
+          for (const contribution of group!.contributions) {
             desired = contribution.fold!(desired);
-            if (desired !== null && desired.byteLength > MAX_TARGET_BYTES) return { error: 'limit-exceeded' };
+            if (desired !== null && desired.byteLength > MAX_TARGET_BYTES) { outcome.rowError = 'limit-exceeded'; return undefined; }
           }
         } catch (error) {
-          if (error instanceof RecipeEditError) return { error: error.reason };
+          if (error instanceof RecipeEditError) { outcome.rowError = error.reason; return undefined; }
           throw error;
         }
-        const expectedMode = group.contributions.at(-1)!.mode;
+        return desired;
+      };
+      const desired = group !== undefined && group.contributions.every(contribution => contribution.reason === undefined) ?
+        fold() : undefined;
+      if (desired !== undefined) {
+        const expectedMode = group!.contributions.at(-1)!.mode;
         const liveBytes = live.state === 'present' ? live.bytes : null;
         if (desired === null && liveBytes === null) {
           outcome.rowOutcome = 'match'; outcome.rowReason = 'content-match';
@@ -513,9 +595,9 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
           outcome: 'unavailable' as const, reason: unavailable.reason! };
       const outcome = outcomes.get(group.key);
-      if (outcome === undefined || outcome.error !== undefined)
+      if (outcome === undefined || outcome.error !== undefined || outcome.rowError !== undefined)
         return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
-          outcome: 'unavailable' as const, reason: outcome?.error ?? 'file-state-internal' };
+          outcome: 'unavailable' as const, reason: outcome?.error ?? outcome?.rowError ?? 'file-state-internal' };
       return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
         outcome: outcome.rowOutcome!, reason: outcome.rowReason! };
     });
@@ -540,12 +622,15 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     const comparisons = comparedTargets + comparedChecks;
     const fileState = mismatch ? 'changed' as const :
       comparisons >= 1 && unavailableTargets === 0 && unavailableChecks === 0 && !unreadRecipe ? 'match' as const : 'unverified' as const;
-    const status = terminated === 'cancelled' ? 'cancelled' as const :
+    // Cancellation takes precedence even when it arrives during the last observation
+    // or after the budget ran out; completed rows are retained either way.
+    const cancelled = terminated === 'cancelled' || controls.signal?.aborted === true;
+    const status = cancelled ? 'cancelled' as const :
       comparisons >= 1 && unavailableTargets === 0 && unavailableChecks === 0 && notCheckedCount === 0 ? 'complete' as const : 'incomplete' as const;
     return { schema: SCHEMA, package: identity, status, fileState, authority: 'not-evaluated',
       targets, checks, notChecked: omissions,
       coverage: { comparedTargets, unavailableTargets, comparedChecks, unavailableChecks, notChecked: notCheckedCount },
-      diagnostics: terminated === 'cancelled' ? [diagnostic('CANCELLED', 'cancelled', 'The file-state check was cancelled.')] : [],
+      diagnostics: cancelled ? [diagnostic('CANCELLED', 'cancelled', 'The file-state check was cancelled.')] : [],
       limits: { budgetMs, elapsedMs: elapsed(), targetBytes, materialBytes } };
   } catch (error) {
     const reason = error instanceof Error ? error.message : '';

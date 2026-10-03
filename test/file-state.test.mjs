@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, readlinkSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -301,12 +302,12 @@ test('a missing private input in a target path yields one null-target row', asyn
 test('process operations, process checks and executable prerequisites are explicit omissions', async () => {
   const dir = project();
   const processOnly = writePolicy([{ id: 'run', purpose: 'Run a tool', kind: 'process.run', scope: 'project',
-    executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [{ literal: '.' }] },
+    executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [] },
     env: {}, acceptedExitCodes: [0], effects: ['opaque'], requires: [], checks: ['verify'] }],
     (document, recipe) => {
       recipe.prerequisites = [{ kind: 'executable', name: 'definitely-not-a-real-executable' }];
       recipe.checks = [{ id: 'verify', purpose: 'Verify by process', kind: 'process.exit',
-        executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [{ literal: '.' }] },
+        executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [] },
         env: {}, acceptedExitCodes: [0] }];
     });
   const result = await expectInert(dir, () => check({ policy: processOnly, target: { project: dir } }));
@@ -325,7 +326,7 @@ test('a process-dependent target is unavailable while an independent target is o
   writeFileSync(join(dir, 'FREE.md'), 'free content');
   const document = writePolicy([
     { id: 'run', purpose: 'Opaque step', kind: 'process.run', scope: 'project',
-      executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [{ literal: '.' }] },
+      executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [] },
       env: {}, acceptedExitCodes: [0], effects: ['opaque'], requires: [], checks: [] },
     { ...writeOp('dependent', 'DEP.md', 'generated'), requires: ['run'] },
     writeOp('free', 'FREE.md', 'free content')
@@ -662,7 +663,7 @@ function selection(id, operations, extra = {}, recipeExtra = {}) {
 }
 const policyOf = selections => ({ schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections });
 const opaque = (id, extra = {}) => ({ id, purpose: 'Opaque step', kind: 'process.run', scope: 'project',
-  executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [{ literal: '.' }] },
+  executable: { name: 'definitely-not-a-real-executable' }, args: [], cwd: { root: 'project', segments: [] },
   env: {}, acceptedExitCodes: [0], effects: ['opaque'], requires: [], checks: [], ...extra });
 const archiveSelection = (id, extra = {}) => ({ id, managementId: `${id}-management`, scope: 'project', configuration: {},
   requires: [], recipe: { reference: { source: { kind: 'archive', url: 'https://example.invalid/recipe.tar.gz',
@@ -772,4 +773,249 @@ test('cancellation during admission lists unfinished recipes without reading tar
     target: { root: 'project', path: 'TEAM.md' }, outcome: 'unavailable', reason: 'cancelled' }]);
   assert.deepEqual(result.notChecked, [{ kind: 'recipe', id: 'second', reason: 'cancelled' }]);
   assert.equal(opened.filter(path => path.startsWith(dir)).length, 0, 'no target is read after cancellation');
+});
+
+test('strict material descriptors and unsafe authored paths are invalid even when already cancelled', async () => {
+  const dir = project();
+  writeFileSync(join(dir, 'TEAM.md'), 'team');
+  const aborted = AbortSignal.abort();
+  const unsafeReference = policyOf([{ ...archiveSelection('remote'), recipe: { reference: {
+    ...archiveSelection('remote').recipe.reference, path: '../recipe.json' } } }]);
+  const plainHttp = policyOf([selection('inline', [{ id: 'write', purpose: 'Write payload', kind: 'file.write', scope: 'project',
+    target: { root: 'project', segments: [{ literal: 'PAYLOAD.md' }] }, material: 'payload', requires: [], checks: [] }], {},
+    { materials: [{ id: 'payload', path: 'payload.txt', sha256: '4'.repeat(64), byteLength: 4,
+      source: { kind: 'archive', url: 'http://example.invalid/material.tar.gz', sha256: '5'.repeat(64), byteLength: 64 } }] })]);
+  const traversal = policyOf([selection('walk', [{ ...writeOp('write', 'x', 'team'),
+    target: { root: 'project', segments: [{ literal: '..' }, { literal: 'TEAM.md' }] } }])]);
+  const processCwd = policyOf([selection('tool', [opaque('run', { cwd: { root: 'project', segments: [{ literal: '..' }] } })])]);
+  const opened = [];
+  const original = fs.openSync;
+  fs.openSync = function (...args) { opened.push(String(args[0])); return original.apply(this, args); };
+  syncBuiltinESMExports();
+  try {
+    for (const [document, reason] of [[unsafeReference, 'unsafe-member-path'], [plainHttp, 'invalid-archive-url'],
+      [traversal, 'invalid-path'], [processCwd, 'invalid-path']]) {
+      for (const controls of [{}, { signal: aborted }]) {
+        const result = await check({ policy: document, target: { project: dir } }, controls);
+        assert.deepEqual([result.status, result.diagnostics[0].code, result.diagnostics[0].reason],
+          ['invalid', 'INPUT_INVALID', reason], JSON.stringify(result.diagnostics));
+        assert.deepEqual([result.targets, result.checks, result.notChecked], [[], [], []]);
+      }
+    }
+  } finally { fs.openSync = original; syncBuiltinESMExports(); }
+  assert.equal(opened.filter(path => path.startsWith(dir)).length, 0, 'invalid requests read no targets');
+  const unsupported = await check({ policy: { ...policy(), schema: 'urn:aihq:core:execution-policy:99.0.0' },
+    target: { project: dir } });
+  assert.equal(unsupported.diagnostics[0].path, '/policy/schema', 'pointers are relative to the request');
+});
+
+test('an unreferenced digest check with an unbound optional input is unavailable, a referenced one invalid', async () => {
+  const dir = project();
+  writeFileSync(join(dir, 'TEAM.md'), 'team');
+  const withCheck = referenced => policyOf([selection('guide', [{ ...writeOp('write', 'TEAM.md', 'team'),
+    checks: referenced ? ['digest'] : [] }], {}, {
+    inputs: { folder: { type: 'string', required: false } },
+    checks: [{ id: 'digest', purpose: 'Check optional file', kind: 'file.sha256',
+      target: { root: 'project', segments: [{ input: 'folder' }, { literal: 'OPT.md' }] }, sha256: '6'.repeat(64) }] })]);
+  const unreferenced = await expectInert(dir, () => check({ policy: withCheck(false), target: { project: dir } }));
+  assert.deepEqual(unreferenced.checks, [{ id: 'guide/digest', outcome: 'unavailable', reason: 'input-unavailable' }]);
+  assert.deepEqual([unreferenced.status, unreferenced.fileState, unreferenced.targets[0].outcome], ['incomplete', 'unverified', 'match']);
+  const preview = await prepare({ useCase: 'policy', policy: withCheck(false), target: { project: dir } }, { logging: 'off' });
+  assert.notEqual(preview.status, 'invalid', 'Prepare does not resolve unreferenced checks either');
+  const referencedResult = await check({ policy: withCheck(true), target: { project: dir } });
+  assert.deepEqual([referencedResult.status, referencedResult.diagnostics[0].reason], ['invalid', 'input-unbound']);
+});
+
+test('a later operation on a shared target carries the earlier operation process dependency', async () => {
+  const dir = project();
+  for (const [name, text] of [['F.md', 'second'], ['G.md', 'g'], ['H.md', 'h']]) writeFileSync(join(dir, name), text);
+  // Admission order is p, q, x, y, z: y follows x on F although it only requires q.
+  const document = policyOf([selection('tool', [opaque('p'), writeOp('q', 'H.md', 'h'),
+    { ...writeOp('x', 'F.md', 'first'), requires: ['p'] },
+    { ...writeOp('y', 'F.md', 'second'), requires: ['q'] },
+    { ...writeOp('z', 'G.md', 'g'), requires: ['y'] }])]);
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+  assert.deepEqual(result.targets.map(row => [row.id, row.operationIds, row.outcome, row.reason]), [
+    ['tool/q', ['tool/q'], 'match', 'content-match'],
+    ['tool/x', ['tool/x', 'tool/y'], 'unavailable', 'process-dependency-not-checked'],
+    ['tool/z', ['tool/z'], 'unavailable', 'process-dependency-not-checked']]);
+});
+
+test('cancellation during the final observation is reported with every completed row retained', async () => {
+  const dir = project();
+  for (const name of ['A.md', 'B.md']) writeFileSync(join(dir, name), `content of ${name}`);
+  const document = writePolicy(['A.md', 'B.md'].map((name, index) => writeOp(`write-${index}`, name, `content of ${name}`)));
+  const controller = new AbortController();
+  const last = join(dir, 'B.md');
+  const original = fs.openSync;
+  fs.openSync = function (...args) {
+    const fd = original.apply(this, args);
+    if (String(args[0]) === last) controller.abort();
+    return fd;
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await check({ policy: document, target: { project: dir } }, { signal: controller.signal }); }
+  finally { fs.openSync = original; syncBuiltinESMExports(); }
+  assert.equal(result.status, 'cancelled');
+  assert.equal(result.diagnostics[0].code, 'CANCELLED');
+  assert.equal(result.targets[0].outcome, 'match');
+});
+
+test('a renderer failure leaves an independent digest check of the same live file comparable', async () => {
+  const dir = project();
+  writeFileSync(join(dir, 'config.json'), '{bad');
+  const document = writePolicy([{ id: 'json', purpose: 'Edit broken json', kind: 'config.entries', scope: 'project',
+    target: { root: 'project', segments: [{ literal: 'config.json' }] }, format: 'json',
+    entries: [{ path: ['enabled'], action: 'set', value: { literal: true } }], requires: [], checks: [] }],
+    (document, recipe) => { recipe.checks = [fileCheck('digest', 'config.json', '7'.repeat(64))]; });
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+  assert.deepEqual(result.targets.map(row => [row.outcome, row.reason]), [['unavailable', 'unsupported-json-syntax']]);
+  assert.deepEqual(result.checks, [{ id: 'guidance/digest', outcome: 'failed', reason: 'content-changed' }]);
+  assert.equal(result.fileState, 'changed');
+});
+
+test('local material acquisition stops at the caller budget, not its own longer deadline', async () => {
+  const dir = project(); const source = join(fixtureRoot, 'slow-material'); mkdirSync(source);
+  const payload = Buffer.from('payload'); const second = Buffer.from('second');
+  writeFileSync(join(source, 'payload.txt'), payload); writeFileSync(join(source, 'second.txt'), second);
+  writeFileSync(join(dir, 'PAYLOAD.md'), payload);
+  const document = policyOf([selection('slow', [{ id: 'write', purpose: 'Write payload', kind: 'file.write', scope: 'project',
+    target: { root: 'project', segments: [{ literal: 'PAYLOAD.md' }] }, material: 'payload', requires: [], checks: [] }],
+    {}, { materials: [
+      { id: 'payload', path: 'payload.txt', sha256: sha256(payload), byteLength: payload.length, source: { kind: 'local', input: 'selected' } },
+      { id: 'second', path: 'second.txt', sha256: sha256(second), byteLength: second.length, source: { kind: 'local', input: 'selected' } }] })]);
+  const opened = [];
+  const original = fs.openSync;
+  fs.openSync = function (...args) {
+    opened.push(String(args[0]));
+    const fd = original.apply(this, args);
+    // Simulate a slow open that outlasts the caller's budget but not the 60 s acquisition deadline.
+    if (String(args[0]) === join(source, 'payload.txt')) { const until = performance.now() + 1500; while (performance.now() < until); }
+    return fd;
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await check({ policy: document, target: { project: dir } }, { budgetMs: 1000, materialRoots: { selected: source } }); }
+  finally { fs.openSync = original; syncBuiltinESMExports(); }
+  assert.equal(result.status, 'incomplete');
+  assert.deepEqual(result.targets.map(row => [row.outcome, row.reason]), [['unavailable', 'budget-exhausted']]);
+  // Acquisition itself stopped at the caller's deadline: nothing was captured and the next member was never read.
+  assert.equal(result.limits.materialBytes, 0);
+  assert.equal(opened.includes(join(source, 'second.txt')), false, 'no material read after the budget expired');
+});
+
+test('a local recipe reference is admitted only through its pinned material root', async () => {
+  const dir = project(); const catalog = join(fixtureRoot, 'catalog-reference'); mkdirSync(catalog);
+  const recipeBytes = Buffer.from(JSON.stringify(policy().selections[0].recipe.inline));
+  writeFileSync(join(catalog, 'recipe.json'), recipeBytes);
+  writeFileSync(join(dir, 'TEAM.md'), "Read the project's contribution guide.\n");
+  const referenced = pin => { const document = policy();
+    document.selections[0].recipe = { reference: { source: { kind: 'local', input: 'catalog' }, path: 'recipe.json',
+      sha256: pin, byteLength: recipeBytes.length, materials: [] } };
+    return document; };
+  const match = await expectInert(dir, () => check({ policy: referenced(sha256(recipeBytes)), target: { project: dir } },
+    { materialRoots: { catalog } }));
+  assert.deepEqual([match.status, match.fileState, match.limits.materialBytes], ['complete', 'match', recipeBytes.length]);
+  const wrongPin = await check({ policy: referenced('8'.repeat(64)), target: { project: dir } }, { materialRoots: { catalog } });
+  assert.deepEqual(wrongPin.notChecked, [{ kind: 'recipe', id: 'guidance', reason: 'material-identity-mismatch' }]);
+  assert.deepEqual([wrongPin.status, wrongPin.fileState], ['incomplete', 'unverified']);
+  const noRoot = await check({ policy: referenced(sha256(recipeBytes)), target: { project: dir } });
+  assert.deepEqual(noRoot.notChecked, [{ kind: 'recipe', id: 'guidance', reason: 'material-unavailable' }]);
+});
+
+test('each operation with an omitted private path input gets its own null row', async () => {
+  const dir = project();
+  const document = writePolicy([writeOp('one', 'x', 'a'), writeOp('two', 'x', 'b')], (document, recipe) => {
+    recipe.inputs = { dir: { type: 'string', required: true, sensitive: true } };
+    for (const op of recipe.operations) op.target.segments = [{ input: 'dir' }, { literal: 'SAME.md' }];
+    document.selections[0].configuration = {};
+  });
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+  assert.deepEqual(result.targets.map(row => [row.id, row.operationIds, row.target, row.reason]), [
+    ['guidance/one', ['guidance/one'], null, 'input-unavailable'], ['guidance/two', ['guidance/two'], null, 'input-unavailable']]);
+  assert.equal(result.coverage.unavailableTargets, 2);
+});
+
+test('a policy with processes and executable prerequisites starts no child process', async () => {
+  const dir = project();
+  const calls = [];
+  const names = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'];
+  const originals = Object.fromEntries(names.map(name => [name, childProcess[name]]));
+  for (const name of names) childProcess[name] = function (...args) { calls.push(name); return originals[name].apply(this, args); };
+  syncBuiltinESMExports();
+  try {
+    const document = writePolicy([opaque('run'), writeOp('write', 'TEAM.md', 'x')], (document, recipe) => {
+      recipe.prerequisites = [{ kind: 'executable', name: 'node' }];
+      recipe.checks = [{ id: 'verify', purpose: 'Verify by process', kind: 'process.exit', executable: { name: 'node' },
+        args: [], cwd: { root: 'project', segments: [] }, env: {}, acceptedExitCodes: [0] }];
+      recipe.operations[0].checks = ['verify'];
+    });
+    const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+    assert.equal(result.checks[0].outcome, 'not-checked');
+    assert.deepEqual(calls, [], 'no child process was started');
+    childProcess.spawnSync(process.execPath, ['-e', '0']);
+    assert.deepEqual(calls, ['spawnSync'], 'positive control: the instrumentation observes a child process');
+  } finally {
+    for (const name of names) childProcess[name] = originals[name];
+    syncBuiltinESMExports();
+  }
+});
+
+test('malformed JSONC and TOML targets are unavailable with the renderer reason', async () => {
+  const dir = project();
+  writeFileSync(join(dir, 'settings.jsonc'), '{ "a": 1, "a": 2 }');
+  writeFileSync(join(dir, 'tool.toml'), '[[array]]\nname = "x"\n');
+  const entry = { path: ['name'], action: 'set', value: { literal: 'x' } };
+  const document = writePolicy([
+    { id: 'jsonc', purpose: 'Edit duplicate jsonc', kind: 'config.entries', scope: 'project',
+      target: { root: 'project', segments: [{ literal: 'settings.jsonc' }] }, format: 'jsonc', entries: [entry], requires: [], checks: [] },
+    { id: 'toml', purpose: 'Edit array-table toml', kind: 'config.entries', scope: 'project',
+      target: { root: 'project', segments: [{ literal: 'tool.toml' }] }, format: 'toml', entries: [entry], requires: [], checks: [] }]);
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
+  assert.deepEqual(result.targets.map(row => [row.outcome, row.reason]), [
+    ['unavailable', 'duplicate-json-key'], ['unavailable', 'unsupported-toml-array-table']]);
+});
+
+test('more than 4,096 distinct targets leaves the excess unavailable without reads', async () => {
+  const dir = project();
+  // The first 4,096 targets belong to another platform, so they count towards the limit
+  // without being read; the limit itself is then independent of machine speed.
+  const remove = index => ({ id: `o${index}`, purpose: 'p', kind: 'file.remove', scope: 'project',
+    target: { root: 'project', segments: [{ literal: `f${index}` }] }, requires: [], checks: [] });
+  const document = policyOf([
+    selection('elsewhere', Array.from({ length: 4096 }, (_, index) => remove(index)), {},
+      { prerequisites: [{ kind: 'platform', os: process.platform === 'win32' ? 'linux' : 'win32', architectures: ['x64', 'arm64'] }] }),
+    selection('excess', [remove(4096)])
+  ]);
+  const opened = [];
+  const original = fs.openSync;
+  fs.openSync = function (...args) { opened.push(String(args[0])); return original.apply(this, args); };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await check({ policy: document, target: { project: dir } }); }
+  finally { fs.openSync = original; syncBuiltinESMExports(); }
+  assert.equal(result.targets.length, 4097);
+  assert.ok(result.targets.slice(0, 4096).every(row => row.reason === 'platform-unsupported'));
+  assert.deepEqual(result.targets.at(-1), { id: 'excess/o4096', operationIds: ['excess/o4096'],
+    target: { root: 'project', path: 'f4096' }, outcome: 'unavailable', reason: 'limit-exceeded' });
+  assert.deepEqual([result.coverage.comparedTargets, result.coverage.unavailableTargets], [0, 4097]);
+  assert.deepEqual([result.status, result.fileState, result.limits.targetBytes], ['incomplete', 'unverified', 0]);
+  assert.equal(opened.filter(path => path.startsWith(dir)).length, 0, 'no target beyond the limit is read');
+});
+
+test('leaf and material-source symlinks are unavailable, never followed', { skip: process.platform === 'win32' }, async () => {
+  const dir = project(); const outside = project(); const source = join(fixtureRoot, 'linked-material'); mkdirSync(source);
+  writeFileSync(join(outside, 'real.md'), 'outside'); symlinkSync(join(outside, 'real.md'), join(dir, 'LINK.md'));
+  const payload = Buffer.from('payload');
+  writeFileSync(join(outside, 'payload.txt'), payload); symlinkSync(join(outside, 'payload.txt'), join(source, 'payload.txt'));
+  const document = policyOf([
+    selection('leaf', [writeOp('write', 'LINK.md', 'outside')]),
+    selection('material', [{ id: 'write', purpose: 'Write payload', kind: 'file.write', scope: 'project',
+      target: { root: 'project', segments: [{ literal: 'PAYLOAD.md' }] }, material: 'payload', requires: [], checks: [] }],
+      {}, { materials: [{ id: 'payload', path: 'payload.txt', sha256: sha256(payload), byteLength: payload.length,
+        source: { kind: 'local', input: 'selected' } }] })]);
+  const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }, { materialRoots: { selected: source } }));
+  assert.deepEqual(result.targets.map(row => [row.id, row.outcome, row.reason]), [
+    ['leaf/write', 'unavailable', 'target-unreadable'], ['material/write', 'unavailable', 'material-unavailable']]);
 });

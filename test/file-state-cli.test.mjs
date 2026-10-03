@@ -84,7 +84,9 @@ test('check-files rejects apply, authority, logging and unrelated options', () =
       [file, '--probe-configured-mcp'], [file, '--target', 'node'],
       [file, '--org-repository', 'o/r', '--org-path', 'p', '--org-ref', 'commit:abc'],
       [file, '--org-token-env', 'HOME'], [file, '--budget-ms', 'abc'], [file, '--budget-ms', ''],
-      [file, '--budget-ms', '0'], [file, '--budget-ms', '60001'], [file, 'extra']
+      [file, '--budget-ms', '0'], [file, '--budget-ms', '60001'], [file, 'extra'],
+      // Present but empty string options are still refused.
+      [file, '--resolutions='], [file, '--inputs-file='], [file, '--target=']
     ];
     for (const args of cases) {
       const result = check([...args, '--project', project]);
@@ -191,8 +193,10 @@ test('check-files performs no writes, child processes or network under a read-on
     `const realFetch = globalThis.fetch;`,
     `globalThis.fetch = (...args) => { mark('fetch'); return realFetch(...args); };`
   ].join('\n'));
+  // The only write the guarded runs may make is the network marker itself, so an
+  // attempted connection is recorded rather than suppressed by the permission model.
   const guarded = args => run(args, { AIH_TEST_NET_MARKER: marker },
-    ['--permission', '--allow-fs-read=*', '--import', pathToFileURL(preload).href, cli]);
+    ['--permission', '--allow-fs-read=*', `--allow-fs-write=${marker}`, '--import', pathToFileURL(preload).href, cli]);
   try {
     const match = guarded(['check-files', file, '--project', project, '--json']);
     assert.equal(match.status, 0, `read-only permission model: ${match.stdout}${match.stderr}`);
@@ -209,10 +213,12 @@ test('check-files performs no writes, child processes or network under a read-on
     const body = JSON.parse(archived.stdout);
     assert.deepEqual(body.notChecked, [{ kind: 'recipe', id: 'guidance', reason: 'remote-material-not-admitted' }]);
     assert.equal(existsSync(marker) ? readFileSync(marker, 'utf8') : '', '', 'check-files attempted no network');
-    const control = run(['policy', file, '--project', project, '--no-log', '--json'], { AIH_TEST_NET_MARKER: marker },
-      ['--import', pathToFileURL(preload).href, cli]);
+    // Positive control under the identical guarded configuration: Prepare's archive
+    // fetch reaches the marker, so the empty marker above is real evidence.
+    const control = guarded(['policy', file, '--project', project, '--no-log', '--json']);
     assert.equal(control.status, 1, control.stdout + control.stderr);
     assert.match(readFileSync(marker, 'utf8'), /fetch/, 'positive control: Prepare attempted the archive fetch');
+    assert.equal(existsSync(join(home, '.aih')), false);
   } finally { close(); }
 });
 

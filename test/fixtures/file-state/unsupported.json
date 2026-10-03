@@ -22,7 +22,7 @@
       "code": "SCHEMA_UNSUPPORTED",
       "reason": "schema-id",
       "message": "This format is not supported.",
-      "path": "/schema",
+      "path": "/policy/schema",
       "encountered": "urn:aihq:core:execution-policy:99.0.0",
       "supported": [
         "urn:aihq:core:execution-policy:1.0.0"
