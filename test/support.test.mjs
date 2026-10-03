@@ -223,7 +223,11 @@ test('input wrapper/options, required public fields and unsupported schemas are 
   const badCheck = inspect([check()]); badCheck.result.checks[0].outcome = 'made-up'; invalid(badCheck);
   const badOperation = run(); badOperation.result.operations = [{ id: 'x', application: 'applied', verification: {} }]; invalid(badOperation);
   const badAuthorization = run(); badAuthorization.result.authorization = { origin: 'automation', allowPartial: {} }; invalid(badAuthorization);
-  const badOrganization = prepare(); badOrganization.result.review.inputs.organization = { source: {} }; invalid(badOrganization);
+  // Enterprise mode admits an organization binding, so only its malformed shape rejects it.
+  const badOrganization = prepare(); badOrganization.result.review.mode = 'enterprise';
+  badOrganization.result.review.inputs.organization = { source: {} }; invalid(badOrganization);
+  const badRunOrganization = run(); badRunOrganization.result.inputs = { ...review('policy').inputs, organization: { source: {} } };
+  invalid(badRunOrganization);
 });
 
 test('package identity is narrowly permitted and Markdown escapes permitted punctuation', () => {
@@ -298,7 +302,7 @@ test('contradictory policy and repair input bindings are rejected as malformed p
   invalid(nullPolicy);
   const partialRepair = run(); partialRepair.result.inputs = { ...review('policy').inputs, sourceSha256: 'a'.repeat(64) };
   assert.equal(getGuidance(partialRepair, platform).status, 'complete');
-  const candidate = run('complete', 'repair'); candidate.result.inputs = { ...review('repair').inputs, candidateKind: 'system-ca' };
+  const candidate = run('complete', 'repair'); candidate.result.inputs = { ...review('repair').inputs, candidateKind: 'system-ca', certificates: [] };
   assert.equal(getGuidance(candidate, platform).status, 'complete');
   // prepared-work admits an organization binding exactly in enterprise mode.
   const organization = { source: { provider: 'github', repository: { owner: sentinel, name: sentinel }, path: sentinel,
