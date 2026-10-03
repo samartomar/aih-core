@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeExclusiveReportFile } from '../dist/core/internal/report-file.js';
@@ -165,6 +167,126 @@ test('a changed identity before cleanup retains the file with an explicit diagno
   } finally { FileHandleProto.write = original; close(); }
 });
 
+// Reuse is filesystem-dependent after the last descriptor closes. Project only
+// the replacement's inode identity so the real writer takes that branch on every OS.
+function simulateReusedIdentity(target) {
+  const originalStat = FileHandleProto.stat;
+  const originalLstat = fs.lstatSync;
+  let identity;
+  let replaced = false;
+  FileHandleProto.stat = async function (...args) {
+    const stats = await originalStat.apply(this, args);
+    identity ??= { dev: stats.dev, ino: stats.ino };
+    return stats;
+  };
+  fs.lstatSync = function (path, ...args) {
+    const stats = originalLstat.call(this, path, ...args);
+    if (replaced && path === target && args[0]?.bigint === true) {
+      return Object.assign(stats, identity);
+    }
+    return stats;
+  };
+  syncBuiltinESMExports();
+  return {
+    replace() { unlinkSync(target); writeFileSync(target, 'replacement-bytes\n'); replaced = true; },
+    restore() { FileHandleProto.stat = originalStat; fs.lstatSync = originalLstat; syncBuiltinESMExports(); }
+  };
+}
+
+test('cleanup retains a replacement even if the closed file identity is reused', async () => {
+  const { root, close } = fixture('aih-report-reused-cleanup-');
+  const target = join(root, 'report.md');
+  const reuse = simulateReusedIdentity(target);
+  const original = FileHandleProto.write;
+  FileHandleProto.write = async function (...args) {
+    await original.apply(this, args);
+    await this.close();
+    reuse.replace();
+    throw new Error('simulated write failure after identity reuse');
+  };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('report\n'));
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+    assert.equal(result.diagnostics[0].path, join(realpathSync.native(root), 'report.md'));
+    assert.equal(readFileSync(target, 'utf8'), 'replacement-bytes\n');
+  } finally { FileHandleProto.write = original; reuse.restore(); close(); }
+});
+
+test('completion refuses a replacement made while closing even if its inode identity matches', async () => {
+  const { root, close } = fixture('aih-report-reused-completion-');
+  const target = join(root, 'report.md');
+  const reuse = simulateReusedIdentity(target);
+  const captureStat = FileHandleProto.stat;
+  let replaced = false;
+  FileHandleProto.stat = async function (...args) {
+    const stats = await captureStat.apply(this, args);
+    // close is an own method on FileHandle, so intercept this actual instance.
+    const originalClose = this.close;
+    this.close = async (...closeArgs) => {
+      const result = await originalClose.apply(this, closeArgs);
+      if (!replaced) { reuse.replace(); replaced = true; }
+      return result;
+    };
+    return stats;
+  };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('complete report\n'));
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+    assert.equal(result.diagnostics[0].path, join(realpathSync.native(root), 'report.md'));
+    assert.equal(readFileSync(target, 'utf8'), 'replacement-bytes\n');
+    assert.equal(replaced, true, 'the replacement must occur inside the awaited close');
+  } finally { reuse.restore(); close(); }
+});
+
+test('a close failure removes only the created file and releases its descriptors', async () => {
+  const { root, close } = fixture('aih-report-closefail-');
+  const target = join(root, 'report.md');
+  const original = FileHandleProto.stat;
+  let handle;
+  let closeCalls = 0;
+  FileHandleProto.stat = async function (...args) {
+    const stats = await original.apply(this, args);
+    handle = this;
+    const originalClose = this.close;
+    this.close = async (...closeArgs) => {
+      if (++closeCalls === 1) throw new Error('simulated close failure');
+      return originalClose.apply(this, closeArgs);
+    };
+    return stats;
+  };
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('report\n'));
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'failed');
+    assert.equal(existsSync(target), false);
+    assert.equal(closeCalls, 2, 'the writer must retry releasing the failed handle');
+    assert.equal(handle.fd, -1);
+  } finally { FileHandleProto.stat = original; close(); }
+});
+
+test('a completion descriptor release error returns the retained path instead of rejecting', async () => {
+  const { root, close } = fixture('aih-report-pin-closefail-');
+  const target = join(root, 'report.md');
+  const original = fs.closeSync;
+  let releaseAttempted = false;
+  fs.closeSync = function (...args) {
+    original.apply(this, args);
+    releaseAttempted = true;
+    throw new Error('simulated uncertain descriptor release');
+  };
+  syncBuiltinESMExports();
+  try {
+    const result = await writeExclusiveReportFile(target, bytes('complete report\n'));
+    assert.equal(releaseAttempted, true);
+    assert.equal(result.status, 'failed', JSON.stringify(result));
+    assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+    assert.equal(result.diagnostics[0].path, join(realpathSync.native(root), 'report.md'));
+    assert.equal(readFileSync(target, 'utf8'), 'complete report\n');
+  } finally { fs.closeSync = original; syncBuiltinESMExports(); close(); }
+});
+
 test('writeSupportReport rejects malformed options before rendering or writing', async () => {
   const { root, close } = fixture('aih-support-options-');
   const target = join(root, 'report.md');
@@ -288,15 +410,21 @@ test('cancellation after the complete file is closed still returns written', asy
   const { root, close } = fixture('aih-report-late-abort-');
   const target = join(root, 'report.md');
   const controller = new AbortController();
-  const original = FileHandleProto.close;
-  FileHandleProto.close = async function (...args) {
-    const closed = await original.apply(this, args);
-    controller.abort();
-    return closed;
+  const original = FileHandleProto.stat;
+  FileHandleProto.stat = async function (...args) {
+    const stats = await original.apply(this, args);
+    const originalClose = this.close;
+    this.close = async (...closeArgs) => {
+      const closed = await originalClose.apply(this, closeArgs);
+      controller.abort();
+      return closed;
+    };
+    return stats;
   };
   try {
     const result = await writeExclusiveReportFile(target, bytes('complete report\n'), { signal: controller.signal });
     assert.equal(result.status, 'written', JSON.stringify(result));
+    assert.equal(controller.signal.aborted, true, 'cancellation must arrive during close');
     assert.equal(readFileSync(target, 'utf8'), 'complete report\n');
-  } finally { FileHandleProto.close = original; close(); }
+  } finally { FileHandleProto.stat = original; close(); }
 });

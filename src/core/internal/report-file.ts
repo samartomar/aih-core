@@ -1,7 +1,7 @@
 // Exclusive creation of an explicitly requested Markdown report file.
 // The destination is caller-chosen: no default name, suffix selection,
 // directory creation, overwrite, history entry or share/upload happens here.
-import { constants, lstatSync, realpathSync, unlinkSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync, unlinkSync } from 'node:fs';
 import { open, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { pathPins, pinsMatch, validSegment, type PathPin } from './host-files.js';
@@ -26,19 +26,22 @@ const cancelled = (): ReportFileResult =>
 
 interface CreatedIdentity { dev: bigint; ino: bigint }
 
-/** The path still names the exact regular file this invocation created. */
-function identityIntact(path: string, identity: CreatedIdentity): boolean {
+/** Attribute the path only while a live descriptor prevents inode reuse. */
+function identityIntact(path: string, identity: CreatedIdentity, descriptor: number): boolean {
   try {
+    const held = fstatSync(descriptor, { bigint: true });
+    if (!held.isFile() || held.nlink === 0n || identity.ino === 0n ||
+        held.dev !== identity.dev || held.ino !== identity.ino) return false;
     const current = lstatSync(path, { bigint: true });
     return !current.isSymbolicLink() && current.isFile() &&
-      identity.ino !== 0n && current.dev === identity.dev && current.ino === identity.ino;
+      current.dev === identity.dev && current.ino === identity.ino;
   } catch { return false; }
 }
 
 /** Remove only the file this invocation created. Returns true when it was retained. */
-function removeCreated(path: string, identity: CreatedIdentity): boolean {
+function removeCreated(path: string, identity: CreatedIdentity, descriptor: number): boolean {
   try {
-    if (!identityIntact(path, identity)) return true;
+    if (!identityIntact(path, identity, descriptor)) return true;
     unlinkSync(path);
     return false;
   } catch { return true; }
@@ -98,6 +101,10 @@ export async function writeExclusiveReportFile(
     return failed();
   }
   let identity: CreatedIdentity | undefined;
+  let completionPin: number | undefined;
+  let completed = false;
+  const cleanup = (): boolean => identity === undefined || !pinsMatch(pins) ||
+    removeCreated(path, identity, completionPin ?? handle.fd);
   try {
     const stats = await handle.stat({ bigint: true });
     identity = { dev: stats.dev, ino: stats.ino };
@@ -110,12 +117,23 @@ export async function writeExclusiveReportFile(
       offset += bytesWritten;
     }
     if (signal?.aborted) throw new AbortWrite();
+    // Keep the inode allocated across async close and its final path check. A
+    // stale dev/ino snapshot alone could match an unrelated replacement file.
+    if (!identityIntact(path, identity, handle.fd)) throw new UnsafeDestination();
+    completionPin = openSync(path, constants.O_RDONLY | O_NOFOLLOW);
+    if (!identityIntact(path, identity, completionPin)) throw new UnsafeDestination();
     await handle.close();
+    // A late abort must not undo the complete, closed file. The pin still holds
+    // its identity while checking the path and any required cleanup.
+    if (!pinsMatch(pins) || !identityIntact(path, identity, completionPin)) {
+      if (cleanup()) return failed('partial-report-retained', canonical);
+      return failed();
+    }
+    completed = true;
+    return { status: 'written', path: canonical, diagnostics: [] };
   } catch (error) {
-    await handle.close().catch(() => undefined);
     // Without the created identity the file cannot be safely attributed to
-    // this invocation; retain it for user review rather than unlinking blindly.
-    const cleanup = (): boolean => identity === undefined || removeCreated(path, identity);
+    // this invocation. Cleanup must run before releasing its live descriptor.
     // A created file that cannot be removed safely is always reported with its path.
     if (error instanceof UnsafeDestination) {
       if (cleanup()) return failed('partial-report-retained', canonical);
@@ -128,12 +146,15 @@ export async function writeExclusiveReportFile(
     const wasCancelled = error instanceof AbortWrite || signal?.aborted === true;
     if (cleanup()) return failed('partial-report-retained', canonical);
     return wasCancelled ? cancelled() : failed();
+  } finally {
+    if (handle.fd !== -1) await handle.close().catch(() => undefined);
+    if (completionPin !== undefined) {
+      try { closeSync(completionPin); }
+      catch {
+        // Release uncertainty blocks success without hiding an earlier failure
+        // or retained-path diagnostic. Do not attempt another path mutation.
+        if (completed) return failed('partial-report-retained', canonical);
+      }
+    }
   }
-  // The file is complete and closed; a late abort must not undo it. Recheck
-  // the pinned directory chain and the created identity before success.
-  if (identity === undefined || !pinsMatch(pins) || !identityIntact(path, identity)) {
-    if (identity === undefined || removeCreated(path, identity)) return failed('partial-report-retained', canonical);
-    return failed();
-  }
-  return { status: 'written', path: canonical, diagnostics: [] };
 }

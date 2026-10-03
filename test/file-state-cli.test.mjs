@@ -82,11 +82,12 @@ test('check-files rejects apply, authority, logging and unrelated options', () =
       [file, '--apply'], [file, '--yes'], [file, '--allow-partial'], [file, '--resolutions', file],
       [file, '--evidence'], [file, '--no-log'], [file, '--offline'], [file, '--inputs-file', file],
       [file, '--probe-configured-mcp'], [file, '--target', 'node'],
+      [file, '--support-markdown', join(root, 'report.md')],
       [file, '--org-repository', 'o/r', '--org-path', 'p', '--org-ref', 'commit:abc'],
       [file, '--org-token-env', 'HOME'], [file, '--budget-ms', 'abc'], [file, '--budget-ms', ''],
       [file, '--budget-ms', '0'], [file, '--budget-ms', '60001'], [file, 'extra'],
       // Present but empty string options are still refused.
-      [file, '--resolutions='], [file, '--inputs-file='], [file, '--target=']
+      [file, '--resolutions='], [file, '--inputs-file='], [file, '--target='], [file, '--support-markdown=']
     ];
     for (const args of cases) {
       const result = check([...args, '--project', project]);
@@ -97,6 +98,7 @@ test('check-files rejects apply, authority, logging and unrelated options', () =
     const missing = check([join(root, 'missing.json')]);
     assert.equal(missing.status, 2);
     assert.equal(JSON.parse(missing.stdout).diagnostics[0].reason, 'cli-input');
+    assert.equal(existsSync(join(root, 'report.md')), false, 'check-files never writes a support report');
   } finally { close(); }
 });
 

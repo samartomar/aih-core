@@ -231,7 +231,7 @@ try {
     // Presence, not truthiness: an empty `--resolutions=` is still a forbidden option.
     if (positionals.length !== 2 || values.apply || values.yes || values['allow-partial'] || values.resolutions !== undefined ||
         values.evidence || hasOrganizationFlags || values['no-log'] || values.target !== undefined || values.offline ||
-        values['inputs-file'] !== undefined || values['probe-configured-mcp'] ||
+        values['inputs-file'] !== undefined || values['probe-configured-mcp'] || values['support-markdown'] !== undefined ||
         (values['budget-ms'] !== undefined && !/^[0-9]{1,6}$/.test(values['budget-ms']))) {
       refused('INPUT_INVALID', 'cli-options');
     } else {
