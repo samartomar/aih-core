@@ -17,7 +17,8 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validateResult = ajv.compile(fileStateSchema);
 
-const fixtureRoot = mkdtempSync(join(tmpdir(), 'aih-core-file-state-'));
+// Match Core's canonical paths so fault-injection hooks also fire through macOS /var aliases.
+const fixtureRoot = fs.realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-core-file-state-')));
 const originalHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 const home = join(fixtureRoot, 'home');
 before(() => { mkdirSync(home); process.env.HOME = home; process.env.USERPROFILE = home; });
