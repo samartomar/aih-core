@@ -30,10 +30,11 @@ coverage or freshness.
 
 ## Issue and delivery routing
 
-Use the fully qualified delivery issue supplied with the task. This repository is
-currently private and unreleased; its future public intake must be verified before
-use. After public activation, accepted Core and Harness bugs/enhancements use the
-Core tracker, including internally discovered work. Reuse existing reports.
+Use the fully qualified delivery issue supplied with the task. Verify the current
+repository visibility and intake route before use. Existing pre-release work
+retains its supplied delivery issue. After public intake activation, accepted Core
+and Harness bugs/enhancements use the Core tracker, including internally
+discovered work. Reuse existing reports.
 
 At pickup identify the owning issue, actual source/worktree, affected module and
 release unit. Link the PR and actual package/version evidence to the owning issue
