@@ -132,17 +132,17 @@ function historySafe(result: unknown, project?: string, secrets: string[] = []):
     if (path) for (const variant of [path, path.replaceAll('\\', '/')]) text = text.split(JSON.stringify(variant).slice(1, -1)).join(label!);
   return JSON.parse(text);
 }
-function resolveSlot(slot: Slot, bound: Record<string, Json>): Json {
+export function resolveSlot(slot: Slot, bound: Record<string, Json>): Json {
   const value = 'literal' in slot ? slot.literal : bound[slot.input];
   if (value === undefined) throw new Error('input-unbound');
   return value;
 }
-function resolveString(slot: Slot, bound: Record<string, Json>): string {
+export function resolveString(slot: Slot, bound: Record<string, Json>): string {
   const value = resolveSlot(slot, bound);
   if (typeof value !== 'string') throw new Error('string-slot');
   return value;
 }
-function resolvePath(target: TargetPath, scope: 'project' | 'user', bound: Record<string, Json>, project: string, selectionKey: string): { root: string; path: string; absolute: string } {
+export function resolvePath(target: TargetPath, scope: 'project' | 'user', bound: Record<string, Json>, project: string, selectionKey: string): { root: string; path: string; absolute: string } {
   if (scope === 'project' ? target.root !== 'project' : target.root === 'project') throw new Error('scope-mismatch');
   const segments = target.segments.map(slot => resolveString(slot, bound));
   if (segments.some(segment => !validSegment(segment))) throw new Error('invalid-path');
@@ -192,10 +192,10 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   return { recipe, recipeSha256: digest(recipe), material: captured };
 }
 
-function isManagedContentRoot(root: string): boolean {
+export function isManagedContentRoot(root: string): boolean {
   return /^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), root).replaceAll('\\', '/'));
 }
-function transaction(root: string) {
+export function transaction(root: string) {
   if (!isManagedContentRoot(root)) return fileTransaction(root, stateRoot());
   // userState is a Core-assigned content child, never the reserved state root.
   const create = () => new OwnedFileTransaction(root, { label: 'Core managed content', maxFileBytes: 16 * 1024 * 1024,

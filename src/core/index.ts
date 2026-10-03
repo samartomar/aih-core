@@ -18,3 +18,5 @@ export function apply(prepared: PreparedHandle, authorization: Authorization, co
 }
 export { inspect } from './inspection.js';
 export type { InspectRequest, InspectControls, InspectResult } from './inspection.js';
+export { checkFileState } from './file-state.js';
+export type * from './file-state-types.js';

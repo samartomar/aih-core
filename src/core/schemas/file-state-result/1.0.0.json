@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:file-state-result:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:file-state-result:1.0.0"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "required": ["name", "version"]
+    },
+    "status": {
+      "enum": ["complete", "incomplete", "invalid", "cancelled"]
+    },
+    "fileState": {
+      "enum": ["match", "changed", "unverified"]
+    },
+    "authority": {
+      "const": "not-evaluated"
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "operationIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "target": {
+            "anyOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "root": { "enum": ["project", "userHome", "userState"] },
+                  "path": { "type": "string", "minLength": 1 }
+                },
+                "required": ["root", "path"]
+              }
+            ]
+          },
+          "outcome": { "enum": ["match", "changed", "absent", "unavailable"] },
+          "reason": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+        },
+        "required": ["id", "operationIds", "target", "outcome", "reason"]
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "outcome": { "enum": ["passed", "failed", "unavailable", "not-checked"] },
+          "reason": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+        },
+        "required": ["id", "outcome", "reason"]
+      }
+    },
+    "notChecked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["process", "recipe", "prerequisite", "managed-set", "removal", "evidence"] },
+          "id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+        },
+        "required": ["kind", "id", "reason"]
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "comparedTargets": { "type": "integer", "minimum": 0 },
+        "unavailableTargets": { "type": "integer", "minimum": 0 },
+        "comparedChecks": { "type": "integer", "minimum": 0 },
+        "unavailableChecks": { "type": "integer", "minimum": 0 },
+        "notChecked": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["comparedTargets", "unavailableTargets", "comparedChecks", "unavailableChecks", "notChecked"]
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string" },
+          "reason": { "type": "string" },
+          "message": { "type": "string" },
+          "path": { "type": "string" },
+          "encountered": { "type": "string" },
+          "supported": { "type": "array", "items": { "type": "string" } },
+          "block": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 },
+          "assessedBlocks": { "type": "integer", "minimum": 0 },
+          "assessmentLimit": { "type": "string" },
+          "guidance": { "type": "string" }
+        },
+        "required": ["code", "reason", "message"]
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budgetMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "targetBytes": { "type": "integer", "minimum": 0 },
+        "materialBytes": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["budgetMs", "elapsedMs", "targetBytes", "materialBytes"]
+    }
+  },
+  "required": ["schema", "package", "status", "fileState", "authority", "targets", "checks", "notChecked", "coverage", "diagnostics", "limits"]
+}

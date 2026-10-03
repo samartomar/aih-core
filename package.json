@@ -16,7 +16,8 @@
     "./schemas/recipe/1.0.0.json": "./dist/core/schemas/recipe/1.0.0.json",
     "./schemas/organization-policy/1.0.0.json": "./dist/core/schemas/organization-policy/1.0.0.json",
     "./schemas/prepared-work/1.0.0.json": "./dist/core/schemas/prepared-work/1.0.0.json",
-    "./schemas/run-result/1.0.0.json": "./dist/core/schemas/run-result/1.0.0.json"
+    "./schemas/run-result/1.0.0.json": "./dist/core/schemas/run-result/1.0.0.json",
+    "./schemas/file-state-result/1.0.0.json": "./dist/core/schemas/file-state-result/1.0.0.json"
   },
   "bin": { "aih": "./dist/core/cli.js" },
   "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],

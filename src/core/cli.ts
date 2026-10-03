@@ -5,7 +5,9 @@ import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe } from './contracts.js';
-import { prepare, apply, inspect } from './index.js';
+import { prepare, apply, inspect, checkFileState } from './index.js';
+import { invalidFileStateResult } from './file-state.js';
+import type { FileStateControls, FileStateRequest } from './file-state-types.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { sha256 } from './internal/host-files.js';
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
@@ -28,13 +30,15 @@ const usage = {
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n',
   policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--json]\n',
   repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--json]\n',
-  validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n'
+  validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n',
+  'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n',
   repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n',
-  validate: 'Examples:\n  aih validate execution-policy policy.json\n  aih validate recipe recipe.json --json\n'
+  validate: 'Examples:\n  aih validate execution-policy policy.json\n  aih validate recipe recipe.json --json\n',
+  'check-files': 'Examples:\n  aih check-files policy.json --json\n  aih check-files policy.json --project /absolute/project --json\n  aih check-files policy.json --material-root team=/absolute/materials --budget-ms 30000 --json\n'
 };
 const commands = Object.keys(usage) as (keyof typeof usage)[];
 function exitCode(result: PreparationResult | RunResult): number {
@@ -54,7 +58,8 @@ try {
     'inputs-file': { type: 'string' },
     'probe-configured-mcp': { type: 'boolean' },
     evidence: { type: 'boolean' },
-    'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' }
+    'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' },
+    'budget-ms': { type: 'string' }
   } });
   const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
   const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
@@ -97,7 +102,8 @@ try {
     }
   } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
-      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log']) {
+      !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log'] &&
+      values['budget-ms'] === undefined) {
     const result = await inspect({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
@@ -110,7 +116,7 @@ try {
     if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
         !values.target?.length || values.target.some(id => !definition.targets.includes(id)) ||
         values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags || values.evidence ||
-        values['material-root']?.length || values.yes && !values.apply ||
+        values['material-root']?.length || values['budget-ms'] !== undefined || values.yes && !values.apply ||
         values['allow-partial'] && !values.apply) refused('INPUT_INVALID', 'cli-options');
     else {
       const inputPath = resolve(values['inputs-file']);
@@ -162,8 +168,60 @@ try {
         }
       }
     }
+  } else if (positionals[0] === 'check-files') {
+    // Presence, not truthiness: an empty `--resolutions=` is still a forbidden option.
+    if (positionals.length !== 2 || values.apply || values.yes || values['allow-partial'] || values.resolutions !== undefined ||
+        values.evidence || hasOrganizationFlags || values['no-log'] || values.target !== undefined || values.offline ||
+        values['inputs-file'] !== undefined || values['probe-configured-mcp'] ||
+        (values['budget-ms'] !== undefined && !/^[0-9]{1,6}$/.test(values['budget-ms']))) {
+      refused('INPUT_INVALID', 'cli-options');
+    } else {
+      const file = resolve(positionals[1]!);
+      const bytes = readRegularFile(file, { maxBytes: 1_000_000 });
+      if (!bytes) throw new Error('policy-file');
+      let document: unknown;
+      try {
+        document = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), 'policy');
+      } catch {
+        emit(invalidFileStateResult([{ code: 'INPUT_INVALID', reason: 'strict-json',
+          message: 'Expected bounded, plain strict JSON data.' }]), 2);
+        document = undefined;
+      }
+      if (document !== undefined) {
+        const controls: FileStateControls = { signal: controller.signal };
+        if (values['budget-ms'] !== undefined) controls.budgetMs = Number(values['budget-ms']);
+        if (values['material-root']?.length) {
+          const roots: Record<string, string> = Object.create(null);
+          for (const mapping of values['material-root']) {
+            const split = mapping.indexOf('='); const id = mapping.slice(0, split); const root = mapping.slice(split + 1);
+            if (split < 1 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || !isAbsolute(root) ||
+                Object.hasOwn(roots, id)) throw new Error('material-root');
+            roots[id] = root;
+          }
+          controls.materialRoots = roots;
+        }
+        if (values['private-input']?.length) {
+          const inputs: Record<string, Record<string, string>> = Object.create(null);
+          for (const mapping of values['private-input']) {
+            const match = /^([A-Za-z0-9][A-Za-z0-9_%-]*)\.([A-Za-z0-9][A-Za-z0-9_%-]*)=([A-Za-z_][A-Za-z0-9_]*)$/.exec(mapping);
+            if (!match || process.env[match[3]!] === undefined) throw new Error('private-input');
+            const selectionId = decodeURIComponent(match[1]!); const inputId = decodeURIComponent(match[2]!);
+            if (![selectionId, inputId].every(id => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))) throw new Error('private-input');
+            // Only the named variable is read; its value is held in memory and never printed.
+            const selection = inputs[selectionId] ??= Object.create(null);
+            if (Object.hasOwn(selection, inputId)) throw new Error('private-input');
+            selection[inputId] = process.env[match[3]!]!;
+          }
+          controls.privateInputs = inputs;
+        }
+        const result = await checkFileState({ policy: document as FileStateRequest['policy'],
+          target: { project: resolve(values.project ?? process.cwd()) } }, controls);
+        emit(result, result.status === 'invalid' ? 2 : result.status === 'cancelled' ? 130 :
+          result.status === 'complete' && result.fileState === 'match' ? 0 : 1);
+      }
+    }
   } else if (positionals.length !== 2 || positionals[0] !== 'policy' || values.target || values.offline || values['inputs-file'] ||
-      values['probe-configured-mcp'] || values.yes && !values.apply || values['allow-partial'] && !values.apply) {
+      values['probe-configured-mcp'] || values['budget-ms'] !== undefined || values.yes && !values.apply || values['allow-partial'] && !values.apply) {
     refused('INPUT_INVALID', 'cli-options');
   } else {
     const file = resolve(positionals[1]!);
