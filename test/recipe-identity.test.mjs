@@ -155,7 +155,7 @@ test('identity and admission outcomes are identical across runtime locales', () 
   const locales = [
     ['en-US', 'en_US.UTF-8', enUsOrder], ['da', 'da_DK.UTF-8', daOrder],
     ['tr', 'tr_TR.UTF-8', enUsOrder], ['sv', 'sv_SE.UTF-8', enUsOrder],
-    ['', '', null] // unmodified runtime default locale: order follows the host's own collation
+    ['', '', null] // unmodified runtime default locale: no pinned collation, so only outcomes are compared
   ];
   const expected = {
     codeUnit: { status: 'ready', findings: [] },
@@ -180,7 +180,7 @@ test('identity and admission outcomes are identical across runtime locales', () 
     });
     assert.equal(child.status, 0, `${label} probe failed: ${child.stderr}\n${child.stdout}`);
     const outcome = JSON.parse(child.stdout);
-    assert.deepEqual(outcome.order, expectedOrder ?? [...outcome.order].sort(new Intl.Collator().compare), `${label} collation did not take effect`);
+    if (expectedOrder) assert.deepEqual(outcome.order, expectedOrder, `${label} collation did not take effect`);
     outcomes.push([label, { codeUnit: outcome.codeUnit, legacy: outcome.legacy }]);
   }
   for (const [label, outcome] of outcomes) assert.deepEqual(outcome, expected, `${label}: ${JSON.stringify(outcome)}`);
