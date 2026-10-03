@@ -18,5 +18,8 @@ export function apply(prepared: PreparedHandle, authorization: Authorization, co
 }
 export { inspect } from './inspection.js';
 export type { InspectRequest, InspectControls, InspectResult } from './inspection.js';
+export { writeSupportReport } from './support-report.js';
+export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
+
 export { checkFileState } from './file-state.js';
 export type * from './file-state-types.js';

@@ -1,12 +1,13 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.3",
+  "version": "1.0.0-dev.4",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": { "node": ">=24.15.0 <25" },
   "exports": {
     ".": { "types": "./dist/core/index.d.ts", "import": "./dist/core/index.js" },
     "./contracts": { "types": "./dist/core/contracts.d.ts", "import": "./dist/core/contracts.js" },
+    "./support": { "types": "./dist/core/support.d.ts", "import": "./dist/core/support.js" },
     "./harness": { "types": "./dist/harness/contracts.d.mts", "import": "./dist/harness/contracts.mjs" },
     "./harness/runtime": { "types": "./dist/harness/runtime.d.mts", "import": "./dist/harness/runtime.mjs" },
     "./harness/schemas/repair/1.0.0.json": "./dist/harness/schemas/repair/1.0.0.json",

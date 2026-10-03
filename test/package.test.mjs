@@ -40,7 +40,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
       assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -163,7 +163,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import assert from 'node:assert/strict';
       import {readFileSync,writeFileSync} from 'node:fs';
       import {join,resolve} from 'node:path';
-      import {prepare,apply,inspect,checkFileState} from '@aihq/core';
+      import {prepare,apply,inspect,checkFileState,writeSupportReport} from '@aihq/core';
       import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
       import {repairIndex,contractSupport as harnessSupport} from '@aihq/core/harness';
       import {getRepairRecipe,diagnose} from '@aihq/core/harness/runtime';
@@ -192,6 +192,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(Object.hasOwn(diagnostic,'schema'),false);
       assert.equal(ajv.validate('urn:aihq:harness:diagnostic:1.0.0',diagnostic),true,JSON.stringify(ajv.errors));
       assert.ok(contractSupport.contracts.some(entry=>entry.id==='urn:aihq:core:organization-policy:1.0.0'&&entry.role==='accepts'));
+      assert.ok(contractSupport.entries.some(entry=>entry.export==='@aihq/core/support'&&entry.runtime==='portable'));
+      assert.equal(typeof writeSupportReport,'function');
       assert.deepEqual(harnessSupport.package,contractSupport.package);
       assert.deepEqual(contractSupport.package,{name:'@aihq/core',version:${JSON.stringify(version)}});
       const inspection = await inspect({targets:['node'],network:'off'});
@@ -269,6 +271,17 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(browserGlobals.portable[4], 'node-npm-ca');
     assert.equal(browserGlobals.portable[6], 1);
     assert.equal(browserGlobals.portable[7], 'selected');
+    const supportBrowser = await build({ absWorkingDir: consumer, stdin: { contents: `
+      import {getGuidance,renderSupportMarkdown} from '@aihq/core/support';
+      globalThis.support = [typeof getGuidance, typeof renderSupportMarkdown,
+        renderSupportMarkdown({kind:'inspect',result:null},{platform:'linux'}).status,
+        getGuidance({kind:'inspect',result:null},{platform:'unknown'}).status];`, resolveDir: consumer },
+      bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
+    assert.equal(Object.keys(supportBrowser.metafile.inputs).some(name => name.startsWith('node:') || /harness\/runtime\.mjs$/.test(name)), false);
+    const supportGlobals = { TextEncoder, TextDecoder, atob, btoa };
+    runInNewContext(supportBrowser.outputFiles[0].text, supportGlobals, { timeout: 5000 });
+    // The array belongs to the bundle's realm; assert its elements directly.
+    assert.deepEqual([...supportGlobals.support], ['function', 'function', 'invalid', 'invalid']);
     const cliResult = execFileSync(process.execPath, [join(installed, manifest.bin.aih), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--apply', '--yes', '--json'],
       { cwd: consumer, env, encoding: 'utf8', timeout: 20_000 });
@@ -298,6 +311,16 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.ok(readdirSync(join(noLogHome, '.aih/core/ownership')).length > 0);
     assert.ok(readdirSync(join(noLogHome, '.aih/core/recovery')).length > 0);
     assert.equal(existsSync(join(noLogHome, '.aih/core/runs')), false);
+
+    // The installed CLI writes an explicit support Markdown report with a receipt.
+    const reportHome = join(root, 'report-home'); mkdirSync(reportHome);
+    const reportTarget = join(root, 'packed-inspect-report.md');
+    const inspectReport = bin(['inspect', '--offline', '--target', 'node', '--json', '--support-markdown', reportTarget],
+      { ...env, HOME: reportHome, USERPROFILE: reportHome });
+    assert.equal(inspectReport.status, 0, inspectReport.stdout + inspectReport.stderr);
+    assert.equal(JSON.parse(inspectReport.stdout).package.name, '@aihq/core');
+    assert.equal(inspectReport.stderr, `Support report written: ${join(realpathSync.native(root), 'packed-inspect-report.md')}\n`);
+    assert.ok(readFileSync(reportTarget, 'utf8').length > 0);
 
     // The installed bin maps the read-only check to its documented exit codes.
     const checkEnv = { ...env, HOME: noLogHome, USERPROFILE: noLogHome };

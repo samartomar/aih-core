@@ -11,6 +11,9 @@ import type { FileStateControls, FileStateRequest } from './file-state-types.js'
 import { readRegularFile } from './internal/fsxn.js';
 import { sha256 } from './internal/host-files.js';
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { getGuidance, type SupportInput, type SupportPlatform } from './support.js';
+import { formatGuidanceText } from './internal/guidance-text.js';
+import { writeSupportReport } from './support-report.js';
 import type { HostControls, PreparationResult, RunResult } from './host-types.js';
 import type { PolicyRequest } from './host-types.js';
 import type { RepairRequest } from './repair.js';
@@ -25,18 +28,22 @@ function emit(result: unknown, code: number): void {
 function refused(code: string, reason: string): void {
   emit({ status: 'invalid', diagnostics: [{ code, reason,
     message: 'Check the policy, target and explicit approval options.' }] }, code === 'CANCELLED' ? 130 : 2);
+  // A refusal is not a public result; a requested report is never written for it.
+  if (process.argv.some(arg => arg === '--support-markdown' || arg.startsWith('--support-markdown=')))
+    stderr.write(`Support report not written: ${({ CANCELLED: 'cancelled', APPROVAL_REQUIRED: 'approval-required',
+      REVIEW_STALE: 'review-stale' } as Record<string, string>)[code] ?? 'input-rejected'}\n`);
 }
 const usage = {
-  inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--json]\n',
-  policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--json]\n',
-  repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--json]\n',
+  inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
+  policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
+  repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--support-markdown <path>] [--json]\n',
   validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n',
   'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
-  inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n',
-  policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n',
-  repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n',
+  inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
+  policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
+  repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n  aih repair node-npm-ca --target node --inputs-file repair-inputs.json --json --support-markdown repair-report.md\n',
   validate: 'Examples:\n  aih validate execution-policy policy.json\n  aih validate recipe recipe.json --json\n',
   'check-files': 'Examples:\n  aih check-files policy.json --json\n  aih check-files policy.json --project /absolute/project --json\n  aih check-files policy.json --material-root team=/absolute/materials --budget-ms 30000 --json\n'
 };
@@ -48,6 +55,43 @@ function exitCode(result: PreparationResult | RunResult): number {
   return ({ ready: 0, partial: 1, blocked: 1, invalid: 2, cancelled: 130 })[result.status];
 }
 
+let supportMarkdown: string | undefined;
+const supportPlatform: SupportPlatform =
+  process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux' ? process.platform : 'unknown';
+/** Printed paths never carry control or bidirectional formatting characters into the terminal. */
+const escapeReportPath = (value: string): string =>
+  value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202A-\u202E\u2066-\u2069]/g,
+    char => `\\u${char.codePointAt(0)!.toString(16).padStart(4, '0')}`);
+/**
+ * Optional report export and non-JSON next actions after the one final result
+ * an invocation emitted. Never throws, never changes stdout, and preserves the
+ * operation exit code except that a failed export turns a successful 0 into 1.
+ */
+async function supportReport(input: SupportInput, operationCode: number): Promise<void> {
+  if (!json && (input.kind === 'inspect' || 'repair' in input)) {
+    try {
+      const guidance = getGuidance(input, { platform: supportPlatform });
+      const text = guidance.status === 'complete' ? formatGuidanceText(guidance.items) : '';
+      if (text) stderr.write(text);
+    } catch { /* Guidance never changes the operation result. */ }
+  }
+  if (supportMarkdown === undefined) return;
+  const fail = (reason: string): void => {
+    stderr.write(`Support report not written: ${reason}\n`);
+    if (operationCode === 0) process.exitCode = 1;
+  };
+  const result = input.result as { status?: unknown; completion?: unknown } | null;
+  // Never begin an export after the operation itself was cancelled.
+  if (controller.signal.aborted || result?.status === 'cancelled' || result?.completion === 'cancelled')
+    return fail('cancelled');
+  try {
+    const report = await writeSupportReport(input,
+      { platform: supportPlatform, path: resolve(supportMarkdown), signal: controller.signal });
+    if (report.status === 'written' && report.path) stderr.write(`Support report written: ${escapeReportPath(report.path)}\n`);
+    else fail(report.diagnostics[0]?.reason ?? report.status);
+  } catch { fail('failed'); }
+}
+
 try {
   const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
     project: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' },
@@ -57,6 +101,7 @@ try {
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
     'probe-configured-mcp': { type: 'boolean' },
+    'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
     'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' },
     'budget-ms': { type: 'string' }
@@ -68,6 +113,7 @@ try {
   const helpWord = positionals[0] === 'help';
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
+  supportMarkdown = values['support-markdown'];
   // Version, help and validate answer before any target, network, history or state access.
   if (values.version) {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
@@ -110,7 +156,9 @@ try {
       ...(values['probe-configured-mcp'] ? { probeConfiguredMcp: true } : {}),
       ...(values.project ? { project: resolve(values.project) } : {})
     }, { signal: controller.signal });
-    emit(result, ({ complete: 0, incomplete: 1, invalid: 2, cancelled: 130 })[result.status]);
+    const code = ({ complete: 0, incomplete: 1, invalid: 2, cancelled: 130 })[result.status];
+    emit(result, code);
+    await supportReport({ kind: 'inspect', result }, code);
   } else if (positionals[0] === 'repair') {
     const definition = repairIndex.find(item => item.id === positionals[1]);
     if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
@@ -145,7 +193,13 @@ try {
         resolutionsDigest = sha256(bytes);
       }
       const p = await prepare(request, { signal: controller.signal, ...logging });
-      if (!values.apply || !p.prepared || !p.review) emit(p, exitCode(p));
+      // Report context only; duplicate CLI targets must not make a real result unexportable.
+      const repairContext = { id: definition.id, targets: [...new Set(values.target!)] };
+      if (!values.apply || !p.prepared || !p.review) {
+        const code = exitCode(p);
+        emit(p, code);
+        await supportReport({ kind: 'prepare', result: p, repair: repairContext }, code);
+      }
       else {
         let approved = values.yes === true;
         if (!approved && stdin.isTTY && stderr.isTTY) {
@@ -161,10 +215,15 @@ try {
           if (!current || sha256(current) !== sha256(input) ||
               resolutionsPath && (!currentResolutions || sha256(currentResolutions) !== resolutionsDigest))
             refused('REVIEW_STALE', 'input-file-changed');
-          else { const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
-            origin: values.yes ? 'automation' : 'interactive',
-            ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
-          }, { signal: controller.signal, ...logging }); emit(result, exitCode(result)); }
+          else {
+            const result = await apply(p.prepared, { reviewDigest: p.review.reviewDigest, approved: true,
+              origin: values.yes ? 'automation' : 'interactive',
+              ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
+            }, { signal: controller.signal, ...logging });
+            const code = exitCode(result);
+            emit(result, code);
+            await supportReport({ kind: 'run', result, repair: repairContext }, code);
+          }
         }
       }
     }
@@ -172,7 +231,7 @@ try {
     // Presence, not truthiness: an empty `--resolutions=` is still a forbidden option.
     if (positionals.length !== 2 || values.apply || values.yes || values['allow-partial'] || values.resolutions !== undefined ||
         values.evidence || hasOrganizationFlags || values['no-log'] || values.target !== undefined || values.offline ||
-        values['inputs-file'] !== undefined || values['probe-configured-mcp'] ||
+        values['inputs-file'] !== undefined || values['probe-configured-mcp'] || values['support-markdown'] !== undefined ||
         (values['budget-ms'] !== undefined && !/^[0-9]{1,6}$/.test(values['budget-ms']))) {
       refused('INPUT_INVALID', 'cli-options');
     } else {
@@ -228,7 +287,11 @@ try {
     const bytes = readRegularFile(file, { maxBytes: 1_000_000 });
     if (!bytes) throw new Error('policy-file');
     const parsed = parsePolicy(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
-    if (!parsed.valid || !parsed.document) emit({ status: 'invalid', diagnostics: parsed.diagnostics }, 2);
+    if (!parsed.valid || !parsed.document) {
+      emit({ status: 'invalid', diagnostics: parsed.diagnostics }, 2);
+      // A CLI-built bare invalid object is not a public result; nothing is exported.
+      if (supportMarkdown !== undefined) stderr.write('Support report not written: input-rejected\n');
+    }
     else {
       const sourceFlags = ['org-repository', 'org-path', 'org-ref'] as const;
       let organizationSource: PolicyRequest['organizationSource'];
@@ -283,7 +346,11 @@ try {
       }
       const p = await prepare({ useCase: 'policy', policy: parsed.document, target: { project: resolve(values.project ?? process.cwd()) },
         ...(resolutions ? { resolutions } : {}), ...(organizationSource ? { organizationSource } : {}) }, controls);
-      if (!values.apply || !p.prepared || !p.review) emit(p, exitCode(p));
+      if (!values.apply || !p.prepared || !p.review) {
+        const code = exitCode(p);
+        emit(p, code);
+        await supportReport({ kind: 'prepare', result: p }, code);
+      }
       else {
         let approved = values.yes === true;
         if (!approved && stdin.isTTY && stderr.isTTY) {
@@ -304,7 +371,9 @@ try {
               ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] })
             }, { signal: controller.signal, ...logging, ...(controls.authentication ? { authentication: controls.authentication } : {}),
               ...(controls.evidence ? { evidence: controls.evidence } : {}) });
-            emit(result, exitCode(result));
+            const code = exitCode(result);
+            emit(result, code);
+            await supportReport({ kind: 'run', result }, code);
           }
         }
       }

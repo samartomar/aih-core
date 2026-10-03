@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { isProxy } from 'node:util/types';
 import tls from 'node:tls';
 import { contractSupport, helperMetadata, repairIndex, targets } from './contracts.mjs';
+import { clientGuidanceTargets, deriveGuidance } from './guidance.mjs';
 import { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 import { candidateOrigins, selectTrustCandidateWith } from './candidate.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
@@ -433,10 +434,9 @@ function executable(name) {
 // to the Java launcher on every supported JDK, which prints the runtime version and exits.
 const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
 const resolutionTargets = new Set(['rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
-const clientTargets = Object.freeze({
-  antigravity: 'In Antigravity, open its own settings or MCP, rules and skills views and confirm the expected items are listed and enabled; inspection does not start Antigravity sessions.',
-  zed: 'In Zed, open the Agent panel settings and the settings file, and confirm the expected servers or extensions are listed and active; inspection does not start Zed sessions.'
-});
+const clientTargets = new Set(clientGuidanceTargets);
+// Guidance rules accept only their published platforms; other hosts get platform-neutral steps.
+const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
 const realKey = path => {
   let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
@@ -795,10 +795,12 @@ export async function diagnose(request, controls = {}) {
     const state = binary ? 'binary' : config ? 'config-only' : 'absent';
     tools.push({ id: target.id, label: target.label, state, selection, ...(config ? { config } : {}) });
     if (!selected.has(target.id)) continue;
-    if (target.id in clientTargets && detected) {
+    if (clientTargets.has(target.id) && detected) {
       observations.push({ id: `${target.id}/loading`, target: target.id,
         detail: 'Installation or configuration observed; native loading was not verified.' });
-      repairChoices.push({ target: target.id, kind: 'manual-guidance', reason: 'loading-unverified', guidance: clientTargets[target.id] });
+      const item = deriveGuidance({ kind: 'inspect', platform: guidancePlatform,
+        facts: [{ kind: 'observation', id: `${target.id}/loading`, target: target.id, evidenceId: `/observations/${observations.length - 1}` }] })[0];
+      repairChoices.push({ target: target.id, kind: 'manual-guidance', reason: 'loading-unverified', guidance: [item.summary, ...item.steps].join(' ') });
     }
     let wsl = false;
     if (binary && resolutionTargets.has(target.id)) {
@@ -905,22 +907,14 @@ export async function diagnose(request, controls = {}) {
     diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'output-bytes', 'Displayed diagnostic detail was reduced to the phase limit.'));
   }
   for (const check of checks) {
-    if (check.reason === 'node-certificate-chain') repairChoices.push({
-      target: check.target, kind: 'manual-guidance', reason: check.reason,
-      guidance: 'The OS TLS check passed while Node rejected the certificate chain. Review the current Node trust settings and approved CA material before choosing a reviewed trust repair.'
-    });
-    else if (check.reason === 'connection-failed') repairChoices.push({
-      target: check.target, kind: 'manual-guidance', reason: check.reason,
-      guidance: 'Check network reachability, proxy settings and authentication. This result alone does not identify a CA defect.'
-    });
-    else if (check.reason === 'version-exit') repairChoices.push({
-      target: check.target, kind: 'manual-guidance', reason: check.reason,
-      guidance: 'The tool was found but its version command failed. Inspect the existing installation using the tool vendor’s instructions.'
-    });
-    else if (check.reason === 'executable-missing') repairChoices.push({
-      target: check.target, kind: 'manual-guidance', reason: check.reason,
-      guidance: 'The requested tool is absent from PATH. Use an operator-approved installation or PATH change, then inspect again.'
-    });
+    if (!['node-certificate-chain', 'connection-failed', 'version-exit', 'executable-missing'].includes(check.reason) &&
+        !(check.target === 'mcp' && check.reason === 'certificate-chain')) continue;
+    const item = deriveGuidance({ kind: 'inspect', platform: guidancePlatform,
+      facts: [{ kind: 'check', evidenceId: `/checks/${checks.indexOf(check)}`, ...check }] })[0];
+    const guidance = item && [item.summary, ...item.steps].join(' ');
+    // One missing helper can affect several probed targets; list each manual choice once.
+    if (item && !repairChoices.some(choice => choice.target === item.target && choice.reason === check.reason &&
+        choice.guidance === guidance)) repairChoices.push({ target: item.target, kind: 'manual-guidance', reason: check.reason, guidance });
   }
   return { requestId: request.requestId, helper: contractSupport.package,
     status: cancelled ? 'cancelled' : 'completed', tools, observations, checks, diagnostics, repairChoices,
