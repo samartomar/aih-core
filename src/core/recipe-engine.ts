@@ -11,11 +11,13 @@ import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
+import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
-import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type MemberDescriptor, type Claim } from './internal/recipe-lifecycle.js';
+import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
+import { decideHookCleanup, decideHookStep, type HookDecision, type RetainedHook } from './internal/hook-prepare.js';
+import { hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
@@ -69,6 +71,18 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
+const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
+const RECIPE_10 = 'urn:aihq:core:recipe:1.0.0';
+const RECIPE_11 = 'urn:aihq:core:recipe:1.1.0';
+const PREPARED_10 = 'urn:aihq:core:prepared-work:1.0.0' as const;
+const PREPARED_11 = 'urn:aihq:core:prepared-work:1.1.0' as const;
+const RESULT_10 = 'urn:aihq:core:run-result:1.0.0' as const;
+const RESULT_11 = 'urn:aihq:core:run-result:1.1.0' as const;
+const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+function hookConflict(reason: string, groupId: string, path: string, privateValues: string[]): Diagnostic {
+  return { code: 'STATE_CONFLICT', reason, message: `Hook group ${safeText(groupId, privateValues)} has a conflict that needs review.`,
+    path: safeText(path, privateValues), guidance: hookGuidanceText(reason) };
+}
 const handles = new WeakMap<PreparedHandle, PreparedState>();
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T): T => cloneJsonValueStructureV1(value, 'request', 32);
@@ -317,6 +331,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const admissions: AdmissionSelection[] = [];
     const steps: PreparedStep[] = [];
     const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string }>();
+    // Members whose step conflicted: later same-member steps are blocked, not guessed.
+    const hookConflicts = new Map<string, string>();
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
     const conflicts: Diagnostic[] = []; const omissions: Diagnostic[] = []; const observations: PreparedReview['observations'] = [];
     const ownership = new Map<string, { value: Ownership; digest: string | null }>();
@@ -350,6 +366,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       captures.push(material);
       const recipeValidation = validateRecipe(recipe);
       if (!recipeValidation.valid) { result.diagnostics = recipeValidation.diagnostics; return finish(); }
+      // The enclosing policy version gates the recipe version, including acquired bytes a reference never names.
+      if (policy.schema !== POLICY_11 && recipe.schema === RECIPE_11) {
+        result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
+          encountered: RECIPE_11, supported: [RECIPE_10], guidance: 'Author an execution-policy 1.1.0 document to select a recipe 1.1.0.' }];
+        return finish();
+      }
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) throw new Error('scope-mismatch');
       for (const name of Object.keys(privateInputs[selection.id] ?? {}))
         if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
@@ -415,6 +437,48 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const stored = ownership.get(root) ?? readOwnership(root); ownership.set(root, stored);
           const projected: Ownership = { ...stored.value, members: { ...stored.value.members } };
           for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly))) updateCustody(projected, prior);
+          if (op.kind === 'hook.group') {
+            const selectorSha = sha256(op.selector.value);
+            const descriptor: HookDescriptor = { path, kind: 'hook', format: op.format, container: op.container, groupId: op.groupId,
+              selector: { path: op.selector.path, valueSha256: selectorSha } };
+            const hookKey = memberKey(descriptor); ownerKey = hookKey;
+            const mine = (candidate: Claim): boolean => candidate.managementId === selection.managementId && candidate.scope === selection.scope;
+            const claim: Claim = { managementId: selection.managementId, scope: selection.scope,
+              sets: (policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id),
+              requires: selection.requires.map(id => { const dependency = policy.selections.find(item => item.id === id)!; return claimIdentity(dependency.scope, dependency.managementId, project!); }) };
+            const addMine = (claims: Claim[]): Claim[] => [...claims.filter(candidate => !mine(candidate)),
+              { ...claim, sets: [...new Set([...(claims.find(mine)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }];
+            const retained: RetainedHook[] = Object.entries(projected.members).flatMap(([memberId, member]) =>
+              member.descriptor?.kind === 'hook' && memberId !== hookKey && samePath(member.descriptor.path, path!) && member.descriptor.format === op.format &&
+              canonicalJson(member.descriptor.container) === canonicalJson(op.container) ? [{ key: memberId, descriptor: member.descriptor }] : []);
+            const incompatible = Object.hasOwn(projected.members, memberKey({ path, kind: 'file' })) ||
+              Object.values(projected.members).some(member => member.descriptor && member.descriptor.kind !== 'hook' && overlappingMembers(descriptor, member.descriptor, before));
+            const currentDigest = before === null ? null : sha256(before);
+            const choice = resolutions.find(item => item.selectionId === selection.id && item.operationId === op.id);
+            if (choice) {
+              usedResolutions.add(`${selection.id}/${op.id}`);
+              if (choice.observedSha256 !== currentDigest) throw new Error('resolution-stale');
+            }
+            const priorConflict = hookConflicts.get(`${root}:${hookKey}`);
+            if (priorConflict) requires.push(priorConflict);
+            const decision: HookDecision = decideHookStep({ authored: { format: op.format, container: op.container, groupId: op.groupId,
+              selector: op.selector, action: op.action, ...(op.group ? { group: op.group.literal } : {}) }, path, key: hookKey, before,
+              owner: projected.members[hookKey], retained, resolution: choice?.choice, isMine: mine, addMine, recipeIdentity, mode: mode!,
+              ...(priorConflict ? { forced: 'hook-prior-conflict' } : incompatible ? { forced: 'existing-content' } : {}) });
+            effect = decision.effect; after = decision.after; custody = { [hookKey]: decision.custody }; custodyOnly = decision.custodyOnly;
+            ownerState = decision.managed ? 'managed' : 'unowned';
+            resolution = effect === 'conflict' ? undefined : choice?.choice;
+            if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
+            const desiredGroup = decision.details.desiredGroup ? redactJson(decision.details.desiredGroup, privateValues) as typeof decision.details.desiredGroup : null;
+            details = { target: safeText(target.absolute, privateValues), format: op.format, mode: mode!,
+              ...(decision.reason ? { reason: decision.reason } : {}), hookGroup: { ...decision.details, desiredGroup } };
+            if (effect === 'conflict') {
+              conflicts.push(hookConflict(decision.reason!, op.groupId, path, privateValues));
+              hookConflicts.set(`${root}:${hookKey}`, id);
+            } else overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
+            emit();
+            continue;
+          }
           const owner = Object.hasOwn(projected.members, ownerKey) ? projected.members[ownerKey] : undefined;
           let managed = owner?.managementId === selection.managementId && (!owner.claims || owner.claims.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope)) && before !== null && owner.sha256 === sha256(before);
           ownerState = managed ? 'managed' : 'unowned';
@@ -506,13 +570,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             mode, ...(resolution ? { reason: `explicit-${resolution}` } : {}), ...(editConflict ? { reason: editConflict } : {}) };
           if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
         }
-        const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable ? 'executable-missing' :
-          checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
-        if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
-        const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
-          effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
-        steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
-          recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly });
+        emit();
+        function emit(): void {
+          const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable ? 'executable-missing' :
+            checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
+          if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
+          const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
+            effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
+          steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
+            recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly });
+        }
       }
       selectionOps.set(selection.id, currentIds);
     }
@@ -578,8 +645,21 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
     let removalIndex = 0;
-    for (const { root, key, owner } of members) {
+    const projectedMembers = (root: string): Record<string, Owner> => {
+      const value: Ownership = { ...ownership.get(root)!.value, members: { ...ownership.get(root)!.value.members } };
+      for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)))
+        updateCustody(value, prior);
+      return value.members;
+    };
+    for (const { root, key, owner: storedOwner } of members) {
       if (!effectRoot(root)) continue;
+      let owner = storedOwner;
+      // A hook member reads and writes back its projected owner after the authored steps, never the stored one.
+      if (storedOwner.descriptor?.kind === 'hook') {
+        const live = projectedMembers(root)[key];
+        if (!live) continue;
+        owner = live;
+      }
       const claims = owner.claims ?? [];
       const obsolete = (claim: Claim) => {
         const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root));
@@ -596,24 +676,43 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
       const before = overlay ? overlay.after : initialBefore;
       let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied';
-      let matching = false;
-      try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
+      let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined;
+      if (descriptor.kind === 'hook') {
+        // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
+        if (policy.schema !== POLICY_11) {
+          result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
+            encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
+          return finish();
+        }
+        priorHookConflict = hookConflicts.get(`${root}:${key}`);
+        const projectedOthers: RetainedHook[] = Object.entries(projectedMembers(root)).flatMap(([memberId, member]) =>
+          member.descriptor?.kind === 'hook' && memberId !== key && samePath(member.descriptor.path, descriptor.path) && member.descriptor.format === descriptor.format &&
+          canonicalJson(member.descriptor.container) === canonicalJson(descriptor.container) ? [{ key: memberId, descriptor: member.descriptor }] : []);
+        hookDecision = decideHookCleanup({ owner, remaining, before, retained: projectedOthers, key, ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : {}) });
+      } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
         if (!remaining.length && matching) after = subtractMember(descriptor, before);
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
-      if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
+      if (hookDecision) {
+        matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
+        if (!matching) conflicts.push(hookConflict(hookDecision.reason!, hookDecision.details.groupId, descriptor.path, []));
+      }
+      else if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
       const removedIds = removed.map(claim => claimId(claim, root));
       const retainingAncestors = new Set(removedIds.flatMap(id => [...ancestors(id)]));
       const droppedDependencyGuards = policy.selections.flatMap(selection => retainingAncestors.has(claimId(selection)) ? selectionOps.get(selection.id) ?? [] : []);
       let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
-      steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : 'file.remove',
-        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: 'explicit-managed-removal',
+      steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
+        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: hookDecision?.reason ?? 'explicit-managed-removal',
+          ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) } },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
-        managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, custody: { [key]: remaining.length ? { ...owner, claims: remaining } : null },
-        custodyOnly: matching && effect === 'already-satisfied' });
+        managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true,
+        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null },
+        custodyOnly: hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
+      if (hookDecision && !matching) hookConflicts.set(`${root}:${key}`, id);
       removedIdentities.set(steps.at(-1)!, removedIds);
       if (matching) overlays.set(destination, { initial: overlay?.initial ?? initialBefore, after, priorId: id });
     }
@@ -669,7 +768,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (steps.length > 8192) throw new Error('operation-limit');
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
-    const base = { schema: 'urn:aihq:core:prepared-work:1.0.0' as const, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const base = { schema: policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
@@ -717,6 +816,7 @@ function historyDetails(details: ReviewOperation['details']): ReviewOperation['d
   return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',
     stdin: details.stdin === undefined ? undefined : '[OMITTED]',
     entries: details.entries?.map(entry => ({ ...entry, ...(entry.value === undefined ? {} : { value: '[OMITTED]' }) })),
+    hookGroup: details.hookGroup === undefined ? undefined : { ...details.hookGroup, desiredGroup: null },
     args: details.args?.map(() => '[OMITTED]'),
     env: details.env ? Object.fromEntries(Object.keys(details.env).map(key => [key, '[OMITTED]'])) : undefined };
 }
@@ -746,6 +846,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     if (!state) throw new Error('handle-unavailable');
+    result.schema = state.review.schema === PREPARED_11 ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
     result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',
@@ -819,7 +920,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         for (const [key, owner] of Object.entries(step.custody ?? {})) if (owner) {
           // Byte size does not bound semantic counts: a shorter primary ID can
           // hide an overflowing proposed claim list behind a larger old owner.
-          try { validateOwnership({ schema: current.schema, target: root, members: { [key]: owner } }, root); }
+          try { validateOwnership(sealOwnership({ schema: current.schema, target: root, members: { [key]: owner } }), root); }
           catch { throw new Error('state-unwritable'); }
           next.members[key] = larger(next.members[key], owner);
           const deferred: Ownership = { ...current, members: { ...current.members } };
@@ -868,8 +969,9 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (changed) {
           if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
           protectState([ownershipPath(root)]);
-          const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
-          metadataState.ownership.set(root, { value: next, digest: sha256(receipt) });
+          const sealed = sealOwnership(next);
+          const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+          metadataState.ownership.set(root, { value: sealed, digest: sha256(receipt) });
           metadataState.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
         }
       }
@@ -931,7 +1033,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
               if (invocation.cwdPins.some(pin => pin.identity === 'absent' && createdParents.some(parent => parent.path === pin.path)))
                 invocation.cwdPins = pathPins(invocation.cwd);
           }
-        } catch {
+        } catch (error) {
           operation.application = 'failed'; operation.reason = 'file-effect'; operation.effectsUncertain = true;
         }
       }
@@ -942,8 +1044,9 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
             updateCustody(next, step, true);
             protectState([ownershipPath(step.root)]);
-            const receipt = Buffer.from(JSON.stringify(next)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
-            state.ownership.set(step.root, { value: next, digest: sha256(receipt) });
+            const sealed = sealOwnership(next);
+            const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
+            state.ownership.set(step.root, { value: sealed, digest: sha256(receipt) });
             state.inventory?.set(basename(ownershipPath(step.root)), sha256(receipt));
           } catch { operation.effectsUncertain = true; operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
         }

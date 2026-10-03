@@ -458,7 +458,7 @@ test('invalid requests fail before any target read with safe diagnostics', async
     const unsupportedResult = await check({ policy: unsupported, target: { project: dir } });
     assert.equal(unsupportedResult.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
     assert.equal(unsupportedResult.diagnostics[0].encountered, 'urn:aihq:core:execution-policy:99.0.0');
-    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0']);
+    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0']);
   } finally { fs.openSync = original; syncBuiltinESMExports(); }
   assert.equal(opened.filter(path => path.startsWith(dir)).length, 0,
     `invalid requests read no targets: ${opened.join(', ')}`);
@@ -639,7 +639,7 @@ test('file.write compares the explicit POSIX mode only on POSIX', { skip: proces
 });
 
 test('the installed distribution declares the produced file-state schema last', () => {
-  assert.equal(contractSupport.contracts.length, 6);
+  assert.equal(contractSupport.contracts.length, 10);
   assert.deepEqual(contractSupport.contracts.at(-1), { id: 'urn:aihq:core:file-state-result:1.0.0',
     role: 'produces', schemaExport: '@aihq/core/schemas/file-state-result/1.0.0.json' });
 });

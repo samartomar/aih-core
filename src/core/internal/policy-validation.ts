@@ -37,6 +37,12 @@ export function dependencyOrder<T extends { id: string; requires: string[] }>(it
   return ordered;
 }
 
+const HOOK_GROUP_MAX_BYTES = 65_536;
+const HOOK_GROUP_MAX_DEPTH = 16;
+function jsonDepth(value: Json): number {
+  if (!value || typeof value !== 'object') return 0;
+  return 1 + Math.max(0, ...(Array.isArray(value) ? value : Object.values(value)).map(jsonDepth));
+}
 export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path,
@@ -77,6 +83,7 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     Object.entries(invocation.env).forEach(([key, slot]) => checkSlot(slot, `${path}/env/${key}`, true));
     if (invocation.stdin) checkSlot(invocation.stdin, `${path}/stdin`, true);
   };
+  const hookIdentities = new Set<string>();
   recipe.operations.forEach((op, index) => {
     const path = `/operations/${index}`;
     if (!recipe.targets.includes(op.scope)) invalid('scope-mismatch', `${path}/scope`);
@@ -99,6 +106,23 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     } else if (op.kind === 'text.block') {
       if (op.startMarker === op.endMarker || /[\r\n]/.test(op.startMarker + op.endMarker)) invalid('block-marker', path);
       if (op.content) checkSlot(op.content, `${path}/content`, true);
+    } else if (op.kind === 'hook.group') {
+      if (op.container.some(part => /[\p{Cc}\p{Cf}]/u.test(part))) invalid('hook-container', `${path}/container`);
+      if (op.selector.path.some(part => typeof part === 'string' && /[\p{Cc}\p{Cf}]/u.test(part))) invalid('hook-selector', `${path}/selector/path`);
+      const identity = canonicalJson({ target: op.target, format: op.format, container: op.container, groupId: op.groupId });
+      if (hookIdentities.has(identity)) invalid('hook-duplicate-group', path);
+      hookIdentities.add(identity);
+      if (op.action === 'set') {
+        const group = op.group!.literal;
+        if (new TextEncoder().encode(canonicalJson(group)).length > HOOK_GROUP_MAX_BYTES || jsonDepth(group) > HOOK_GROUP_MAX_DEPTH) invalid('hook-group-bounds', `${path}/group`);
+        // The selected scalar must be an existing field of the group, never injected metadata.
+        let node: Json | undefined = group;
+        for (const part of op.selector.path) {
+          node = typeof part === 'number' ? Array.isArray(node) ? node[part] : undefined :
+            node && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, part) ? node[part] : undefined;
+        }
+        if (node !== op.selector.value) invalid('hook-selector-value', `${path}/selector`);
+      }
     }
   });
   recipe.checks.forEach((check, index) => {

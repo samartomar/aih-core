@@ -10,6 +10,7 @@ import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } 
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type InlineMaterialDescriptor, type MaterialRecipeReference } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
+import { foldHookGroup } from './internal/hook-prepare.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
 import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
 import type { FileStateCheck, FileStateControls, FileStateOmission, FileStateRequest, FileStateResult,
@@ -445,6 +446,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
             if (reason === undefined) fold = before => renderTextBlock(before, { blockId: op.blockId,
               startMarker: op.startMarker, endMarker: op.endMarker, action: op.action,
               ...(content === undefined ? {} : { content }) });
+          } else if (op.kind === 'hook.group') {
+            const authored = { format: op.format, container: op.container, groupId: op.groupId, selector: op.selector, action: op.action,
+              ...(op.group ? { group: op.group.literal } : {}) };
+            fold = before => foldHookGroup(authored, before);
           } else fold = () => null;
         }
         let group = groups.get(key);

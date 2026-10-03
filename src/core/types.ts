@@ -66,7 +66,13 @@ export interface ProcessInvocation {
 export interface ProcessOperation extends OperationBase, ProcessInvocation {
   kind: 'process.run'; effects: string[];
 }
-export type Operation = FileOperation | ConfigOperation | TextBlockOperation | RemoveOperation | ProcessOperation;
+export type JsonObject = { [key: string]: Json };
+/** Recipe 1.1.0: one identified object inside a shared JSON/JSONC array. */
+export interface HookGroupOperation extends OperationBase {
+  kind: 'hook.group'; target: TargetPath; format: 'json' | 'jsonc'; container: string[]; groupId: string;
+  selector: { path: (string | number)[]; value: string }; action: 'set' | 'remove'; group?: { literal: JsonObject };
+}
+export type Operation = FileOperation | ConfigOperation | TextBlockOperation | RemoveOperation | ProcessOperation | HookGroupOperation;
 export interface FileCheck { id: string; purpose: string; kind: 'file.sha256'; target: TargetPath; sha256: string }
 export interface ProcessCheck extends ProcessInvocation { id: string; purpose: string; kind: 'process.exit' }
 export type RecipeCheck = FileCheck | ProcessCheck;
@@ -79,7 +85,7 @@ export interface MaterialRecipeReference {
 }
 export type Prerequisite = { kind: 'platform'; os: string; architectures: string[] } | { kind: 'executable'; name: string };
 export interface Recipe {
-  schema: 'urn:aihq:core:recipe:1.0.0';
+  schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0';
   id: string;
   description: string;
   inputs: Record<string, InputSpec>;
@@ -99,7 +105,7 @@ export interface Selection {
   recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
 }
 export interface ExecutionPolicy {
-  schema: 'urn:aihq:core:execution-policy:1.0.0';
+  schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
   /** Optional assessment references; never execution authority or a findings gate. */

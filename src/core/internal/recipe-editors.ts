@@ -7,9 +7,9 @@ export class RecipeEditError extends Error {
     this.name = 'RecipeEditError';
   }
 }
-function fail(reason: string): never { throw new RecipeEditError(reason); }
+export function fail(reason: string): never { throw new RecipeEditError(reason); }
 const utf8 = new TextDecoder('utf-8', { fatal: true });
-function decode(before: Buffer | null): string {
+export function decode(before: Buffer | null): string {
   try { return before === null ? '' : utf8.decode(before); }
   catch { fail('invalid-utf8'); }
 }
@@ -40,7 +40,7 @@ function validateEntries(entries: ConfigEntry[]): void {
     paths.push(entry.path);
   }
 }
-function parsedObject(text: string, format: 'json' | 'jsonc'): Node {
+export function parsedObject(text: string, format: 'json' | 'jsonc'): Node {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { disallowComments: format === 'json', allowTrailingComma: format === 'jsonc' });
   if (errors.length || root?.type !== 'object') fail('unsupported-json-syntax');
