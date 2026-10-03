@@ -57,6 +57,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
       import {diagnose} from '@aihq/core/harness/runtime';
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
+      import {checkFileState} from '@aihq/core';
+      import type {FileStateRequest,FileStateControls,FileStateResult} from '@aihq/core';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
@@ -73,6 +75,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const result: DiagnoseResult = await diagnose({requestId:'types',targets:['node'],network:'off'});
       const selected = selectVerificationPublishers('scan-report');
       if (selected.status === 'selected') { const records: readonly VerificationPublisherRecord[] = selected.publishers; }
+      const fsRequest: FileStateRequest = {policy: null as never, target: {project: '/absolute/project'}};
+      const fsControls: FileStateControls = {budgetMs: 30000};
+      const fsResult: FileStateResult = await checkFileState(fsRequest, fsControls);
+      const fsAuthority: 'not-evaluated' = fsResult.authority;
     `);
     const compilerManifest = createRequire(import.meta.url).resolve('typescript/package.json');
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
@@ -157,7 +163,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import assert from 'node:assert/strict';
       import {readFileSync,writeFileSync} from 'node:fs';
       import {join,resolve} from 'node:path';
-      import {prepare,apply,inspect,writeSupportReport} from '@aihq/core';
+      import {prepare,apply,inspect,checkFileState,writeSupportReport} from '@aihq/core';
       import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
       import {repairIndex,contractSupport as harnessSupport} from '@aihq/core/harness';
       import {getRepairRecipe,diagnose} from '@aihq/core/harness/runtime';
@@ -165,7 +171,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts)
         ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
-      assert.equal(contractSupport.contracts.length,5);
+      assert.equal(contractSupport.contracts.length,6);
+      assert.deepEqual(contractSupport.contracts.at(-1),{id:'urn:aihq:core:file-state-result:1.0.0',
+        role:'produces',schemaExport:'@aihq/core/schemas/file-state-result/1.0.0.json'});
       for (const entry of harnessSupport.contracts) {
         const schema=(await import(entry.schemaExport,{with:{type:'json'}})).default;
         assert.equal(schema.$id,entry.id);
@@ -198,6 +206,12 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const result = await apply(p.prepared,{approved:true,origin:'automation',reviewDigest:p.review.reviewDigest},{logging:'off'});
       assert.equal(result.completion,'complete');
       assert.equal(ajv.validate(result.schema,result),true,JSON.stringify(ajv.errors));
+      const fileState = await checkFileState({policy:parsePolicy(readFileSync('policy.json','utf8')).document,
+        target:{project:process.env.TEST_PROJECT}});
+      assert.equal(fileState.status,'complete',JSON.stringify(fileState));
+      assert.equal(fileState.fileState,'match');
+      assert.equal(fileState.authority,'not-evaluated');
+      assert.equal(ajv.validate(fileState.schema,fileState),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
       const userTrust = repairIndex.find(item=>item.id==='user-tools-ca');
       assert.ok(userTrust,'packed Harness must include the user-tools-ca repair');
@@ -307,6 +321,22 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(JSON.parse(inspectReport.stdout).package.name, '@aihq/core');
     assert.equal(inspectReport.stderr, `Support report written: ${join(realpathSync.native(root), 'packed-inspect-report.md')}\n`);
     assert.ok(readFileSync(reportTarget, 'utf8').length > 0);
+
+    // The installed bin maps the read-only check to its documented exit codes.
+    const checkEnv = { ...env, HOME: noLogHome, USERPROFILE: noLogHome };
+    const checkMatch = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkMatch.status, 0, checkMatch.stdout + checkMatch.stderr);
+    assert.equal(JSON.parse(checkMatch.stdout).status, 'complete');
+    assert.equal(JSON.parse(checkMatch.stdout).fileState, 'match');
+    writeFileSync(join(noLogProject, 'TEAM.md'), 'edited after application');
+    const checkChanged = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkChanged.status, 1, checkChanged.stdout + checkChanged.stderr);
+    assert.equal(JSON.parse(checkChanged.stdout).fileState, 'changed');
+    const checkInvalid = bin(['check-files', join(consumer, 'invalid-policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkInvalid.status, 2, checkInvalid.stdout + checkInvalid.stderr);
+    assert.equal(JSON.parse(checkInvalid.stdout).status, 'invalid');
+    const checkRefused = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--apply'], checkEnv);
+    assert.equal(checkRefused.status, 2, checkRefused.stdout + checkRefused.stderr);
 
     // Mutate only this disposable installation, keeping the preparing module
     // instance alive. Changed bundled bytes must invalidate the reviewed work.

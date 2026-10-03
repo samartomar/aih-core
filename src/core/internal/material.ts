@@ -492,11 +492,11 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
 
 /** Captures one reference without installing packages, extracting to a host path, or executing source bytes. */
 export async function captureRecipeReference(referenceInput: MaterialRecipeReference,
-  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget } = {}): Promise<CapturedRecipeReference> {
+  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget; deadline?: number } = {}): Promise<CapturedRecipeReference> {
   const reference = checkedReference(referenceInput);
   if (options.signal?.aborted) fail('cancelled');
   options.budget?.claimReference(reference);
-  const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
+  const deadline = Math.min(performance.now() + MATERIAL_LIMITS.acquisitionMs, options.deadline ?? Infinity);
   const pins = new Map<string, { sha256: string; byteLength: number }>();
   pins.set(reference.path, { sha256: reference.sha256, byteLength: reference.byteLength });
   for (const member of reference.materials) pins.set(member.path, { sha256: member.sha256, byteLength: member.byteLength });
@@ -559,7 +559,7 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
 
 /** Captures explicit inline member descriptors; no current-directory fallback is permitted. */
 export async function captureInlineMaterials(materialsInput: InlineMaterialDescriptor[],
-  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget } = {}): Promise<CapturedInlineMaterials> {
+  materialRoots: Record<string, string> = {}, options: { signal?: AbortSignal; budget?: MaterialCaptureBudget; deadline?: number } = {}): Promise<CapturedInlineMaterials> {
   if (options.signal?.aborted) fail('cancelled');
   const { materials } = checkedInlineMaterials(materialsInput);
   options.budget?.claimInline(materials);
@@ -599,13 +599,13 @@ export async function captureInlineMaterials(materialsInput: InlineMaterialDescr
   const captured = new Map<string, Buffer>();
   const localProofs: { root: LocalRoot; path: string; pin: { sha256: string; byteLength: number }; identity: FileIdentity }[] = [];
   for (const [url, group] of archiveSources) {
-    const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
+    const deadline = Math.min(performance.now() + MATERIAL_LIMITS.acquisitionMs, options.deadline ?? Infinity);
     const packed = await download(group.source, deadline, options.signal);
     const files = await readArchive(packed, group.pins, deadline, options.signal);
     for (const [path, bytes] of files) captured.set(`archive:${url}\0${path}`, Buffer.from(bytes));
   }
   for (const [input, group] of localSources) {
-    const deadline = performance.now() + MATERIAL_LIMITS.acquisitionMs;
+    const deadline = Math.min(performance.now() + MATERIAL_LIMITS.acquisitionMs, options.deadline ?? Infinity);
     for (const [path, pin] of group.pins) {
       let file: { bytes: Buffer; identity: FileIdentity };
       try { file = readLocal(group.root.canonical, path, pin.byteLength, deadline, options.signal); }

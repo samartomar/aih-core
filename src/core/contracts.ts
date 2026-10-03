@@ -5,11 +5,13 @@ import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import preparedSchema from './schemas/prepared-work/1.0.0.json' with { type: 'json' };
 import resultSchema from './schemas/run-result/1.0.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
+import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
 import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, Recipe, ValidationResult } from './types.js';
 import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 export type * from './types.js';
+export type * from './file-state-types.js';
 
 const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
@@ -19,8 +21,8 @@ const checkOrganization = validator.compile(organizationSchema);
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
-  contracts: [policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema].map(schema => ({
-    id: schema.$id, role: schema === preparedSchema || schema === resultSchema ? 'produces' : 'accepts',
+  contracts: [policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema, fileStateSchema].map(schema => ({
+    id: schema.$id, role: schema === preparedSchema || schema === resultSchema || schema === fileStateSchema ? 'produces' : 'accepts',
     schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/1.0.0.json`
   })),
   entries: [

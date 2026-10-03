@@ -49,12 +49,12 @@ test('CLI help lists every command and each command has usage with examples', ()
     for (const args of [['--help'], ['-h'], ['help']]) {
       const result = run(args);
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      for (const command of ['inspect', 'policy', 'repair', 'validate'])
+      for (const command of ['inspect', 'policy', 'repair', 'validate', 'check-files'])
         assert.match(result.stdout, new RegExp(`\\b${command}\\b`), args.join(' '));
       assert.match(result.stdout, /--version/);
       assert.match(result.stdout, /--no-log/);
     }
-    for (const [args, command] of [[['help', 'validate'], 'validate'], [['policy', '--help'], 'policy'], [['repair', '-h'], 'repair']]) {
+    for (const [args, command] of [[['help', 'validate'], 'validate'], [['policy', '--help'], 'policy'], [['repair', '-h'], 'repair'], [['help', 'check-files'], 'check-files']]) {
       const result = run(args);
       assert.equal(result.status, 0, result.stdout + result.stderr);
       const lines = result.stdout.split('\n').filter(line => line.trimStart().startsWith(`aih ${command}`));

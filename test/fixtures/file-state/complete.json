@@ -1,0 +1,40 @@
+{
+  "schema": "urn:aihq:core:file-state-result:1.0.0",
+  "package": {
+    "name": "@aihq/core",
+    "version": "1.0.0-dev.3"
+  },
+  "status": "complete",
+  "fileState": "match",
+  "authority": "not-evaluated",
+  "targets": [
+    {
+      "id": "guidance/write",
+      "operationIds": [
+        "guidance/write"
+      ],
+      "target": {
+        "root": "project",
+        "path": "TEAM.md"
+      },
+      "outcome": "match",
+      "reason": "content-match"
+    }
+  ],
+  "checks": [],
+  "notChecked": [],
+  "coverage": {
+    "comparedTargets": 1,
+    "unavailableTargets": 0,
+    "comparedChecks": 0,
+    "unavailableChecks": 0,
+    "notChecked": 0
+  },
+  "diagnostics": [],
+  "limits": {
+    "budgetMs": 60000,
+    "elapsedMs": 0,
+    "targetBytes": 39,
+    "materialBytes": 0
+  }
+}
