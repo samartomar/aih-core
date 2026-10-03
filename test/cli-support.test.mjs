@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -244,5 +244,31 @@ test('a relative report path is resolved against the current directory', () => {
     assert.equal(relative.status, 0, relative.stdout + relative.stderr);
     assert.equal(relative.stderr, `Support report written: ${join(realpathSync.native(root), 'relative-report.md')}\n`);
     assert.ok(readFileSync(join(root, 'relative-report.md'), 'utf8').startsWith('# Support report'));
+  } finally { close(); }
+});
+
+test('SIGINT during the operation cancels the export and preserves exit 130', { timeout: 60_000 }, async t => {
+  // Windows cannot deliver a catchable SIGINT to a child process, so this runs on POSIX hosts.
+  if (process.platform === 'win32') { t.skip('SIGINT cannot be delivered to a Windows child process'); return; }
+  const { root, home, close } = fixture('aih-cli-support-sigint-');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const marker = join(root, 'probe-started'), target = join(root, 'cancelled.md');
+  // A slow version probe keeps inspection running until the signal arrives.
+  writeFileSync(join(bin, 'jq'), '#!/bin/sh\necho started > "$AIH_TEST_MARKER"\nsleep 20\n', { mode: 0o755 });
+  try {
+    const child = spawn(process.execPath, [cli, 'inspect', '--offline', '--target', 'jq', '--json', '--support-markdown', target], {
+      env: { ...process.env, HOME: home, USERPROFILE: home, PATH: [bin, '/usr/bin', '/bin'].join(':'), AIH_TEST_MARKER: marker } });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
+    const exited = new Promise(resolveExit => child.on('close', code => resolveExit(code)));
+    const deadline = Date.now() + 20_000;
+    while (!existsSync(marker) && Date.now() < deadline) await new Promise(resolveWait => setTimeout(resolveWait, 50));
+    assert.ok(existsSync(marker), 'the slow probe started');
+    child.kill('SIGINT');
+    const code = await exited;
+    assert.equal(code, 130, stdout + stderr);
+    assert.equal(JSON.parse(stdout).status, 'cancelled');
+    assert.equal(stderr, 'Support report not written: cancelled\n');
+    assert.equal(existsSync(target), false);
   } finally { close(); }
 });

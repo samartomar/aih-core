@@ -51,9 +51,11 @@ function record(value: unknown): boolean {
 }
 function inputs(value: unknown): boolean {
   return object(value) && fields(value.package, ['name', 'version']) &&
-    // The policy and repair bindings are mutually exclusive in the run-result schema.
-    (typeof value.policySha256 === 'string' ? !['sourceSha256', 'helperSha256', 'certificates', 'candidateKind'].some(key => Object.hasOwn(value, key)) :
-      fields(value, ['sourceSha256', 'helperSha256']) && strings(value.certificates) && !Object.hasOwn(value, 'organization')) &&
+    // Mirrors the schemas' presence-based oneOf: exactly one of the policy or the complete repair binding.
+    (Object.hasOwn(value, 'policySha256') !== ['sourceSha256', 'helperSha256', 'certificates'].every(key => Object.hasOwn(value, key))) &&
+    (!Object.hasOwn(value, 'policySha256') || typeof value.policySha256 === 'string') &&
+    ['sourceSha256', 'helperSha256', 'candidateKind'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'string') &&
+    (!Object.hasOwn(value, 'certificates') || strings(value.certificates)) &&
     (!Object.hasOwn(value, 'organization') || organizationBinding(value.organization));
 }
 function organizationBinding(value: unknown): boolean {

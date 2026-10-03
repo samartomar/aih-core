@@ -292,7 +292,11 @@ test('policy operations distinguish failed application, failed verification and 
 test('contradictory policy and repair input bindings are rejected as malformed public results', () => {
   const both = run(); both.result.inputs = { ...review('policy').inputs, ...review('repair').inputs };
   invalid(both);
-  const repairWithOrganization = run('complete', 'repair');
-  repairWithOrganization.result.inputs = { ...review('repair').inputs, organization: {} };
-  invalid(repairWithOrganization);
+  // The schemas' oneOf discriminates by property presence, so a null policy digest is still present.
+  const nullPolicy = run('complete', 'repair'); nullPolicy.result.inputs = { ...review('repair').inputs, policySha256: null };
+  invalid(nullPolicy);
+  const partialRepair = run(); partialRepair.result.inputs = { ...review('policy').inputs, sourceSha256: 'a'.repeat(64) };
+  assert.equal(getGuidance(partialRepair, platform).status, 'complete');
+  const candidate = run('complete', 'repair'); candidate.result.inputs = { ...review('repair').inputs, candidateKind: 'system-ca' };
+  assert.equal(getGuidance(candidate, platform).status, 'complete');
 });
