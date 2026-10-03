@@ -128,7 +128,7 @@ export function replaceHookGroup(format: Format, before: Buffer, container: stri
   return splice(text, node.offset, node.offset + node.length, render(group));
 }
 
-/** Deletes the element, its separating comma and the whitespace up to the next element; comments in adjacent trivia refuse the edit. */
+/** Deletes the element and the one comma that separated it; comments in adjacent trivia refuse the edit. */
 export function removeHookGroup(format: Format, before: Buffer, container: string[], index: number): Buffer {
   const { text, array, children, node } = element(format, before, container, index);
   const end = node.offset + node.length;
@@ -138,8 +138,7 @@ export function removeHookGroup(format: Format, before: Buffer, container: strin
   const trailing = gap(text, end, last ? close : children[index + 1]!.offset);
   if (leading.comment || trailing.comment) unsafe();
   if (children.length === 1) return splice(text, node.offset, trailing.comma?.end ?? end, '');
-  // The trailing gap is comma plus whitespace only (comments refused above); consuming it through the next element avoids leaving a blank line.
-  if (!last) return trailing.comma ? splice(text, node.offset, children[index + 1]!.offset, '') : unsafe();
+  if (!last) return trailing.comma ? splice(text, node.offset, trailing.comma.end, '') : unsafe();
   if (!leading.comma) unsafe();
   return splice(text, leading.comma!.start, trailing.comma?.end ?? end, '');
 }
