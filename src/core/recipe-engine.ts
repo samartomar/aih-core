@@ -453,7 +453,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               member.descriptor?.kind === 'hook' && memberId !== hookKey && samePath(member.descriptor.path, path!) && member.descriptor.format === op.format &&
               canonicalJson(member.descriptor.container) === canonicalJson(op.container) ? [{ key: memberId, descriptor: member.descriptor }] : []);
             const incompatible = Object.hasOwn(projected.members, memberKey({ path, kind: 'file' })) ||
-              Object.values(projected.members).some(member => member.descriptor && member.descriptor.kind !== 'hook' && overlappingMembers(descriptor, member.descriptor, before));
+              Object.entries(projected.members).some(([memberId, member]) => memberId !== hookKey && member.descriptor &&
+                overlappingMembers(descriptor, member.descriptor, before));
             const currentDigest = before === null ? null : sha256(before);
             const choice = resolutions.find(item => item.selectionId === selection.id && item.operationId === op.id);
             if (choice) {
@@ -686,10 +687,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           return finish();
         }
         priorHookConflict = hookConflicts.get(`${root}:${key}`);
-        const projectedOthers: RetainedHook[] = Object.entries(projectedMembers(root)).flatMap(([memberId, member]) =>
+        const currentMembers = projectedMembers(root);
+        const projectedOthers: RetainedHook[] = Object.entries(currentMembers).flatMap(([memberId, member]) =>
           member.descriptor?.kind === 'hook' && memberId !== key && samePath(member.descriptor.path, descriptor.path) && member.descriptor.format === descriptor.format &&
           canonicalJson(member.descriptor.container) === canonicalJson(descriptor.container) ? [{ key: memberId, descriptor: member.descriptor }] : []);
-        hookDecision = decideHookCleanup({ owner, remaining, before, retained: projectedOthers, key, ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : {}) });
+        const incompatibleHook = Object.entries(currentMembers).some(([memberId, member]) => memberId !== key &&
+          member.descriptor?.kind === 'hook' && overlappingMembers(descriptor, member.descriptor, before));
+        hookDecision = decideHookCleanup({ owner, remaining, before, retained: projectedOthers, key,
+          ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : incompatibleHook ? { forced: 'hook-selector-overlap' } : {}) });
       } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
         if (!remaining.length && matching) after = subtractMember(descriptor, before);

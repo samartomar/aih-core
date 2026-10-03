@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { apply } from '../dist/core/index.js';
+import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
 import { SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11, sandbox, sha } from './hook-group-fixture.mjs';
 import { controls, groupsOf, neighbor, compact, opOf, ownershipRoots, prep, resolveOp, run } from './hook-group-harness.mjs';
 
@@ -18,6 +21,49 @@ async function shared(s, ...ids) {
   return s.read(SETTINGS);
 }
 const edit = (s, from, to) => { const text = s.read(SETTINGS).replace(from, to); s.write(SETTINGS, text); return text; };
+
+test('a different format cannot adopt a group already held by another hook descriptor', async () => {
+  for (const [firstFormat, secondFormat] of [['json', 'jsonc'], ['jsonc', 'json']]) {
+    const s = sandbox();
+    try {
+      const first = policy11([hookSelection('first', [hookOp('add', 'shared', { format: firstFormat })])]);
+      await run(s, first);
+      const before = s.read(SETTINGS);
+      const second = policy11([hookSelection('second', [hookOp('add', 'shared', { format: secondFormat })])]);
+      const blocked = await prep(s, second);
+      assert.equal(blocked.status, 'blocked');
+      const adopted = await prep(s, second, [resolveOp(blocked, 'second', 'add', 'adopt')]);
+      assert.equal(adopted.status, 'blocked', 'another format must not establish a second owner of one element');
+      assert.equal(s.read(SETTINGS), before);
+      assert.deepEqual(claimants(s), ['first']);
+    } finally { s.dispose(); }
+  }
+});
+
+test('removal preserves a group when a pre-fix receipt has a second format owner', async () => {
+  const s = sandbox();
+  try {
+    await run(s, policy11([hookSelection('first', [hookOp('add', 'shared', { format: 'json' })])]));
+    const before = s.read(SETTINGS);
+    const root = ownershipRoots(s).find(item => item.target === s.project);
+    assert.ok(root);
+    const owner = Object.values(root.members)[0];
+    const descriptor = { ...owner.descriptor, format: 'jsonc' };
+    root.members[memberKey(descriptor)] = { ...owner, managementId: 'second', descriptor,
+      claims: [{ managementId: 'second', scope: 'project', sets: [], requires: [] }] };
+    writeFileSync(join(s.home, '.aih', 'core', 'ownership', root.name), JSON.stringify({
+      schema: root.schema, target: root.target, members: root.members
+    }));
+    const authored = await prep(s, policy11([hookSelection('first', [hookOp('drop', 'shared', { action: 'remove' })])]));
+    assert.equal(authored.status, 'blocked');
+    assert.equal(opOf(authored, 'first/drop').effects, 'conflict');
+    const lifecycle = await prep(s, policy11([], { removals: [{ managementId: 'first', scope: 'project' }] }));
+    assert.equal(lifecycle.status, 'blocked');
+    assert.equal(lifecycle.review.operations[0].effects, 'conflict');
+    assert.equal(s.read(SETTINGS), before);
+    assert.deepEqual(claimants(s), ['first', 'second']);
+  } finally { s.dispose(); }
+});
 
 test('two selections claiming one group are one managed member and the second is custody only', async () => {
   const s = sandbox();
