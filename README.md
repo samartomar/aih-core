@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -10,7 +10,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, public request/review/result types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic types |
 | `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |
@@ -19,6 +19,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
+| `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema |
 | `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
@@ -225,6 +226,29 @@ if (preparation.status === 'ready' && userExplicitlyApproved) {
 ```
 
 The handle belongs to the running module instance and is consumed on application. Restarting the host or losing the handle requires preparation and approval again. Saved policies/reviews/results remain readable JSON. A digest alone does not establish custody or consent. Editing a caller-owned policy or private input after preparation invalidates the work. Editing review JSON cannot alter the engine's frozen review or executable state.
+
+## Check file state
+
+`aih check-files` compares a policy's declared file intent with local files without preparing, writing or recording anything: no history, no state or custody records, no network access and no process execution. Inline recipes are used directly; a local recipe or material source is admitted only through its exact `--material-root id=/absolute/path` mapping with the declared byte lengths and SHA-256 pins. Archive sources are never fetched and are reported as unavailable.
+
+```sh
+aih check-files policy.json --project /absolute/project --json
+aih check-files policy.json --material-root team=/absolute/materials --private-input guidance.text=ENV_NAME --budget-ms 30000 --json
+```
+
+The API exposes the same serializable result:
+
+```js
+import { checkFileState } from '@aihq/core';
+
+const result = await checkFileState({ policy, target: { project: absoluteProjectPath } });
+```
+
+Each distinct target is captured once and compared with the final content folded in memory from all its contributing operations, across selections in dependency order; `operationIds` lists every contributing operation. `file.sha256` checks compare the live file itself. `fileState` aggregates the comparison: `changed` wins whenever any target differs, is absent where content is desired or present where absence is desired, or a digest check fails; `match` requires at least one compared target or check, no unavailable target or check and no unread recipe; `unverified` covers everything else, including a policy with no file operations. `status` reports completion of the observation, never application: `complete` only when at least one item was compared and nothing was unavailable or not checked, otherwise `incomplete` (or `invalid`/`cancelled`), so matching files beside an opaque process are `incomplete` with `fileState: match`.
+
+Unavailable rows carry a stable `reason`. A file operation that depends, directly or through other operations or required selections, on a process operation is unavailable (`process-dependency-not-checked`); one that depends on a recipe that could not be read inherits that recipe's reason. A target path needing an omitted private input is reported as its own row with `target: null`. `notChecked` lists process operations, recipes that could not be read (for example `remote-material-not-admitted`), executable prerequisites, managed sets, removals and evidence; process checks appear in `checks` as `not-checked`; `coverage` counts each class. The default budget is 60,000 ms (`--budget-ms`/`budgetMs`, 1–60,000); a target over 16 MiB, more than 4,096 distinct targets or more than 512 MiB of captured material plus target bytes leave the remaining work unavailable. Cancellation keeps completed rows and marks unfinished ones `cancelled`. Exit codes are 0 only for a complete match, 1 for any other non-invalid/non-cancelled result, 2 for an invalid request and 130 for cancellation. `--json` emits exactly the result object (`urn:aihq:core:file-state-result:1.0.0`).
+
+A `match` is a local content comparison only. It is not custody or adoption (matching unowned files stay unowned), not proof that any command ran, and not enterprise authorization — `authority` is always `not-evaluated`. The result cannot be passed to `apply` and is not run evidence. Results never contain file contents, digests, absolute paths or private input values; reported paths are root-relative with private values redacted.
 
 ## Inputs and outcomes
 

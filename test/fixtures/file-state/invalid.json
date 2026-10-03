@@ -1,0 +1,33 @@
+{
+  "schema": "urn:aihq:core:file-state-result:1.0.0",
+  "package": {
+    "name": "@aihq/core",
+    "version": "1.0.0-dev.3"
+  },
+  "status": "invalid",
+  "fileState": "unverified",
+  "authority": "not-evaluated",
+  "targets": [],
+  "checks": [],
+  "notChecked": [],
+  "coverage": {
+    "comparedTargets": 0,
+    "unavailableTargets": 0,
+    "comparedChecks": 0,
+    "unavailableChecks": 0,
+    "notChecked": 0
+  },
+  "diagnostics": [
+    {
+      "code": "INPUT_INVALID",
+      "reason": "request-field",
+      "message": "Use published file-state options."
+    }
+  ],
+  "limits": {
+    "budgetMs": 60000,
+    "elapsedMs": 0,
+    "targetBytes": 0,
+    "materialBytes": 0
+  }
+}
