@@ -17,7 +17,7 @@ export const orgSource = (revision = { kind: 'commit', value: COMMIT }) => ({
 /** Same rule the engine applies to a captured recipe. */
 export function recipeIdentity(recipe) {
   const materials = recipe.materials.map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0); // code-unit order, as Core
   return `sha256:${digest({ schema: 'urn:aihq:core:recipe-identity:1.0.0', recipeSha256: digest(recipe), materials })}`;
 }
 

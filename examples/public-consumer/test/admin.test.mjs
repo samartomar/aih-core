@@ -28,7 +28,7 @@ const sha256hex = value => createHash('sha256').update(value).digest('hex');
 function expectedRecipeIdentity(item) {
   const materials = item.materials
     .map(({ id, sha256, byteLength }) => ({ id, sha256, byteLength }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0); // code-unit order, as Core
   return `sha256:${sha256hex(canonicalJson({
     schema: 'urn:aihq:core:recipe-identity:1.0.0', recipeSha256: item.recipe.sha256, materials
   }))}`;
@@ -285,6 +285,22 @@ const KNOWN_IDENTITIES = [
 test('recipeIdentity reproduces identities Core admitted for fixed recipe and material digests', async () => {
   for (const { recipeSha256, materials, identity } of KNOWN_IDENTITIES)
     assert.equal(await recipeIdentity({ recipeSha256, materials }), identity);
+});
+
+// Material ids are ordered by UTF-16 code unit (A1, B, a, a-b), never by locale collation
+// (which would put a, a-b, A1, B first). The expected digest is SHA-256 of this literal canonical JSON.
+const CODE_UNIT_DESCRIPTOR = '{"materials":[{"byteLength":12,"id":"A1","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},{"byteLength":10,"id":"B","sha256":"2222222222222222222222222222222222222222222222222222222222222222"},{"byteLength":13,"id":"a","sha256":"3333333333333333333333333333333333333333333333333333333333333333"},{"byteLength":11,"id":"a-b","sha256":"5555555555555555555555555555555555555555555555555555555555555555"}],"recipeSha256":"1111111111111111111111111111111111111111111111111111111111111111","schema":"urn:aihq:core:recipe-identity:1.0.0"}';
+test('recipeIdentity orders material ids by code unit, not locale collation', async () => {
+  const materials = [
+    { id: 'B', sha256: '2'.repeat(64), byteLength: 10 },
+    { id: 'a', sha256: '3'.repeat(64), byteLength: 13 },
+    { id: 'A1', sha256: '4'.repeat(64), byteLength: 12 },
+    { id: 'a-b', sha256: '5'.repeat(64), byteLength: 11 }
+  ];
+  const expected = 'sha256:b6a9aaaefc2129fd3fdecc0392c2dd1ca3aa6e2ed2a62603dd4be85c842231e3';
+  assert.equal(`sha256:${createHash('sha256').update(CODE_UNIT_DESCRIPTOR, 'utf8').digest('hex')}`, expected);
+  assert.equal(await recipeIdentity({ recipeSha256: '1'.repeat(64), materials }), expected);
+  assert.equal(await recipeIdentity({ recipeSha256: '1'.repeat(64), materials: [...materials].reverse() }), expected);
 });
 
 test('deriveExecutionPolicy rejects an imported organization entry whose unused choice breaks the input definition', async () => {

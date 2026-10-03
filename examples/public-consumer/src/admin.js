@@ -32,11 +32,12 @@ async function digest(value) {
 }
 
 // The identity Core derives for a captured recipe: the recipe's own sha256 plus
-// its materials' id/sha256/byteLength, sorted by id. For a catalog item these are
+// its materials' id/sha256/byteLength, sorted by ascending UTF-16 code-unit order of id
+// (never locale collation). For a catalog item these are
 // the release's pinned values, so no material bytes are needed to compute it.
 export async function recipeIdentity({ recipeSha256, materials }) {
   const pinned = materials.map(({ id, sha256, byteLength }) => ({ id, sha256, byteLength }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return `sha256:${await digest({ schema: RECIPE_IDENTITY_SCHEMA, recipeSha256, materials: pinned })}`;
 }
 

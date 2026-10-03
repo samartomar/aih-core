@@ -151,7 +151,7 @@ authenticates the deliberately unsigned display fixtures.
    because each `recipeIdentity` is computed with WebCrypto by Core's documented
    rule: sha256 of the canonical JSON of `{ schema:
    'urn:aihq:core:recipe-identity:1.0.0', recipeSha256, materials: [{id, sha256,
-   byteLength}] sorted by id }`, using the release's pinned recipe and material
+   byteLength}] sorted by ascending UTF-16 code-unit order of id, never locale collation }`, using the release's pinned recipe and material
    identities. The document is validated with `validateOrganizationPolicy` and has
    no evidence field.
 3. `deriveExecutionPolicy({ release, organization, choices, evidence,
