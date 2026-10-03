@@ -99,9 +99,11 @@ export async function writeExclusiveReportFile(
     identity = { dev: stats.dev, ino: stats.ino };
     if (!stats.isFile() || stats.ino === 0n) throw new UnsafeDestination();
     if (!pinsMatch(pins)) throw new UnsafeParent();
-    for (let offset = 0; offset < contents.length; offset += CHUNK_BYTES) {
+    for (let offset = 0; offset < contents.length;) {
       if (signal?.aborted) throw new AbortWrite();
-      await handle.write(contents.subarray(offset, Math.min(offset + CHUNK_BYTES, contents.length)));
+      const { bytesWritten } = await handle.write(contents, offset, Math.min(CHUNK_BYTES, contents.length - offset));
+      if (bytesWritten < 1) throw new Error('report-write-stalled');
+      offset += bytesWritten;
     }
     if (signal?.aborted) throw new AbortWrite();
     await handle.close();

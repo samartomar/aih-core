@@ -31,7 +31,7 @@ const run = (completion = 'complete', useCase = 'policy') => ({ kind: 'run', res
   inputs: review(useCase).inputs, effectiveOptions: { logging: effective('off') }, operations: [], checks: [], diagnostics: [],
   record: { status: 'written', reference: sentinel }, recovery: sentinel, followUp: [sentinel]
 } });
-const decode = markdown => markdown.replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+const decode = markdown => markdown.replace(/\\([&<>"'\\`*_[\]{}()#+.!|~\-])/g, '$1');
 function privacy(input, options = platform) {
   const guidance = getGuidance(input, options), report = renderSupportMarkdown(input, options);
   assert.equal(guidance.status, 'complete'); assert.equal(report.status, 'rendered');
@@ -227,7 +227,8 @@ test('input wrapper/options, required public fields and unsupported schemas are 
 
 test('package identity is narrowly permitted and Markdown escapes permitted punctuation', () => {
   const { raw } = privacy(inspect([check('node', 'node-certificate-chain')]));
-  assert.match(raw, /@aihq\/core 1&#46;0&#46;0&#45;dev&#46;4/); assert.doesNotMatch(raw, /Node\.js/);
+  assert.match(raw, /@aihq\/core 1\\\.0\\\.0\\-dev\\\.4/); assert.doesNotMatch(raw, /&#\d+;/);
+  assert.doesNotMatch(raw, /Node\.js/);
   for (const packageData of [{ name: sentinel, version: '1.0.0' }, { name: '@aihq/core', version: sentinel }, { name: '<script>', version: '1.0.0' }]) {
     const input = inspect(); input.result.package = packageData; assert.match(privacy(input).markdown, /Package: unavailable/);
   }

@@ -26,6 +26,9 @@ function emit(result: unknown, code: number): void {
 function refused(code: string, reason: string): void {
   emit({ status: 'invalid', diagnostics: [{ code, reason,
     message: 'Check the policy, target and explicit approval options.' }] }, code === 'CANCELLED' ? 130 : 2);
+  // A refusal is not a public result; a requested report is never written for it.
+  if (process.argv.some(arg => arg === '--support-markdown' || arg.startsWith('--support-markdown=')))
+    stderr.write(`Support report not written: ${code === 'CANCELLED' ? 'cancelled' : 'input-rejected'}\n`);
 }
 const usage = {
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',

@@ -211,10 +211,14 @@ export function getGuidance(input: SupportInput, options: SupportOptions): Guida
   return { status: 'complete', items: deriveGuidance(adapted.request), diagnostics: [] };
 }
 
-/** All strings that remain after allowlisting are escaped, including shipped metadata. */
+/**
+ * All strings that remain after allowlisting are escaped, including shipped metadata.
+ * CommonMark backslash escapes keep the raw file reviewable before sharing; control,
+ * line-separator and bidirectional-override characters are replaced, not encoded.
+ */
 function escape(value: string): string {
-  return value.replace(/[&<>"'\\`*_[\]{}()#+.!|~\-\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
-    char => `&#${char.codePointAt(0)};`);
+  return value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '\uFFFD')
+    .replace(/[&<>"'\\`*_[\]{}()#+.!|~\-]/g, char => `\\${char}`);
 }
 function identity(value: unknown): string {
   if (!fields(value, ['name', 'version']) || value.name !== '@aihq/core' ||

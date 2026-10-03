@@ -120,6 +120,7 @@ test('option and parser rejection with the flag writes no report', () => {
       assert.equal(result.status, 2, args.join(' ') + result.stdout + result.stderr);
       assert.equal(JSON.parse(result.stdout).diagnostics[0].code, 'INPUT_INVALID', args.join(' '));
       assert.equal(existsSync(target), false, args.join(' '));
+      assert.equal(result.stderr, 'Support report not written: input-rejected\n', args.join(' '));
     }
   } finally { close(); }
 });
@@ -166,10 +167,10 @@ test('non-JSON inspect prints human next actions on stderr only when guidance ex
   const { root, run, close } = fixture('aih-cli-support-prose-');
   const emptyPath = join(root, 'empty-path'); mkdirSync(emptyPath);
   try {
-    // With an empty PATH the requested executable is missing, so guidance exists.
-    const human = run(['inspect', '--offline', '--target', 'node'], { PATH: emptyPath });
+    // With an empty PATH a requested PATH-resolved helper is missing, so guidance exists (node always resolves to the running executable).
+    const human = run(['inspect', '--offline', '--target', 'jq'], { PATH: emptyPath });
     assert.match(human.stderr, /Next actions:/, human.stdout + human.stderr);
-    const structured = run(['inspect', '--offline', '--target', 'node', '--json'], { PATH: emptyPath });
+    const structured = run(['inspect', '--offline', '--target', 'jq', '--json'], { PATH: emptyPath });
     assert.equal(structured.stderr.includes('Next actions:'), false, structured.stderr);
   } finally { close(); }
 });
