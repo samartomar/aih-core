@@ -4,6 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { open } from 'node:fs/promises';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeExclusiveReportFile } from '../dist/core/internal/report-file.js';
@@ -285,6 +286,56 @@ test('a completion descriptor release error returns the retained path instead of
     assert.equal(result.diagnostics[0].path, join(realpathSync.native(root), 'report.md'));
     assert.equal(readFileSync(target, 'utf8'), 'complete report\n');
   } finally { fs.closeSync = original; syncBuiltinESMExports(); close(); }
+});
+
+test('completion pin is nonblocking if the destination becomes a FIFO', () => {
+  const { root, close } = fixture('aih-report-fifo-swap-');
+  const target = join(root, 'report.md');
+  // A blocking FIFO open stops the event loop, so only a bounded child process
+  // can safely exercise this race. Windows checks the intended flag at the same
+  // real writer seam with a synthetic flag, because it exposes no O_NONBLOCK.
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import { execFileSync } from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const [target, writerUrl] = process.argv.slice(1);
+    const windows = process.platform === 'win32';
+    const nonblock = fs.constants.O_NONBLOCK ?? 0x40000000;
+    if (windows && fs.constants.O_NONBLOCK === undefined)
+      Object.defineProperty(fs.constants, 'O_NONBLOCK', { value: nonblock });
+    const originalOpen = fs.openSync;
+    let pinFlags;
+    fs.openSync = function (path, flags, ...args) {
+      if (path === target) {
+        pinFlags = flags;
+        if (!windows) {
+          fs.unlinkSync(target);
+          execFileSync('mkfifo', [target], { timeout: 1000 });
+        }
+      }
+      return originalOpen.call(this, path, windows ? flags & ~nonblock : flags, ...args);
+    };
+    syncBuiltinESMExports();
+    const { writeExclusiveReportFile } = await import(writerUrl);
+    const result = await writeExclusiveReportFile(target, new TextEncoder().encode('report\\n'));
+    assert.equal(pinFlags & nonblock, nonblock, 'the completion open must use O_NONBLOCK');
+    if (windows) {
+      assert.equal(result.status, 'written', JSON.stringify(result));
+      assert.equal(fs.readFileSync(target, 'utf8'), 'report\\n');
+    } else {
+      assert.equal(result.status, 'failed', JSON.stringify(result));
+      assert.equal(result.diagnostics[0].reason, 'partial-report-retained');
+      assert.equal(fs.lstatSync(target).isFIFO(), true, 'retain the substituted nonregular destination');
+    }
+  `;
+  try {
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', script, target,
+      new URL('../dist/core/internal/report-file.js', import.meta.url).href],
+      { encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL' });
+    assert.equal(child.error, undefined, `completion must return without blocking: ${child.error}`);
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+  } finally { close(); }
 });
 
 test('writeSupportReport rejects malformed options before rendering or writing', async () => {

@@ -11,6 +11,7 @@ export type ReportFileStatus = 'written' | 'exists' | 'invalid' | 'failed' | 'ca
 export interface ReportFileResult { status: ReportFileStatus; path?: string; diagnostics: Diagnostic[] }
 
 const O_NOFOLLOW = (constants as Record<string, number | undefined>).O_NOFOLLOW ?? 0;
+const O_NONBLOCK = (constants as Record<string, number | undefined>).O_NONBLOCK ?? 0;
 const CHUNK_BYTES = 64 * 1024;
 
 const invalid = (reason: string, message: string): ReportFileResult =>
@@ -120,7 +121,8 @@ export async function writeExclusiveReportFile(
     // Keep the inode allocated across async close and its final path check. A
     // stale dev/ino snapshot alone could match an unrelated replacement file.
     if (!identityIntact(path, identity, handle.fd)) throw new UnsafeDestination();
-    completionPin = openSync(path, constants.O_RDONLY | O_NOFOLLOW);
+    // A raced-in FIFO must not block before its descriptor can be rejected.
+    completionPin = openSync(path, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (!identityIntact(path, identity, completionPin)) throw new UnsafeDestination();
     await handle.close();
     // A late abort must not undo the complete, closed file. The pin still holds
