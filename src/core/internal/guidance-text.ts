@@ -6,5 +6,5 @@ export function formatGuidanceText(items: readonly GuidanceItem[]): string {
   return 'Next actions:\n' + items.map((item, index) => `${index + 1}. [${item.audience}] ${item.summary}\n` +
     item.steps.map(step => `   - ${step}\n`).join('') +
     item.repairs.map(repair => `   Repair: ${repair.id} (${repair.targets.join(', ')}); required inputs: ` +
-      `${repair.requiredInputs.map(input => `${input.name} (${input.type})`).join(', ') || 'none'}\n`).join('')).join('');
+      `${repair.requiredInputs.map(input => `${input.name} (${input.type}): ${input.description}`).join(', ') || 'none'}\n`).join('')).join('');
 }
