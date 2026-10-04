@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -52,9 +52,13 @@ test('aih report acquires a bounded offline Node/Git diagnostic into a new direc
     assert.equal(body.mode, 'report');
     assert.equal(body.source, 'fresh');
     assert.deepEqual(body.package, { name: manifest.name, version: manifest.version });
-    assert.equal(body.output.directory, join(w.cwd, 'out'));
-    assert.equal(body.output.json, join(w.cwd, 'out', 'report.json'));
-    assert.equal(body.output.html, join(w.cwd, 'out', 'report.html'));
+    // macOS may expose the temporary cwd through /var while the child reports /private/var.
+    const requestedOutput = join(w.cwd, 'out');
+    assert.equal(realpathSync(body.output.directory), realpathSync(requestedOutput));
+    assert.equal(body.output.json, join(body.output.directory, 'report.json'));
+    assert.equal(body.output.html, join(body.output.directory, 'report.html'));
+    assert.equal(realpathSync(body.output.json), realpathSync(join(requestedOutput, 'report.json')));
+    assert.equal(realpathSync(body.output.html), realpathSync(join(requestedOutput, 'report.html')));
     assert.deepEqual(readdirSync(join(w.cwd, 'out')).sort(), ['report.html', 'report.json']);
 
     const snapshot = JSON.parse(readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8'));
