@@ -418,3 +418,21 @@ test('complete spaced Windows usernames are masked before prose delimiters', () 
   const report = importSnapshot(JSON.stringify(snapshot));
   assert.equal(report.observations[0].detail, '<homePath>; x <homePath>: note <homePath>|y');
 });
+
+test('home-prefix prose cannot swallow following credential keys before they are masked', () => {
+  const snapshot = createReport(validInput());
+  for (const detail of ['C:\\Users\\bob TOKEN: fixture-private', 'C:\\Users\\bob TOKEN=abc/private-tail']) {
+    snapshot.observations[0].detail = detail;
+    const report = importSnapshot(JSON.stringify(snapshot));
+    assert.ok(!report.observations[0].detail.includes('fixture-private'));
+    assert.ok(!report.observations[0].detail.includes('private-tail'));
+    assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+  }
+});
+
+test('spaced equals separators never expose a credential argument', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = '--token= fixture-private --token = fixture-private --password= fixture-private';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.ok(!report.observations[0].detail.includes('fixture-private'));
+});

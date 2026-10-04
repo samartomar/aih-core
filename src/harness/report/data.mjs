@@ -318,14 +318,15 @@ function redactSecretAssignments(text) {
     const prefix = text.slice(Math.max(0, match.index - 3), match.index);
     // Delegate only a complete, recognized bare flag with '=' to the flag scanner.
     if (/(?:^|[^\w-])--?$/.test(prefix) && SENSITIVE_FLAG_NAME.test(match[1]) &&
-        match[2].trim() === '=' && match[0] === match[1] + match[2]) continue;
+        match[2] === '=' && match[0] === match[1] + match[2]) continue;
     const upper = match[1].toUpperCase();
     const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some((keyword) => upper.endsWith(keyword));
     const possibleLongAssignment = ASSIGNMENT_KEYWORDS.some((keyword) => upper.includes(keyword));
     if (!shortAssignment && !possibleLongAssignment) continue;
     const start = keys.lastIndex;
     const end = credentialValueEnd(text, start);
-    if (!shortAssignment && text.slice(start, end).replace(/^["']|["']$/g, '').length < 8) continue;
+    const value = text.slice(start, end).replace(/^["']|["']$/g, '');
+    if (!shortAssignment && (value === '<homePath>' || value.length < 8)) continue;
     output += text.slice(copied, match.index) + '[REDACTED]';
     copied = end;
     keys.lastIndex = end;
@@ -415,9 +416,8 @@ function applyLiteral(text, rule) {
 function redactText(value, rules) {
   let output = value;
   for (const rule of rules) output = applyLiteral(output, rule);
-  output = output.replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
   for (const pattern of SECRET_PATTERNS) output = output.replace(pattern, '[REDACTED]');
-  return redactSensitiveFlags(redactSecretAssignments(output));
+  return redactSensitiveFlags(redactSecretAssignments(output)).replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
 }
 
 function countOutcomes(checks) {
