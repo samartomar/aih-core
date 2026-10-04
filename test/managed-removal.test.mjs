@@ -41,6 +41,20 @@ test('an unknown management ID is an explicit effect-free absence with no handle
   assert.equal(existsSync(runsDir(s)), false);
 });
 
+test('an unresolved current-user home returns unavailable custody instead of throwing', async () => {
+  const s = open();
+  process.env.HOME = join(s.root, 'missing-home');
+  process.env.USERPROFILE = process.env.HOME;
+  try {
+    const result = await prepareManagedRemoval(removal(s), { logging: 'off' });
+    assert.equal(result.disposition, 'unavailable', JSON.stringify(result));
+    assert.deepEqual(result.diagnostics.map(item => [item.code, item.reason]),
+      [['PREREQUISITE_UNAVAILABLE', 'ownership-unverifiable']]);
+    assert.equal(Object.hasOwn(result, 'preparation'), false);
+    assert.equal(existsSync(runsDir(s)), false);
+  } finally { process.env.HOME = s.home; process.env.USERPROFILE = s.home; }
+});
+
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 const claimKey = (scope, id, anchor) => `${scope}:${sha(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${id}`;
 const projectReceipt = s => receiptPath(s, realpathSync.native(s.project));

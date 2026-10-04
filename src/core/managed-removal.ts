@@ -133,9 +133,9 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
 
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', known, [diagnostic(code, reason, message)]);
   const unverifiable = () => unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.');
-  const home = userHomeRoot();
+  let home: string;
   let image: Image;
-  try { image = readImage(project, home); } catch { return unverifiable(); }
+  try { home = userHomeRoot(); image = readImage(project, home); } catch { return unverifiable(); }
   if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unverifiable();
   const custody = classify(image, project, home, scope, managementId);
   const sameImage = () => {

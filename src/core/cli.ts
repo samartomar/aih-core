@@ -132,6 +132,7 @@ try {
   json = values.json ?? false;
   const command = commands.find(name => name === positionals[0]);
   const helpWord = positionals[0] === 'help';
+  const managedHelpWord = positionals[0] === 'managed' && positionals[1] === 'help';
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
   const helpFlags = Object.keys(values).every(name => name === 'help' || name === 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
@@ -141,15 +142,15 @@ try {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
     else if (json) emit({ name: contractSupport.package.name, version: contractSupport.package.version }, 0);
     else process.stdout.write(`${contractSupport.package.name} ${contractSupport.package.version}\n`);
-  } else if (helpWord || values.help || positionals[0] === 'managed' && positionals[1] === 'help') {
+  } else if (helpWord || values.help || managedHelpWord) {
     // Existing commands have historically accepted their ordinary arguments with --help.
     const legacyHelp = values.help === true && positionals[0] !== 'managed' && !helpWord &&
       values.scope === undefined && values.mode === undefined;
-    const subject = helpWord ? positionals.slice(1) : positionals[0] === 'managed' && positionals[1] === 'help' ?
+    const subject = helpWord ? positionals.slice(1) : managedHelpWord ?
       ['managed', ...positionals.slice(2)] : positionals;
     const validSubject = legacyHelp || subject.length === 0 || subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) ||
       subject.length === 2 && subject[0] === 'managed' && ['list', 'remove'].includes(subject[1]!);
-    if ((!legacyHelp && !helpFlags) || !validSubject || helpWord && !onlyJson) refused('INPUT_INVALID', 'cli-options');
+    if ((!legacyHelp && !helpFlags) || !validSubject || (helpWord || managedHelpWord) && !onlyJson) refused('INPUT_INVALID', 'cli-options');
     else if (subject[0] === 'managed' && subject.length === 2)
       process.stdout.write(managedUsage[subject[1] as keyof typeof managedUsage] + managedExamples[subject[1] as keyof typeof managedExamples]);
     else if (subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) || legacyHelp && command) {

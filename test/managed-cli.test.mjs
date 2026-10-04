@@ -29,12 +29,17 @@ test('managed CLI exposes bounded list and dedicated help without touching custo
       assert.match(shown.stdout, /aih managed/);
       assert.match(shown.stdout, /Examples:/);
     }
+    const jsonHelp = run(['managed', 'help', '--json']);
+    assert.equal(jsonHelp.status, 0, jsonHelp.stdout + jsonHelp.stderr);
+    assert.match(jsonHelp.stdout, /aih managed/);
+    const extraHelpFlag = run(['managed', 'help', '--help']);
+    assert.equal(extraHelpFlag.status, 2, extraHelpFlag.stdout + extraHelpFlag.stderr);
     for (const args of [['bogus', '--help'], ['--help', '--project', project]]) {
       const shown = run(args);
       assert.equal(shown.status, 0, `${args.join(' ')}: ${shown.stdout}${shown.stderr}`);
       assert.match(shown.stdout, /aih inspect/);
     }
-    for (const args of [['managed', 'help', '--scope', 'user'], ['managed', 'list', '--help', '--mode', 'vibe'],
+    for (const args of [['managed', 'help', '--scope', 'user'], ['managed', 'help', '--help'], ['managed', 'list', '--help', '--mode', 'vibe'],
       ['policy', '--help', '--scope', 'user']]) {
       const denied = run([...args, '--json']);
       assert.equal(denied.status, 2, `${args.join(' ')}: ${denied.stdout}${denied.stderr}`);
@@ -55,6 +60,19 @@ test('managed CLI exposes bounded list and dedicated help without touching custo
     const oldCommand = run(['policy', 'none.json', '--scope', 'user', '--json']);
     assert.equal(oldCommand.status, 2, oldCommand.stdout + oldCommand.stderr);
     assert.equal(JSON.parse(oldCommand.stdout).diagnostics[0].reason, 'cli-options');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('managed removal CLI reports an unresolved home as unavailable with exit 1', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-managed-missing-home-'));
+  const project = join(root, 'project'); mkdirSync(project);
+  const missingHome = join(root, 'missing-home');
+  try {
+    const result = spawnSync(process.execPath, [cli, 'managed', 'remove', 'team-guidance', '--scope', 'project',
+      '--mode', 'vibe', '--project', project, '--json'], {
+      encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: missingHome, USERPROFILE: missingHome }
+    });
+    expectRemoval(result, 'unavailable', 1, ['ownership-unverifiable']);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
