@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIH report</title>
+<style>
+:root{
+  --display:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;
+  --sans:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
+  --bg:#07090f;
+  --bg-glow-1:radial-gradient(1400px 700px at 80% -15%,rgba(91,157,255,.10),transparent 55%);
+  --bg-glow-2:radial-gradient(1000px 600px at -5% 110%,rgba(157,139,255,.08),transparent 60%);
+  --bg-glow-3:radial-gradient(800px 500px at 50% 50%,rgba(52,211,153,.04),transparent 70%);
+  --surface:#0e131c;--surface-2:#141a26;--surface-3:#1b2230;--surface-4:#222a3a;
+  --border:#1d2535;--border-2:#28324a;--border-3:#38445f;
+  --fg:#eef2fa;--fg-2:#c8d1e3;--muted:#828ca3;--dim:#5a6378;
+  --accent:#5b9dff;--accent-2:#9d8bff;--accent-grad:linear-gradient(135deg,#5b9dff,#9d8bff);
+  --accent-soft:rgba(91,157,255,.12);
+  --mcp:#34d399;--mcp-soft:rgba(52,211,153,.12);--mcp-grad:linear-gradient(135deg,#34d399,#5b9dff);
+  --ok:#34d399;--ok-soft:rgba(52,211,153,.12);
+  --warn:#fbbf24;--warn-soft:rgba(251,191,36,.12);
+  --bad:#f87171;--bad-soft:rgba(248,113,113,.13);
+  --anom:#f59e0b;--anom-soft:rgba(245,158,11,.13);
+  --r:16px;--rs:10px;--rxs:6px;
+  --shadow:0 1px 0 rgba(255,255,255,.03) inset,0 12px 32px -14px rgba(0,0,0,.7);
+  --shadow-lift:0 1px 0 rgba(255,255,255,.05) inset,0 20px 48px -18px rgba(0,0,0,.8);
+}
+:root[data-theme="light"]{
+  --bg:#f5f7fb;
+  --bg-glow-1:radial-gradient(1400px 700px at 80% -15%,rgba(91,157,255,.07),transparent 55%);
+  --bg-glow-2:radial-gradient(1000px 600px at -5% 110%,rgba(157,139,255,.06),transparent 60%);
+  --bg-glow-3:radial-gradient(800px 500px at 50% 50%,rgba(52,211,153,.04),transparent 70%);
+  --surface:#fff;--surface-2:#f8fafd;--surface-3:#eef2f8;--surface-4:#e3e8f0;
+  --border:#e3e8f0;--border-2:#d1d9e6;--border-3:#bcc7d8;
+  --fg:#0f1420;--fg-2:#2d3849;--muted:#5a6378;--dim:#8a93a8;
+  --accent:#2563eb;--accent-2:#7c3aed;--accent-grad:linear-gradient(135deg,#2563eb,#7c3aed);
+  --accent-soft:rgba(37,99,235,.09);
+  --mcp:#059669;--mcp-soft:rgba(5,150,105,.10);--mcp-grad:linear-gradient(135deg,#059669,#2563eb);
+  --ok:#059669;--ok-soft:rgba(5,150,105,.10);
+  --warn:#b45309;--warn-soft:rgba(180,83,9,.10);
+  --bad:#dc2626;--bad-soft:rgba(220,38,38,.10);
+  --anom:#d97706;--anom-soft:rgba(217,119,6,.10);
+  --shadow:0 1px 2px rgba(20,30,50,.04),0 12px 32px -16px rgba(20,30,50,.12);
+  --shadow-lift:0 2px 6px rgba(20,30,50,.06),0 20px 48px -20px rgba(20,30,50,.18);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg-glow-1),var(--bg-glow-2),var(--bg-glow-3),var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh}
+:where(button,a,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--rxs)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.7rem clamp(1rem,4vw,2.2rem);background:color-mix(in oklab,var(--bg) 82%,transparent);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:.7rem;min-width:0}
+.brand-mark{width:30px;height:30px;border-radius:8px;flex:none;background:var(--accent-grad);display:grid;place-items:center;box-shadow:0 4px 12px -2px rgba(91,157,255,.4)}
+.brand-mark svg{width:16px;height:16px;color:#fff}
+.brand-text{display:flex;flex-direction:column;gap:.05rem;min-width:0}
+.brand-text h1{font-family:var(--display);font-size:.92rem;font-weight:680;letter-spacing:-.015em;margin:0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-text .sub{color:var(--muted);font-size:.7rem}
+.brand-text .sub code{color:var(--fg-2);font-family:var(--mono);font-size:.68rem}
+.brand-text .ver{font-family:var(--mono);font-size:.6rem;font-weight:600;color:var(--mcp);background:var(--mcp-soft);padding:.08rem .32rem;border-radius:var(--rxs);margin-left:.4rem;border:1px solid color-mix(in oklab,var(--mcp) 25%,transparent)}
+.tb-right{display:flex;align-items:center;gap:.5rem;flex:none}
+.clocks{display:flex;gap:.9rem;margin-right:.2rem}
+.clk{display:flex;flex-direction:column;align-items:flex-end;line-height:1}
+.clk i{font-style:normal;color:var(--dim);font-size:.52rem;letter-spacing:.15em;text-transform:uppercase}
+.clk b{font-family:var(--mono);font-weight:600;font-size:.76rem;color:var(--fg-2);margin-top:.2rem;font-variant-numeric:tabular-nums}
+.tb-btn{display:inline-grid;place-items:center;width:34px;height:32px;padding:0;cursor:pointer;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);transition:all .15s ease}
+.tb-btn:hover{border-color:var(--border-3);color:var(--fg);background:var(--surface-2)}
+.tb-btn svg{width:15px;height:15px}
+.tb-btn.demo:hover{border-color:var(--accent);color:var(--accent)}
+body[data-demo="on"] .tb-btn.demo{background:var(--accent-soft);border-color:color-mix(in oklab,var(--accent) 40%,transparent);color:var(--accent)}
+.tb-kbd{display:inline-flex;align-items:center;gap:.25rem;font-family:var(--mono);font-size:.62rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:.3rem .5rem;cursor:pointer;transition:all .15s}
+.tb-kbd:hover{border-color:var(--border-3);color:var(--fg)}
+.tb-kbd kbd{font-family:var(--mono);font-size:.58rem;font-weight:600;background:var(--surface-3);border:1px solid var(--border-2);border-radius:3px;padding:.05rem .28rem;color:var(--fg-2)}
+@media(max-width:680px){.clocks{display:none}.brand-text .sub{display:none}.tb-kbd{display:none}}
+@media(max-width:420px){.brand-text .ver{display:none}}
+
+.whatsnew{display:flex;align-items:center;gap:.6rem;padding:.5rem .9rem;margin-bottom:1.1rem;background:var(--mcp-soft);border:1px solid color-mix(in oklab,var(--mcp) 22%,transparent);border-radius:var(--rs);font-size:.76rem;color:var(--mcp);flex-wrap:wrap}
+.whatsnew .tag{font-family:var(--mono);font-size:.62rem;font-weight:700;padding:.12rem .4rem;border-radius:var(--rxs);background:var(--mcp);color:var(--bg);letter-spacing:.04em}
+.whatsnew b{color:var(--mcp);font-weight:600}
+.whatsnew .sep{color:color-mix(in oklab,var(--mcp) 40%,transparent);margin:0 .1rem}
+.whatsnew .muted{color:color-mix(in oklab,var(--mcp) 70%,var(--muted))}
+
+main{max-width:1240px;margin:0 auto;padding:clamp(1.5rem,3vw,2.2rem) clamp(1rem,4vw,2.2rem) 5rem}
+.section{margin-top:2.8rem;scroll-margin-top:80px}
+.section:first-of-type{margin-top:1.5rem}
+
+.sec-head{margin-bottom:1.1rem;padding:0 .1rem}
+.sec-eyebrow{display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem}
+.sec-no{font-family:var(--mono);font-size:.66rem;font-weight:600;color:var(--accent);opacity:.7;letter-spacing:.08em}
+.sec-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--border-2),transparent)}
+.sec-count{font-family:var(--mono);font-size:.6rem;font-weight:600;color:var(--muted);background:color-mix(in oklab,var(--muted) 13%,transparent);padding:.16rem .42rem;border-radius:999px;font-variant-numeric:tabular-nums}
+.sec-title{font-family:var(--display);font-size:1.4rem;font-weight:680;letter-spacing:-.02em;margin:0 0 .25rem;color:var(--fg)}
+.sec-insight{color:var(--muted);font-size:.86rem;margin:0;max-width:72ch;line-height:1.5}
+.sec-insight b{color:var(--fg-2);font-weight:600}
+.sec-insight .ok{color:var(--ok);font-weight:600}
+.sec-insight .warn{color:var(--warn);font-weight:600}
+.sec-insight .bad{color:var(--bad);font-weight:600}
+.sec-insight .mcp{color:var(--mcp);font-weight:600}
+.sec-insight .anom{color:var(--anom);font-weight:600}
+
+.card{background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;position:relative;transition:border-color .2s,box-shadow .2s,transform .2s}
+.card::before{content:"";position:absolute;inset:0 0 auto;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.06) 20%,rgba(255,255,255,.06) 80%,transparent);pointer-events:none}
+.card:hover{border-color:var(--border-2);box-shadow:var(--shadow-lift);transform:translateY(-1px)}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 1.15rem;border-bottom:1px solid var(--border)}
+.card-head h3{font-family:var(--display);font-size:.72rem;font-weight:640;text-transform:uppercase;letter-spacing:.08em;margin:0;color:var(--fg-2)}
+.card-body{padding:1.15rem 1.2rem}
+.card-body.flush{padding:0}
+
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:1.1rem}
+.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}
+.span-6{grid-column:span 6}.span-7{grid-column:span 7}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
+@media(max-width:940px){.span-3,.span-4,.span-5{grid-column:span 6}.span-7,.span-8{grid-column:span 12}}
+@media(max-width:580px){.span-3,.span-4,.span-5,.span-6{grid-column:span 12}}
+
+.hero{display:grid;grid-template-columns:380px 1fr;gap:1.1rem;margin-bottom:1.1rem}
+@media(max-width:880px){.hero{grid-template-columns:1fr}}
+.hero-radar{padding:1.2rem;display:flex;flex-direction:column;align-items:center;gap:.6rem}
+.hero-radar .radar-svg{width:100%;max-width:360px;height:auto;display:block}
+.hero-radar .radar-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:.4rem .7rem;margin-top:.2rem}
+.radar-leg{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:var(--muted)}
+.radar-leg b{color:var(--fg-2);font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums}
+.radar-leg .dot{width:7px;height:7px;border-radius:2px;background:var(--accent)}
+.radar-leg.warn .dot{background:var(--warn)}
+.hero-narrative{display:flex;flex-direction:column;gap:1rem;padding:1.4rem 1.5rem}
+.hero-eyebrow{font-family:var(--mono);font-size:.66rem;font-weight:600;color:var(--accent);letter-spacing:.12em;text-transform:uppercase}
+.hero-headline{font-family:var(--display);font-size:clamp(1.7rem,3.8vw,2.5rem);font-weight:700;letter-spacing:-.03em;line-height:1.05;margin:0;color:var(--fg)}
+.hero-headline .accent{background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero-headline .mcp-grad{background:var(--mcp-grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero-headline .muted{color:var(--muted);font-weight:500}
+.hero-sub{color:var(--fg-2);font-size:.92rem;line-height:1.55;margin:0;max-width:54ch}
+.hero-sub b{color:var(--fg);font-weight:600}
+.hero-sub .ok{color:var(--ok);font-weight:600}.hero-sub .warn{color:var(--warn);font-weight:600}.hero-sub .bad{color:var(--bad);font-weight:600}.hero-sub .mcp{color:var(--mcp);font-weight:600}.hero-sub .anom{color:var(--anom);font-weight:600}
+.hero-score-row{display:flex;align-items:baseline;gap:.6rem;margin-top:.2rem}
+.hero-score-big{font-family:var(--display);font-size:4rem;font-weight:700;letter-spacing:-.04em;line-height:.9;color:var(--fg);font-variant-numeric:tabular-nums}
+.hero-score-big .of{color:var(--dim);font-size:1.5rem;font-weight:500}
+.hero-score-tier{display:inline-flex;align-items:center;gap:.35rem;font-size:.74rem;font-weight:600;color:var(--ok);background:var(--ok-soft);padding:.3rem .65rem;border-radius:999px;border:1px solid color-mix(in oklab,var(--ok) 25%,transparent)}
+.hero-score-tier::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--ok)}
+.hero-vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:auto;padding-top:1rem;border-top:1px solid var(--border)}
+@media(max-width:580px){.hero-vitals{grid-template-columns:repeat(2,1fr)}}
+.vital{display:flex;flex-direction:column;gap:.2rem;padding:.5rem 0;border-right:1px solid var(--border)}
+.vital:last-child{border-right:0}
+.vital:not(:first-child){padding-left:.8rem}
+.vital .v{font-family:var(--display);font-size:1.25rem;font-weight:640;letter-spacing:-.02em;color:var(--fg);font-variant-numeric:tabular-nums;line-height:1}
+.vital .v .u{font-size:.78rem;font-weight:500;color:var(--muted);margin-left:.1rem}
+.vital .l{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.vital .sub{font-size:.68rem;color:var(--dim);margin-top:.1rem}
+.vital .sub.mcp{color:var(--mcp)}
+.vital .sub.anom{color:var(--anom)}
+
+.pulse-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:0;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.pulse-cell{display:flex;flex-direction:column;gap:.3rem;padding:.85rem 1.1rem;border-right:1px solid var(--border);position:relative}
+.pulse-cell:last-child{border-right:0}
+.pulse-cell::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);opacity:0;transition:opacity .2s}
+.pulse-cell:hover::before{opacity:1}
+.pulse-cell.mcp::before{background:var(--mcp)}
+.pulse-cell.anom::before{background:var(--anom)}
+.pulse-cell .pl{font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.pulse-cell .pv{display:flex;align-items:baseline;gap:.3rem}
+.pulse-cell .pv b{font-family:var(--display);font-size:1.2rem;font-weight:640;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pulse-cell .pv span{font-size:.7rem;color:var(--muted)}
+.pulse-cell .pv .mcp{color:var(--mcp)}
+.pulse-cell .pv .anom{color:var(--anom)}
+.pulse-mini{height:4px;border-radius:999px;background:color-mix(in oklab,var(--fg) 8%,transparent);overflow:hidden;margin-top:.2rem}
+.pulse-mini i{display:block;height:100%;border-radius:999px;background:var(--accent-grad)}
+.pulse-mini.mcp i{background:var(--mcp-grad)}
+.pulse-mini.anom i{background:linear-gradient(90deg,var(--anom),var(--bad))}
+.pulse-mini.over i{background:linear-gradient(90deg,var(--warn),var(--bad))}
+
+.badge{font-size:.66rem;font-weight:600;padding:.18rem .5rem;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge.muted{background:color-mix(in oklab,var(--muted) 14%,transparent);color:var(--muted)}
+.badge.accent{background:var(--accent-soft);color:var(--accent)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.bad{background:var(--bad-soft);color:var(--bad)}
+.badge.mcp{background:var(--mcp-soft);color:var(--mcp)}
+.badge.anom{background:var(--anom-soft);color:var(--anom)}
+.badge.live{display:inline-flex;align-items:center;gap:.3rem}
+.badge.live::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+
+.anom-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.1rem;margin-bottom:1.1rem}
+.anom-card{background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-left:3px solid var(--anom);border-radius:var(--r);box-shadow:var(--shadow);padding:1.1rem 1.2rem;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s}
+.anom-card:hover{transform:translateY(-1px);box-shadow:var(--shadow-lift)}
+.anom-card.bad{border-left-color:var(--bad)}
+.anom-card.warn{border-left-color:var(--warn)}
+.anom-card.ok{border-left-color:var(--ok)}
+.anom-head{display:flex;align-items:center;gap:.55rem;margin-bottom:.6rem}
+.anom-icon{width:30px;height:30px;border-radius:8px;background:var(--anom-soft);display:grid;place-items:center;flex:none;color:var(--anom);border:1px solid color-mix(in oklab,var(--anom) 25%,transparent)}
+.anom-card.bad .anom-icon{background:var(--bad-soft);color:var(--bad);border-color:color-mix(in oklab,var(--bad) 25%,transparent)}
+.anom-card.warn .anom-icon{background:var(--warn-soft);color:var(--warn);border-color:color-mix(in oklab,var(--warn) 25%,transparent)}
+.anom-card.ok .anom-icon{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in oklab,var(--ok) 25%,transparent)}
+.anom-icon svg{width:15px;height:15px}
+.anom-head h4{font-family:var(--display);font-size:.82rem;font-weight:660;margin:0;color:var(--fg);letter-spacing:-.01em}
+.anom-head .sev{margin-left:auto;font-family:var(--mono);font-size:.58rem;font-weight:700;padding:.16rem .4rem;border-radius:var(--rxs);background:var(--anom-soft);color:var(--anom);text-transform:uppercase;letter-spacing:.05em}
+.anom-card.bad .sev{background:var(--bad-soft);color:var(--bad)}
+.anom-card.warn .sev{background:var(--warn-soft);color:var(--warn)}
+.anom-card.ok .sev{background:var(--ok-soft);color:var(--ok)}
+.anom-body{font-size:.8rem;color:var(--fg-2);line-height:1.55;margin:0 0 .7rem}
+.anom-body b{color:var(--fg);font-weight:600}
+.anom-body code{font-family:var(--mono);font-size:.74rem;background:var(--surface-3);border:1px solid var(--border-2);padding:.05rem .3rem;border-radius:4px;color:var(--fg-2)}
+.anom-evidence{display:flex;align-items:center;gap:.7rem;padding-top:.6rem;border-top:1px solid var(--border)}
+.anom-spark{flex:1;height:28px}
+.anom-spark svg{display:block;width:100%;height:28px}
+.anom-spark rect{fill:var(--anom);opacity:.7}
+.anom-card.bad .anom-spark rect{fill:var(--bad)}
+.anom-card.warn .anom-spark rect{fill:var(--warn)}
+.anom-card.ok .anom-spark rect{fill:var(--ok)}
+.anom-meta{font-family:var(--mono);font-size:.66rem;color:var(--muted);text-align:right;line-height:1.4;flex:none}
+.anom-meta b{color:var(--fg-2);font-weight:600;display:block;font-size:.74rem}
+
+.sankey-wrap{position:relative;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+.sankey-wrap::-webkit-scrollbar{height:7px}
+.sankey-wrap::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px}
+.sankey{display:block;min-width:760px;width:100%;height:380px}
+.sankey .node rect{fill:var(--surface-3);stroke:var(--border-2);stroke-width:1;rx:3}
+.sankey .node.canon rect{fill:var(--accent);opacity:.85;stroke:var(--accent)}
+.sankey .node.tool rect{fill:var(--mcp);opacity:.85;stroke:var(--mcp)}
+.sankey .node.cli rect{fill:var(--accent-2);opacity:.85;stroke:var(--accent-2)}
+.sankey .node.model rect{fill:var(--surface-4);stroke:var(--border-3)}
+.sankey .node text{font-family:var(--mono);font-size:10px;fill:var(--fg-2);font-weight:600}
+.sankey .node text.sub{font-size:9px;fill:var(--muted);font-weight:400}
+.sankey .flow{fill:none;stroke:var(--accent);opacity:.32;transition:opacity .15s}
+.sankey .flow.mcp{stroke:var(--mcp)}
+.sankey .flow.cli{stroke:var(--accent-2)}
+.sankey .flow:hover{opacity:.7}
+.sankey-legend{display:flex;flex-wrap:wrap;gap:.6rem 1rem;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border);font-size:.74rem;color:var(--muted)}
+.sankey-legend .lg{display:inline-flex;align-items:center;gap:.35rem}
+.sankey-legend .lg .sw{width:10px;height:10px;border-radius:2px}
+.sankey-legend .lg b{color:var(--fg-2);font-family:var(--mono);font-weight:600}
+
+.forecast-top{display:flex;align-items:baseline;gap:.7rem;margin-bottom:1rem;flex-wrap:wrap}
+.forecast-big{font-family:var(--display);font-size:2.2rem;font-weight:680;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1}
+.forecast-big .u{color:var(--muted);font-size:1.1rem;font-weight:500}
+.forecast-delta{font-family:var(--mono);font-size:.74rem;color:var(--bad);background:var(--bad-soft);padding:.18rem .45rem;border-radius:var(--rxs);font-variant-numeric:tabular-nums}
+.forecast-window{color:var(--muted);font-size:.76rem;margin-left:auto}
+.forecast-chart{position:relative;margin:1rem 0 .5rem}
+.forecast-chart svg{display:block;width:100%;height:200px}
+.forecast-legend{display:flex;flex-wrap:wrap;gap:.6rem 1rem;margin-top:.6rem;font-size:.72rem;color:var(--muted)}
+.forecast-legend .lg{display:inline-flex;align-items:center;gap:.35rem}
+.forecast-legend .lg .sw{width:14px;height:3px;border-radius:999px}
+.forecast-legend .lg .sw.solid{background:var(--accent)}
+.forecast-legend .lg .sw.band{background:color-mix(in oklab,var(--accent) 25%,transparent)}
+.forecast-legend .lg .sw.proj{background:repeating-linear-gradient(90deg,var(--accent-2) 0 4px,transparent 4px 8px)}
+.forecast-legend .lg .sw.threshold{background:var(--bad)}
+.forecast-prediction{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
+.fc-stat{display:flex;flex-direction:column;gap:.1rem}
+.fc-stat .v{font-family:var(--display);font-size:1.4rem;font-weight:660;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+.fc-stat .v.bad{color:var(--bad)}
+.fc-stat .v.warn{color:var(--warn)}
+.fc-stat .v.ok{color:var(--ok)}
+.fc-stat .l{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.fc-stat .d{font-size:.72rem;color:var(--dim);margin-top:.1rem}
+
+.replay-filmstrip{position:relative;padding:.5rem 0}
+.replay-track{position:relative;height:64px;background:var(--surface-3);border-radius:var(--rs);border:1px solid var(--border);overflow:hidden}
+.replay-track::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--border-2)}
+.replay-segment{position:absolute;top:6px;bottom:6px;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono);font-size:.58rem;font-weight:600;overflow:hidden;cursor:pointer;transition:transform .12s,filter .12s}
+.replay-segment:hover{transform:scaleY(1.08);filter:brightness(1.15);z-index:2}
+.replay-segment.search{background:var(--accent)}
+.replay-segment.impact{background:var(--accent-2)}
+.replay-segment.guardrails{background:var(--mcp)}
+.replay-segment.skill{background:#a855f7}
+.replay-segment.drift{background:var(--warn);color:var(--bg)}
+.replay-segment.think{background:var(--surface-4);color:var(--muted);border:1px dashed var(--border-3)}
+.replay-axis{display:flex;justify-content:space-between;margin-top:.5rem;font-family:var(--mono);font-size:.6rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.replay-legend{display:flex;flex-wrap:wrap;gap:.5rem .8rem;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--muted)}
+.replay-legend .lg{display:inline-flex;align-items:center;gap:.32rem}
+.replay-legend .lg .sw{width:10px;height:10px;border-radius:2px}
+.replay-legend .lg b{color:var(--fg-2);font-family:var(--mono);font-weight:600}
+.replay-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-top:1rem}
+@media(max-width:580px){.replay-summary{grid-template-columns:repeat(2,1fr)}}
+.rs-stat{display:flex;flex-direction:column;gap:.1rem}
+.rs-stat .v{font-family:var(--display);font-size:1.15rem;font-weight:640;color:var(--fg);font-variant-numeric:tabular-nums;line-height:1}
+.rs-stat .v.mcp{color:var(--mcp)}
+.rs-stat .l{font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+
+.palette-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;padding-top:12vh}
+.palette-overlay.open{display:flex;animation:fadeIn .12s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.palette{width:min(580px,92vw);background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:0 30px 80px -20px rgba(0,0,0,.8);overflow:hidden}
+.palette-input{display:flex;align-items:center;gap:.6rem;padding:.9rem 1.1rem;border-bottom:1px solid var(--border)}
+.palette-input svg{width:16px;height:16px;color:var(--muted);flex:none}
+.palette-input input{flex:1;background:transparent;border:none;outline:none;color:var(--fg);font-family:var(--sans);font-size:.92rem}
+.palette-input input::placeholder{color:var(--dim)}
+.palette-input .esc{font-family:var(--mono);font-size:.6rem;color:var(--muted);background:var(--surface-3);border:1px solid var(--border-2);border-radius:3px;padding:.08rem .3rem}
+.palette-list{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+.palette-list::-webkit-scrollbar{width:7px}
+.palette-list::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px}
+.palette-item{display:flex;align-items:center;gap:.7rem;padding:.55rem 1.1rem;cursor:pointer;border-left:2px solid transparent}
+.palette-item:hover,.palette-item.active{background:var(--surface-2);border-left-color:var(--accent)}
+.palette-item .pn{font-family:var(--mono);font-size:.6rem;color:var(--accent);font-weight:600;flex:none;width:24px}
+.palette-item .pt{font-size:.82rem;color:var(--fg);font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.palette-item .pc{font-family:var(--mono);font-size:.66rem;color:var(--muted);flex:none}
+.palette-empty{padding:1.5rem;text-align:center;color:var(--dim);font-size:.8rem}
+.palette-foot{padding:.5rem 1.1rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:.6rem;color:var(--dim)}
+.palette-foot kbd{font-family:var(--mono);font-size:.58rem;background:var(--surface-3);border:1px solid var(--border-2);border-radius:3px;padding:.05rem .28rem;color:var(--fg-2)}
+
+.grlog-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.grlog-table th{position:sticky;top:0;background:var(--surface);text-align:left;color:var(--muted);font-size:.64rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:.55rem .8rem;border-bottom:1px solid var(--border)}
+.grlog-table td{padding:.5rem .8rem;border-bottom:1px solid color-mix(in oklab,var(--border) 50%,transparent);vertical-align:top}
+.grlog-table tbody tr:hover td{background:color-mix(in oklab,var(--fg) 3%,transparent)}
+.grlog-table td.t{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
+.grlog-table td.tool{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+.grlog-table td.rule{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+.grlog-table td.reason{color:var(--muted);font-size:.76rem;max-width:280px}
+.grlog-table td.act{text-align:right;white-space:nowrap}
+.act-tag{font-family:var(--mono);font-size:.6rem;font-weight:600;padding:.14rem .4rem;border-radius:var(--rxs);text-transform:uppercase;letter-spacing:.04em}
+.act-tag.block{background:var(--bad-soft);color:var(--bad)}
+.act-tag.warn{background:var(--warn-soft);color:var(--warn)}
+.act-tag.bypass{background:color-mix(in oklab,var(--accent-2) 16%,transparent);color:var(--accent-2)}
+.act-tag.allow{background:var(--ok-soft);color:var(--ok)}
+.grlog-wrap{max-height:340px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--border-2) transparent;margin:0 -1.2rem}
+.grlog-wrap::-webkit-scrollbar{width:7px}
+.grlog-wrap::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px}
+.grlog-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1rem}
+@media(max-width:580px){.grlog-summary{grid-template-columns:repeat(2,1fr)}}
+.grs-stat{display:flex;flex-direction:column;gap:.1rem;padding:.7rem .9rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rs)}
+.grs-stat .v{font-family:var(--display);font-size:1.3rem;font-weight:660;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+.grs-stat .v.bad{color:var(--bad)}
+.grs-stat .v.warn{color:var(--warn)}
+.grs-stat .v.bypass{color:var(--accent-2)}
+.grs-stat .v.allow{color:var(--ok)}
+.grs-stat .l{font-size:.62rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-top:.15rem}
+
+
+.mcp-hero{display:grid;grid-template-columns:1fr 320px;gap:0}
+@media(max-width:780px){.mcp-hero{grid-template-columns:1fr}}
+.mcp-left{padding:1.3rem 1.4rem;border-right:1px solid var(--border)}
+@media(max-width:780px){.mcp-left{border-right:0;border-bottom:1px solid var(--border)}}
+.mcp-right{padding:1.3rem 1.4rem;background:color-mix(in oklab,var(--mcp) 4%,transparent)}
+.mcp-id{display:flex;align-items:center;gap:.7rem;margin-bottom:.9rem}
+.mcp-icon{width:38px;height:38px;border-radius:10px;background:var(--mcp-grad);display:grid;place-items:center;box-shadow:0 6px 16px -4px rgba(52,211,153,.4);flex:none}
+.mcp-icon svg{width:18px;height:18px;color:#fff}
+.mcp-id-text{display:flex;flex-direction:column;gap:.05rem}
+.mcp-id-text b{font-family:var(--display);font-size:1.05rem;font-weight:680;color:var(--fg);letter-spacing:-.01em}
+.mcp-id-text span{font-family:var(--mono);font-size:.7rem;color:var(--muted)}
+.mcp-id-text span .v{color:var(--mcp);font-weight:600}
+.mcp-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem}
+.mcp-stat{display:flex;flex-direction:column;gap:.1rem}
+.mcp-stat .v{font-family:var(--display);font-size:1.5rem;font-weight:660;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+.mcp-stat .v.mcp{color:var(--mcp)}
+.mcp-stat .l{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.mcp-stat .d{font-size:.7rem;color:var(--dim);margin-top:.1rem}
+.mcp-stat .d .ok{color:var(--ok)}
+.mcp-tools{margin-top:.4rem}
+.mcp-tools-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.5rem}
+.mcp-tools-head span{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.mcp-tools-head b{font-family:var(--mono);font-size:.7rem;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.mcp-tool-row{display:grid;grid-template-columns:1fr 60px 70px;align-items:center;gap:.6rem;padding:.32rem 0;border-bottom:1px solid color-mix(in oklab,var(--border) 50%,transparent)}
+.mcp-tool-row:last-child{border-bottom:0}
+.mcp-tool-row .n{font-family:var(--mono);font-size:.74rem;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcp-tool-row .c{font-family:var(--mono);font-size:.72rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.mcp-tool-row .spark{height:14px;width:70px}
+.mcp-tool-row .spark rect{fill:var(--mcp);opacity:.7}
+.mcp-right h4{font-family:var(--display);font-size:.72rem;font-weight:640;text-transform:uppercase;letter-spacing:.07em;margin:0 0 .7rem;color:var(--fg-2)}
+.consumers{display:grid;gap:.5rem;margin-bottom:1rem}
+.consumer{display:flex;align-items:center;gap:.55rem;padding:.45rem .6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs)}
+.consumer .cdot{width:8px;height:8px;border-radius:999px;background:var(--mcp);flex:none;box-shadow:0 0 0 3px var(--mcp-soft)}
+.consumer .cname{font-family:var(--mono);font-size:.74rem;font-weight:600;color:var(--fg-2);flex:1}
+.consumer .ccalls{font-family:var(--mono);font-size:.68rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.mcp-uptime{margin-top:.6rem}
+.mcp-uptime-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.4rem}
+.mcp-uptime-head span{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.mcp-uptime-head b{font-family:var(--mono);font-size:.72rem;color:var(--mcp);font-variant-numeric:tabular-nums}
+.mcp-uptime-bar{height:24px;border-radius:var(--rxs);overflow:hidden;display:flex;gap:1px;background:var(--border)}
+.mcp-uptime-bar i{display:block;flex:1;background:var(--mcp);opacity:.85}
+.mcp-uptime-bar i.bad{background:var(--bad)}
+.mcp-uptime-meta{display:flex;justify-content:space-between;margin-top:.35rem;font-size:.66rem;color:var(--dim);font-variant-numeric:tabular-nums}
+
+.heatmap-wrap{display:flex;gap:1rem;align-items:flex-start}
+@media(max-width:680px){.heatmap-wrap{flex-direction:column}}
+.heatmap{flex:none}
+.heatmap-grid{display:grid;grid-template-columns:repeat(15,12px);grid-template-rows:repeat(7,12px);grid-auto-flow:column;gap:3px}
+.heatmap-grid .cell{width:12px;height:12px;border-radius:2px;background:color-mix(in oklab,var(--fg) 6%,transparent);transition:transform .12s}
+.heatmap-grid .cell:hover{transform:scale(1.4);outline:1px solid var(--border-3)}
+.heatmap-grid .cell.l1{background:color-mix(in oklab,var(--mcp) 25%,transparent)}
+.heatmap-grid .cell.l2{background:color-mix(in oklab,var(--mcp) 50%,transparent)}
+.heatmap-grid .cell.l3{background:color-mix(in oklab,var(--mcp) 75%,transparent)}
+.heatmap-grid .cell.l4{background:var(--mcp)}
+.heatmap-legend{display:flex;align-items:center;gap:.4rem;margin-top:.7rem;font-size:.66rem;color:var(--muted)}
+.heatmap-legend .cells{display:flex;gap:3px}
+.heatmap-legend .cells .cell{width:10px;height:10px;border-radius:2px}
+.heatmap-side{flex:1;display:flex;flex-direction:column;gap:.6rem;padding-top:.2rem}
+.heatmap-stat{display:flex;align-items:baseline;gap:.5rem}
+.heatmap-stat b{font-family:var(--display);font-size:1.5rem;font-weight:660;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.heatmap-stat span{color:var(--muted);font-size:.76rem}
+.heatmap-streak{display:flex;align-items:center;gap:.4rem;color:var(--mcp);font-size:.76rem;font-weight:600}
+.heatmap-streak::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--mcp)}
+
+.cost-top{display:flex;align-items:baseline;gap:.7rem;margin-bottom:1rem;flex-wrap:wrap}
+.cost-big{font-family:var(--display);font-size:2.2rem;font-weight:680;color:var(--fg);font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1}
+.cost-big .c{color:var(--muted);font-size:1.1rem;font-weight:500}
+.cost-delta{font-family:var(--mono);font-size:.74rem;color:var(--ok);background:var(--ok-soft);padding:.18rem .45rem;border-radius:var(--rxs);font-variant-numeric:tabular-nums}
+.cost-window{color:var(--muted);font-size:.76rem;margin-left:auto}
+.cost-stack{margin-bottom:1rem}
+.cost-stack-head{display:flex;justify-content:space-between;margin-bottom:.4rem;font-size:.72rem;color:var(--muted)}
+.cost-stack-head b{color:var(--fg-2);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.cost-stack-bar{display:flex;height:28px;border-radius:var(--rxs);overflow:hidden;gap:2px}
+.cost-seg{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.66rem;font-weight:600;color:var(--bg);white-space:nowrap;overflow:hidden;min-width:0}
+.cost-legend{display:flex;flex-wrap:wrap;gap:.6rem .9rem;margin-top:.7rem}
+.cost-leg{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--muted)}
+.cost-leg .dot{width:9px;height:9px;border-radius:2px}
+.cost-leg b{color:var(--fg-2);font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+
+.skill-row{display:grid;grid-template-columns:1fr 70px 80px 70px;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid color-mix(in oklab,var(--border) 50%,transparent)}
+.skill-row:last-child{border-bottom:0}
+.skill-row .sn{display:flex;align-items:center;gap:.5rem;overflow:hidden}
+.skill-row .sn .icon{width:22px;height:22px;border-radius:6px;background:var(--accent-soft);display:grid;place-items:center;flex:none;color:var(--accent);font-family:var(--mono);font-size:.62rem;font-weight:700}
+.skill-row .sn .nm{font-size:.78rem;color:var(--fg-2);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-row .sn .nm .cat{color:var(--dim);font-size:.68rem;margin-left:.35rem;font-weight:400}
+.skill-row .iv{font-family:var(--mono);font-size:.76rem;color:var(--fg-2);text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.skill-row .roi{font-family:var(--mono);font-size:.7rem;color:var(--ok);text-align:right;font-variant-numeric:tabular-nums}
+.skill-row .roi.warn{color:var(--warn)}
+.skill-row .bar{height:5px;border-radius:999px;background:color-mix(in oklab,var(--fg) 6%,transparent);overflow:hidden}
+.skill-row .bar i{display:block;height:100%;border-radius:999px;background:var(--accent-grad)}
+
+.mat{display:grid;gap:.7rem}
+.mat-row{display:grid;grid-template-columns:1fr 70px;gap:.8rem;align-items:center}
+.mat-bar-wrap{display:flex;align-items:center;gap:.6rem}
+.mat-label{font-size:.78rem;color:var(--fg-2);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mat-track{flex:1;height:7px;border-radius:999px;background:color-mix(in oklab,var(--fg) 6%,transparent);overflow:hidden}
+.mat-fill{height:100%;border-radius:999px;background:var(--ok)}
+.mat-fill.warn{background:var(--warn)}
+.mat-fill.bad{background:var(--bad)}
+.mat-val{font-family:var(--mono);font-size:.74rem;font-weight:600;color:var(--fg-2);text-align:right;font-variant-numeric:tabular-nums}
+.mat-val small{color:var(--dim);font-weight:400;font-size:.68rem}
+
+.donut-row{display:flex;align-items:center;gap:1.3rem;margin-bottom:1.1rem}
+.donut{position:relative;width:120px;height:120px;flex:none}
+.donut svg{width:120px;height:120px;transform:rotate(-90deg)}
+.donut .ring-bg{stroke:color-mix(in oklab,var(--fg) 8%,transparent)}
+.donut .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.donut .center b{font-family:var(--display);font-size:1.6rem;font-weight:680;color:var(--fg);line-height:1;font-variant-numeric:tabular-nums}
+.donut .center span{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:.18rem}
+.donut-meta{flex:1;display:flex;flex-direction:column;gap:.4rem}
+.donut-meta .row{display:flex;justify-content:space-between;align-items:baseline}
+.donut-meta .row .k{color:var(--muted);font-size:.78rem}
+.donut-meta .row .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.84rem;font-weight:600;color:var(--fg-2)}
+.donut-meta .headroom{color:var(--ok);font-size:.78rem;margin-top:.2rem;display:flex;align-items:center;gap:.3rem}
+.donut-meta .headroom::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--ok)}
+.donut-meta .headroom.bad{color:var(--bad)}
+.donut-meta .headroom.bad::before{background:var(--bad)}
+
+.bars{list-style:none;margin:.4rem 0 0;padding:0;display:grid;gap:.38rem}
+.bars.scroll{max-height:300px;overflow-y:auto;padding-right:.5rem;scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+.bars.scroll::-webkit-scrollbar{width:7px}
+.bars.scroll::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:999px}
+.bars li{display:grid;grid-template-columns:minmax(0,1fr) 90px 50px;align-items:center;gap:.6rem}
+.bar-label{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-track{display:block;height:6px;border-radius:999px;background:color-mix(in oklab,var(--fg) 6%,transparent);overflow:hidden}
+.bar-fill{display:block;height:100%;border-radius:999px;background:var(--accent-grad)}
+.bar-val{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.bar-val i{font-style:normal;color:var(--dim);margin-left:.3rem}
+
+.matrix{display:grid;grid-template-columns:120px repeat(5,1fr);gap:3px;font-size:.72rem}
+.mh{padding:.5rem .3rem;text-align:center;font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.mh.row-head{text-align:left;padding-left:.6rem;color:var(--fg-2)}
+.mc{display:flex;align-items:center;justify-content:center;padding:.55rem .3rem;border-radius:var(--rxs);background:var(--surface-2);border:1px solid var(--border);position:relative;min-height:38px}
+.mc.ok{background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 25%,transparent)}
+.mc.warn{background:var(--warn-soft);border-color:color-mix(in oklab,var(--warn) 25%,transparent)}
+.mc.bad{background:var(--bad-soft);border-color:color-mix(in oklab,var(--bad) 25%,transparent)}
+.mc svg{width:14px;height:14px}
+.mc.ok svg{color:var(--ok)}
+.mc.warn svg{color:var(--warn)}
+.mc.bad svg{color:var(--bad)}.mc.global{background:var(--accent-soft);border-color:color-mix(in oklab,var(--accent) 25%,transparent)}.mc.global svg{color:var(--accent)}
+.mc.row-head{justify-content:flex-start;background:transparent;border:none;padding:.5rem .6rem}
+.mc.row-head .nm{font-size:.74rem;color:var(--fg-2);font-weight:500}
+.coherence-score{display:flex;align-items:center;gap:.5rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)}
+.coherence-score b{font-family:var(--display);font-size:1.6rem;font-weight:680;color:var(--ok);font-variant-numeric:tabular-nums}
+.coherence-score span{color:var(--muted);font-size:.76rem;line-height:1.4}
+
+.drift-status{display:flex;align-items:center;gap:.55rem;padding:.6rem .8rem;background:var(--ok-soft);border:1px solid color-mix(in oklab,var(--ok) 22%,transparent);border-radius:var(--rs);margin-bottom:1rem}
+.drift-status .dicon{width:24px;height:24px;border-radius:6px;background:var(--ok);display:grid;place-items:center;flex:none}
+.drift-status .dicon svg{width:13px;height:13px;color:var(--bg)}
+.drift-status .dtext{flex:1}
+.drift-status .dtext b{color:var(--ok);font-size:.8rem;font-weight:600;display:block}
+.drift-status .dtext span{color:var(--muted);font-size:.72rem}
+.drift-status .dtime{font-family:var(--mono);font-size:.68rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.drift-files{display:grid;gap:.4rem}
+.drift-file{display:grid;grid-template-columns:14px 1fr auto auto;align-items:center;gap:.55rem;padding:.42rem .55rem;border-radius:var(--rxs);background:var(--surface-2);border:1px solid var(--border)}
+.drift-file .fd{width:8px;height:8px;border-radius:999px;background:var(--ok)}
+.drift-file .fn{font-family:var(--mono);font-size:.72rem;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drift-file .fs{font-family:var(--mono);font-size:.66rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.drift-file .ft{font-family:var(--mono);font-size:.62rem;color:var(--muted);padding:.12rem .35rem;border-radius:var(--rxs);background:var(--surface-3)}
+.drift-file .ft.ok{color:var(--ok);background:var(--ok-soft)}
+
+.hook-row{display:grid;grid-template-columns:1fr 80px 70px 60px;align-items:center;gap:.6rem;padding:.55rem 0;border-bottom:1px solid color-mix(in oklab,var(--border) 50%,transparent)}
+.hook-row:last-child{border-bottom:0}
+.hook-row .hn{display:flex;align-items:center;gap:.5rem;overflow:hidden}
+.hook-row .hn .icon{width:24px;height:24px;border-radius:6px;background:var(--surface-3);display:grid;place-items:center;flex:none;color:var(--muted)}
+.hook-row .hn .icon svg{width:12px;height:12px}
+.hook-row .hn .nm{font-family:var(--mono);font-size:.74rem;color:var(--fg-2);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hook-row .hn .nm .when{color:var(--dim);font-size:.66rem;margin-left:.3rem;font-weight:400}
+.hook-row .fires{font-family:var(--mono);font-size:.74rem;color:var(--fg-2);text-align:right;font-variant-numeric:tabular-nums}
+.hook-row .succ{font-family:var(--mono);font-size:.72rem;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.hook-row .succ.ok{color:var(--ok)}
+.hook-row .succ.warn{color:var(--warn)}
+.hook-row .spark{height:18px;width:60px}
+.hook-row .spark rect{fill:var(--ok);opacity:.6}
+.hook-row .spark rect.fail{fill:var(--bad);opacity:.9}
+
+.chips{display:flex;flex-wrap:wrap;gap:.38rem}
+.chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;padding:.26rem .52rem;border-radius:999px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--fg-2)}
+.chip i{font-style:normal;font-size:.76rem;line-height:1}
+.chip.ok{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 28%,transparent);background:var(--ok-soft)}
+.chip.ok i{color:var(--ok)}
+.chip.bad{color:var(--bad);border-color:color-mix(in oklab,var(--bad) 24%,transparent);background:var(--bad-soft)}
+.chip.bad i{color:var(--bad)}
+.pills{display:flex;flex-wrap:wrap;gap:.38rem}
+.tool{font-family:var(--mono);font-size:.75rem;font-weight:550;padding:.3rem .62rem;border-radius:999px}
+.tool.on{background:var(--accent-soft);color:var(--accent);border:1px solid color-mix(in oklab,var(--accent) 30%,transparent)}
+.tool.on.mcp{background:var(--mcp-soft);color:var(--mcp);border-color:color-mix(in oklab,var(--mcp) 30%,transparent)}
+.tool.off{color:var(--dim);border:1px solid var(--border-2);text-decoration:line-through;text-decoration-color:color-mix(in oklab,var(--dim) 50%,transparent);opacity:.7;cursor:help}
+.tool.off:hover{opacity:1;color:var(--muted);border-color:var(--border-3)}
+
+.branches{list-style:none;margin:0;padding:0;display:grid;gap:.1rem}
+.branches li{display:flex;align-items:center;gap:.55rem;padding:.48rem .5rem;border-radius:var(--rs);transition:background .12s}
+.branches li:hover{background:color-mix(in oklab,var(--fg) 4%,transparent)}
+.branches .dot{width:7px;height:7px;border-radius:999px;background:var(--dim);flex:none}
+.branches li.cur .dot{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.bname{font-family:var(--mono);font-size:.77rem;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bname .tag{color:var(--dim);font-weight:400;font-size:.7rem;margin-left:.3rem}
+.age{color:var(--dim);font-size:.71rem;white-space:nowrap;font-variant-numeric:tabular-nums}
+.diff{font-family:var(--mono);font-size:.66rem;font-weight:600;padding:.08rem .38rem;border-radius:999px;font-variant-numeric:tabular-nums}
+.diff.up{background:var(--ok-soft);color:var(--ok)}
+.diff.down{background:var(--bad-soft);color:var(--bad)}
+.hint{margin-top:.6rem;color:var(--warn);font-size:.74rem;display:flex;align-items:center;gap:.35rem}
+.hint::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--warn)}
+
+.callout{display:flex;gap:.55rem;align-items:flex-start;padding:.6rem .8rem;border-radius:var(--rs);background:var(--warn-soft);border:1px solid color-mix(in oklab,var(--warn) 25%,transparent);color:var(--warn);font-size:.76rem;line-height:1.5}
+.callout svg{width:15px;height:15px;flex:none;margin-top:.08rem}
+.callout code{font-family:var(--mono);font-size:.72rem;background:rgba(0,0,0,.2);padding:.05rem .3rem;border-radius:4px;color:var(--warn)}
+.callout.ok{background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 25%,transparent);color:var(--ok)}
+.callout.mcp{background:var(--mcp-soft);border-color:color-mix(in oklab,var(--mcp) 25%,transparent);color:var(--mcp)}
+.callout.anom{background:var(--anom-soft);border-color:color-mix(in oklab,var(--anom) 25%,transparent);color:var(--anom)}
+
+.timeline{position:relative;padding:1.2rem 0 .5rem}
+.tl-axis{position:relative;height:2px;background:var(--border-2);border-radius:999px;margin:0 1.2rem}
+.tl-axis::before,.tl-axis::after{content:"";position:absolute;top:50%;width:6px;height:6px;border-radius:999px;background:var(--border-3);transform:translateY(-50%)}
+.tl-axis::before{left:-3px}.tl-axis::after{right:-3px}
+.tl-events{display:flex;justify-content:space-between;position:relative;margin:0 1.2rem}
+.tl-event{display:flex;flex-direction:column;align-items:center;gap:.35rem;position:relative;min-width:80px}
+.tl-event .dot{width:10px;height:10px;border-radius:999px;background:var(--accent);border:2px solid var(--surface);box-shadow:0 0 0 1px var(--accent);margin-top:-6px}
+.tl-event.skill .dot{background:var(--accent-2);box-shadow:0 0 0 1px var(--accent-2)}
+.tl-event.mcp .dot{background:var(--mcp);box-shadow:0 0 0 1px var(--mcp)}
+.tl-event.other .dot{background:var(--muted);box-shadow:0 0 0 1px var(--muted)}
+.tl-event .tag{font-family:var(--mono);font-size:.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:.1rem .35rem;border-radius:var(--rxs);background:var(--surface-3)}
+.tl-event.commit .tag{color:var(--accent);background:var(--accent-soft)}
+.tl-event.skill .tag{color:var(--accent-2);background:color-mix(in oklab,var(--accent-2) 14%,transparent)}
+.tl-event.mcp .tag{color:var(--mcp);background:var(--mcp-soft)}
+.tl-event .time{font-family:var(--mono);font-size:.62rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.tl-event .det{font-size:.68rem;color:var(--muted);text-align:center;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-event.up{flex-direction:column-reverse}
+.tl-event.up .dot{margin-top:0;margin-bottom:-6px}
+.tl-more{text-align:center;color:var(--dim);font-size:.72rem;margin-top:.8rem;font-variant-numeric:tabular-nums}
+
+.demo-banner{display:none;align-items:center;gap:.5rem;background:var(--warn-soft);border:1px solid color-mix(in oklab,var(--warn) 30%,transparent);color:var(--warn);border-radius:var(--rs);padding:.55rem .9rem;margin-bottom:1.1rem;font-size:.76rem;font-weight:600}
+footer{color:var(--dim);font-size:.74rem;text-align:center;margin-top:2.8rem;padding-top:1.5rem;border-top:1px solid var(--border)}
+footer code{font-family:var(--mono);color:var(--muted)}
+#aih-demo{display:none}
+body[data-demo="on"] #aih-live{display:none}
+body[data-demo="on"] #aih-demo{display:block}
+body[data-demo="on"] .demo-banner{display:flex}
+
+
+.preview{position:relative;opacity:.66;filter:saturate(.55)}
+.preview::after{content:"PREVIEW · not wired yet";position:absolute;top:.65rem;right:.8rem;font-family:var(--mono);font-size:.56rem;font-weight:700;letter-spacing:.04em;color:var(--anom);background:var(--anom-soft);border:1px solid color-mix(in oklab,var(--anom) 32%,transparent);padding:.16rem .45rem;border-radius:999px;z-index:3}
+.deltarow{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 .1rem}
+.worst{display:flex;align-items:center;gap:.5rem;margin-top:.2rem;font-size:.82rem;color:var(--fg-2)}
+.worst b{color:var(--warn)}
+.egress{display:inline-flex;align-items:center;gap:.3rem;font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+.egress .d{width:7px;height:7px;border-radius:2px;background:var(--ok)}
+.egress.third .d{background:var(--bad)}.egress.vendor .d{background:var(--warn)}.egress.unknown .d{background:var(--muted)}
+.srv-row{display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center;padding:.32rem 0;border-bottom:1px solid color-mix(in oklab,var(--border) 50%,transparent)}
+.srv-row:last-child{border-bottom:0}.srv-row .n{font-family:var(--mono);font-size:.74rem;color:var(--fg-2)}
+.method{font-size:.74rem;color:var(--muted);line-height:1.6}
+.method b{color:var(--fg-2)}
+.state-row{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:0 0 .4rem}
+.tool.partial{background:transparent;color:var(--muted);border:1px dashed var(--border-3)}
+.tool.bad{background:var(--bad-soft);color:var(--bad);border:1px solid color-mix(in oklab,var(--bad) 30%,transparent)}
+.drift-file.wrap{grid-template-columns:14px minmax(0,1fr) auto;align-items:start}
+.drift-file.wrap .fd{margin-top:.35rem}
+.drift-file.wrap .fn{white-space:normal;overflow:visible;line-height:1.5}
+.drift-file.wrap .fn small{color:var(--dim);margin-left:.3rem}
+.empty-card{border-style:dashed}
+.empty-card .method{max-width:72ch}
+.kv{display:grid;grid-template-columns:minmax(120px,max-content) minmax(0,1fr);gap:.3rem 1rem;font-size:.76rem;margin:0}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-family:var(--mono);font-size:.72rem;color:var(--fg-2);overflow-wrap:anywhere}
+.ticket{margin:0;font-family:var(--mono);font-size:.72rem;line-height:1.55;color:var(--fg-2);background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:var(--rs);padding:.8rem .95rem;white-space:pre-wrap;overflow:auto}
+body[data-demo="on"] .sec-eyebrow::before{content:"DEMO";font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.06em;color:var(--warn);background:var(--warn-soft);border:1px solid color-mix(in oklab,var(--warn) 32%,transparent);padding:.12rem .42rem;border-radius:999px}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg></div><div class="brand-text"><h1><span id="brand-title">AIH report</span><span class="ver">V9</span></h1><div class="sub">self-contained · offline · developer console</div></div></div><div class="tb-right"><button class="tb-kbd" type="button" onclick="aihPalette()" aria-label="Command palette"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><kbd>⌘K</kbd></button><div class="clocks"><span class="clk"><i>UTC</i><b id="clk-utc">··:··:··</b></span><span class="clk"><i>Local</i><b id="clk-loc">··:··:··</b></span></div><button class="tb-btn" type="button" onclick="aihTheme()" aria-label="Toggle theme" title="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></button></div></header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="gradBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/></linearGradient><linearGradient id="donutGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent-2)"/></linearGradient><linearGradient id="radarGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity="0.35"/><stop offset="1" stop-color="var(--accent-2)" stop-opacity="0.35"/></linearGradient><linearGradient id="sparkArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs></svg>
+<main><div class="whatsnew"><span class="tag">SNAPSHOT</span><span><b>Newly acquired observations, as labelled by the caller</b><span class="sep">·</span>observed 2026-10-04T03:18:42.576Z<span class="sep">·</span>@aihq/core 1.0.0-dev.5<span class="sep">·</span><span class="muted">rendering never collects data</span></span></div><section class="hero" id="sec-hero" data-state="live"><div class="card hero-radar"><span class="hero-eyebrow">Check outcomes</span><div class="mat" style="width:100%"><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">Passed</span><span class="mat-track"><span class="mat-fill " style="width:100%"></span></span></div><span class="mat-val">2</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">Failed</span><span class="mat-track"><span class="mat-fill bad" style="width:0%"></span></span></div><span class="mat-val">0</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">Unavailable</span><span class="mat-track"><span class="mat-fill warn" style="width:0%"></span></span></div><span class="mat-val">0</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">Skipped</span><span class="mat-track"><span class="mat-fill " style="width:0%;background:var(--dim)"></span></span></div><span class="mat-val">0</span></div></div><div class="method">Counts as supplied by the diagnostic. A zero is a measured zero.</div></div><div class="card hero-narrative"><span class="hero-eyebrow">Harness diagnostic · developer console</span><h2 class="hero-headline"><span class="accent">Diagnostic completed,</span><br><span class="muted">2 checks passed.</span></h2><p class="hero-sub">Supplied: <b>24 tools</b>, <b>2 checks</b>, <b>2 observations</b>. This page computes no wiring or readiness score.</p><div class="deltarow"><span class="badge ok">LIVE · caller-labelled newly acquired</span><span class="badge ok">NO FAILED CHECKS</span></div><div class="hero-vitals"><div class="vital"><span class="v">2</span><span class="l">Passed</span></div><div class="vital"><span class="v">0</span><span class="l">Failed</span></div><div class="vital"><span class="v">0</span><span class="l">Unavailable</span></div><div class="vital"><span class="v">0</span><span class="l">Skipped</span></div></div><p class="hero-sub" style="font-size:.74rem;color:var(--dim);margin-top:.3rem">Present or configured is not verified. See <b>Evidence and provenance</b> for what this snapshot does and does not establish.</p></div></section><section class="section" id="sec-ready" data-state="live"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">◆</span><span class="badge ok">LIVE · caller-labelled newly acquired</span><span class="sec-rule"></span><span class="sec-count">2 checks reported</span></div><h2 class="sec-title">No failed checks — 2 checks passed</h2><p class="sec-insight">Outcomes reported by the diagnostic for the probes it ran. A passing check covers only that probe; configured or present is not verified, and a signature file is not authentication.</p></div><div class="grid"><div class="card span-5"><div class="card-head"><h3>Diagnostic status</h3><span class="badge ok">completed</span></div><div class="card-body"><div class="drift-status" style="background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)"><div class="dicon" style="background:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div class="dtext"><b style="color:var(--ok)">NO FAILED CHECKS</b><span>every reported check passed; that covers only the probes that ran</span></div></div><div class="donut-meta" style="margin-top:.6rem"><div class="row"><span class="k">Passed</span><span class="v">2</span></div><div class="row"><span class="k">Failed</span><span class="v">0</span></div><div class="row"><span class="k">Unavailable</span><span class="v">0</span></div><div class="row"><span class="k">Skipped</span><span class="v">0</span></div></div><div class="method" style="margin-top:.6rem">Outcomes are reported by the diagnostic for the probes it ran. This panel computes no score.</div></div></div><div class="card span-7"><div class="card-head"><h3>Failed checks</h3><span class="badge ok">none</span></div><div class="card-body"><div class="drift-status" style="background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)"><div class="dicon" style="background:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div class="dtext"><b style="color:var(--ok)">No failed checks</b><span>no check reported a failure</span></div></div></div></div><div class="card span-12"><div class="card-head"><h3>Evidence and provenance</h3><span class="badge muted">structure only</span></div><div class="card-body"><dl class="kv"><dt>Producer</dt><dd>@aihq/core 1.0.0-dev.5</dd><dt>Producer revision</dt><dd>unavailable</dd><dt>Diagnostic contract</dt><dd>urn:aihq:harness:diagnostic:1.0.0</dd><dt>Observed at</dt><dd>2026-10-04T03:18:42.576Z</dd><dt>Capture</dt><dd>newly acquired — a label set by the caller, not attested by this report</dd><dt>Original evidence SHA-256</dt><dd>not supplied — no original evidence identity is available</dd><dt>Authentication</dt><dd>not authenticated — no origin or signature check was made</dd><dt>Structural validation</dt><dd>passed — shape only; says nothing about authenticity or whether the diagnostic succeeded</dd><dt>Projection</dt><dd>redacted — sensitive values were removed before rendering</dd><dt>Probe limits</dt><dd>budget 180000 ms · elapsed 5265 ms · max active probes 2</dd></dl><div class="method" style="margin-top:.6rem">Provenance fields are the caller's supplied metadata. Structural validity, an original-evidence digest and authentication are three different claims; only the first is made here.</div></div></div></div></section><section class="section" id="sec-actions" data-state="live"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">★</span><span class="badge ok">LIVE · caller-labelled newly acquired</span><span class="sec-rule"></span><span class="sec-count">0 items</span></div><h2 class="sec-title">Nothing to review in this diagnostic</h2><p class="sec-insight">Derived mechanically from supplied check outcomes, tool states and diagnostics, ranked by severity. The snapshot carries no repair commands, so none are shown.</p></div><div class="grid"><div class="card span-12"><div class="card-body"><div class="drift-status" style="background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)"><div class="dicon" style="background:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div class="dtext"><b style="color:var(--ok)">Nothing to review</b><span>no failed, unavailable or skipped check and no unusable tool was reported</span></div></div></div></div></div></section><section class="section" id="sec-wins" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">✓</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Remediation ledger — unavailable</h2><p class="sec-insight">A single diagnostic snapshot carries no remediation history, so no fixed blockers or run counts are shown.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Remediation ledger</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No remediation history is supplied by the diagnostic.</div></div></div></div></section><section class="section" id="sec-context" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">01</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Per-turn context — unavailable</h2><p class="sec-insight">The diagnostic supplies no context or token measurement, so no budget or headroom is shown.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Per-turn context</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No context-size or token measurement is supplied.</div></div></div></div></section><section class="section" id="sec-activity" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">02</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Activity — unavailable</h2><p class="sec-insight">No repository history or usage counters are supplied. A missing measurement is never shown as zero.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Activity and usage</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No repository history or usage counters are supplied.</div></div></div></div></section><section class="section" id="sec-quality" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">03</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Guardrails and test ratio — unavailable</h2><p class="sec-insight">The diagnostic does not inspect guardrail enforcement or test files.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Guardrails and test ratio</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No guardrail-enforcement or test-ratio observations are supplied.</div></div></div></div></section><section class="section" id="sec-drift" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">04</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Drift and coherence — unavailable</h2><p class="sec-insight">The diagnostic does not compare managed files or client configurations.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Drift and coherence</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No drift or cross-client coherence observations are supplied.</div></div></div></div></section><section class="section" id="sec-mcp" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">05</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">MCP plumbing — unavailable</h2><p class="sec-insight">MCP configuration, discovery and tool execution are not observed by this diagnostic.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>MCP plumbing</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No MCP observations are supplied. Client tool states in Setup + tooling are binary and configuration observations only.</div></div></div></div></section><section class="section" id="sec-adoption" data-state="live"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">06</span><span class="badge ok">LIVE · caller-labelled newly acquired</span><span class="sec-rule"></span><span class="sec-count">24 tools · 2 checks</span></div><h2 class="sec-title">24 tools observed — 2 runnable</h2><p class="sec-insight">Tool states and check outcomes as supplied. Each state keeps its own scope: a binary that was found is not a tool that ran, and configuration alone is not a working setup.</p></div><div class="grid"><div class="card span-6"><div class="card-head"><h3>Diagnostic checks</h3><span class="badge muted">2 of 2 passed</span></div><div class="card-body"><div class="chips"><span class="chip ok" title="node: passed · version-ok"><i>✓</i><span data-check-outcome="passed">node/version</span></span><span class="chip ok" title="git: passed · version-ok"><i>✓</i><span data-check-outcome="passed">git/version</span></span></div></div></div><div class="card span-6"><div class="card-head"><h3>Tools</h3><span class="badge muted">24 tools</span></div><div class="card-body"><div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem">Runnable</div><div class="pills"><span class="tool on" data-tool-state="runnable" title="runnable · requested">Node.js</span><span class="tool on" data-tool-state="runnable" title="runnable · requested">Git</span></div><div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem">Binary found — not run</div><div class="pills"><span class="tool partial" data-tool-state="binary" title="binary · unselected">npm</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Python</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">pip</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Claude Code</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Codex CLI</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Cursor</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">OpenCode</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Kimi Code</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Kiro</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">ripgrep</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">fd</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">jq</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">curl</span><span class="tool partial" data-tool-state="binary" title="binary · unselected">Bash</span></div><div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem">Absent</div><div class="pills"><span class="tool off" data-tool-state="absent" title="absent · unselected">Cargo</span><span class="tool off" data-tool-state="absent" title="absent · unselected">conda</span><span class="tool off" data-tool-state="absent" title="absent · unselected">Gemini CLI</span><span class="tool off" data-tool-state="absent" title="absent · unselected">GitHub Copilot</span><span class="tool off" data-tool-state="absent" title="absent · unselected">Windsurf</span><span class="tool off" data-tool-state="absent" title="absent · unselected">Java keytool</span><span class="tool off" data-tool-state="absent" title="absent · unselected">Google Antigravity</span><span class="tool off" data-tool-state="absent" title="absent · unselected">Zed</span></div></div></div><div class="card span-12"><div class="card-head"><h3>Observations</h3><span class="badge muted">2</span></div><div class="card-body"><div class="drift-files"><div class="drift-file wrap"><span class="fd" style="background:var(--accent)"></span><span class="fn"><b>node</b> <small>node/version</small><br>Runnable version command observed.</span><span class="ft">observed</span></div><div class="drift-file wrap"><span class="fd" style="background:var(--accent)"></span><span class="fn"><b>git</b> <small>git/version</small><br>Runnable version command observed.</span><span class="ft">observed</span></div></div><div class="method" style="margin-top:.6rem">Observed, not verified: an observation records what a probe saw. A configured or present item is not proof that it works, and native behavior is not inferred.</div></div></div></div></section><section class="section" id="sec-support" data-state="live"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">07</span><span class="badge ok">LIVE · caller-labelled newly acquired</span><span class="sec-rule"></span><span class="sec-count">0 findings</span></div><h2 class="sec-title">No findings to hand over</h2><p class="sec-insight">A tool-neutral draft you can paste into a support request. It restates only supplied findings from the snapshot's redacted projection; review it before sharing.</p></div><div class="grid"><div class="card span-4"><div class="card-head"><h3>Findings</h3><span class="badge muted">from supplied checks</span></div><div class="card-body"><div class="mat"><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">failed checks</span><span class="mat-track"><span class="mat-fill bad" style="width:0%"></span></span></div><span class="mat-val">0</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">unavailable checks</span><span class="mat-track"><span class="mat-fill warn" style="width:0%"></span></span></div><span class="mat-val">0</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">skipped checks</span><span class="mat-track"><span class="mat-fill " style="width:0%;background:var(--dim)"></span></span></div><span class="mat-val">0</span></div><div class="mat-row"><div class="mat-bar-wrap"><span class="mat-label">diagnostics</span><span class="mat-track"><span class="mat-fill warn" style="width:0%"></span></span></div><span class="mat-val">0</span></div></div></div></div><div class="card span-8"><div class="card-head"><h3>Support summary · copy-ready draft</h3><span class="badge ok">no findings</span></div><div class="card-body"><pre class="ticket">Subject: Diagnostic findings — 0 failed, 0 unavailable, 0 skipped
+Source: @aihq/core 1.0.0-dev.5 (unavailable) · contract urn:aihq:harness:diagnostic:1.0.0
+Captured: 2026-10-04T03:18:42.576Z (caller-labelled newly acquired)
+Status: completed
+
+Findings:
+- none reported
+
+Scope: draft built only from supplied observations. Configured or present items are not verification, and a signature file is not authentication.</pre></div></div></div></section><section class="section" id="sec-period" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">08</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Trends — unavailable</h2><p class="sec-insight">A single snapshot has no history, so no trend or outcome delta is shown.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Trends and outcome deltas</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No time series or outcome measurements are supplied.</div></div></div></div></section><section class="section" id="sec-skills" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">09</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Skill ledger — unavailable</h2><p class="sec-insight">No skill inventory or invocation counts are supplied.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Skill ledger</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No skill inventory or invocation counts are supplied.</div></div></div></div></section><section class="section" id="sec-skillgov" data-state="empty"><div class="sec-head"><div class="sec-eyebrow"><span class="sec-no">10</span><span class="badge muted">EMPTY</span><span class="sec-rule"></span><span class="sec-count">unavailable</span></div><h2 class="sec-title">Skill governance — unavailable</h2><p class="sec-insight">No skill approvals, quarantine or scanner evidence are supplied.</p></div><div class="grid"><div class="card span-12 empty-card"><div class="card-head"><h3>Skill governance</h3><span class="badge muted">EMPTY</span></div><div class="card-body"><div class="method">No skill governance observations are supplied.</div></div></div></div></section><footer style="margin-top:3rem;padding-top:1.4rem;border-top:1px solid var(--border);color:var(--dim);font-size:.74rem;line-height:1.7"><b style="color:var(--muted)">Methodology.</b> This page renders structured observations that were supplied to it; rendering never collects data. <b style="color:var(--ok)">LIVE</b> panels show only values present in the supplied snapshot. <b>EMPTY</b> panels have no supplied data and show no placeholder numbers. <b style="color:var(--anom)">PREVIEW</b> and <b style="color:var(--warn)">DEMO</b> appear only in demonstration mode and show design-sample values, never real data. No score is computed. Configured, present or signature-file observations are not verification or authentication.</footer></main>
+<div class="palette-overlay" id="palette" onclick="if(event.target===this)aihPalette()"><div class="palette"><div class="palette-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input type="text" id="palette-input" placeholder="Jump to a section..." autocomplete="off"><span class="esc">esc</span></div><div class="palette-list" id="palette-list"></div></div></div>
+<script>
+window.AIH_DATA={"mode":"report","sections":{"sec-hero":{"state":"live","html":"\u003cdiv class=\"card hero-radar\"\u003e\u003cspan class=\"hero-eyebrow\"\u003eCheck outcomes\u003c/span\u003e\u003cdiv class=\"mat\" style=\"width:100%\"\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003ePassed\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill \" style=\"width:100%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e2\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003eFailed\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill bad\" style=\"width:0%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003eUnavailable\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill warn\" style=\"width:0%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003eSkipped\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill \" style=\"width:0%;background:var(--dim)\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"method\"\u003eCounts as supplied by the diagnostic. A zero is a measured zero.\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card hero-narrative\"\u003e\u003cspan class=\"hero-eyebrow\"\u003eHarness diagnostic · developer console\u003c/span\u003e\u003ch2 class=\"hero-headline\"\u003e\u003cspan class=\"accent\"\u003eDiagnostic completed,\u003c/span\u003e\u003cbr\u003e\u003cspan class=\"muted\"\u003e2 checks passed.\u003c/span\u003e\u003c/h2\u003e\u003cp class=\"hero-sub\"\u003eSupplied: \u003cb\u003e24 tools\u003c/b\u003e, \u003cb\u003e2 checks\u003c/b\u003e, \u003cb\u003e2 observations\u003c/b\u003e. This page computes no wiring or readiness score.\u003c/p\u003e\u003cdiv class=\"deltarow\"\u003e\u003cspan class=\"badge ok\"\u003eLIVE · caller-labelled newly acquired\u003c/span\u003e\u003cspan class=\"badge ok\"\u003eNO FAILED CHECKS\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"hero-vitals\"\u003e\u003cdiv class=\"vital\"\u003e\u003cspan class=\"v\"\u003e2\u003c/span\u003e\u003cspan class=\"l\"\u003ePassed\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"vital\"\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003cspan class=\"l\"\u003eFailed\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"vital\"\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003cspan class=\"l\"\u003eUnavailable\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"vital\"\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003cspan class=\"l\"\u003eSkipped\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003cp class=\"hero-sub\" style=\"font-size:.74rem;color:var(--dim);margin-top:.3rem\"\u003ePresent or configured is not verified. See \u003cb\u003eEvidence and provenance\u003c/b\u003e for what this snapshot does and does not establish.\u003c/p\u003e\u003c/div\u003e"},"sec-ready":{"state":"live","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e◆\u003c/span\u003e\u003cspan class=\"badge ok\"\u003eLIVE · caller-labelled newly acquired\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003e2 checks reported\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eNo failed checks — 2 checks passed\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eOutcomes reported by the diagnostic for the probes it ran. A passing check covers only that probe; configured or present is not verified, and a signature file is not authentication.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-5\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eDiagnostic status\u003c/h3\u003e\u003cspan class=\"badge ok\"\u003ecompleted\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"drift-status\" style=\"background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)\"\u003e\u003cdiv class=\"dicon\" style=\"background:var(--ok)\"\u003e\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\u003e\u003cpath d=\"M20 6 9 17l-5-5\"/\u003e\u003c/svg\u003e\u003c/div\u003e\u003cdiv class=\"dtext\"\u003e\u003cb style=\"color:var(--ok)\"\u003eNO FAILED CHECKS\u003c/b\u003e\u003cspan\u003eevery reported check passed; that covers only the probes that ran\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"donut-meta\" style=\"margin-top:.6rem\"\u003e\u003cdiv class=\"row\"\u003e\u003cspan class=\"k\"\u003ePassed\u003c/span\u003e\u003cspan class=\"v\"\u003e2\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"row\"\u003e\u003cspan class=\"k\"\u003eFailed\u003c/span\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"row\"\u003e\u003cspan class=\"k\"\u003eUnavailable\u003c/span\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"row\"\u003e\u003cspan class=\"k\"\u003eSkipped\u003c/span\u003e\u003cspan class=\"v\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"method\" style=\"margin-top:.6rem\"\u003eOutcomes are reported by the diagnostic for the probes it ran. This panel computes no score.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card span-7\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eFailed checks\u003c/h3\u003e\u003cspan class=\"badge ok\"\u003enone\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"drift-status\" style=\"background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)\"\u003e\u003cdiv class=\"dicon\" style=\"background:var(--ok)\"\u003e\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\u003e\u003cpath d=\"M20 6 9 17l-5-5\"/\u003e\u003c/svg\u003e\u003c/div\u003e\u003cdiv class=\"dtext\"\u003e\u003cb style=\"color:var(--ok)\"\u003eNo failed checks\u003c/b\u003e\u003cspan\u003eno check reported a failure\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card span-12\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eEvidence and provenance\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003estructure only\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdl class=\"kv\"\u003e\u003cdt\u003eProducer\u003c/dt\u003e\u003cdd\u003e@aihq/core 1.0.0-dev.5\u003c/dd\u003e\u003cdt\u003eProducer revision\u003c/dt\u003e\u003cdd\u003eunavailable\u003c/dd\u003e\u003cdt\u003eDiagnostic contract\u003c/dt\u003e\u003cdd\u003eurn:aihq:harness:diagnostic:1.0.0\u003c/dd\u003e\u003cdt\u003eObserved at\u003c/dt\u003e\u003cdd\u003e2026-10-04T03:18:42.576Z\u003c/dd\u003e\u003cdt\u003eCapture\u003c/dt\u003e\u003cdd\u003enewly acquired — a label set by the caller, not attested by this report\u003c/dd\u003e\u003cdt\u003eOriginal evidence SHA-256\u003c/dt\u003e\u003cdd\u003enot supplied — no original evidence identity is available\u003c/dd\u003e\u003cdt\u003eAuthentication\u003c/dt\u003e\u003cdd\u003enot authenticated — no origin or signature check was made\u003c/dd\u003e\u003cdt\u003eStructural validation\u003c/dt\u003e\u003cdd\u003epassed — shape only; says nothing about authenticity or whether the diagnostic succeeded\u003c/dd\u003e\u003cdt\u003eProjection\u003c/dt\u003e\u003cdd\u003eredacted — sensitive values were removed before rendering\u003c/dd\u003e\u003cdt\u003eProbe limits\u003c/dt\u003e\u003cdd\u003ebudget 180000 ms · elapsed 5265 ms · max active probes 2\u003c/dd\u003e\u003c/dl\u003e\u003cdiv class=\"method\" style=\"margin-top:.6rem\"\u003eProvenance fields are the caller's supplied metadata. Structural validity, an original-evidence digest and authentication are three different claims; only the first is made here.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-actions":{"state":"live","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e★\u003c/span\u003e\u003cspan class=\"badge ok\"\u003eLIVE · caller-labelled newly acquired\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003e0 items\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eNothing to review in this diagnostic\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eDerived mechanically from supplied check outcomes, tool states and diagnostics, ranked by severity. The snapshot carries no repair commands, so none are shown.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12\"\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"drift-status\" style=\"background:var(--ok-soft);border-color:color-mix(in oklab,var(--ok) 22%,transparent)\"\u003e\u003cdiv class=\"dicon\" style=\"background:var(--ok)\"\u003e\u003csvg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"\u003e\u003cpath d=\"M20 6 9 17l-5-5\"/\u003e\u003c/svg\u003e\u003c/div\u003e\u003cdiv class=\"dtext\"\u003e\u003cb style=\"color:var(--ok)\"\u003eNothing to review\u003c/b\u003e\u003cspan\u003eno failed, unavailable or skipped check and no unusable tool was reported\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-wins":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e✓\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eRemediation ledger — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eA single diagnostic snapshot carries no remediation history, so no fixed blockers or run counts are shown.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eRemediation ledger\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo remediation history is supplied by the diagnostic.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-context":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e01\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003ePer-turn context — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eThe diagnostic supplies no context or token measurement, so no budget or headroom is shown.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003ePer-turn context\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo context-size or token measurement is supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-activity":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e02\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eActivity — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eNo repository history or usage counters are supplied. A missing measurement is never shown as zero.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eActivity and usage\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo repository history or usage counters are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-quality":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e03\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eGuardrails and test ratio — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eThe diagnostic does not inspect guardrail enforcement or test files.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eGuardrails and test ratio\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo guardrail-enforcement or test-ratio observations are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-drift":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e04\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eDrift and coherence — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eThe diagnostic does not compare managed files or client configurations.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eDrift and coherence\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo drift or cross-client coherence observations are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-mcp":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e05\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eMCP plumbing — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eMCP configuration, discovery and tool execution are not observed by this diagnostic.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eMCP plumbing\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo MCP observations are supplied. Client tool states in Setup + tooling are binary and configuration observations only.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-adoption":{"state":"live","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e06\u003c/span\u003e\u003cspan class=\"badge ok\"\u003eLIVE · caller-labelled newly acquired\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003e24 tools · 2 checks\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003e24 tools observed — 2 runnable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eTool states and check outcomes as supplied. Each state keeps its own scope: a binary that was found is not a tool that ran, and configuration alone is not a working setup.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-6\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eDiagnostic checks\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003e2 of 2 passed\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"chips\"\u003e\u003cspan class=\"chip ok\" title=\"node: passed · version-ok\"\u003e\u003ci\u003e✓\u003c/i\u003e\u003cspan data-check-outcome=\"passed\"\u003enode/version\u003c/span\u003e\u003c/span\u003e\u003cspan class=\"chip ok\" title=\"git: passed · version-ok\"\u003e\u003ci\u003e✓\u003c/i\u003e\u003cspan data-check-outcome=\"passed\"\u003egit/version\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card span-6\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eTools\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003e24 tools\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv style=\"font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem\"\u003eRunnable\u003c/div\u003e\u003cdiv class=\"pills\"\u003e\u003cspan class=\"tool on\" data-tool-state=\"runnable\" title=\"runnable · requested\"\u003eNode.js\u003c/span\u003e\u003cspan class=\"tool on\" data-tool-state=\"runnable\" title=\"runnable · requested\"\u003eGit\u003c/span\u003e\u003c/div\u003e\u003cdiv style=\"font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem\"\u003eBinary found — not run\u003c/div\u003e\u003cdiv class=\"pills\"\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003enpm\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003ePython\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003epip\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eClaude Code\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eCodex CLI\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eCursor\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eOpenCode\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eKimi Code\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eKiro\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eripgrep\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003efd\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003ejq\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003ecurl\u003c/span\u003e\u003cspan class=\"tool partial\" data-tool-state=\"binary\" title=\"binary · unselected\"\u003eBash\u003c/span\u003e\u003c/div\u003e\u003cdiv style=\"font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:.7rem 0 .35rem\"\u003eAbsent\u003c/div\u003e\u003cdiv class=\"pills\"\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eCargo\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003econda\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eGemini CLI\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eGitHub Copilot\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eWindsurf\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eJava keytool\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eGoogle Antigravity\u003c/span\u003e\u003cspan class=\"tool off\" data-tool-state=\"absent\" title=\"absent · unselected\"\u003eZed\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card span-12\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eObservations\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003e2\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"drift-files\"\u003e\u003cdiv class=\"drift-file wrap\"\u003e\u003cspan class=\"fd\" style=\"background:var(--accent)\"\u003e\u003c/span\u003e\u003cspan class=\"fn\"\u003e\u003cb\u003enode\u003c/b\u003e \u003csmall\u003enode/version\u003c/small\u003e\u003cbr\u003eRunnable version command observed.\u003c/span\u003e\u003cspan class=\"ft\"\u003eobserved\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"drift-file wrap\"\u003e\u003cspan class=\"fd\" style=\"background:var(--accent)\"\u003e\u003c/span\u003e\u003cspan class=\"fn\"\u003e\u003cb\u003egit\u003c/b\u003e \u003csmall\u003egit/version\u003c/small\u003e\u003cbr\u003eRunnable version command observed.\u003c/span\u003e\u003cspan class=\"ft\"\u003eobserved\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"method\" style=\"margin-top:.6rem\"\u003eObserved, not verified: an observation records what a probe saw. A configured or present item is not proof that it works, and native behavior is not inferred.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-support":{"state":"live","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e07\u003c/span\u003e\u003cspan class=\"badge ok\"\u003eLIVE · caller-labelled newly acquired\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003e0 findings\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eNo findings to hand over\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eA tool-neutral draft you can paste into a support request. It restates only supplied findings from the snapshot's redacted projection; review it before sharing.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-4\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eFindings\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003efrom supplied checks\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"mat\"\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003efailed checks\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill bad\" style=\"width:0%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003eunavailable checks\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill warn\" style=\"width:0%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003eskipped checks\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill \" style=\"width:0%;background:var(--dim)\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"mat-row\"\u003e\u003cdiv class=\"mat-bar-wrap\"\u003e\u003cspan class=\"mat-label\"\u003ediagnostics\u003c/span\u003e\u003cspan class=\"mat-track\"\u003e\u003cspan class=\"mat-fill warn\" style=\"width:0%\"\u003e\u003c/span\u003e\u003c/span\u003e\u003c/div\u003e\u003cspan class=\"mat-val\"\u003e0\u003c/span\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003cdiv class=\"card span-8\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eSupport summary · copy-ready draft\u003c/h3\u003e\u003cspan class=\"badge ok\"\u003eno findings\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cpre class=\"ticket\"\u003eSubject: Diagnostic findings — 0 failed, 0 unavailable, 0 skipped\nSource: @aihq/core 1.0.0-dev.5 (unavailable) · contract urn:aihq:harness:diagnostic:1.0.0\nCaptured: 2026-10-04T03:18:42.576Z (caller-labelled newly acquired)\nStatus: completed\n\nFindings:\n- none reported\n\nScope: draft built only from supplied observations. Configured or present items are not verification, and a signature file is not authentication.\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-period":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e08\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eTrends — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eA single snapshot has no history, so no trend or outcome delta is shown.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eTrends and outcome deltas\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo time series or outcome measurements are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-skills":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e09\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eSkill ledger — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eNo skill inventory or invocation counts are supplied.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eSkill ledger\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo skill inventory or invocation counts are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"},"sec-skillgov":{"state":"empty","html":"\u003cdiv class=\"sec-head\"\u003e\u003cdiv class=\"sec-eyebrow\"\u003e\u003cspan class=\"sec-no\"\u003e10\u003c/span\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003cspan class=\"sec-rule\"\u003e\u003c/span\u003e\u003cspan class=\"sec-count\"\u003eunavailable\u003c/span\u003e\u003c/div\u003e\u003ch2 class=\"sec-title\"\u003eSkill governance — unavailable\u003c/h2\u003e\u003cp class=\"sec-insight\"\u003eNo skill approvals, quarantine or scanner evidence are supplied.\u003c/p\u003e\u003c/div\u003e\u003cdiv class=\"grid\"\u003e\u003cdiv class=\"card span-12 empty-card\"\u003e\u003cdiv class=\"card-head\"\u003e\u003ch3\u003eSkill governance\u003c/h3\u003e\u003cspan class=\"badge muted\"\u003eEMPTY\u003c/span\u003e\u003c/div\u003e\u003cdiv class=\"card-body\"\u003e\u003cdiv class=\"method\"\u003eNo skill governance observations are supplied.\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e\u003c/div\u003e"}}};
+var RADAR={"labels":[],"values":[]};
+function buildRadar(el,values,labels){var cx=150,cy=150,r=105,n=values.length,max=100,ang=[];for(var i=0;i<n;i++)ang.push(-Math.PI/2+i*2*Math.PI/n);var g='';[25,50,75,100].forEach(function(l){var p=[];for(var i=0;i<n;i++){var rr=r*l/max;p.push((cx+rr*Math.cos(ang[i])).toFixed(1)+','+(cy+rr*Math.sin(ang[i])).toFixed(1));}g+='<polygon points="'+p.join(' ')+'" fill="none" stroke="var(--border)" stroke-width="1" opacity="'+(0.4+l/200)+'"/>';});for(var i=0;i<n;i++)g+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+r*Math.cos(ang[i])).toFixed(1)+'" y2="'+(cy+r*Math.sin(ang[i])).toFixed(1)+'" stroke="var(--border)" stroke-width="1" opacity="0.5"/>';var dp=[];for(var i=0;i<n;i++){var rr=r*Math.max(0,Math.min(values[i],max))/max;dp.push((cx+rr*Math.cos(ang[i])).toFixed(1)+','+(cy+rr*Math.sin(ang[i])).toFixed(1));}g+='<polygon points="'+dp.join(' ')+'" fill="url(#radarGrad)" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>';for(var i=0;i<n;i++){var rr=r*values[i]/max,px=(cx+rr*Math.cos(ang[i])).toFixed(1),py=(cy+rr*Math.sin(ang[i])).toFixed(1),low=values[i]<70;g+='<circle cx="'+px+'" cy="'+py+'" r="4" fill="'+(low?'var(--warn)':'var(--accent)')+'" stroke="var(--surface)" stroke-width="2"/>';}for(var i=0;i<n;i++){var lr=r+22,lx=cx+lr*Math.cos(ang[i]),ly=cy+lr*Math.sin(ang[i]),a='middle';if(Math.abs(lx-cx)>10)a=lx>cx?'start':'end';var low=values[i]<70;g+='<text x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+'" text-anchor="'+a+'" font-size="10" font-weight="600" fill="var(--fg-2)">'+labels[i]+'</text><text x="'+lx.toFixed(1)+'" y="'+(ly+16).toFixed(1)+'" text-anchor="'+a+'" font-family="var(--mono)" font-size="9" fill="'+(low?'var(--warn)':'var(--muted)')+'">'+values[i]+'</text>';}el.innerHTML=g;}
+function buildLegend(el,v,l){var h='';for(var i=0;i<v.length;i++){h+='<span class="radar-leg'+(v[i]<70?' warn':'')+'"><span class="dot"></span>'+l[i]+' <b>'+v[i]+'</b></span>';}el.innerHTML=h;}
+function buildHeat(el){var h='';for(var i=0;i<105;i++){var v=(Math.sin(i*0.6)*0.5+0.5)*0.7+Math.min(1,i/60)*0.4;if(i%7===5||i%7===6)v*=0.35;if(i>90)v*=1.4;v=Math.max(0,Math.min(1,v));var c='';if(v>0.15)c='l1';if(v>0.35)c='l2';if(v>0.55)c='l3';if(v>0.75)c='l4';h+='<span class="cell '+c+'"></span>';}el.innerHTML=h;}
+var PI=[["◆","Developer readiness","sec-ready"],["★","What to fix first","sec-actions"],["✓","What aih unblocked","sec-wins"],["01","Context","sec-context"],["02","Activity","sec-activity"],["03","Guardrails + ECC","sec-quality"],["04","Drift + integrity","sec-drift"],["05","MCP plumbing","sec-mcp"],["06","Setup + tooling","sec-adoption"],["07","Enterprise support","sec-support"],["08","Over the period","sec-period"],["09","Skill investment","sec-skills"],["10","Skill governance","sec-skillgov"],["↑","Hero","sec-hero"]];
+var pOpen=false;
+function aihPalette(){var p=document.getElementById('palette');pOpen=!pOpen;p.classList.toggle('open',pOpen);if(pOpen){var i=document.getElementById('palette-input');i.value='';i.focus();renderP('');}}
+function renderP(q){q=(q||'').toLowerCase();var f=PI.filter(function(it){return !q||it[1].toLowerCase().indexOf(q)>=0;});document.getElementById('palette-list').innerHTML=f.length?f.map(function(it){return '<div class="palette-item" onclick="jumpP(\''+it[2]+'\')"><span class="pn">'+it[0]+'</span><span class="pt">'+it[1]+'</span><span class="pc">section</span></div>';}).join(''):'<div class="palette-empty">No matches</div>';}
+function jumpP(t){aihPalette();var el=document.getElementById(t);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
+(function(){var r=document.documentElement,k="aih-theme";try{var s=localStorage.getItem(k);if(s)r.dataset.theme=s;}catch(e){}window.aihTheme=function(){var n=r.dataset.theme==="light"?"":"light";n?r.dataset.theme=n:r.removeAttribute("data-theme");try{localStorage.setItem(k,n);}catch(e){}};
+window.aihHydrate=function(doc,view){if(!view||!view.sections)return;Object.keys(view.sections).forEach(function(id){var s=view.sections[id],el=doc.getElementById(id);if(!el||!s)return;el.innerHTML=s.html;el.setAttribute('data-state',s.state);});};aihHydrate(document,window.AIH_DATA);
+var rd=document.getElementById('radar'),rl=document.getElementById('radar-legend'),he=document.getElementById('heatmap');if(rd)buildRadar(rd,RADAR.values,RADAR.labels);if(rl)buildLegend(rl,RADAR.values,RADAR.labels);if(he)buildHeat(he);
+document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();aihPalette();}else if(e.key==='Escape'&&pOpen)aihPalette();});
+document.getElementById('palette-input').addEventListener('input',function(e){renderP(e.target.value);});
+function p(n){return(n<10?"0":"")+n;}function clk(){var d=new Date(),a=document.getElementById("clk-utc"),c=document.getElementById("clk-loc");if(a)a.textContent=p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds());if(c)c.textContent=p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());}clk();setInterval(clk,1000);
+})();
+</script>
+</body>
+</html>

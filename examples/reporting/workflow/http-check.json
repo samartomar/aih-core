@@ -1,0 +1,12 @@
+{
+  "binding": "loopback",
+  "source": "snapshot",
+  "bodySha256": "e8ce1aec849fa228c432a38c82f9a84f1445bc0e763e8e44dfe2e0231c3072e6",
+  "results": {
+    "GET": 200,
+    "HEAD": 200,
+    "unknown": 404,
+    "query": 404,
+    "POST": 405
+  }
+}
