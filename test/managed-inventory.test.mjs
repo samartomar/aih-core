@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -127,6 +127,13 @@ test('claimless custody is reconciled and corrupt foreign custody makes user inv
   const receipt = join(home, '.aih', 'core', 'ownership', `${key}.json`);
   const original = readFileSync(receipt);
   try {
+    if (process.platform !== 'win32') {
+      chmodSync(receipt, 0o644);
+      const exposed = await listManagedSelections({ target: { project }, scope: 'project' });
+      assert.equal(exposed.status, 'incomplete');
+      assert.equal(exposed.diagnostics[0].reason, 'ownership-unverifiable');
+      chmodSync(receipt, 0o600);
+    }
     const legacy = JSON.parse(original);
     delete Object.values(legacy.members)[0].claims;
     delete Object.values(legacy.members)[0].descriptor;

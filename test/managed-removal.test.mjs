@@ -120,7 +120,7 @@ test('unverifiable custody is unavailable, never the same as absence; foreign da
   const s = open();
   await install(s);
   assert.equal((await prepareManagedRemoval(removal(s, { managementId: 'other' }))).disposition, 'absent');
-  writeFileSync(join(s.home, '.aih', 'core', 'ownership', `${'f'.repeat(64)}.json`), '{ not json');
+  writeFileSync(join(s.home, '.aih', 'core', 'ownership', `${'f'.repeat(64)}.json`), '{ not json', { mode: 0o600 });
   const project = await prepareManagedRemoval(removal(s), { logging: 'off' });
   assert.equal(project.disposition, 'prepared', JSON.stringify(project));
   const user = await prepareManagedRemoval(removal(s, { scope: 'user', managementId: 'anything' }));
