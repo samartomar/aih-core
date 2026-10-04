@@ -5,7 +5,7 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 ## Extracted design
 
-The report shell in src/templates/report.html (the "V9" developer-console design:
+The report shell in src/harness/report/templates/report.html (the "V9" developer-console design:
 styles, layout, navigation palette, section structure and the sample content
 shown in demonstration mode) is extracted and adapted from the legacy ai-harness
 project, file src/report/templates/local-report-v9.html at commit

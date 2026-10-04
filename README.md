@@ -12,6 +12,9 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, `writeSupportReport`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic and file-state result types |
+| `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
+| `@aihq/core/report/render` | Offline V9 `renderReport` |
+| `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |

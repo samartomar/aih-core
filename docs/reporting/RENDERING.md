@@ -82,6 +82,11 @@ Hydration is therefore an idempotent re-apply: static and hydrated sections are 
 and stale static markup is repaired from the embedded data. In demo mode there is nothing to
 hydrate because the authored sample is the document.
 
+Every normal offline document explicitly says **Saved snapshot display**. Its
+acquisition label describes the original capture supplied by the caller; replay
+does not relabel it as a new acquisition. The command separately reports whether
+it acquired diagnostics or imported a snapshot. Rendering never acquires data.
+
 Navigation keeps the V9 section ids (`sec-hero`, `sec-ready`, `sec-actions`, `sec-wins`,
 `sec-context`, `sec-activity`, `sec-quality`, `sec-drift`, `sec-mcp`, `sec-adoption`,
 `sec-support`, `sec-period`, `sec-skills`, `sec-skillgov`). The ⌘K / Ctrl+K command palette

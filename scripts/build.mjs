@@ -25,5 +25,6 @@ writeFileSync(new URL('distribution.mjs', dist),
   `// Generated from package.json.\nexport const distribution = Object.freeze(${JSON.stringify({ name: manifest.name, version: manifest.version })});\n`);
 copyFileSync(new URL('../src/distribution.d.mts', import.meta.url), new URL('distribution.d.mts', dist));
 
-cpSync(new URL('../src/harness/report/', import.meta.url),new URL('harness/report/', dist),{recursive:true});
+mkdirSync(new URL('harness/report/',dist),{recursive:true});
+for (const name of ['data.mjs','data.d.mts','render.mjs','render.d.mts','template.mjs','schema.json']) copyFileSync(new URL('../src/harness/report/'+name,import.meta.url),new URL('harness/report/'+name,dist));
 for (const name of ['report-command.mjs','report-command.d.mts']) copyFileSync(new URL('../src/harness/'+name, import.meta.url),new URL('harness/'+name,dist));

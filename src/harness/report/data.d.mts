@@ -117,7 +117,7 @@ export declare function createReport(input: CreateReportInput): ReportSnapshot;
 export declare function validateSnapshot(value: unknown): SnapshotValidation;
 
 /** Parse, validate and re-redact a versioned snapshot JSON document. */
-export declare function importSnapshot(json: string): ReportSnapshot;
+export declare function importSnapshot(json: string, redaction?: CreateReportInput['redaction']): ReportSnapshot;
 
 /** Validate and serialize a snapshot to deterministic, re-redacted JSON. */
 export declare function exportSnapshot(report: ReportSnapshot): string;

@@ -45,7 +45,7 @@ function write(path, files) {
 }
 
 function importSupplied(json) {
-  try { return importSnapshot(json); } catch (error) {
+  try { return importSnapshot(json, { homePaths: localRoots() }); } catch (error) {
     throw refuse(error instanceof ReportInputError && error.code === 'SCHEMA_UNSUPPORTED' ? 'snapshot-unsupported' : 'snapshot-invalid');
   }
 }

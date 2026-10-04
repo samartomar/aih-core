@@ -1,6 +1,6 @@
 # Data contract (experimental)
 
-`@aihq/core/report` is the data-only entry point of this library: runtime
+`@aihq/core/report` is the data-only entry point of this reporting module: runtime
 validation, privacy projection and evidence limitations. It performs no
 rendering, filesystem access or host observation. Rendering lives at
 `@aihq/core/report/render`; importing `@aihq/core/report` stays data-only.
@@ -22,7 +22,7 @@ development loop.
 | `DIAGNOSTIC_CONTRACT` | `'urn:aihq:harness:diagnostic:1.0.0'` | The one supported producer contract. |
 | `createReport(input)` | `CreateReportInput -> ReportSnapshot` | Validate and project a supplied diagnostic. |
 | `validateSnapshot(value)` | `unknown -> { valid: boolean, errors: string[] }` | Structural check; never throws for malformed input. |
-| `importSnapshot(json)` | `string -> ReportSnapshot` | Parse, validate, re-redact. |
+| `importSnapshot(json, redaction?)` | `string, privacy context? -> ReportSnapshot` | Parse, validate, re-redact; reject duplicate keys. |
 | `exportSnapshot(report)` | `ReportSnapshot -> string` | Validate, re-redact, serialize deterministically. |
 | `ReportInputError` | `Error` with `code` | Thrown for invalid/unsupported input. |
 
@@ -39,7 +39,7 @@ development loop.
 }
 ```
 
-`ReportSnapshot` is exactly the shape declared in `src/data.d.mts` and
+`ReportSnapshot` is exactly the shape declared in `src/harness/report/data.d.mts` and
 `src/harness/report/schema.json`; every field is documented in [FIELDS.md](FIELDS.md).
 
 ## Errors
@@ -117,16 +117,22 @@ shares the same projected data.
 ## What this interface does not contain
 
 No legacy digest object, score, history, token-usage rollup, chart layout or
-rendered HTML. No producer internals are imported at runtime: the published
-diagnostic schema is copied into `src/harness/report/diagnostic-schema.json` as an attributed
-data artifact.
+rendered HTML. The portable module does not import the producer runtime. The
+maintained schema is available through the public
+`@aihq/core/harness/schemas/diagnostic/1.0.0.json` export.
 
 ## Attribution
 
-- The diagnostic schema copy in `src/harness/report/diagnostic-schema.json` is reproduced
-  unchanged (apart from a `$comment` attribution) from the `@aihq/core` Harness
-  package, schema `urn:aihq:harness:diagnostic:1.0.0`.
 - Credential-shaped redaction patterns are ported from the legacy `ai-harness`
   redaction set (Apache-2.0), re-authored without host or environment access.
-- This library is licensed Apache-2.0.
+- Core reporting is licensed Apache-2.0.
+
 Producer revision is string | null: null means unavailable. Fresh installed-package reports never invent a Git revision. Original evidence SHA-256 may be null when raw evidence was not retained.
+
+Imports reject duplicate keys and raw JSON over 2 MiB, alongside the documented
+plain-data limits. Conventional Unix/macOS/Windows home prefixes are masked by
+default, as are known credential assignments and sensitive arguments. For
+nonstandard homes or arbitrary secret values, pass the same `homePaths` and
+`secretValues` privacy context accepted by `createReport`. Projection means these
+rules ran; it does not prove every sensitive value was recognizable. Review the
+result before sharing. Expansion beyond snapshot bounds is refused.

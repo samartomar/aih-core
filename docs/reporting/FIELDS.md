@@ -13,18 +13,18 @@ the row says the caller supplies it.
 
 | Field | Producer | Meaning / units | Provenance | Availability | Privacy treatment |
 |---|---|---|---|---|---|
-| `schema` | this library | Version identity of the snapshot shape. No unit. | Constant `urn:aihq:report:snapshot:1.0.0`. | Always present. | Non-sensitive constant. |
-| `compatibility` | this library | `experimental`: shape may change without a stable-format promise. | Constant. | Always present. | Non-sensitive constant. |
+| `schema` | this reporting module | Version identity of the snapshot shape. No unit. | Constant `urn:aihq:report:snapshot:1.0.0`. | Always present. | Non-sensitive constant. |
+| `compatibility` | this reporting module | `experimental`: shape may change without a stable-format promise. | Constant. | Always present. | Non-sensitive constant. |
 | `producer.name` | caller | Package that produced `diagnostic`. | Supplied provenance, not attestation. | Always present; must be `@aihq/core`. | Non-sensitive constant. |
 | `producer.version` | caller | Producer package version string. No unit. | Supplied provenance. | Always present. | Redacted as free text. |
 | `producer.revision` | caller | Producer source revision string or null. No unit. | Supplied provenance. | Null when unavailable. | Strings redacted as free text. |
-| `producer.contract` | this library | Diagnostic schema identity the snapshot was built against. | Constant `urn:aihq:harness:diagnostic:1.0.0`. | Always present. | Non-sensitive constant. |
+| `producer.contract` | this reporting module | Diagnostic schema identity the snapshot was built against. | Constant `urn:aihq:harness:diagnostic:1.0.0`. | Always present. | Non-sensitive constant. |
 | `capture.observedAt` | caller | Instant the diagnostic observation is attributed to. ISO 8601 UTC. | Supplied; not proof of acquisition. | Always present. | Not free text. |
 | `capture.acquisition` | caller | `supplied` (already-obtained bytes) or `newly-acquired`. | Supplied. | Always present. | Enum copied verbatim. |
 | `evidence.originalSha256` | caller | SHA-256 of the **raw** evidence bytes, 64 lowercase hex, or `null`. Never the hash of this snapshot. | Supplied. | `null` when not supplied. | Identity of raw bytes; the bytes themselves are never embedded, copied or overwritten. |
-| `evidence.authentication` | this library | Always `not-authenticated`. No signature, key or trust check is performed. | Constant. | Always present. | Non-sensitive constant. |
-| `evidence.structuralValidation` | this library | Always `passed`; the input matched the shape and bounds below. It says nothing about whether the assertions are true. | Derived. | Always present. | Non-sensitive constant. |
-| `evidence.projection` | this library | Always `redacted`; the privacy projection was applied. | Derived. | Always present. | Non-sensitive constant. |
+| `evidence.authentication` | this reporting module | Always `not-authenticated`. No signature, key or trust check is performed. | Constant. | Always present. | Non-sensitive constant. |
+| `evidence.structuralValidation` | this reporting module | Always `passed`; the input matched the shape and bounds below. It says nothing about whether the assertions are true. | Derived. | Always present. | Non-sensitive constant. |
+| `evidence.projection` | this reporting module | Always `redacted`; the privacy projection was applied. | Derived. | Always present. | Non-sensitive constant. |
 
 ## Diagnostic projection
 
@@ -50,7 +50,7 @@ the row says the caller supplies it.
 | `metrics.budgetMs` | `diagnostic.limits.budgetMs` | Diagnostic time budget, integer milliseconds, 1–180000. | Producer limit. | Always present. | Non-text numeric. |
 | `metrics.elapsedMs` | `diagnostic.limits.elapsedMs` | Observed elapsed time, integer milliseconds, ≥ 0. | Producer measurement. | Always present. | Non-text numeric. |
 | `metrics.maxActiveProbes` | `diagnostic.limits.maxActiveProbes` | Maximum concurrent probes, integer 1–2. | Producer limit. | Always present. | Non-text numeric. |
-| `metrics.counts` | derived from `diagnostic.checks` | Number of checks per outcome: `passed`, `failed`, `unavailable`, `skipped`. Unit: checks. | Derived by this library. | Always present; `0` is a measured zero. | Non-text numeric. |
+| `metrics.counts` | derived from `diagnostic.checks` | Number of checks per outcome: `passed`, `failed`, `unavailable`, `skipped`. Unit: checks. | Derived by this reporting module. | Always present; `0` is a measured zero. | Non-text numeric. |
 
 ### Producer fields intentionally not exposed
 
@@ -106,4 +106,11 @@ Applied to every projected string, on `createReport`, `importSnapshot` and
 Enum-typed fields (`status`, `tools[].state`, `tools[].selection`,
 `checks[].outcome`, `capture.acquisition`) are copied verbatim, so redaction can
 never turn a meaningful state into a secret-like token or the reverse.
+
 Producer revision may be null when the installed package does not expose its source commit. The fresh command uses null for revision and original evidence identity; externally supplied snapshots may retain a caller-provided original-byte digest without authentication.
+
+Import and export always mask conventional home prefixes (`/home/<user>`,
+`/Users/<user>` and Windows user directories) and credential assignments using
+either `=` or `:`. Imports also accept explicit privacy context for nonstandard
+home paths or arbitrary secrets. Applied projection is not a completeness or
+authentication claim; inspect the redacted report before sharing.

@@ -339,3 +339,11 @@ test('demo mode is prominently labelled, renders only design-sample values and n
   assert.ok(hydrated.document.getElementById('radar').childNodes.length > 0, 'the sample radar is drawn only in demo mode');
   assert.equal(load(report).document.getElementById('radar'), null, 'a normal report has no radar');
 });
+
+test('offline HTML explicitly describes saved snapshot display and original capture',()=>{
+ const snapshot=fixture({capture:{observedAt:'2026-10-03T12:00:00.000Z',acquisition:'newly-acquired'}});
+ const html=renderReport(snapshot);
+ assert.match(html,/Saved snapshot display/);
+ assert.match(html,/original capture/i);
+ assert.doesNotMatch(html,/sensitive values were removed before rendering/);
+});

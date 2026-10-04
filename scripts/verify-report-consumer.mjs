@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { build, stop } from 'esbuild';
+import { runInNewContext } from 'node:vm';
 const npmPath = process.env.npm_execpath;
 if (!npmPath) throw new Error('Run through npm run verify:report-consumer');
 const root = resolve('.');
@@ -34,6 +36,14 @@ try {
  await writeFile(join(consumer,'check.mjs'),script);
  const result=execFileSync(process.execPath,['check.mjs'],{cwd:consumer,encoding:'utf8',windowsHide:true});
  console.log(result.trim());
+ const browser=await build({stdin:{contents:"export * from '@aihq/core/report'; export {renderReport} from '@aihq/core/report/render';",resolveDir:consumer},bundle:true,platform:'browser',format:'iife',globalName:'ReportAPI',write:false,metafile:true,logLevel:'silent'});
+ assert.ok(Object.keys(browser.metafile.inputs).every(path=>!path.startsWith('node:')&&!/harness\/(?:runtime|report-command)\.mjs$/.test(path)));
+ const browserContext={TextEncoder,TextDecoder,reportInputJSON:await readFile(join(consumer,'input.json'),'utf8')}; runInNewContext(browser.outputFiles[0].text,browserContext);
+ const browserReport=runInNewContext('ReportAPI.createReport(JSON.parse(reportInputJSON))',browserContext);
+ assert.equal(browserReport.metrics.counts.passed,1);
+ assert.ok(browserContext.ReportAPI.renderReport(browserReport).includes('sec-ready'));
+ await stop();
+ console.log('Packed reporting browser bundle runs without Node globals or producer runtime.');
  const loader="export async function resolve(specifier,context,next){const result=await next(specifier,context); if(/\\/(render|template|fonts)\\.mjs$/.test(result.url)) throw new Error('Renderer loaded by data-only consumer'); return result;}";
  await writeFile(join(consumer,'no-render-loader.mjs'),loader);
  const dataScript="import {readFile,writeFile} from 'node:fs/promises'; import {createReport,exportSnapshot} from '@aihq/core/report'; await writeFile('report.json',exportSnapshot(createReport(JSON.parse(await readFile('input.json','utf8')))));";
@@ -56,4 +66,4 @@ try {
  assert.equal(saved.source,'snapshot'); assert.equal(await readFile(saved.output.json,'utf8'),actual);
  assert.equal(await readFile(saved.output.html,'utf8'),await readFile(fresh.output.html,'utf8'));
  console.log('Packed reporting declarations, real offline command and snapshot replay passed; saved mode reproduces identical JSON/HTML.');
-} finally { await rm(temporary,{recursive:true,force:true}); }
+} finally { await stop(); await rm(temporary,{recursive:true,force:true}); }

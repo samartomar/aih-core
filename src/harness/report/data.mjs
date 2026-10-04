@@ -3,9 +3,10 @@
  *
  * Data only: this module performs no rendering, no filesystem access and no
  * host observation. It validates a bounded @aihq/core Harness diagnostic result
- * and projects it into a versioned, redacted ReportSnapshot. See docs/CONTRACT.md
- * and docs/FIELDS.md.
+ * and projects it into a versioned, redacted ReportSnapshot. See docs/reporting/CONTRACT.md
+ * and docs/reporting/FIELDS.md.
  */
+import { parseTree } from 'jsonc-parser';
 
 /** Versioned identity of the ReportSnapshot shape this module produces. */
 export const SNAPSHOT_SCHEMA = 'urn:aihq:report:snapshot:1.0.0';
@@ -297,8 +298,9 @@ const SECRET_PATTERNS = [
   /bearer\s+[A-Za-z0-9._-]+/gi,
 ];
 const ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'ACCESS_KEY'];
-const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'API_KEY'];
-const SENSITIVE_FLAG_NAME = /^(token|password|passwd|pass|secret|api[-_]?key|apikey|auth|bearer)$/i;
+const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'APIKEY', 'ACCESS_KEY'];
+const SENSITIVE_FLAG_NAME = /^(token|access[-_]?token|auth[-_]?token|password|passwd|pass|secret|client[-_]?secret|api[-_]?key|apikey|auth|bearer)$/i;
+const CONVENTIONAL_HOME = /(?:[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/\s"'<>;]+|\/(?:home|Users)\/[^/\s"'<>;]+)/g;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -311,9 +313,8 @@ function redactSecretAssignments(text) {
     (match, key, separator, rawValue) => {
       const upper = key.toUpperCase();
       const value = rawValue.replace(/^["']|["']$/g, '');
-      const longAssignment = ASSIGNMENT_KEYWORDS.some((keyword) => upper.indexOf(keyword, 1) !== -1) && value.length >= 8;
-      const shortAssignment = separator.trim() === '=' && /^[A-Z_]+$/.test(key)
-        && SHORT_ASSIGNMENT_KEYWORDS.some((keyword) => upper.endsWith(keyword));
+      const longAssignment = ASSIGNMENT_KEYWORDS.some((keyword) => upper.includes(keyword)) && value.length >= 8;
+      const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some((keyword) => upper.endsWith(keyword));
       return longAssignment || shortAssignment ? '[REDACTED]' : match;
     },
   );
@@ -374,7 +375,7 @@ function redactText(value, rules) {
   let output = value;
   for (const rule of rules) output = applyLiteral(output, rule);
   for (const pattern of SECRET_PATTERNS) output = output.replace(pattern, '[REDACTED]');
-  return redactSensitiveFlags(redactSecretAssignments(output));
+  return redactSensitiveFlags(redactSecretAssignments(output)).replace(CONVENTIONAL_HOME, '<homePath>');
 }
 
 function countOutcomes(checks) {
@@ -392,8 +393,8 @@ function project(diagnostic, input, rules) {
     compatibility: 'experimental',
     producer: {
       name: input.producer.name,
-      version: input.producer.version,
-      revision: input.producer.revision,
+      version: redact(input.producer.version),
+      revision: input.producer.revision === null ? null : redact(input.producer.revision),
       contract: DIAGNOSTIC_CONTRACT,
     },
     capture: { observedAt: input.observedAt, acquisition: input.acquisition },
@@ -453,7 +454,7 @@ export function createReport(input) {
   }
   const rules = buildRedactor(bounded.redaction);
   const diagnostic = validateDiagnostic(bounded.diagnostic);
-  return project(diagnostic, bounded, rules);
+  return checkedProjection(project(diagnostic, bounded, rules));
 }
 
 /**
@@ -525,8 +526,9 @@ export function validateSnapshot(value) {
  * privacy projection. A recognized-but-unsupported version throws
  * SCHEMA_UNSUPPORTED; malformed JSON or shape throws INPUT_INVALID.
  */
-export function importSnapshot(json) {
+export function importSnapshot(json, redaction) {
   if (typeof json !== 'string') invalid('input: expected a JSON string');
+  if (json.length > 2_097_152 || encoder.encode(json).length > 2_097_152) invalid('input: JSON exceeds byte limit');
   let parsed;
   try {
     parsed = JSON.parse(json);
@@ -534,6 +536,7 @@ export function importSnapshot(json) {
     invalid('input: invalid JSON');
   }
   const bounded = toBoundedJson(parsed, 'snapshot');
+  rejectDuplicateKeys(json);
   if (isPlainObject(bounded)) {
     if (typeof bounded.schema === 'string' && bounded.schema !== SNAPSHOT_SCHEMA) {
       throw new ReportInputError('SCHEMA_UNSUPPORTED', 'snapshot.schema: unsupported version');
@@ -544,7 +547,26 @@ export function importSnapshot(json) {
     }
   }
   validateSnapshotShape(bounded);
-  return rebuildSnapshot(bounded, []);
+  return checkedProjection(rebuildSnapshot(bounded, buildRedactor(redaction === undefined ? undefined : toBoundedJson(redaction, 'redaction'))));
+}
+
+function rejectDuplicateKeys(json) {
+  let tree;
+  try { tree = parseTree(json); } catch { invalid('input: invalid JSON structure'); }
+  let nodes = 0;
+  function visit(node, depth) {
+    if (++nodes > MAX_NODES * 4 || depth > MAX_DEPTH * 2 + 2) invalid('input: JSON exceeds structural limits');
+    if (node.type === 'object') {
+      const keys = new Set();
+      for (const property of node.children ?? []) {
+        const key = property.children[0].value;
+        if (keys.has(key)) invalid('input: duplicate JSON key');
+        keys.add(key);
+      }
+    }
+    for (const child of node.children ?? []) visit(child, depth + 1);
+  }
+  visit(tree, 0);
 }
 
 /**
@@ -554,5 +576,11 @@ export function importSnapshot(json) {
 export function exportSnapshot(report) {
   const bounded = toBoundedJson(report, 'snapshot');
   validateSnapshotShape(bounded);
-  return JSON.stringify(rebuildSnapshot(bounded, []));
+  return JSON.stringify(checkedProjection(rebuildSnapshot(bounded, [])));
+}
+
+function checkedProjection(value) {
+  const bounded = toBoundedJson(value, 'snapshot');
+  validateSnapshotShape(bounded);
+  return bounded;
 }

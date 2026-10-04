@@ -65,13 +65,13 @@ const EMPTY_PANELS = {
 
 const BANNER_LEAD = {
   supplied: 'Supplied snapshot — not re-collected',
-  'newly-acquired': 'Newly acquired observations, as labelled by the caller'
+  'newly-acquired': 'Newly acquired at original capture, as labelled by the caller'
 };
 
 // Capture metadata is the caller's supplied provenance. Importing or rendering never implies freshness.
 function reportBanner(snapshot) {
   const { capture, producer } = snapshot;
-  return `<div class="whatsnew"><span class="tag">SNAPSHOT</span><span><b>${esc(BANNER_LEAD[capture.acquisition] ?? BANNER_LEAD.supplied)}</b><span class="sep">·</span>observed ${esc(capture.observedAt)}<span class="sep">·</span>${esc(producer.name)} ${esc(producer.version)}<span class="sep">·</span><span class="muted">rendering never collects data</span></span></div>`;
+  return `<div class="whatsnew"><span class="tag">SNAPSHOT</span><span><b>Saved snapshot display — ${esc(BANNER_LEAD[capture.acquisition] ?? BANNER_LEAD.supplied)}</b><span class="sep">·</span>original capture ${esc(capture.observedAt)}<span class="sep">·</span>${esc(producer.name)} ${esc(producer.version)}<span class="sep">·</span><span class="muted">rendering never collects data</span></span></div>`;
 }
 
 const ICON_ALERT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
@@ -154,7 +154,7 @@ function provenanceCard(m) {
     ['Original evidence SHA-256', sha],
     ['Authentication', `${evidence.authentication.replace(/-/g, ' ')} — no origin or signature check was made`],
     ['Structural validation', `${evidence.structuralValidation} — shape only; says nothing about authenticity or whether the diagnostic succeeded`],
-    ['Projection', `${evidence.projection} — sensitive values were removed before rendering`],
+    ['Projection', `${evidence.projection} — known secret/home/argument patterns masked; review before sharing`],
     ['Probe limits', `budget ${metrics.budgetMs} ms · elapsed ${metrics.elapsedMs} ms · max active probes ${metrics.maxActiveProbes}`]
   ];
   const list = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');

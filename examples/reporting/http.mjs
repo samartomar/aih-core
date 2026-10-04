@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { open } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { homedir } from 'node:os';
 import { importSnapshot, exportSnapshot } from '@aihq/core/report';
 
 export async function startSnapshotServer({snapshotPath, port = 0}) {
@@ -20,7 +21,7 @@ export async function startSnapshotServer({snapshotPath, port = 0}) {
     if (length > 1_000_000) throw new Error('Snapshot exceeds example limit');
     bytes = buffer.subarray(0,length);
   } finally { await handle.close(); }
-  const report = importSnapshot(bytes.toString('utf8'));
+  const report = importSnapshot(bytes.toString('utf8'), {homePaths:[homedir()]});
   const json = exportSnapshot(report);
   const server = createServer((request,response) => {
     response.setHeader('Cache-Control','no-store');

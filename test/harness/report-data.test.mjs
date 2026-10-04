@@ -309,3 +309,36 @@ test('public reporting metadata respects advertised schema length limits', () =>
  assert.equal(validateSnapshot(snapshot).valid,false);
 });
 
+
+test('colon credentials and conventional remote homes are redacted through imported snapshots', async () => {
+ const snapshot=createReport(validInput());
+ snapshot.observations[0].detail='API_KEY: credential-fixture-one password: credential-fixture-two TOKEN: short /home/alice/project C:/Users/Bob/work /Users/Carol/work';
+ const report=importSnapshot(JSON.stringify(snapshot));
+ const json=exportSnapshot(report);
+ for(const value of ['credential-fixture-one','credential-fixture-two','short','alice','Bob','Carol']) assert.ok(!json.includes(value),value);
+ const {renderReport}=await import('@aihq/core/report/render'); const html=renderReport(report);
+ assert.ok(!html.includes('credential-fixture-one')); assert.ok(!html.includes('alice'));
+ assert.equal(report.evidence.authentication,'not-authenticated');
+});
+test('import applies explicit privacy context to nonstandard supplied home paths',()=>{
+ const snapshot=createReport(validInput()); snapshot.observations[0].detail='/custom/private-root/project custom-secret-fixture';
+ const report=importSnapshot(JSON.stringify(snapshot),{homePaths:['/custom/private-root'],secretValues:['custom-secret-fixture']});
+ assert.equal(report.observations[0].detail,'<homePath>/project [REDACTED]');
+});
+test('ambiguous duplicate JSON keys are refused including escaped equivalent keys',()=>{
+ const json=exportSnapshot(createReport(validInput()));
+ for(const replacement of ['"status":"invalid","status":"completed"','"stat\\u0075s":"invalid","status":"completed"'])
+  assert.throws(()=>importSnapshot(json.replace('"status":"completed"',replacement)),{code:'INPUT_INVALID'});
+});
+
+
+test('privacy projection also masks producer metadata and refuses expansion beyond schema limits',()=>{
+ const input=validInput({producer:{name:'@aihq/core',version:'TOKEN: producer-secret-fixture',revision:'/home/private-user/revision'}});
+ input.diagnostic.helper.version=input.producer.version;
+ const report=createReport(input);
+ assert.ok(!report.producer.version.includes('producer-secret-fixture'));
+ assert.ok(!report.producer.revision.includes('private-user'));
+ const expanded=validInput({producer:{name:'@aihq/core',version:'v'.repeat(128),revision:null},redaction:{secretValues:['v']}});
+ expanded.diagnostic.helper.version=expanded.producer.version;
+ assert.throws(()=>createReport(expanded),{code:'INPUT_INVALID'});
+});

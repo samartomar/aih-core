@@ -39,8 +39,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   try {
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
-      assert.equal(/(?:^|\/)(?:src|test|docs|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.equal(/(?:^|\/)(?:src|test|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -365,8 +365,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
 
     // A Harness edit ships in a new Core version built from standalone source.
     const updated = join(root, 'updated-core'); mkdirSync(updated);
-    for (const name of ['src', 'scripts']) cpSync(join(packageRoot, name), join(updated, name), { recursive: true });
-    for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'CHANGELOG.md', 'LICENSE'])
+    for (const name of ['src', 'scripts', 'docs/reporting', 'examples/reporting']) cpSync(join(packageRoot, name), join(updated, name), { recursive: true });
+    for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE'])
       copyFileSync(join(packageRoot, name), join(updated, name));
     mkdirSync(join(updated, 'test'));
     for (const name of ['harness', 'fixtures']) cpSync(join(packageRoot, 'test', name), join(updated, 'test', name), { recursive: true });

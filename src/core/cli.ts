@@ -139,10 +139,7 @@ try {
   } else if (positionals[0] === 'report') {
     // Acquisition or import only: no repair, policy, upload or service is reachable from this branch.
     const reportMessage = 'Choose one new output directory and either fresh offline targets or one supplied snapshot file.';
-    if (positionals.length !== 1 || !values.output || Object.keys(values).some(name => !['output','snapshot','target','offline','demo','json'].includes(name)) || values.snapshot !== undefined && (values.target || values.offline) ||
-        values.project || values.apply || values.yes || values['allow-partial'] || values['private-input']?.length ||
-        values['material-root']?.length || values.resolutions || values['inputs-file'] || values['probe-configured-mcp'] ||
-        hasOrganizationFlags || values.evidence) refused('INPUT_INVALID', 'cli-options', reportMessage);
+    if (positionals.length !== 1 || !values.output || Object.keys(values).some(name => !['output','snapshot','target','offline','demo','json'].includes(name)) || values.snapshot !== undefined && (values.target || values.offline)) refused('INPUT_INVALID', 'cli-options', reportMessage);
     else {
       let snapshotJson: string | undefined; let unreadable: string | undefined;
       if (values.snapshot !== undefined) {
