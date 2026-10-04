@@ -300,7 +300,8 @@ const SECRET_PATTERNS = [
 const ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'ACCESS_KEY'];
 const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'APIKEY', 'ACCESS_KEY'];
 const SENSITIVE_FLAG_NAME = /^(token|access[-_]?token|auth[-_]?token|password|passwd|pass|secret|client[-_]?secret|api[-_]?key|apikey|auth|bearer)$/i;
-const CONVENTIONAL_HOME = /(?:[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/\r\n\t"'<>;]+|\/(?:home|Users)\/[^/\s"'<>;]+)/gi;
+const WINDOWS_HOME = /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?:[^\\/:\r\n\t"'<>;|?*]+(?=[\\/]|$|["'])|[^\s\\/:"'<>;|?*]+)/gi;
+const UNIX_HOME = /\/(?:home|Users)\/[^/\s"'<>;]+/g;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -308,24 +309,56 @@ function escapeRegExp(value) {
 
 /** Mask `KEY=VALUE` / `KEY: VALUE` diagnostics, including quoted credential keys. */
 function redactSecretAssignments(text) {
-  return text.replace(
-    /(?:\b|["'])([A-Za-z_][A-Za-z0-9_]*)["']?(\s*[=:]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;{}\[\]"']+)/g,
-    (match, key, separator, rawValue) => {
-      const upper = key.toUpperCase();
-      const value = rawValue.replace(/^["']|["']$/g, '');
-      const longAssignment = ASSIGNMENT_KEYWORDS.some((keyword) => upper.includes(keyword)) && value.length >= 8;
-      const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some((keyword) => upper.endsWith(keyword));
-      return longAssignment || shortAssignment ? '[REDACTED]' : match;
-    },
-  );
+  // Scan keys first: consuming a noncredential value could skip a nested credential key.
+  const keys = /(?:["']|\b)([A-Za-z_][A-Za-z0-9_]*)["']?\s*[=:]\s*/g;
+  let output = '', copied = 0, match;
+  while ((match = keys.exec(text)) !== null) {
+    if (match.index > 0 && text[match.index - 1] === '-') continue; // Flags retain their names below.
+    const upper = match[1].toUpperCase();
+    const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some(keyword => upper.endsWith(keyword));
+    const possibleLongAssignment = ASSIGNMENT_KEYWORDS.some(keyword => upper.includes(keyword));
+    if (!shortAssignment && !possibleLongAssignment) continue;
+    const start = keys.lastIndex;
+    const end = credentialValueEnd(text, start);
+    if (!shortAssignment && text.slice(start, end).replace(/^["']|["']$/g, '').length < 8) continue;
+    output += text.slice(copied, match.index) + '[REDACTED]';
+    copied = end;
+    keys.lastIndex = end;
+  }
+  return output + text.slice(copied);
+}
+
+function credentialValueEnd(text, start) {
+  const redactedEnd = start + '[REDACTED]'.length;
+  if (text.startsWith('[REDACTED]', start) && (redactedEnd === text.length || /[\s,;}\]]/.test(text[redactedEnd]))) return redactedEnd;
+  // Ambiguous container values cannot safely be cut at their first whitespace.
+  if (text[start] === '{' || text[start] === '[') return text.length;
+  const quote = text[start];
+  let end = start;
+  if (quote === '"' || quote === "'") {
+    end++;
+    while (end < text.length && text[end] !== quote) end += text[end] === '\\' ? 2 : 1;
+    if (end >= text.length) return text.length;
+    end++;
+    if (end === text.length || /[\s,;}\]]/.test(text[end])) return end;
+  }
+  // Punctuation inside an unquoted credential is part of the credential.
+  while (end < text.length && !/[\s,;]/.test(text[end])) end++;
+  return end;
 }
 
 /** Mask `--token value` / `--token=value` for credential-bearing flags. */
 function redactSensitiveFlags(text) {
-  return text.replace(
-    /(--?[A-Za-z][\w-]*)(=|\s+)("[^"]*"|'[^']*'|\S+)/g,
-    (match, flag, separator) => (SENSITIVE_FLAG_NAME.test(flag.replace(/^--?/, '')) ? `${flag}${separator}[REDACTED]` : match),
-  );
+  const flags = /(--?[A-Za-z][\w-]*)(=|\s+)/g;
+  let output = '', copied = 0, match;
+  while ((match = flags.exec(text)) !== null) {
+    if (!SENSITIVE_FLAG_NAME.test(match[1].replace(/^--?/, ''))) continue;
+    const end = credentialValueEnd(text, flags.lastIndex);
+    output += text.slice(copied, match.index) + match[0] + '[REDACTED]';
+    copied = end;
+    flags.lastIndex = end;
+  }
+  return output + text.slice(copied);
 }
 
 /** Validate the optional `redaction` object and return ordered literal rules. */
@@ -375,7 +408,7 @@ function redactText(value, rules) {
   let output = value;
   for (const rule of rules) output = applyLiteral(output, rule);
   for (const pattern of SECRET_PATTERNS) output = output.replace(pattern, '[REDACTED]');
-  return redactSensitiveFlags(redactSecretAssignments(output)).replace(CONVENTIONAL_HOME, '<homePath>');
+  return redactSensitiveFlags(redactSecretAssignments(output)).replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
 }
 
 function countOutcomes(checks) {

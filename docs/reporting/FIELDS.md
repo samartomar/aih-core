@@ -115,3 +115,9 @@ spaces in Windows usernames) and credential assignments using either `=` or
 `:` with plain or quoted keys. Imports also accept explicit privacy context for nonstandard
 home paths or arbitrary secrets. Applied projection is not a completeness or
 authentication claim; inspect the redacted report before sharing.
+
+Assignment scanning recognizes credential keys without consuming ordinary
+values first, so nested quoted credentials are still found. Unquoted credential
+punctuation stays part of the masked value. Ambiguous container values and
+unterminated quotes mask the remaining prose conservatively; enum states and
+measured counts stay unchanged.

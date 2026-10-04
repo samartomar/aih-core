@@ -358,3 +358,42 @@ test('JSON-style credential keys are masked in supplied diagnostic strings', () 
   assert.ok(!json.includes('fixture-private-value'));
   assert.ok(!json.includes('short'));
 });
+
+test('adjacent Windows home references cannot consume a second private username', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = 'Home C:\\Users\\bob differs from C:\\Users\\alice\\x';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.equal(report.observations[0].detail, 'Home <homePath> differs from <homePath>\\x');
+});
+
+test('unquoted credential punctuation and nested quoted values are completely masked', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = 'PASSWORD=p@ss{w0rd}tail TOKEN=abc\'def123 settings: {"password": "private-value"}';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.equal(report.observations[0].detail, '[REDACTED] [REDACTED] settings: {[REDACTED]}');
+  assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+});
+
+test('quoted escapes and ambiguous credential values do not expose their private payload', () => {
+  const snapshot = createReport(validInput());
+  const secret = 'fixture "quoted" private payload';
+  for (const detail of [
+    'metadata: ' + JSON.stringify({ password: secret }),
+    'TOKEN_CONFIG=' + JSON.stringify({ password: secret }),
+    'PASSWORD="unterminated private payload',
+    'PASSWORD="quoted private payload"tail',
+  ]) {
+    snapshot.observations[0].detail = detail;
+    const report = importSnapshot(JSON.stringify(snapshot));
+    assert.ok(!report.observations[0].detail.includes('private payload'));
+    assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+  }
+});
+
+test('credential-bearing flags mask escaped quoted arguments and punctuation', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = '--password ' + JSON.stringify('fixture "quoted" private payload') + ' --token=punct{private}tail';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.equal(report.observations[0].detail, '--password [REDACTED] --token=[REDACTED]');
+  assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+});
