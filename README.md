@@ -30,8 +30,13 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/recipe/1.1.0.json` | Recipe 1.1.0 JSON Schema (adds `hook.group`) |
 | `@aihq/core/schemas/prepared-work/1.1.0.json` | Serializable review 1.1.0 JSON Schema |
 | `@aihq/core/schemas/run-result/1.1.0.json` | Run-result 1.1.0 JSON Schema |
+| `@aihq/core/schemas/repair-request/1.0.0.json`, `repair-inputs/1.0.0.json` | Versioned trust repair request and CLI input schemas |
+| `@aihq/core/schemas/certificate-export-request/1.0.0.json`, `certificate-export-inputs/1.0.0.json` | Standalone certificate export request and CLI input schemas |
+| `@aihq/core/schemas/prepared-work/1.2.0.json`, `run-result/1.2.0.json` | Complete trust review and application result schemas |
+| `@aihq/core/schemas/trust-custody/1.0.0.json` | Protected trust provenance schema |
 | `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
+| `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
@@ -44,6 +49,12 @@ diagnostic schema explicitly when validating a Harness `diagnose` result; the
 result retains its existing shape without a `schema` property.
 
 JSON Schema establishes structure. The portable validators also check strict JSON data, unique IDs, dependency cycles, check/material references, input definitions and bindings. These checks do not grant organization authority or permission to execute.
+
+Trust/export contracts expose `validateTrustRepairRequest`, `validateTrustRepairInputs`,
+`validateCertificateExportRequest`, `validateCertificateExportInputs`,
+`validatePreparedWork12`, `validateRunResult12` and `validateTrustCustody` through
+`@aihq/core/contracts`. These validators inspect bounded data without observing
+the host. New trust Prepare controls accept only `signal` and `logging`.
 
 ## Discover the CLI
 
@@ -79,6 +90,43 @@ Inspection also covers the helpers `rg`, `fd` (or Debian's `fdfind`), `jq`, `cur
 
 ## Repair Node/npm trust
 
+The versioned trust request reviews each source separately, retains previously
+supplied sources until explicit removal or replacement, and reports complete
+certificate and provenance changes. Native OS repair requires an admitted actual
+client/backend/configuration combination. An unavailable combination returns a
+blocked review; it is never reported as repaired. The portable Harness exports
+`trustRepairIndex`, `trustCapabilities` and `selectRepairDefinition` for discovering
+the installed definitions and admission cells.
+
+For a reviewed supplied-file Node/npm repair, save this as `trust-inputs.json`:
+
+```json
+{
+  "schema": "urn:aihq:core:repair-inputs:1.0.0",
+  "route": "file",
+  "repairs": { "node-npm-ca": {} },
+  "sources": {
+    "os": false,
+    "supplied": [{ "id": "company", "file": "company-ca.pem" }]
+  }
+}
+```
+
+```sh
+aih repair node-npm-ca --target npm --inputs-file trust-inputs.json --offline --json
+aih repair node-npm-ca --target npm --inputs-file trust-inputs.json --offline --apply
+```
+
+Supplied paths in versioned CLI documents resolve relative to that document.
+Public API supplied paths must be absolute. Versioned requests reject `caFile`;
+source selection belongs in `sources`. `sources.os:true` requests the complete
+effective OS projection and blocks if discovery or restriction preservation is
+incomplete. Explicitly prepare with `os:false` for supplied-only trust. Offline
+client checks are reported as skipped. Native requests use `route:"native"`,
+omit `sources`, and require admitted native behavior.
+
+The schema-less request below preserves its earlier supplied-file behavior.
+
 The bundled Harness module supplies `node-npm-ca`. Save `{"node-npm-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`, then preview and authorize selected user-scope targets:
 
 ```sh
@@ -103,6 +151,56 @@ const result = await apply(preparation.prepared, {
 Input must be a complete certificate-only PEM: at most 1 MiB total, 256 blocks and 64 KiB per block. Every certificate must parse as one CA certificate valid at preparation and application time. One bad block rejects the entire import without touching existing trust or configuration. Accepted certificates are copied to Core-managed user material; later source changes do not rotate that copy. Existing managed certificates are retained byte-for-byte, including expired certificates. Unowned or changed destinations need an exact reviewed resolution through `--resolutions`; a generic `--allow-partial` does not grant replacement authority. No system trust store or installer is changed.
 
 Node's user shell profile receives `NODE_EXTRA_CA_CERTS`. On Windows, a reviewed user-environment update also persists the value for future user processes, and its check must pass before the profile reference is written. The Node check starts a new Node process, confirms the selected CA identities loaded, and attempts a TLS connection to the public npm registry unless `--offline` was selected. Existing processes may need restarting to inherit the user environment. npm receives a user `.npmrc` `cafile`; the managed bundle includes Node's default roots because npm replaces its default trust when `cafile` is set. Its online check queries npm configuration and pings the registry selected by npm's configuration. `--offline` suppresses live TLS verification for either target and reports its repair as incomplete. A successful public-registry check does not prove the supplied CA resolved a different endpoint's trust failure.
+
+## Export certificates
+
+`export-ca` reviews a standalone certificate export without a service URL or
+prior repair. It writes deterministic PEM or certificates-only DER P7B at the
+reviewed path inside the user home. Relative output paths resolve from the home;
+the defaults are `.aih/exports/os-ca.pem` and `.aih/exports/os-ca.p7b`.
+
+```sh
+aih export-ca --format pem --output certificates/os-ca.pem --json
+aih export-ca --format pkcs7-der --output certificates/os-ca.p7b --apply
+```
+
+OS discovery must establish the full suitable set and preserve every applicable
+restriction. Incomplete discovery, policy loss or an unadmitted format/platform
+blocks the complete export. Adding supplied certificates does not bypass that
+requirement. For supplied-only export, use a document containing
+`{"schema":"urn:aihq:core:certificate-export-inputs:1.0.0","sources":{"os":false,"supplied":[{"id":"company","file":"company-ca.pem"}]}}`
+with `--inputs-file`. A matching installed format admission cell is still required.
+
+The equivalent API request is:
+
+```js
+const preparation = await prepare({
+  schema: 'urn:aihq:core:certificate-export-request:1.0.0',
+  useCase: 'certificate-export',
+  format: 'pem',
+  output: 'certificates/company.pem',
+  sources: { os: false, supplied: [{ id: 'company', file: absolutePemPath }] }
+});
+```
+
+Authorize its exact `reviewDigest` through `apply` as for other prepared work.
+An existing output requires a reviewed replacement unless genuine matching
+custody already exists. Refresh re-reads each retained original source; missing,
+changed or expired sources block until explicitly replaced or removed through
+`sources.removeSupplied`. Removing the final certificate blocks; use managed
+removal to retire the output. Different paths and formats have separate managed
+identities. `--no-log` disables optional history, while protected ownership and
+provenance remain required. Review public paths and certificate metadata before
+sharing JSON output.
+
+After an interrupted trust update, prepare the same output again with each
+recorded supplied ID explicitly supplied or removed. Apply revalidates the current
+sources and the reviewed recovery state. If ownership or provenance is missing,
+use the exact replacement offered in `resolutionInputs`, then prepare and approve
+again. Managed removal can retire a genuine owned output or clear interrupted
+metadata when both output and ownership are absent. Changed replacement bytes or
+unverifiable recovery evidence block reconciliation. Ordinary policy and trust
+Prepare both check aggregate ownership capacity before returning a ready review.
 
 ## Repair Python/pip, Git, Cargo and conda trust
 
@@ -200,7 +298,7 @@ aih policy policy.json --project /absolute/project --apply --yes --json
 aih policy policy.json --project /absolute/project --apply --yes --no-log --json
 ```
 
-Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. `--no-log` (accepted by `policy` and `repair` only) turns routine history off for both Prepare and Apply, so the result record is `{"status":"disabled","reason":"logging-off"}`; ownership, recovery and approval are unchanged. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
+Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. `--no-log` (accepted by `policy`, `repair` and `export-ca`) turns routine history off for both Prepare and Apply, so the result record is `{"status":"disabled","reason":"logging-off"}`; ownership, recovery and approval are unchanged. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
 
 An author may use `config.entries` for selected JSON/JSONC or unambiguous scalar TOML keys, `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. The prepared review shows resolved edits and checks, including executable byte hashes, argv, environment, accepted exit codes and bounds; private values are redacted. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
 

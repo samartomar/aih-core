@@ -31,3 +31,11 @@ environment access; they do not import the legacy engine or its collectors.
 
 The design uses system font stacks only. No font files, images or third-party
 scripts are embedded or loaded.
+
+## Bundled certificate serialization libraries
+
+The local package bundles PKI.js, ASN1.js and their serializer dependencies.
+Their copyright notices and licenses are retained under the respective bundled
+node_modules directories. PKI.js is BSD-3-Clause; ASN1.js is BSD-3-Clause.
+These libraries encode certificates-only DER PKCS#7; they grant no OS trust
+or native-client admission.

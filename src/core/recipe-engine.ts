@@ -26,6 +26,8 @@ import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
 import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
+import type { TrustEngineParticipant } from './internal/trust-participant.js';
+import { guardTrustMember } from './internal/trust-custody.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -43,6 +45,7 @@ interface PreparedStep {
   authored?: { selectionId: string; operationId: string; overlayKey?: string; choices: ('replace' | 'adopt')[] };
 }
 interface PreparedState {
+  trustParticipant?: TrustEngineParticipant;
   request: PolicyRequest; requestDigest: string; privateInputs: HostControls['privateInputs']; privateDigest: string;
   review: PreparedReview; steps: PreparedStep[]; project: string; home: string;
   ownership: Map<string, { value: Ownership; digest: string | null }>;
@@ -261,7 +264,8 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
     unavailableInvocations?: CapturedUnavailableInvocations,
-    custodyImageStillCurrent?: () => boolean): Promise<PreparationResult> {
+    custodyImageStillCurrent?: () => boolean,
+    trustParticipant?: TrustEngineParticipant): Promise<PreparationResult> {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
@@ -436,6 +440,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`; overlayKey = key;
           const overlay = overlays.get(key);
           if (overlay) requires.push(overlay.priorId);
+          guardTrustMember(root, path, trustParticipant?.allows(root, path) ?? false);
           const tx = transaction(root); const live = tx.inspect(path);
           if (live.state === 'unreadable') throw new Error('target-unreadable');
           initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
@@ -495,6 +500,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             continue;
           }
           const owner = Object.hasOwn(projected.members, ownerKey) ? projected.members[ownerKey] : undefined;
+          if (owner?.managementId.startsWith('ca-export-') && !(trustParticipant?.allows(root,path) ?? false)) throw new Error('trust-custody-conflict');
           let managed = owner?.managementId === selection.managementId && (!owner.claims || owner.claims.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope)) && before !== null && owner.sha256 === sha256(before);
           ownerState = managed ? 'managed' : 'unowned';
           if (op.kind === 'file.write') {
@@ -580,7 +586,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             const desired = memberBytes(member, after!);
             if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
           }
-          custodyOnly = same && (managed || resolution === 'replace' && drift) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
+          custodyOnly = same && (managed || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
           if (resolution === 'adopt' && !adoptable) throw new Error('resolution-invalid');
           if (effect === 'conflict') conflicts.push({ ...diagnostic('STATE_CONFLICT', editConflict ?? 'existing-content',
             'Existing, edited or unsupported content requires an exact reviewed resolution or a narrower edit.'), path: safeText(path, privateValues) });
@@ -696,6 +702,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
+      if (owner.managementId.startsWith('ca-export-') && !(trustParticipant?.allows(root,descriptor.path) ?? false)) throw new Error('trust-custody-conflict');
+      guardTrustMember(root, descriptor.path, trustParticipant?.allows(root, descriptor.path) ?? false);
       const live = transaction(root).inspect(descriptor.path);
       if (live.state === 'unreadable') throw new Error('target-unreadable');
       const destination = `${root}:${process.platform === 'win32' ? descriptor.path.toLowerCase() : descriptor.path}`;
@@ -800,6 +808,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     if (steps.length > 8192) throw new Error('operation-limit');
+    // Bound every projected physical receipt before a new-Core ready review.
+    preflightOwnershipCapacity(steps, ownership, selectionUpdates);
+    trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
     const base = { schema: policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
@@ -811,14 +822,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       effectiveOptions: { logging: loggingOption(controls), inputs } };
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
-        after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs), nonce: randomBytes(32).toString('hex') }) });
+        after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs),...(trustParticipant?{trustBinding:trustParticipant.reviewBinding}:{}), nonce: randomBytes(32).toString('hex') }) });
     const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
       diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps) } : {}) };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures,
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest }) } : {}) });
@@ -827,10 +838,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
   } catch (error) {
     if (error instanceof AuthorityFailure) { result.status = error.status; result.diagnostics = [error.detail]; return finish(); }
     const reason = error instanceof MaterialCaptureError ? error.reason : error instanceof Error ? error.message : 'preparation-failed';
-    result.status = reason === 'cancelled' ? 'cancelled' : 'invalid';
+    result.status = reason === 'cancelled' ? 'cancelled' : ['custody-record-limit','output-path-alias','new-custody-legacy-request','trust-custody-conflict','trust-custody-pending'].includes(reason) ? 'blocked' : 'invalid';
     const unavailable = ['archive-download-failed', 'archive-decompression-failed', 'archive-incomplete',
       'local-file-unavailable', 'local-root-unavailable', 'acquisition-deadline'].includes(reason);
-    result.diagnostics = [diagnostic(reason === 'cancelled' ? 'CANCELLED' : unavailable ? 'PREREQUISITE_UNAVAILABLE' : 'INPUT_INVALID',
+    result.diagnostics = [diagnostic(reason === 'cancelled' ? 'CANCELLED' : reason === 'custody-record-limit' ? 'SOURCE_LIMIT' : result.status === 'blocked' ? 'STATE_CONFLICT' : unavailable ? 'PREREQUISITE_UNAVAILABLE' : 'INPUT_INVALID',
       /^[a-z-]{1,64}$/.test(reason) ? reason : 'preparation-failed', 'Preparation could not admit the requested work.')];
   }
   return finish();
@@ -929,9 +940,11 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       } catch { throw new Error('review-stale'); }
     };
     assertInputs();
+    await state.trustParticipant?.recheck();
     for (const capture of state.captures) if (!await capture.recheck()) throw new Error('review-stale');
     const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
+      guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false);
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
       if (!pinsOkay && isManagedContentRoot(step.root) &&
@@ -960,8 +973,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const mutatingRoots = [...new Set([...state.selectionUpdates.keys(), ...state.steps.filter(step => step.path &&
       (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!)])].sort();
     if (mutatingRoots.length) protectState();
+    // Acquire roots and the aggregate trust lock in one lexical order.
+    for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(lockTarget(root));
+    await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
-      unlocks.push(lockTarget(root));
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
       if (readOwnership(root).digest !== state.ownership.get(root)?.digest) throw new Error('review-stale');
       const current = state.ownership.get(root)!.value;
@@ -990,10 +1005,11 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       releases.push(stageOwnership(root, runId, next));
     }
     handles.delete(prepared);
-    if (mutatingRoots.length) {
+    if (mutatingRoots.length || state.trustParticipant) {
       try { result.recovery = stageRecovery(runId, state.steps, state.project); }
       catch { throw new Error('recovery-unavailable'); }
     }
+    state.trustParticipant?.stage(runId, result.recovery);
     const outcomes = new Map<string, boolean>(); let stop = false;
     const metadataState = state;
     const publishMetadata = () => {
@@ -1094,6 +1110,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       if (operation.application === 'applied' || operation.application === 'already-satisfied') {
         if (step.root && step.path && (operation.application === 'applied' || step.resolution === 'adopt' || step.custodyOnly)) {
           try {
+            started = true;
             const tracked = state.ownership.get(step.root)!;
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
             updateCustody(next, step, true);
@@ -1104,6 +1121,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
             state.inventory?.set(basename(ownershipPath(step.root)), sha256(receipt));
           } catch { operation.effectsUncertain = true; operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
         }
+        // Dependent configuration never runs before the output's custody pair commits.
+        if (state.trustParticipant) { started = true; state.trustParticipant.committed(step); }
         if (step.checks.length) {
           let checkFailed = false;
           for (const check of step.checks) {
@@ -1138,6 +1157,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     publishMetadata();
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
+    state.trustParticipant?.finish(result);
   } catch (error) {
     const authority = error instanceof AuthorityFailure ? error : undefined;
     const reason = error instanceof Error ? error.message : 'execution-failed';
@@ -1152,6 +1172,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
     result.diagnostics.push(authority ? authority.detail : diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');
+    try { state?.trustParticipant?.finish(result); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED','trust-custody-pending','Protected trust recovery remains pending.')); }
   } finally {
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
@@ -1206,6 +1227,28 @@ async function executeCheck(check: PreparedCheck, operationId: string, runId: st
     ...(outcome.terminationUnconfirmed ? { terminationUnconfirmed: true } : {}) };
 }
 
+function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string, { value: Ownership; digest: string | null }>,
+    updates: PreparedState['selectionUpdates']): void {
+  for (const [root, stored] of ownership) {
+    const current: Ownership = { ...stored.value, members: { ...stored.value.members }, selections: { ...stored.value.selections } };
+    const check = () => {
+      const sealed = sealOwnership(current);
+      try { validateOwnership(sealed, root); } catch { throw new Error('custody-record-limit'); }
+      if (Buffer.byteLength(JSON.stringify(sealed)) > 1_048_576) throw new Error('custody-record-limit');
+    };
+    check();
+    // First bound the union before cleanup, then each actual intermediate image.
+    for (const step of steps.filter(step => step.root === root)) for (const [key, owner] of Object.entries(step.custody ?? {}))
+      if (owner) {
+        try { validateOwnership(sealOwnership({schema:current.schema,target:root,members:{[key]:owner}}),root); }
+        catch { throw new Error('custody-record-limit'); }
+        if (Buffer.byteLength(JSON.stringify(owner)) >= Buffer.byteLength(JSON.stringify(current.members[key] ?? {}))) current.members[key] = owner;
+      }
+    for (const [key, update] of Object.entries(updates.get(root) ?? {})) if (update.claim) current.selections![key] = update.claim;
+    check();
+    for (const step of steps.filter(step => step.root === root)) { updateCustody(current, step, true); check(); }
+  }
+}
 function updateCustody(next: Ownership, step: PreparedStep, deferMetadata = false): void {
   for (const [key, owner] of Object.entries(step.custody ?? {})) {
     if (owner) {

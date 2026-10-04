@@ -1,0 +1,53 @@
+{
+  "schema": "urn:aihq:core:run-result:1.2.0",
+  "runId": "run-partial-1",
+  "useCase": "repair",
+  "completion": "incomplete",
+  "inputs": {
+    "trust": {
+      "route": "native",
+      "definition": { "id": "user-tools-ca", "schema": "urn:aihq:harness:repair:1.1.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.6" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": null,
+      "targets": [],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    }
+  },
+  "authorization": { "origin": "automation", "allowPartial": { "value": true, "origin": "explicit" } },
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [
+    { "id": "git-config", "application": "applied", "verification": { "status": "passed", "reason": "native-client-verified" } }
+  ],
+  "checks": [
+    { "id": "git-https-read", "operationId": "git-config", "status": "passed", "reason": "native-client-verified" }
+  ],
+  "diagnostics": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "native-route-unsupported", "message": "Python has no admitted native cell." }
+  ],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "recovery": "",
+  "followUp": [],
+  "trust": {
+    "outputs": [],
+    "targets": [
+      {
+        "id": "python",
+        "configuration": "not-applied",
+        "verification": "unavailable",
+        "reason": "native-route-unsupported",
+        "policyObservationSha256": null
+      },
+      {
+        "id": "git",
+        "configuration": "applied",
+        "verification": "passed",
+        "reason": "native-client-verified",
+        "policyObservationSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    ]
+  }
+}

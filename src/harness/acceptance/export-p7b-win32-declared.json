@@ -1,0 +1,97 @@
+{
+  "schema": "aih.trust.acceptance.v1",
+  "cellId": "export-p7b-win32-declared",
+  "subjectSha256": "eb73d8a8a97ce37af425e8011d29ca00694d79fc9bd72f7ad0adc03006dd6a49",
+  "cell": {
+    "id": "export-p7b-win32-declared",
+    "definitionId": "certificate-export",
+    "route": "export",
+    "target": null,
+    "platform": {
+      "os": "win32",
+      "release": "Windows 11 25H2",
+      "architecture": "x64"
+    },
+    "network": "declared",
+    "projection": "windows-effective-server-auth-v1",
+    "client": null,
+    "configurationProfile": "pkcs7-certificate-import-v1",
+    "probeProfile": "export-p7b-parse-v1",
+    "launchContext": "no-client"
+  },
+  "cases": [
+    {
+      "id": "p7b-custody-recorded",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Persisted provenance matched a genuine ordinary recipe receipt and observed output digest."
+    },
+    {
+      "id": "p7b-custom-store-import",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Windows 11 25H2 x64 standard-user Import-Certificate preserved both fixture DER fingerprints in a unique disposable custom CurrentUser store; fixture-only cleanup verified."
+    },
+    {
+      "id": "p7b-deterministic-bytes",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Reversed source DER order preserved exact output bytes through packed public refresh."
+    },
+    {
+      "id": "p7b-independent-parse-set",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Strict independent parser found the exact two DER fingerprints and certificate-only container."
+    },
+    {
+      "id": "p7b-public-api-write",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Packed public Prepare/Apply wrote the reviewed path; full 1.2 review and result validated."
+    },
+    {
+      "id": "p7b-refresh-replace-reviewed",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Explicit same-ID replacement reviewed removal and persisted the exact refreshed source set."
+    },
+    {
+      "id": "p7b-reject-key-material",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "A supplied private-key block rejected the whole request and preserved prior output."
+    },
+    {
+      "id": "p7b-reject-output-extension-mismatch",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Mismatched output extension rejected before user-output effects."
+    },
+    {
+      "id": "p7b-reject-unsafe-path",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "A parent-traversal output was rejected and no outside file appeared."
+    },
+    {
+      "id": "p7b-removal-reconciled",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Managed public removal retired the output, ordinary claim and protected provenance."
+    },
+    {
+      "id": "p7b-serializer-failure-unavailable",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Fixed serializer loading failure returned unavailable without a substituted encoding."
+    }
+  ],
+  "limitations": [
+    "no-os-fullset-claim",
+    "no-native-client-claim",
+    "supplied-only-export",
+    "windows-os-discovery-incomplete",
+    "native-node-npm-unavailable"
+  ]
+}

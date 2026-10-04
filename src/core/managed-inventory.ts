@@ -5,8 +5,9 @@ import { installedDistribution } from './internal/installed-distribution.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { readOwnership, readOwnershipReceipts, stateRoot } from './internal/state.js';
 import type { Ownership } from './internal/state.js';
-import type { Claim } from './internal/recipe-lifecycle.js';
+import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
+import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
 
 const SCHEMA = 'urn:aihq:core:managed-inventory-result:1.0.0' as const;
 const DEFAULT_BUDGET_MS = 30000;
@@ -150,6 +151,25 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
         addClaims(rows, receipt, project, home, request.scope, () => { ambiguous = true; });
       }
     }
+    if (request.scope !== 'project') {
+      const trust = readTrustCustody(true);const pending=readPendingTrust(trust);
+      if(pending) {
+        result.status='incomplete';result.diagnostics.push(diagnostic('STATE_CONFLICT','trust-custody-pending','Review the pending trust selection before restoration or removal.'));
+        for(const entry of pendingEntries(pending)) {
+          const key=`user\0${entry.managementId}`;
+          if(!rows.has(key))rows.set(key,{managementId:entry.managementId,scope:'user',custody:'legacy-reconcile',memberCount:0,sharedMemberCount:0});
+          else rows.get(key)!.custody='legacy-reconcile';
+        }
+      }
+      for (const entry of trust.value.entries) {
+        check(); const key = `user\0${entry.managementId}`;
+        const {owner}=readTrustOwner(entry);
+        if (!owner || owner.sha256 !== entry.outputSha256 || owner.recipeIdentity !== entry.recipeIdentity) {
+          if (!rows.has(key)) rows.set(key,{managementId:entry.managementId,scope:'user',custody:'legacy-reconcile',memberCount:0,sharedMemberCount:0});
+          result.status='incomplete'; result.diagnostics.push(diagnostic('STATE_CONFLICT','trust-custody-conflict','Retained trust provenance requires reviewed reconciliation.'));
+        }
+      }
+    }
     result.selections = [...rows.values()].sort((a, b) => a.scope === b.scope ?
       a.managementId < b.managementId ? -1 : a.managementId > b.managementId ? 1 : 0 :
       a.scope === 'project' ? -1 : 1);
@@ -171,6 +191,10 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       result.diagnostics.push(diagnostic('CANCELLED', 'cancelled', 'Inventory was cancelled.'));
     } else {
       result.status = 'incomplete';
+      if (reason === 'trust-custody-pending' || reason === 'trust-custody-conflict') {
+        result.diagnostics.push(diagnostic('STATE_CONFLICT',reason,'Protected trust custody requires reviewed reconciliation.'));
+        return finish();
+      }
       const kind = reason === 'inventory-time-budget' ? 'time-budget' :
         reason === 'ownership-limit' ? 'limit-exceeded' : 'ownership-unverifiable';
       result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', kind,

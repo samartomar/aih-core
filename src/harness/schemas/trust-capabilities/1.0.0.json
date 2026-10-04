@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:trust-capabilities:1.0.0",
+  "title": "Harness trust admission metadata",
+  "description": "Exact admitted native, file and export cells. Empty cells mean no admitted combination. Package identity, evidence bytes and subject binding are verified by the installed package.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package", "cells"],
+  "properties": {
+    "schema": { "const": "urn:aihq:harness:trust-capabilities:1.0.0" },
+    "package": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": { "name": { "const": "@aihq/core" }, "version": { "$ref": "#/$defs/text" } }
+    },
+    "cells": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/cell" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "cell": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "definitionId", "route", "target", "platform", "network", "projection", "client", "configurationProfile", "probeProfile", "launchContext", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "definitionId": { "enum": ["node-npm-ca", "user-tools-ca", "jvm-ca", "certificate-export"] },
+        "route": { "enum": ["native", "file", "export"] },
+        "target": { "type": ["string", "null"], "minLength": 1 },
+        "platform": {
+          "type": "object", "additionalProperties": false, "required": ["os", "release", "architecture"],
+          "properties": {
+            "os": { "enum": ["win32", "darwin", "linux"] },
+            "release": { "$ref": "#/$defs/text" },
+            "architecture": { "enum": ["x64", "arm64"] }
+          }
+        },
+        "network": { "enum": ["declared", "off"] },
+        "projection": { "enum": ["windows-effective-server-auth-v1", "macos-effective-server-auth-v1", "ubuntu-24.04-system-openssl-v1"] },
+        "client": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["version", "build", "backend", "backendVersion", "applicationId"],
+              "properties": {
+                "version": { "$ref": "#/$defs/text" },
+                "build": { "$ref": "#/$defs/text" },
+                "backend": { "$ref": "#/$defs/text" },
+                "backendVersion": { "$ref": "#/$defs/text" },
+                "applicationId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/text" }] }
+              }
+            }
+          ]
+        },
+        "configurationProfile": { "$ref": "#/$defs/identifier" },
+        "probeProfile": { "$ref": "#/$defs/identifier" },
+        "launchContext": { "enum": ["fresh-cli-user-home", "named-application", "no-client"] },
+        "evidence": {
+          "type": "object", "additionalProperties": false, "required": ["reference", "sha256", "subjectSha256"],
+          "properties": {
+            "reference": { "$ref": "#/$defs/text" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "subjectSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "definitionId": { "const": "certificate-export" } } },
+          "then": { "properties": { "route": { "const": "export" }, "target": { "type": "null" }, "client": { "type": "null" }, "launchContext": { "const": "no-client" } } },
+          "else": { "properties": { "route": { "enum": ["native", "file"] }, "target": { "type": "string" }, "client": { "type": "object" }, "launchContext": { "enum": ["fresh-cli-user-home", "named-application"] } } }
+        }
+      ]
+    }
+  }
+}

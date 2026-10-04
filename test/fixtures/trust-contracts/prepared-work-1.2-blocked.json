@@ -1,0 +1,41 @@
+{
+  "schema": "urn:aihq:core:prepared-work:1.2.0",
+  "useCase": "repair",
+  "mode": "standalone",
+  "target": { "scope": "user", "project": "" },
+  "inputs": {
+    "trust": {
+      "route": "native",
+      "definition": { "id": "node-npm-ca", "schema": "urn:aihq:harness:repair:1.1.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.6" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": null,
+      "targets": [
+        {
+          "id": "node",
+          "route": "native",
+          "admission": "unavailable",
+          "reason": "native-route-unsupported",
+          "cellId": null,
+          "client": null,
+          "policy": null,
+          "configurationSha256": null,
+          "secondarySources": [],
+          "verification": { "status": "unavailable", "reason": "native-route-unsupported", "checkIds": [] }
+        }
+      ],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    }
+  },
+  "operations": [],
+  "observations": [],
+  "conflicts": [],
+  "omissions": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "native-route-unsupported", "message": "No admitted native cell is installed." }
+  ],
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" }, "inputs": {} },
+  "reviewDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "urn:aihq:core:run-result:1.2.0",
+  "runId": "run-stale-1",
+  "useCase": "certificate-export",
+  "completion": "rejected",
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [],
+  "checks": [],
+  "diagnostics": [
+    { "code": "REVIEW_STALE", "reason": "trust-binding-changed", "message": "The reviewed binding changed before effects." }
+  ],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "recovery": "",
+  "followUp": ["Prepare again to review the changed trust binding."],
+  "trust": { "outputs": [], "targets": [] }
+}

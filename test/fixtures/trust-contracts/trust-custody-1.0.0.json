@@ -1,0 +1,41 @@
+{
+  "schema": "urn:aihq:core:trust-custody:1.0.0",
+  "entries": [
+    {
+      "managementId": "ca-export-abc",
+      "selectionId": "export",
+      "operationId": "write-ca",
+      "pathKey": "{\"home\":\"/home/example\",\"segments\":[\"aih\",\"exports\",\"os-ca.pem\"]}",
+      "relativePath": ".aih/exports/os-ca.pem",
+      "format": "pem",
+      "outputSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "recipeIdentity": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sourceSetSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sources": [
+        {
+          "id": "os",
+          "kind": "os",
+          "fingerprints": [
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ],
+          "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "runtimeVersion": null,
+          "privateFile": null
+        },
+        {
+          "id": "supplied:team",
+          "kind": "supplied",
+          "fingerprints": [
+            "3333333333333333333333333333333333333333333333333333333333333333"
+          ],
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policySha256": null,
+          "runtimeVersion": null,
+          "privateFile": "/home/example/inbox/team.pem"
+        }
+      ]
+    }
+  ]
+}

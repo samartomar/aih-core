@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "evidence": { "type": "array", "maxItems": 32, "items": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {
+        "scanId": { "type": "string", "pattern": "^scan:sha256:[a-f0-9]{64}$" },
+        "status": { "enum": ["skipped", "authenticated", "unverifiable"] },
+        "reason": { "enum": ["not-supplied", "not-requested", "unavailable", "unsupported-artifact", "malformed",
+          "id-mismatch", "byte-mismatch", "unsigned", "unknown-producer", "untrusted-key", "invalid-signature", "resource-limit"] },
+        "producerIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "keyId": { "type": "string", "pattern": "^ed25519:[a-f0-9]{64}$" },
+        "reportRead": { "enum": ["supported", "unsupported", "not-requested"] }
+      }
+    } },
+    "schema": { "const": "urn:aihq:core:prepared-work:1.2.0" },
+    "useCase": { "enum": ["repair", "certificate-export"] },
+    "mode": { "const": "standalone" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "project"],
+      "properties": {
+        "scope": { "const": "user" },
+        "project": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trust"],
+      "properties": { "trust": { "$ref": "#/$defs/trustInputs" } }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "purpose": { "type": "string" },
+          "kind": { "enum": ["file.write", "config.entries", "text.block", "file.remove", "process.run", "hook.group"] },
+          "scope": { "enum": ["project", "user"] },
+          "effects": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "opaque-process", "unavailable"] },
+          "ownership": { "enum": ["managed", "unowned"] },
+          "requires": { "type": "array", "items": { "type": "string" } },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string" },
+                "purpose": { "type": "string" },
+                "details": { "$ref": "#/$defs/reviewDetails" },
+                "kind": { "enum": ["file.sha256", "process.exit"] }
+              },
+              "required": ["id", "purpose", "kind", "details"]
+            }
+          },
+          "details": { "$ref": "#/$defs/reviewDetails" }
+        },
+        "required": ["id", "purpose", "kind", "scope", "effects", "ownership", "requires", "checks", "details"],
+        "if": { "type": "object", "properties": { "kind": { "const": "hook.group" } }, "required": ["kind"] },
+        "then": { "type": "object", "properties": { "details": { "type": "object", "properties": { "hookGroup": {} }, "required": ["hookGroup"] } } },
+        "else": { "type": "object", "properties": { "details": { "not": { "type": "object", "properties": { "hookGroup": {} }, "required": ["hookGroup"] } } } }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+        "properties": { "id": { "type": "string" }, "reason": { "type": "string" } }
+      }
+    },
+    "conflicts": { "$ref": "#/$defs/diagnostics" },
+    "omissions": { "$ref": "#/$defs/diagnostics" },
+    "effectiveOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logging", "inputs"],
+      "properties": {
+        "logging": {
+          "type": "object", "additionalProperties": false, "required": ["value", "origin"],
+          "properties": { "value": { "enum": ["on", "off"] }, "origin": { "enum": ["default", "explicit"] } }
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false, "required": ["origin"],
+            "properties": { "origin": { "enum": ["default", "explicit", "private"] } }
+          }
+        }
+      }
+    },
+    "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "required": ["schema", "useCase", "mode", "target", "inputs", "operations", "observations", "conflicts", "omissions", "effectiveOptions", "reviewDigest"],
+  "allOf": [
+    {
+      "if": { "type": "object", "properties": { "useCase": { "const": "certificate-export" } }, "required": ["useCase"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "trust": {
+                "type": "object",
+                "properties": {
+                  "route": { "const": "export" },
+                  "definition": { "type": "object", "properties": { "id": { "const": "certificate-export" } } },
+                  "targets": { "type": "array", "maxItems": 0 }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "trust": {
+                "type": "object",
+                "properties": {
+                  "route": { "enum": ["native", "file"] },
+                  "definition": { "type": "object", "properties": { "id": { "enum": ["node-npm-ca", "user-tools-ca", "jvm-ca"] } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "trust": { "type": "object", "properties": { "route": { "const": "native" } }, "required": ["route"] }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": { "trust": { "type": "object", "properties": { "sourceSetSha256": { "type": "null" } } } }
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": { "trust": { "type": "object", "properties": { "sourceSetSha256": { "$ref": "#/$defs/sha256" } } } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "partitionId": { "type": "string", "pattern": "^(?:os|node-bundled-default|jvm-baseline|supplied:[A-Za-z0-9][A-Za-z0-9._-]{0,127})$" },
+    "boundedLabel": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+        "properties": {
+          "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" },
+          "path": { "type": "string" }, "encountered": { "type": "string" }, "guidance": { "type": "string" },
+          "supported": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "nullableSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "trustInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "definition", "helperSha256", "package", "bindingSha256", "sourceSetSha256", "targets", "sources", "certificates", "outputs"],
+      "properties": {
+        "route": { "enum": ["native", "file", "export"] },
+        "definition": {
+          "type": "object", "additionalProperties": false, "required": ["id", "schema"],
+          "properties": {
+            "id": { "enum": ["node-npm-ca", "user-tools-ca", "jvm-ca", "certificate-export"] },
+            "schema": { "const": "urn:aihq:harness:repair:1.1.0" }
+          }
+        },
+        "helperSha256": { "$ref": "#/$defs/sha256" },
+        "package": {
+          "type": "object", "additionalProperties": false, "required": ["name", "version"],
+          "properties": { "name": { "const": "@aihq/core" }, "version": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        },
+        "bindingSha256": { "$ref": "#/$defs/sha256" },
+        "sourceSetSha256": { "$ref": "#/$defs/nullableSha256" },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/targetReview" } },
+        "sources": { "type": "array", "items": { "$ref": "#/$defs/sourceReview" } },
+        "certificates": { "type": "array", "items": { "$ref": "#/$defs/certificateReview" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/outputReview" } }
+      }
+    },
+    "targetReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "route", "admission", "reason", "cellId", "client", "policy", "configurationSha256", "secondarySources", "verification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "route": { "enum": ["native", "file"] },
+        "admission": { "enum": ["admitted", "unavailable"] },
+        "reason": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/boundedLabel" }] },
+        "cellId": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sourceId" }] },
+        "client": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["version", "executableSha256", "backend", "backendVersion", "applicationId"],
+              "properties": {
+                "version": { "$ref": "#/$defs/boundedLabel" },
+                "executableSha256": { "$ref": "#/$defs/sha256" },
+                "backend": { "$ref": "#/$defs/boundedLabel" },
+                "backendVersion": { "$ref": "#/$defs/boundedLabel" },
+                "applicationId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 512 }] }
+              }
+            }
+          ]
+        },
+        "policy": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["projection", "binding", "observationSha256", "scope"],
+              "properties": {
+                "projection": { "enum": ["windows-effective-server-auth-v1", "macos-effective-server-auth-v1", "ubuntu-24.04-system-openssl-v1"] },
+                "binding": { "enum": ["live-os", "snapshot"] },
+                "observationSha256": { "$ref": "#/$defs/sha256" },
+                "scope": { "type": "string", "minLength": 1, "maxLength": 128 }
+              }
+            }
+          ]
+        },
+        "configurationSha256": { "$ref": "#/$defs/nullableSha256" },
+        "secondarySources": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "disposition", "sha256"],
+            "properties": {
+              "id": { "$ref": "#/$defs/partitionId" },
+              "disposition": { "enum": ["participates", "ignored"] },
+              "sha256": { "$ref": "#/$defs/nullableSha256" }
+            }
+          }
+        },
+        "verification": {
+          "type": "object", "additionalProperties": false, "required": ["status", "reason", "checkIds"],
+          "properties": {
+            "status": { "enum": ["planned", "skipped", "unavailable"] },
+            "reason": { "type": "string", "maxLength": 512 },
+            "checkIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/boundedLabel" } }
+          }
+        }
+      }
+    },
+    "sourceReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "adapter", "scope", "completeness", "policySha256", "sourceSha256", "runtimeVersion", "reason", "fingerprints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/partitionId" },
+        "kind": { "enum": ["os", "supplied", "node-bundled", "jvm-baseline"] },
+        "adapter": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["id", "version", "sha256"],
+              "properties": { "id": { "$ref": "#/$defs/sourceId" }, "version": { "$ref": "#/$defs/boundedLabel" }, "sha256": { "$ref": "#/$defs/sha256" } }
+            }
+          ]
+        },
+        "scope": { "enum": ["effective-current-user", "explicit-source", "runtime-bundled", "selected-jvm-baseline"] },
+        "completeness": { "enum": ["complete", "incomplete", "unavailable"] },
+        "policySha256": { "$ref": "#/$defs/nullableSha256" },
+        "sourceSha256": { "$ref": "#/$defs/nullableSha256" },
+        "runtimeVersion": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/boundedLabel" }] },
+        "reason": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/boundedLabel" }] },
+        "fingerprints": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } }
+      }
+    },
+    "certificateReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "subject", "issuer", "notBefore", "notAfter", "beforeSources", "afterSources", "disposition", "reasons"],
+      "properties": {
+        "fingerprint": { "$ref": "#/$defs/sha256" },
+        "subject": { "type": "string", "maxLength": 512 },
+        "issuer": { "type": "string", "maxLength": 512 },
+        "notBefore": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
+        "notAfter": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
+        "beforeSources": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/partitionId" } },
+        "afterSources": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/partitionId" } },
+        "disposition": { "enum": ["added", "removed", "retained", "provenance-changed", "excluded"] },
+        "reasons": { "type": "array", "items": { "type": "string", "maxLength": 512 } }
+      }
+    },
+    "outputReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectionId", "operationId", "managementId", "path", "pathKey", "format", "consumerProfile", "beforeSha256", "afterSha256", "custodyBeforeSha256", "certificateCount", "effect"],
+      "properties": {
+        "selectionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "managementId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "pathKey": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "format": { "enum": ["pem", "pkcs7-der", "jks"] },
+        "consumerProfile": { "$ref": "#/$defs/boundedLabel" },
+        "beforeSha256": { "$ref": "#/$defs/nullableSha256" },
+        "afterSha256": { "$ref": "#/$defs/nullableSha256" },
+        "custodyBeforeSha256": { "$ref": "#/$defs/nullableSha256" },
+        "certificateCount": { "type": "integer", "minimum": 0 },
+        "effect": { "enum": ["create", "unchanged", "replace", "conflict", "unavailable"] }
+      }
+    },
+    "reviewDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": { "type": "string" },
+        "content": { "type": "string" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 511 },
+        "executable": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "stdinProtected": { "type": "boolean" },
+        "material": { "type": "string" },
+        "timeoutMs": { "$ref": "#/$defs/effectiveInteger" },
+        "maxOutputBytes": { "$ref": "#/$defs/effectiveInteger" },
+        "declaredEffects": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string" },
+        "materialSha256": { "$ref": "#/$defs/sha256" },
+        "materialBytes": { "type": "integer", "minimum": 0 },
+        "executableSha256": { "$ref": "#/$defs/sha256" },
+        "acceptedExitCodes": { "type": "array", "items": { "type": "integer" } },
+        "format": { "enum": ["json", "jsonc", "toml"] },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "action"],
+            "properties": {
+              "value": { "type": "string" },
+              "action": { "enum": ["set", "remove"] },
+              "path": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "blockId": { "type": "string" },
+        "startMarker": { "type": "string" },
+        "endMarker": { "type": "string" },
+        "blockAction": { "enum": ["set", "remove"] },
+        "stdin": { "type": "string" },
+        "hookGroup": {
+          "type": "object", "additionalProperties": false,
+          "required": ["container", "groupId", "selector", "action", "matchedIndex", "memberBeforeSha256", "memberAfterSha256", "targetBeforeSha256", "desiredGroup"],
+          "properties": {
+            "container": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "groupId": { "type": "string" },
+            "selector": { "type": "object", "additionalProperties": false, "required": ["path", "valueSha256"], "properties": {
+              "path": { "type": "array", "minItems": 1, "items": { "oneOf": [{ "type": "string" }, { "type": "integer", "minimum": 0 }] } },
+              "valueSha256": { "$ref": "#/$defs/sha256" } } },
+            "action": { "enum": ["set", "remove"] },
+            "matchedIndex": { "type": ["integer", "null"], "minimum": 0 },
+            "memberBeforeSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+            "memberAfterSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+            "targetBeforeSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+            "desiredGroup": { "type": ["object", "null"] }
+          }
+        }
+      }
+    },
+    "effectiveInteger": {
+      "type": "object", "additionalProperties": false, "required": ["value", "origin"],
+      "properties": { "value": { "type": "integer", "minimum": 1 }, "origin": { "enum": ["default", "explicit"] } }
+    }
+  }
+}

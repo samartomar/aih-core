@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:certificate-export-request:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "useCase"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:certificate-export-request:1.0.0" },
+    "useCase": { "const": "certificate-export" },
+    "format": { "enum": ["pem", "pkcs7-der"] },
+    "output": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "sources": { "$ref": "#/$defs/trustSources" },
+    "network": { "enum": ["declared", "off"] },
+    "resolutions": { "type": "array", "items": { "$ref": "#/$defs/trustResolution" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "suppliedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "file": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "trustSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "supplied"],
+      "properties": {
+        "os": { "type": "boolean" },
+        "supplied": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/suppliedSource" }
+        },
+        "removeSupplied": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    },
+    "trustResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectionId", "operationId", "choice", "observedSha256"],
+      "properties": {
+        "selectionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "choice": { "const": "replace" },
+        "observedSha256": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        }
+      }
+    }
+  }
+}

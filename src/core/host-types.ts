@@ -1,6 +1,7 @@
 import type { Diagnostic, ExecutionPolicy, Json, JsonObject } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
+import type { TrustInputs, TrustRunTrust } from './trust-contracts.js';
 export type { GitHubPolicySource } from '../harness/runtime.mjs';
 declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
@@ -56,11 +57,11 @@ export interface OrganizationBinding {
   helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
 }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0'; useCase: 'policy' | 'repair'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
-      helperSha256: string; package: { name: string; version: string } };
+      helperSha256: string; package: { name: string; version: string } } | TrustInputs;
   operations: ReviewOperation[];
   observations: { id: string; reason: string }[];
   conflicts: Diagnostic[]; omissions: Diagnostic[];
@@ -91,7 +92,7 @@ export interface OperationResult {
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
-  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0'; runId: string; useCase: 'policy' | 'repair';
+  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };
@@ -99,4 +100,5 @@ export interface RunResult {
   operations: OperationResult[]; checks: CheckResult[]; diagnostics: Diagnostic[];
   record: RecordStatus; recovery?: string; followUp: string[];
   evidence?: AssociationResult[];
+  trust?: TrustRunTrust;
 }
