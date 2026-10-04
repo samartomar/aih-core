@@ -72,12 +72,34 @@ testExport('explicit pending source removal survives a second output failure wit
   injectRename(to=>to===output,()=>{throw new Error('second output publication failure');});
   assert.equal((await apply(first.prepared,approve(first),{logging:'off'})).completion,'incomplete');fs.renameSync=originalRename;syncBuiltinESMExports();
   assert.equal(fs.existsSync(join(state,original.before)),true);assert.equal(fs.existsSync(join(state,original.after)),true);
+  const active=JSON.parse(fs.readFileSync(join(state,'trust-custody-pending.json')));
+  const referenced=[...new Set([active.before,active.after,...(active.contexts??[]).map(c=>c.reference)])];
+  const failedCopy=active.before.replace('-before.json','-reconciled-intent.json');
+  assert.equal(fs.existsSync(join(state,failedCopy)),true);
+  const unrelated=join(state,'recovery',active.transactionId,'unrelated.txt');fs.writeFileSync(unrelated,'preserve unrelated evidence');
   const freshInput={...request(replacement),sources:{os:false,supplied:[{id:'replacement',file:replacement}]}};
   const retry=await prepare(freshInput,{logging:'off'});const retryHint=retry.resolutionInputs[0];assert.ok(retryHint,JSON.stringify(retry.diagnostics));
   const fresh=await prepare({...freshInput,resolutions:[{selectionId:retryHint.selectionId,operationId:retryHint.operationId,choice:'replace',observedSha256:retryHint.observedSha256}]},{logging:'off'});
   assert.equal(fresh.status,'ready',JSON.stringify(fresh.diagnostics));assert.deepEqual(fresh.review.inputs.trust.sources.map(s=>s.id),['supplied:replacement']);
   const r=await apply(fresh.prepared,approve(fresh),{logging:'off'});assert.equal(r.completion,'complete',JSON.stringify(r.diagnostics));
   assert.equal(fs.existsSync(file),false);assert.equal(fs.existsSync(join(state,'trust-custody-pending.json')),false);
+  for(const reference of referenced)assert.equal(fs.existsSync(join(state,reference)),false,`active staging retained: ${reference}`);
+  for(const suffix of ['before','after','reconciled-intent'])assert.equal(fs.existsSync(join(state,'recovery',r.runId,`trust-${suffix}.json`)),false,`current staging retained: ${suffix}`);
+  for(const reference of [original.before,original.after].filter(path=>!referenced.includes(path)))assert.equal(fs.existsSync(join(state,reference)),true,'unreferenced failed-run evidence removed');
+  assert.equal(fs.existsSync(join(state,failedCopy)),true);assert.equal(fs.readFileSync(unrelated,'utf8'),'preserve unrelated evidence');
+});
+
+testExport('no-effects cancellation restores original intent and removes redundant reconciliation staging',async()=>{
+  const {file,state}=await pendingFixture('receipt missing');const intentPath=join(state,'trust-custody-pending.json');const original=fs.readFileSync(intentPath);
+  const pending=JSON.parse(original),snapshots=[pending.before,pending.after].map(reference=>({reference,bytes:fs.readFileSync(join(state,reference))}));
+  const conflict=await prepare(request(file),{logging:'off'});const hint=conflict.resolutionInputs[0];assert.ok(hint);
+  const fresh=await prepare({...request(file),resolutions:[{selectionId:hint.selectionId,operationId:hint.operationId,choice:'replace',observedSha256:hint.observedSha256}]},{logging:'off'});
+  assert.equal(fresh.status,'ready',JSON.stringify(fresh.diagnostics));const controller=new AbortController();let fired=false;
+  fs.linkSync=(from,to)=>{const value=originalLink(from,to);if(basename(to)==='trust-reconciled-intent.json'){fired=true;controller.abort();}return value;};syncBuiltinESMExports();
+  const r=await apply(fresh.prepared,approve(fresh),{logging:'off',signal:controller.signal});fs.linkSync=originalLink;syncBuiltinESMExports();
+  assert.equal(fired,true);assert.equal(r.completion,'cancelled',JSON.stringify(r));assert.ok(r.operations.every(o=>o.application==='not-attempted'));
+  assert.deepEqual(fs.readFileSync(intentPath),original);for(const snapshot of snapshots)assert.deepEqual(fs.readFileSync(join(state,snapshot.reference)),snapshot.bytes);
+  for(const suffix of ['before','after','reconciled-intent'])assert.equal(fs.existsSync(join(state,'recovery',r.runId,`trust-${suffix}.json`)),false,`redundant staging retained: ${suffix}`);
 });
 testExport('one-path restoration or removal cannot discharge another output in an aggregate pending intent',async()=>{
   const {home,file,state,managementId}=await pendingFixture('no output');const intentPath=join(state,'trust-custody-pending.json');
@@ -137,6 +159,8 @@ testExport('cancellation after output publication preserves pending state withou
   const r=await apply(p.prepared,approve(p),{logging:'off',signal:controller.signal});
   assert.equal(fired,true);assert.equal(r.completion,'cancelled',JSON.stringify(r));assert.deepEqual(r.trust.outputs,[]);assert.equal(fs.existsSync(output),true);
   assert.equal(fs.existsSync(join(state,'trust-custody-pending.json')),true);assert.equal(validateRunResult12(r).valid,true,JSON.stringify(validateRunResult12(r).diagnostics));
+  const cancelledIntent=JSON.parse(fs.readFileSync(join(state,'trust-custody-pending.json')));
+  for(const reference of [cancelledIntent.before,cancelledIntent.after])assert.equal(fs.existsSync(join(state,reference)),true);
   fs.renameSync=originalRename;syncBuiltinESMExports();
   const fresh=await prepare(request(file),{logging:'off'});assert.equal(fresh.status,'ready',JSON.stringify(fresh.diagnostics));
   assert.equal((await apply(fresh.prepared,approve(fresh),{logging:'off'})).completion,'complete');
@@ -161,6 +185,7 @@ for(const drift of ['intent','snapshot','live output'])testExport(`pending recon
   else fs.appendFileSync(drift==='intent'?intentPath:join(state,intent.after),' ');
   const r=await apply(fresh.prepared,approve(fresh),{logging:'off'});assert.equal(r.completion,'rejected',JSON.stringify(r.diagnostics));
   assert.ok(r.diagnostics.some(d=>d.code==='REVIEW_STALE'));assert.equal(fs.existsSync(intentPath),true);assert.deepEqual(r.trust.outputs,[]);
+  for(const reference of [intent.before,intent.after,...(intent.contexts??[]).map(c=>c.reference)])assert.equal(fs.existsSync(join(state,reference)),true);
   if(drift==='live output') {
     assert.equal(fs.readFileSync(output,'utf8'),'replacement user bytes');const next=await prepare(request(file),{logging:'off'});
     assert.equal(next.status,'blocked');assert.deepEqual(next.resolutionInputs,[]);

@@ -182,6 +182,13 @@ function encoded(value: TrustCustody): Buffer {
 export function custodyParticipant(image: TrustCustodyImage, updates: TrustCustodyEntry[], recheck: () => void | Promise<void>, removals: TrustCustodyEntry[] = [], pending?:TrustPendingImage): TrustEngineParticipant {
   let next = image.value; let staged = false; let begun = false; let prefix = ''; let expected = image.digest;let expectedIntent:string|undefined;
   const affected = [...updates, ...removals]; const home = userHomeRoot();
+  // Only exact snapshot references validated in this review are eligible for
+  // disposal. Unreferenced failed-run archives and ordinary recovery stay intact.
+  const discard = [...new Map((pending ? [
+    {reference:pending.intent.before,sha256:pending.beforeSha256},
+    {reference:pending.intent.after,sha256:pending.afterSha256},...(pending.intent.contexts??[])
+  ] : []).map(snapshot=>[snapshot.reference,snapshot])).values()]
+    .map(snapshot=>({...snapshot,pins:pathPins(join(stateRoot(),snapshot.reference))}));
   let retiring: TrustCustodyEntry[] = [];
   const ownerFor = (entry: TrustCustodyEntry) => {
     return readTrustOwner(entry).owner;
@@ -259,6 +266,7 @@ export function custodyParticipant(image: TrustCustodyImage, updates: TrustCusto
         if (!begun && result.operations.every(o => o.application === 'not-attempted')) {
           if(pending)stateFiles().writeAtomic(INTENT,pending.bytes,0o600);else stateFiles().remove(INTENT);
           stateFiles().remove(`${prefix}-before.json`); stateFiles().remove(`${prefix}-after.json`);
+          if(pending)stateFiles().remove(`${prefix}-reconciled-intent.json`);
         }
         return;
       }
@@ -272,8 +280,14 @@ export function custodyParticipant(image: TrustCustodyImage, updates: TrustCusto
       const actual = stateFiles().read(FILE);
       if ((actual ? sha256(actual):null) !== expected) throw new Error('trust-custody-conflict');
       const actualIntent=stateFiles().read(INTENT);if(!actualIntent||sha256(actualIntent)!==expectedIntent)throw new Error('trust-custody-conflict');
+      for(const snapshot of discard) {
+        protectState([snapshot.reference]);const bytes=stateFiles().read(snapshot.reference);
+        if(!pinsMatch(snapshot.pins)||!bytes||sha256(bytes)!==snapshot.sha256)throw new Error('trust-custody-conflict');
+      }
       if (!begun && retiring.length) { stateFiles().writeAtomic(FILE, encoded(next), 0o600); }
       stateFiles().remove(INTENT); stateFiles().remove(`${prefix}-before.json`); stateFiles().remove(`${prefix}-after.json`);
+      if(pending)stateFiles().remove(`${prefix}-reconciled-intent.json`);
+      for(const snapshot of discard)stateFiles().remove(snapshot.reference);
     }
   };
   return participant;
