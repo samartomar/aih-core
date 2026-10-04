@@ -10,7 +10,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, `writeSupportReport`, public request/review/result types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic and file-state result types |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
@@ -21,6 +21,8 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 | `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema |
+| `@aihq/core/schemas/managed-inventory-result/1.0.0.json` | Managed inventory result JSON Schema |
+| `@aihq/core/schemas/managed-removal-preparation/1.0.0.json` | Managed removal preparation JSON Schema |
 | `@aihq/core/schemas/execution-policy/1.1.0.json` | Execution-policy 1.1.0 JSON Schema (adds owned hook groups) |
 | `@aihq/core/schemas/recipe/1.1.0.json` | Recipe 1.1.0 JSON Schema (adds `hook.group`) |
 | `@aihq/core/schemas/prepared-work/1.1.0.json` | Serializable review 1.1.0 JSON Schema |
@@ -280,6 +282,14 @@ A policy can name complete desired sets:
 Members are stable management IDs of the policy's selections. Omitting a set requests no cleanup. Explicitly supplying `"members": []` proposes subtraction of that set's prior managed members. `"selections": []` supports cleanup-only policies and deliberate no-op application. Unmentioned sets and members needed by retained dependencies remain. Selection intent records dependencies and set membership separately from byte custody, including selections with only matching unowned content or approved processes. User custody follows the actual home, including Core-assigned `userState` children; roots in other projects can retain shared user dependencies.
 
 For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed.
+
+`listManagedSelections({ target: { project }, scope: 'project' | 'user' | 'both' }, { signal?, budgetMs? })` reads the current user's protected custody without creating state or inspecting target bytes. Its `complete` result lists stable management IDs, scope, claim versus legacy reconciliation, and member and shared-member counts. Project scope uses the exact resolved project; user scope also covers Core-managed content roots. A corrupt or unverifiable relevant receipt makes the result `incomplete`, so a partial list must not be treated as all custody. The default budget is 30 seconds (1–120,000 ms); receipt count, bytes and output are bounded. `aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]` defaults to the current directory and both scopes. The public result schema is `@aihq/core/schemas/managed-inventory-result/1.0.0.json`.
+
+`prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy 1.1 Prepare to the existing engine. `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.
+
+`aih managed remove <managementId> --scope project|user --mode vibe|enterprise [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--no-log] [--json]` previews by default and requires the same explicit review approval as `aih policy`. Its JSON projection omits the live handle and validates against `@aihq/core/schemas/managed-removal-preparation/1.0.0.json`.
+
+Policy Prepare adds `resolutionInputs` outside the immutable prepared-work review: each actionable authored conflict names its selection and operation, exact observed SHA-256 (or `null`), and locally meaningful `replace`/`adopt` choices. Use a fresh Prepare after resolving an earlier conflict on the same target; the later digest may change. Generated lifecycle cleanup has no keyed replacement hint. The review digest and stale-resolution checks still control Apply.
 
 Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
 

@@ -5,7 +5,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe } from './contracts.js';
-import { prepare, apply, inspect, checkFileState } from './index.js';
+import { prepare, apply, inspect, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
 import { invalidFileStateResult } from './file-state.js';
 import type { FileStateControls, FileStateRequest } from './file-state-types.js';
 import { readRegularFile } from './internal/fsxn.js';
@@ -17,6 +17,7 @@ import { writeSupportReport } from './support-report.js';
 import type { HostControls, PreparationResult, RunResult } from './host-types.js';
 import type { PolicyRequest } from './host-types.js';
 import type { RepairRequest } from './repair.js';
+import type { ManagedRemovalRequest, ManagedRemovalPreparationResult } from './managed-removal.js';
 
 const controller = new AbortController();
 process.once('SIGINT', () => controller.abort());
@@ -38,14 +39,24 @@ const usage = {
   policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
   repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--support-markdown <path>] [--json]\n',
   validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n',
-  'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n'
+  'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n',
+  managed: 'aih managed <list|remove> [options]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
   repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n  aih repair node-npm-ca --target node --inputs-file repair-inputs.json --json --support-markdown repair-report.md\n',
   validate: 'Examples:\n  aih validate execution-policy policy.json\n  aih validate recipe recipe.json --json\n',
-  'check-files': 'Examples:\n  aih check-files policy.json --json\n  aih check-files policy.json --project /absolute/project --json\n  aih check-files policy.json --material-root team=/absolute/materials --budget-ms 30000 --json\n'
+  'check-files': 'Examples:\n  aih check-files policy.json --json\n  aih check-files policy.json --project /absolute/project --json\n  aih check-files policy.json --material-root team=/absolute/materials --budget-ms 30000 --json\n',
+  managed: 'Examples:\n  aih managed list --json\n  aih managed remove team-guidance --scope project --mode vibe --json\n'
+};
+const managedUsage = {
+  list: 'aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]\n',
+  remove: 'aih managed remove <managementId> --scope project|user --mode vibe|enterprise [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--no-log] [--json]\n'
+};
+const managedExamples = {
+  list: 'Examples:\n  aih managed list --json\n  aih managed list --scope project --project /absolute/project --json\n',
+  remove: 'Examples:\n  aih managed remove team-guidance --scope project --mode vibe --json\n  aih managed remove team-guidance --scope project --mode vibe --apply --yes --json\n'
 };
 const commands = Object.keys(usage) as (keyof typeof usage)[];
 function exitCode(result: PreparationResult | RunResult): number {
@@ -93,7 +104,16 @@ async function supportReport(input: SupportInput, operationCode: number): Promis
 }
 
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
+  const cliArgs = process.argv.slice(2);
+  // parseArgs treats a separate negative number as an option; keep it attached
+  // so managed list can report the documented budget-ms diagnostic.
+  if (cliArgs[0] === 'managed' && cliArgs[1] === 'list')
+    for (let index = 2; index < cliArgs.length; index++) if (cliArgs[index] === '--budget-ms') {
+      const next = cliArgs[index + 1];
+      if (next === undefined || next.startsWith('--')) cliArgs[index] = '--budget-ms=';
+      else if (next.startsWith('-')) { cliArgs[index] = `--budget-ms=${next}`; cliArgs.splice(index + 1, 1); }
+    }
+  const { values, positionals } = parseArgs({ args: cliArgs, allowPositionals: true, strict: true, options: {
     project: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' },
     'allow-partial': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'V' }, 'no-log': { type: 'boolean' },
     'private-input': { type: 'string', multiple: true },
@@ -104,14 +124,17 @@ try {
     'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
     'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' },
-    'budget-ms': { type: 'string' }
+    'budget-ms': { type: 'string' }, scope: { type: 'string' }, mode: { type: 'string' }
   } });
   const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
   const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
+  const acceptsOnly = (allowed: readonly string[]) => Object.keys(values).every(name => allowed.includes(name));
   json = values.json ?? false;
   const command = commands.find(name => name === positionals[0]);
   const helpWord = positionals[0] === 'help';
+  const managedHelpWord = positionals[0] === 'managed' && positionals[1] === 'help';
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
+  const helpFlags = Object.keys(values).every(name => name === 'help' || name === 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
   supportMarkdown = values['support-markdown'];
   // Version, help and validate answer before any target, network, history or state access.
@@ -119,16 +142,24 @@ try {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
     else if (json) emit({ name: contractSupport.package.name, version: contractSupport.package.version }, 0);
     else process.stdout.write(`${contractSupport.package.name} ${contractSupport.package.version}\n`);
-  } else if (helpWord && (positionals.length > 2 || !onlyJson ||
-      positionals.length === 2 && !commands.some(name => name === positionals[1]))) {
-    refused('INPUT_INVALID', 'cli-options');
-  } else if (helpWord || values.help) {
-    const topic = helpWord ? commands.find(name => name === positionals[1]) : command;
-    if (topic) process.stdout.write(usage[topic] + examples[topic]);
-    else process.stdout.write(commands.map(name => usage[name]).join('') +
+  } else if (helpWord || values.help || managedHelpWord) {
+    // Existing commands have historically accepted their ordinary arguments with --help.
+    const legacyHelp = values.help === true && positionals[0] !== 'managed' && !helpWord &&
+      values.scope === undefined && values.mode === undefined;
+    const subject = helpWord ? positionals.slice(1) : managedHelpWord ?
+      ['managed', ...positionals.slice(2)] : positionals;
+    const validSubject = legacyHelp || subject.length === 0 || subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) ||
+      subject.length === 2 && subject[0] === 'managed' && ['list', 'remove'].includes(subject[1]!);
+    if ((!legacyHelp && !helpFlags) || !validSubject || (helpWord || managedHelpWord) && !onlyJson) refused('INPUT_INVALID', 'cli-options');
+    else if (subject[0] === 'managed' && subject.length === 2)
+      process.stdout.write(managedUsage[subject[1] as keyof typeof managedUsage] + managedExamples[subject[1] as keyof typeof managedExamples]);
+    else if (subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) || legacyHelp && command) {
+      const topic = (legacyHelp ? command : subject[0]) as keyof typeof usage;
+      process.stdout.write(usage[topic] + (topic === 'managed' ? managedUsage.list + managedUsage.remove + examples.managed : examples[topic]));
+    } else process.stdout.write(commands.map(name => usage[name]).join('') +
       'aih --version | -V [--json]    Print the installed package version.\n' +
       'aih help [<command>] | aih <command> --help | -h    Show usage and examples.\n' +
-      '--no-log (policy and repair only) turns routine history off for Prepare and Apply.\n');
+      '--no-log (policy, repair and managed remove) turns routine history off for Prepare and Apply.\n');
   } else if (positionals[0] === 'validate') {
     const kind = ['execution-policy', 'organization-policy', 'recipe'].find(name => name === positionals[1]);
     if (positionals.length !== 3 || !kind || !onlyJson) refused('INPUT_INVALID', 'cli-options');
@@ -146,10 +177,77 @@ try {
       emit({ status: result.valid ? 'valid' : 'invalid', kind, ...(result.schema ? { schema: result.schema } : {}),
         diagnostics: result.diagnostics }, result.valid ? 0 : 2);
     }
+  } else if (positionals[0] === 'managed' && positionals[1] === 'list') {
+    if (positionals.length !== 2 || !acceptsOnly(['project', 'scope', 'budget-ms', 'json']))
+      refused('INPUT_INVALID', 'cli-options');
+    else {
+      const rawBudget = values['budget-ms'];
+      const budgetMs = rawBudget === undefined ? undefined : /^[0-9]+$/.test(rawBudget) ? Number(rawBudget) : 0;
+      const result = await listManagedSelections({ target: { project: resolve(values.project ?? process.cwd()) },
+        scope: (values.scope ?? 'both') as 'project' | 'user' | 'both' },
+      { signal: controller.signal, ...(budgetMs === undefined ? {} : { budgetMs }) });
+      emit(result, ({ complete: 0, incomplete: 1, invalid: 2, cancelled: 130 })[result.status]);
+    }
+  } else if (positionals[0] === 'managed' && positionals[1] === 'remove') {
+    if (positionals.length !== 3 || !acceptsOnly(['project', 'scope', 'mode', 'org-repository', 'org-path',
+      'org-ref', 'org-token-env', 'apply', 'yes', 'allow-partial', 'no-log', 'json']) ||
+      values.yes && !values.apply || values['allow-partial'] && !values.apply)
+      refused('INPUT_INVALID', 'cli-options');
+    else {
+      const remove = async () => {
+        let organizationSource: ManagedRemovalRequest['organizationSource'];
+        if (values.mode === 'enterprise') {
+          const repository = /^([^/\s]+)\/([^/\s]+)$/.exec(values['org-repository'] ?? '');
+          const revision = /^(branch|tag|commit):(.+)$/s.exec(values['org-ref'] ?? '');
+          if (!repository || !revision || !values['org-path']) {
+            refused('INPUT_INVALID', 'cli-options'); return;
+          }
+          organizationSource = { provider: 'github', repository: { owner: repository[1]!, name: repository[2]! },
+            path: values['org-path'], revision: { kind: revision[1] as 'branch' | 'tag' | 'commit', value: revision[2]! } };
+        } else if (hasOrganizationFlags) { refused('INPUT_INVALID', 'cli-options'); return; }
+        const controls: HostControls = { signal: controller.signal, ...logging };
+        if (values['org-token-env'] !== undefined) {
+          const name = values['org-token-env'];
+          const token = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? process.env[name] : undefined;
+          if (!token) { refused('INPUT_INVALID', 'cli-options'); return; }
+          controls.authentication = { kind: 'bearer', token };
+        }
+        const result = await prepareManagedRemoval({ target: { project: resolve(values.project ?? process.cwd()) },
+          managementId: positionals[2]!, scope: values.scope as ManagedRemovalRequest['scope'],
+          mode: values.mode as ManagedRemovalRequest['mode'],
+          ...(organizationSource === undefined ? {} : { organizationSource }) }, controls);
+        const wrapperCode = (value: ManagedRemovalPreparationResult) => ({
+          absent: 0, retained: 1, 'reconcile-required': 1,
+          unavailable: value.diagnostics.some(item => item.code.startsWith('AUTHORITY_')) ? 2 : 1,
+          invalid: 2, cancelled: 130,
+          prepared: value.preparation ? exitCode(value.preparation) : 1
+        })[value.disposition];
+        if (result.disposition !== 'prepared' || !values.apply || !result.preparation?.prepared || !result.preparation.review) {
+          const projection = result.preparation ? (({ prepared: _handle, ...safe }) =>
+            ({ ...result, preparation: safe }))(result.preparation) : result;
+          emit(projection, wrapperCode(result));
+          return;
+        }
+        const preparation = result.preparation;
+        let approved = values.yes === true;
+        if (!approved && stdin.isTTY && stderr.isTTY) {
+          stderr.write(JSON.stringify(preparation.review, null, 2) + '\n');
+          const prompt = createInterface({ input: stdin, output: stderr });
+          try { approved = /^y(?:es)?$/i.test((await prompt.question('Apply this reviewed work? [y/N] ', { signal: controller.signal })).trim()); }
+          finally { prompt.close(); }
+        }
+        if (!approved) { refused('APPROVAL_REQUIRED', 'explicit-approval'); return; }
+        const run = await apply(preparation.prepared!, { reviewDigest: preparation.review!.reviewDigest,
+          approved: true, origin: values.yes ? 'automation' : 'interactive',
+          ...(values['allow-partial'] === undefined ? {} : { allowPartial: values['allow-partial'] }) }, controls);
+        emit(run, exitCode(run));
+      };
+      await remove();
+    }
   } else if (positionals.length === 1 && positionals[0] === 'inspect' &&
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
       !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log'] &&
-      values['budget-ms'] === undefined) {
+      values['budget-ms'] === undefined && values.scope === undefined && values.mode === undefined) {
     const result = await inspect({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
@@ -164,7 +262,7 @@ try {
     if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
         !values.target?.length || values.target.some(id => !definition.targets.includes(id)) ||
         values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags || values.evidence ||
-        values['material-root']?.length || values['budget-ms'] !== undefined || values.yes && !values.apply ||
+        values['material-root']?.length || values['budget-ms'] !== undefined || values.scope !== undefined || values.mode !== undefined || values.yes && !values.apply ||
         values['allow-partial'] && !values.apply) refused('INPUT_INVALID', 'cli-options');
     else {
       const inputPath = resolve(values['inputs-file']);
@@ -232,6 +330,7 @@ try {
     if (positionals.length !== 2 || values.apply || values.yes || values['allow-partial'] || values.resolutions !== undefined ||
         values.evidence || hasOrganizationFlags || values['no-log'] || values.target !== undefined || values.offline ||
         values['inputs-file'] !== undefined || values['probe-configured-mcp'] || values['support-markdown'] !== undefined ||
+        values.scope !== undefined || values.mode !== undefined ||
         (values['budget-ms'] !== undefined && !/^[0-9]{1,6}$/.test(values['budget-ms']))) {
       refused('INPUT_INVALID', 'cli-options');
     } else {
@@ -280,7 +379,8 @@ try {
       }
     }
   } else if (positionals.length !== 2 || positionals[0] !== 'policy' || values.target || values.offline || values['inputs-file'] ||
-      values['probe-configured-mcp'] || values['budget-ms'] !== undefined || values.yes && !values.apply || values['allow-partial'] && !values.apply) {
+      values['probe-configured-mcp'] || values['budget-ms'] !== undefined || values.scope !== undefined || values.mode !== undefined ||
+      values.yes && !values.apply || values['allow-partial'] && !values.apply) {
     refused('INPUT_INVALID', 'cli-options');
   } else {
     const file = resolve(positionals[1]!);

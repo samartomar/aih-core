@@ -68,11 +68,20 @@ export interface PreparedReview {
   reviewDigest: string;
   evidence?: AssociationResult[];
 }
+/**
+ * Digest hint for a new reviewed `PolicyRequest.resolutions` entry: the exact target
+ * digest this Prepare compared for one authored operation. Not authorization.
+ */
+export interface ResolutionInput {
+  selectionId: string; operationId: string; observedSha256: string | null; availableChoices: ('replace' | 'adopt')[];
+}
 export interface PreparationResult {
   status: 'ready' | 'partial' | 'blocked' | 'invalid' | 'cancelled';
   runId: string; review?: PreparedReview; prepared?: PreparedHandle;
   diagnostics: Diagnostic[]; record: RecordStatus;
   evidence?: AssociationResult[];
+  /** Always present for policy Prepare, in review operation order; omitted for repair. */
+  resolutionInputs?: ResolutionInput[];
 }
 export interface OperationResult {
   id: string; application: 'not-attempted' | 'already-satisfied' | 'applied' | 'failed';

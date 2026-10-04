@@ -75,6 +75,9 @@ function validateSource(source) {
   });
 }
 
+/** Internal admission check shared with Core's metadata-only removal preflight. */
+export function validGitHubPolicySource(source) { return validateSource(source) !== undefined; }
+
 function validateControls(controls) {
   if (controls === undefined) return { token: undefined, signal: undefined };
   if (!isPlainObject(controls)) return undefined;
