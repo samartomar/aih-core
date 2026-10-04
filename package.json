@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.5",
+  "version": "1.0.0-dev.6",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": { "node": ">=24.15.0 <25" },
@@ -8,6 +8,9 @@
     ".": { "types": "./dist/core/index.d.ts", "import": "./dist/core/index.js" },
     "./contracts": { "types": "./dist/core/contracts.d.ts", "import": "./dist/core/contracts.js" },
     "./support": { "types": "./dist/core/support.d.ts", "import": "./dist/core/support.js" },
+    "./report": { "types": "./dist/harness/report/data.d.mts", "import": "./dist/harness/report/data.mjs" },
+    "./report/render": { "types": "./dist/harness/report/render.d.mts", "import": "./dist/harness/report/render.mjs" },
+    "./report/schema": "./dist/harness/report/schema.json",
     "./harness": { "types": "./dist/harness/contracts.d.mts", "import": "./dist/harness/contracts.mjs" },
     "./harness/runtime": { "types": "./dist/harness/runtime.d.mts", "import": "./dist/harness/runtime.mjs" },
     "./harness/schemas/repair/1.0.0.json": "./dist/harness/schemas/repair/1.0.0.json",
@@ -27,16 +30,17 @@
     "./schemas/run-result/1.1.0.json": "./dist/core/schemas/run-result/1.1.0.json"
   },
   "bin": { "aih": "./dist/core/cli.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "docs/reporting/CONTRACT.md", "docs/reporting/FIELDS.md", "docs/reporting/RENDERING.md", "docs/reporting/REPRODUCE.md", "examples/reporting"],
   "bundleDependencies": ["@sigstore/bundle", "@sigstore/protobuf-specs", "@sigstore/verify"],
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
+    "verify:report-consumer": "node scripts/verify-report-consumer.mjs",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
     "test": "node --test test/*.test.mjs test/harness/*.test.mjs",
     "prepack": "npm run build"
   },
   "dependencies": { "@sigstore/bundle": "5.0.0", "@sigstore/protobuf-specs": "0.5.0", "@sigstore/verify": "4.1.2", "ajv": "8.20.0", "jsonc-parser": "3.3.1" },
-  "devDependencies": { "@types/node": "24.10.1", "typescript": "7.0.2", "esbuild": "0.28.2" },
+  "devDependencies": { "@types/node": "24.10.1", "typescript": "7.0.2", "esbuild": "0.28.2", "happy-dom": "20.14.5", "playwright": "1.58.2" },
   "license": "Apache-2.0"
 }

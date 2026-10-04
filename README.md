@@ -12,6 +12,9 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic and file-state result types |
+| `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
+| `@aihq/core/report/render` | Offline V9 `renderReport` |
+| `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers and the bounded `readGitHubPolicy` organization-document reader |
@@ -530,3 +533,11 @@ CI runs these gates on Linux, Windows and macOS. The separate manually invoked
 native macOS trust acceptance uses a disposable runner, installs a temporary CA
 in its OS keychain and exercises packed system-CA and supplied npm repair. It
 requires a macOS 26 arm64 runner and establishes native evidence only when run.
+
+## V9 reporting
+
+`aih report --output <new-directory> --json` acquires bounded offline Node/Git diagnostics and writes matching `report.json` and offline `report.html`. Use repeated `--target` for selected offline Harness diagnostics. `aih report --snapshot <report.json> --output <new-directory> --json` renders supplied data without acquisition; the CLI accepts snapshot files up to 1,000,000 bytes, while the portable JSON import API has a 2 MiB raw-input limit and its own documented structural bounds. `--demo` makes only the HTML a labelled design sample; JSON retains the acquired or supplied observations and is not evidence for the demo values. Report-only options are rejected by other commands. Outputs require a new directory and do not overwrite existing reports.
+
+`@aihq/core/report` exports `createReport`, `validateSnapshot`, `importSnapshot`, `exportSnapshot`, schema identities, errors and reporting types. `@aihq/core/report/render` exports `renderReport`; `@aihq/core/report/schema` exposes the JSON Schema. The data import has no renderer or host effects. Both formats are **experimental**, with runtime validation and explicit unsupported-version rejection.
+
+Read [reporting contracts](docs/reporting/CONTRACT.md), [field/source mapping](docs/reporting/FIELDS.md), [V9 presentation](docs/reporting/RENDERING.md) and [reproduction](docs/reporting/REPRODUCE.md). Consumer-owned [data](examples/reporting/data-only.mjs) and [loopback HTTP](examples/reporting/http.mjs) examples use only public imports. Unsupported analytics stay EMPTY. Supplied assertions remain unauthenticated; presence/configuration is not verification, and importing or serving a snapshot does not collect observations.

@@ -1,0 +1,141 @@
+{
+  "schema": "urn:aihq:report:snapshot:1.0.0",
+  "producer": {
+    "name": "@aihq/core",
+    "version": "1.0.0-dev.5",
+    "revision": null,
+    "contract": "urn:aihq:harness:diagnostic:1.0.0"
+  },
+  "observedAt": "2026-10-04T03:18:42.576Z",
+  "servedFrom": "snapshot",
+  "authentication": "not-authenticated",
+  "status": "completed",
+  "counts": {
+    "passed": 2,
+    "failed": 0,
+    "unavailable": 0,
+    "skipped": 0
+  },
+  "tools": [
+    {
+      "id": "node",
+      "state": "runnable",
+      "selection": "requested"
+    },
+    {
+      "id": "npm",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "git",
+      "state": "runnable",
+      "selection": "requested"
+    },
+    {
+      "id": "python",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "pip",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "cargo",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "conda",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "claude",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "codex",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "cursor",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "gemini",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "copilot",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "windsurf",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "opencode",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "kimi",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "kiro",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "rg",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "fd",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "jq",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "curl",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "keytool",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "bash",
+      "state": "binary",
+      "selection": "unselected"
+    },
+    {
+      "id": "antigravity",
+      "state": "absent",
+      "selection": "unselected"
+    },
+    {
+      "id": "zed",
+      "state": "absent",
+      "selection": "unselected"
+    }
+  ]
+}

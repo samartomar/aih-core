@@ -1,0 +1,33 @@
+@aihq/core
+Copyright 2026 The AI Harness (aih) authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+## Extracted design
+
+The report shell in src/harness/report/templates/report.html (the "V9" developer-console design:
+styles, layout, navigation palette, section structure and the sample content
+shown in demonstration mode) is extracted and adapted from the legacy ai-harness
+project, file src/report/templates/local-report-v9.html at commit
+f5d5f84b9006b628778983dab56dd92dc8888156
+(https://github.com/samartomar/ai-harness/tree/f5d5f84b9006b628778983dab56dd92dc8888156).
+That project is Copyright 2026 The AI Harness (aih) authors and is licensed under
+the Apache License, Version 2.0.
+
+Changes from the source file: product naming and legacy commands were removed from
+the shell, the baked-in sample sections remain only as the labelled demonstration
+sample, a hydration function and a few styles were added, and the radar and heatmap
+scripts were guarded so they only run when their elements exist. No source from the
+legacy report engine, digest types or collectors is used.
+
+## Adapted redaction patterns
+
+The credential-shaped redaction patterns in src/harness/report/data.mjs are also
+adapted from the Apache-2.0 legacy ai-harness project at the revision above.
+They were re-authored for portable structured-data projection without host or
+environment access; they do not import the legacy engine or its collectors.
+
+## Fonts and third-party assets
+
+The design uses system font stacks only. No font files, images or third-party
+scripts are embedded or loaded.

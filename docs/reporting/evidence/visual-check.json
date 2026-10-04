@@ -1,0 +1,19 @@
+{
+  "snapshotSha256": "e8ce1aec849fa228c432a38c82f9a84f1445bc0e763e8e44dfe2e0231c3072e6",
+  "modes": {
+    "report-static": {
+      "sections": 14
+    },
+    "report-hydrated": {
+      "sections": 14,
+      "staticHydratedMatch": true
+    },
+    "demo-static": {
+      "sections": 14
+    },
+    "demo-hydrated": {
+      "sections": 14
+    }
+  },
+  "errors": []
+}
