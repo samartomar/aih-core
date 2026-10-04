@@ -1,7 +1,7 @@
 {
   "schema": "aih.trust.acceptance.v1",
   "cellId": "export-p7b-win32-off",
-  "subjectSha256": "cdea005a97cc5c3583acb5574b8b7992a1ca2a5e8111531e835d22ea25aa740b",
+  "subjectSha256": "67c333b60528244d4c6ee847e38db8a0f94771ebab32f2a55493fb5a9370d92c",
   "cell": {
     "id": "export-p7b-win32-off",
     "definitionId": "certificate-export",
