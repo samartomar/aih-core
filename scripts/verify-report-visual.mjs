@@ -23,6 +23,15 @@ try {
    await page.setContent(html,{waitUntil:'load'});
    const content=await page.locator('main section').evaluateAll(nodes=>nodes.map(node=>({id:node.id,state:node.getAttribute('data-state'),html:node.innerHTML})));
    assert.equal(content.length,14);
+   const bars=await page.locator('.mat-fill').evaluateAll(nodes=>nodes.map(node=>({
+    percent:parseFloat(node.style.width),width:node.getBoundingClientRect().width,
+    height:node.getBoundingClientRect().height,trackWidth:node.parentElement.getBoundingClientRect().width
+   })));
+   assert.ok(bars.some(bar=>bar.percent>0),'Expected nonzero outcome bars');
+   for(const bar of bars.filter(bar=>bar.percent>0)) {
+    assert.ok(bar.height>0&&bar.width>0,'Nonzero outcome bar must be visible');
+    assert.ok(Math.abs(bar.width-bar.trackWidth*bar.percent/100)<2,'Outcome bar width must match its measured proportion');
+   }
    if(mode==='report'){assert.equal(content.filter(section=>section.state==='empty').length,9);assert.equal(content.filter(section=>section.state==='live').length,5);}
    if(javaScriptEnabled) {
     if(mode==='report') assert.deepEqual(content,sections[mode]);
@@ -33,7 +42,7 @@ try {
    } else sections[mode]=content;
    await page.screenshot({path:join(output,label+'.png'),fullPage:true});
    await page.screenshot({path:join(output,label+'-hero.png')});
-   record.modes[label]={sections:content.length,staticHydratedMatch:javaScriptEnabled&&mode==='report'?true:undefined};
+   record.modes[label]={sections:content.length,visibleBars:bars.filter(bar=>bar.percent>0).length,staticHydratedMatch:javaScriptEnabled&&mode==='report'?true:undefined};
    await context.close();
   }
  }
