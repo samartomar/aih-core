@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:managed-inventory-result:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package", "status", "selections", "diagnostics", "limits"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:managed-inventory-result:1.0.0" },
+    "package": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": { "name": { "const": "@aihq/core" }, "version": { "type": "string", "minLength": 1 } }
+    },
+    "status": { "enum": ["complete", "incomplete", "invalid", "cancelled"] },
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": "string", "minLength": 1 } }
+    },
+    "scope": { "enum": ["project", "user", "both"] },
+    "selections": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["managementId", "scope", "custody", "memberCount", "sharedMemberCount"],
+        "properties": {
+          "managementId": { "type": "string", "minLength": 1 },
+          "scope": { "enum": ["project", "user"] },
+          "custody": { "enum": ["claim", "legacy-reconcile"] },
+          "memberCount": { "type": "integer", "minimum": 0 },
+          "sharedMemberCount": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+        "properties": {
+          "code": { "type": "string" }, "reason": { "type": "string" },
+          "message": { "type": "string" }, "path": { "type": "string" },
+          "encountered": { "type": "string" },
+          "supported": { "type": "array", "items": { "type": "string" } },
+          "block": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 },
+          "assessedBlocks": { "type": "integer", "minimum": 0 },
+          "assessmentLimit": { "type": "string" }, "guidance": { "type": "string" }
+        }
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["receiptCount", "receiptBytes", "elapsedMs", "budgetMs"],
+      "properties": {
+        "receiptCount": { "type": "integer", "minimum": 0 },
+        "receiptBytes": { "type": "integer", "minimum": 0 },
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "budgetMs": { "type": "integer", "minimum": 0, "maximum": 120000 }
+      }
+    }
+  },
+  "if": { "properties": { "status": { "not": { "const": "invalid" } } }, "required": ["status"] },
+  "then": { "properties": { "target": {}, "scope": {} }, "required": ["target", "scope"] }
+}

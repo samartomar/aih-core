@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:managed-removal-preparation:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package", "disposition", "diagnostics"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:managed-removal-preparation:1.0.0" },
+    "package": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": { "name": { "const": "@aihq/core" }, "version": { "type": "string", "minLength": 1 } }
+    },
+    "disposition": { "enum": ["prepared", "absent", "retained", "reconcile-required", "unavailable", "invalid", "cancelled"] },
+    "target": {
+      "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": "string", "minLength": 1 } }
+    },
+    "scope": { "enum": ["project", "user"] },
+    "mode": { "enum": ["vibe", "enterprise"] },
+    "managementId": { "type": "string", "minLength": 1 },
+    "diagnostics": { "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics" },
+    "preparation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "runId", "diagnostics", "record", "resolutionInputs"],
+      "properties": {
+        "status": { "enum": ["ready", "partial", "blocked", "invalid", "cancelled"] },
+        "runId": { "type": "string" },
+        "review": { "$ref": "urn:aihq:core:prepared-work:1.1.0" },
+        "diagnostics": { "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics" },
+        "record": { "$ref": "urn:aihq:core:run-result:1.1.0#/properties/record" },
+        "evidence": { "$ref": "urn:aihq:core:prepared-work:1.1.0#/properties/evidence" },
+        "resolutionInputs": {
+          "type": "array", "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["selectionId", "operationId", "observedSha256", "availableChoices"],
+            "properties": {
+              "selectionId": { "type": "string", "minLength": 1 },
+              "operationId": { "type": "string", "minLength": 1 },
+              "observedSha256": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+              "availableChoices": {
+                "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true,
+                "items": { "enum": ["replace", "adopt"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [{
+    "if": { "properties": { "disposition": { "const": "prepared" } } },
+    "then": { "properties": { "preparation": {} }, "required": ["preparation"] },
+    "else": { "not": { "required": ["preparation"] } }
+  }, {
+    "if": { "properties": { "disposition": { "not": { "const": "invalid" } } }, "required": ["disposition"] },
+    "then": { "properties": { "target": {}, "scope": {}, "mode": {}, "managementId": {} },
+      "required": ["target", "scope", "mode", "managementId"] }
+  }]
+}

@@ -5,9 +5,10 @@ import { lstatSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdir
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { build, stop } from 'esbuild';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { policy } from './fixture.mjs';
 
 test('one Core artifact delivers APIs, portable Harness, repairs and a versioned Harness update', async () => {
@@ -33,8 +34,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
     npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
   };
-  const run = (file, extraEnv = {}) => execFileSync(process.execPath, [file],
-    { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout: 30_000 });
+  const run = (file, extraEnv = {}, timeout = 30_000) => execFileSync(process.execPath, [file],
+    { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout });
   let failure;
   try {
     const packed = pack(packageRoot);
@@ -52,13 +53,17 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
+    const packedSupport = (await import(pathToFileURL(join(installed, 'dist/core/contracts.js')).href)).contractSupport;
+    const packedSchemas = new Ajv2020({ strict: true });
+    for (const entry of packedSupport.contracts) packedSchemas.addSchema(JSON.parse(readFileSync(join(installed,
+      entry.schemaExport.replace('@aihq/core/schemas/', 'dist/core/schemas/')), 'utf8')));
     writeFileSync(join(consumer, 'contracts.mts'), `
       import {contractSupport,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
       import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
       import {diagnose} from '@aihq/core/harness/runtime';
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
-      import {checkFileState} from '@aihq/core';
-      import type {FileStateRequest,FileStateControls,FileStateResult} from '@aihq/core';
+      import {checkFileState,listManagedSelections,prepareManagedRemoval} from '@aihq/core';
+      import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
@@ -79,6 +84,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const fsControls: FileStateControls = {budgetMs: 30000};
       const fsResult: FileStateResult = await checkFileState(fsRequest, fsControls);
       const fsAuthority: 'not-evaluated' = fsResult.authority;
+      const inventory: ManagedInventoryResult = await listManagedSelections({target:{project:'/absolute/project'},scope:'both'});
+      const removal: ManagedRemovalPreparationResult = await prepareManagedRemoval({target:{project:'/absolute/project'},managementId:'team-guidance',scope:'project',mode:'vibe'});
     `);
     const compilerManifest = createRequire(import.meta.url).resolve('typescript/package.json');
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
@@ -163,7 +170,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import assert from 'node:assert/strict';
       import {readFileSync,writeFileSync} from 'node:fs';
       import {join,resolve} from 'node:path';
-      import {prepare,apply,inspect,checkFileState,writeSupportReport} from '@aihq/core';
+      import {prepare,apply,inspect,checkFileState,listManagedSelections,prepareManagedRemoval,writeSupportReport} from '@aihq/core';
       import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
       import {repairIndex,contractSupport as harnessSupport} from '@aihq/core/harness';
       import {getRepairRecipe,diagnose} from '@aihq/core/harness/runtime';
@@ -171,9 +178,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const ajv = new Ajv2020({strict:true});
       for (const entry of contractSupport.contracts)
         ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
-      assert.equal(contractSupport.contracts.length,10);
-      assert.deepEqual(contractSupport.contracts.at(-1),{id:'urn:aihq:core:file-state-result:1.0.0',
-        role:'produces',schemaExport:'@aihq/core/schemas/file-state-result/1.0.0.json'});
+      for (const [id, schemaExport] of [
+        ['urn:aihq:core:managed-inventory-result:1.0.0','@aihq/core/schemas/managed-inventory-result/1.0.0.json'],
+        ['urn:aihq:core:managed-removal-preparation:1.0.0','@aihq/core/schemas/managed-removal-preparation/1.0.0.json']])
+        assert.deepEqual(contractSupport.contracts.find(entry=>entry.id===id),{id,role:'produces',schemaExport});
       for (const entry of harnessSupport.contracts) {
         const schema=(await import(entry.schemaExport,{with:{type:'json'}})).default;
         assert.equal(schema.$id,entry.id);
@@ -206,12 +214,27 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const result = await apply(p.prepared,{approved:true,origin:'automation',reviewDigest:p.review.reviewDigest},{logging:'off'});
       assert.equal(result.completion,'complete');
       assert.equal(ajv.validate(result.schema,result),true,JSON.stringify(ajv.errors));
+      const inventory = await listManagedSelections({target:{project:process.env.TEST_PROJECT},scope:'project'});
+      assert.equal(inventory.status,'complete',JSON.stringify(inventory.diagnostics));
+      assert.deepEqual(inventory.selections.map(item=>item.managementId),['team-guidance']);
+      assert.equal(ajv.validate(inventory.schema,inventory),true,JSON.stringify(ajv.errors));
+      const removal = await prepareManagedRemoval({target:{project:process.env.TEST_PROJECT},managementId:'team-guidance',scope:'project',mode:'vibe'},{logging:'off'});
+      const projectedRemoval=removal.preparation?(({prepared: liveHandle,...preparation})=>({...removal,preparation}))(removal.preparation):removal;
+      assert.equal(removal.disposition,'prepared',JSON.stringify(removal));
+      if(projectedRemoval.preparation) assert.equal(Object.hasOwn(projectedRemoval.preparation,'prepared'),false);
+      assert.equal(ajv.validate(removal.schema,projectedRemoval),true,JSON.stringify(ajv.errors));
       const fileState = await checkFileState({policy:parsePolicy(readFileSync('policy.json','utf8')).document,
         target:{project:process.env.TEST_PROJECT}});
       assert.equal(fileState.status,'complete',JSON.stringify(fileState));
       assert.equal(fileState.fileState,'match');
       assert.equal(fileState.authority,'not-evaluated');
       assert.equal(ajv.validate(fileState.schema,fileState),true,JSON.stringify(ajv.errors));
+      const removed=await apply(removal.preparation.prepared,{approved:true,origin:'automation',reviewDigest:removal.preparation.review.reviewDigest},{logging:'off'});
+      assert.equal(removed.completion,'complete',JSON.stringify(removed));
+      const finalInventory=await listManagedSelections({target:{project:process.env.TEST_PROJECT},scope:'project'});
+      assert.equal(finalInventory.status,'complete',JSON.stringify(finalInventory.diagnostics));
+      assert.equal(finalInventory.selections.some(item=>item.managementId==='team-guidance'),false);
+      assert.equal(ajv.validate(finalInventory.schema,finalInventory),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
       const userTrust = repairIndex.find(item=>item.id==='user-tools-ca');
       assert.ok(userTrust,'packed Harness must include the user-tools-ca repair');
@@ -252,7 +275,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(gitRepair.review.operations.find(item=>item.id==='trust/git-config').details.content,'[REDACTED]');
       console.log('packed API, Harness runtime, repair and schemas passed');
     `);
-    assert.match(run('run.mjs'), /packed API, Harness runtime, repair and schemas passed/);
+    assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
       import {parsePolicy,contractSupport} from '@aihq/core/contracts';
       import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers} from '@aihq/core/harness';
@@ -285,7 +308,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const cliResult = execFileSync(process.execPath, [join(installed, manifest.bin.aih), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--apply', '--yes', '--json'],
       { cwd: consumer, env, encoding: 'utf8', timeout: 20_000 });
-    assert.equal(JSON.parse(cliResult).operations[0].application, 'already-satisfied');
+    assert.equal(JSON.parse(cliResult).operations[0].application, 'applied');
 
     // The installed bin serves version, pure validation and --no-log runs.
     const bin = (args, binEnv = env) => spawnSync(process.execPath, [join(installed, manifest.bin.aih), ...args],
@@ -311,6 +334,44 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.ok(readdirSync(join(noLogHome, '.aih/core/ownership')).length > 0);
     assert.ok(readdirSync(join(noLogHome, '.aih/core/recovery')).length > 0);
     assert.equal(existsSync(join(noLogHome, '.aih/core/runs')), false);
+    // The installed bin maps the read-only check to its documented exit codes.
+    const checkEnv = { ...env, HOME: noLogHome, USERPROFILE: noLogHome };
+    const checkMatch = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkMatch.status, 0, checkMatch.stdout + checkMatch.stderr);
+    assert.equal(JSON.parse(checkMatch.stdout).status, 'complete');
+    assert.equal(JSON.parse(checkMatch.stdout).fileState, 'match');
+    const originalTeam = readFileSync(join(noLogProject, 'TEAM.md'));
+    writeFileSync(join(noLogProject, 'TEAM.md'), 'edited after application');
+    const checkChanged = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkChanged.status, 1, checkChanged.stdout + checkChanged.stderr);
+    assert.equal(JSON.parse(checkChanged.stdout).fileState, 'changed');
+    const checkInvalid = bin(['check-files', join(consumer, 'invalid-policy.json'), '--project', noLogProject, '--json'], checkEnv);
+    assert.equal(checkInvalid.status, 2, checkInvalid.stdout + checkInvalid.stderr);
+    assert.equal(JSON.parse(checkInvalid.stdout).status, 'invalid');
+    const checkRefused = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--apply'], checkEnv);
+    assert.equal(checkRefused.status, 2, checkRefused.stdout + checkRefused.stderr);
+    writeFileSync(join(noLogProject, 'TEAM.md'), originalTeam);
+    const managedList = bin(['managed', 'list', '--project', noLogProject, '--scope', 'project', '--json'],
+      { ...env, HOME: noLogHome, USERPROFILE: noLogHome });
+    assert.equal(managedList.status, 0, managedList.stdout + managedList.stderr);
+    const listed = JSON.parse(managedList.stdout);
+    assert.deepEqual(listed.selections.map(item => item.managementId), ['team-guidance']);
+    assert.equal(packedSchemas.validate(listed.schema, listed), true, JSON.stringify(packedSchemas.errors));
+    const removalArgs = ['managed', 'remove', 'team-guidance', '--scope', 'project', '--mode', 'vibe', '--project', noLogProject];
+    const managedPreview = bin([...removalArgs, '--json'], { ...env, HOME: noLogHome, USERPROFILE: noLogHome });
+    assert.equal(managedPreview.status, 0, managedPreview.stdout + managedPreview.stderr);
+    const preview = JSON.parse(managedPreview.stdout);
+    assert.equal(preview.disposition, 'prepared');
+    assert.equal(Object.hasOwn(preview.preparation, 'prepared'), false);
+    assert.equal(packedSchemas.validate(preview.schema, preview), true, JSON.stringify(packedSchemas.errors));
+    const managedApply = bin([...removalArgs, '--apply', '--yes', '--json'],
+      { ...env, HOME: noLogHome, USERPROFILE: noLogHome });
+    assert.equal(managedApply.status, 0, managedApply.stdout + managedApply.stderr);
+    assert.equal(JSON.parse(managedApply.stdout).completion, 'complete');
+    const managedFinal = bin(['managed', 'list', '--project', noLogProject, '--scope', 'project', '--json'],
+      { ...env, HOME: noLogHome, USERPROFILE: noLogHome });
+    assert.equal(managedFinal.status, 0, managedFinal.stdout + managedFinal.stderr);
+    assert.equal(JSON.parse(managedFinal.stdout).selections.some(item => item.managementId === 'team-guidance'), false);
 
     // The installed CLI writes an explicit support Markdown report with a receipt.
     const reportHome = join(root, 'report-home'); mkdirSync(reportHome);
@@ -321,22 +382,6 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(JSON.parse(inspectReport.stdout).package.name, '@aihq/core');
     assert.equal(inspectReport.stderr, `Support report written: ${join(realpathSync.native(root), 'packed-inspect-report.md')}\n`);
     assert.ok(readFileSync(reportTarget, 'utf8').length > 0);
-
-    // The installed bin maps the read-only check to its documented exit codes.
-    const checkEnv = { ...env, HOME: noLogHome, USERPROFILE: noLogHome };
-    const checkMatch = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
-    assert.equal(checkMatch.status, 0, checkMatch.stdout + checkMatch.stderr);
-    assert.equal(JSON.parse(checkMatch.stdout).status, 'complete');
-    assert.equal(JSON.parse(checkMatch.stdout).fileState, 'match');
-    writeFileSync(join(noLogProject, 'TEAM.md'), 'edited after application');
-    const checkChanged = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--json'], checkEnv);
-    assert.equal(checkChanged.status, 1, checkChanged.stdout + checkChanged.stderr);
-    assert.equal(JSON.parse(checkChanged.stdout).fileState, 'changed');
-    const checkInvalid = bin(['check-files', join(consumer, 'invalid-policy.json'), '--project', noLogProject, '--json'], checkEnv);
-    assert.equal(checkInvalid.status, 2, checkInvalid.stdout + checkInvalid.stderr);
-    assert.equal(JSON.parse(checkInvalid.stdout).status, 'invalid');
-    const checkRefused = bin(['check-files', join(consumer, 'policy.json'), '--project', noLogProject, '--apply'], checkEnv);
-    assert.equal(checkRefused.status, 2, checkRefused.stdout + checkRefused.stderr);
 
     // Mutate only this disposable installation, keeping the preparing module
     // instance alive. Changed bundled bytes must invalidate the reviewed work.
@@ -422,8 +467,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     // Reinstall the original chosen artifact to restore its reproducible bytes.
     const baselineDigest = readFileSync(join(consumer, 'baseline-helper.txt'), 'utf8');
     install(packed);
-    const restoredHome = join(root, 'restored-home'); mkdirSync(restoredHome);
-    assert.match(run('run.mjs', { HOME: restoredHome, USERPROFILE: restoredHome }), /packed API, Harness runtime, repair and schemas passed/);
+    const restoredHome = join(root, 'restored-home'), restoredProject = join(root, 'restored-project');
+    mkdirSync(restoredHome); mkdirSync(restoredProject);
+    assert.match(run('run.mjs', { HOME: restoredHome, USERPROFILE: restoredHome, TEST_PROJECT: restoredProject }, 60_000),
+      /packed API, Harness runtime, repair and schemas passed/);
     assert.equal(readFileSync(join(consumer, 'baseline-helper.txt'), 'utf8'), baselineDigest);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/harness')), false);
   } catch (error) { failure = error; throw error; }

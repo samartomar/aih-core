@@ -638,10 +638,10 @@ test('file.write compares the explicit POSIX mode only on POSIX', { skip: proces
   assert.equal(preserved.targets[0].outcome, 'match');
 });
 
-test('the installed distribution declares the produced file-state schema last', () => {
-  assert.equal(contractSupport.contracts.length, 10);
-  assert.deepEqual(contractSupport.contracts.at(-1), { id: 'urn:aihq:core:file-state-result:1.0.0',
-    role: 'produces', schemaExport: '@aihq/core/schemas/file-state-result/1.0.0.json' });
+test('the installed distribution still declares the produced file-state schema', () => {
+  assert.deepEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.0.0'),
+    { id: 'urn:aihq:core:file-state-result:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/schemas/file-state-result/1.0.0.json' });
 });
 
 test('shipped representative results validate against the public schema', () => {

@@ -10,6 +10,8 @@ import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: '
 import resultSchema11 from './schemas/run-result/1.1.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
 import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
+import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
+import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
 import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
@@ -30,8 +32,10 @@ export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
   contracts: [policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
-    policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema].map(schema => ({
-    id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11].includes(schema as never) ? 'produces' : 'accepts',
+    policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
+    managedInventorySchema, managedRemovalSchema].map(schema => ({
+    id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
+      managedInventorySchema, managedRemovalSchema].includes(schema as never) ? 'produces' : 'accepts',
     schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
   })),
   entries: [

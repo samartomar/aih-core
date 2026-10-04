@@ -90,20 +90,92 @@ export function protectState(relativePaths: string[] = []): void {
 }
 
 export function ownershipPath(target: string): string { return `ownership/${sha256(target)}.json`; }
-export function readOwnership(target: string): { value: Ownership; digest: string | null } {
+export function readOwnership(target: string): { value: Ownership; digest: string | null; bytes: number } {
   const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
-    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return { value: empty, digest: null };
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return { value: empty, digest: null, bytes: 0 };
     throw error;
   }
   // Custody is meaningful only in the protected store; existing records in a
   // writable/untrusted root must not establish ownership, including in previews.
   protectState([ownershipPath(target)]);
   const bytes = stateFiles().read(ownershipPath(target));
-  if (!bytes) return { value: empty, digest: null };
+  if (!bytes) return { value: empty, digest: null, bytes: 0 };
   const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
   validateOwnership(value, target);
-  return { value, digest: sha256(bytes) };
+  return { value, digest: sha256(bytes), bytes: bytes.length };
+}
+
+/** Protect a set of receipt paths once, then validate each value against its target. */
+export function readOwnershipBatch(targets: readonly string[]): Map<string, { value: Ownership; digest: string | null; bytes: number }> {
+  const unique = [...new Set(targets)];
+  const result = new Map<string, { value: Ownership; digest: string | null; bytes: number }>();
+  if (unique.length === 0) return result;
+  try { lstatSync(stateRoot()); } catch (error) {
+    if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    for (const target of unique) result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+    return result;
+  }
+  // Keep both process launch count and Windows environment size bounded.
+  for (let offset = 0; offset < unique.length; offset += 32)
+    protectState(unique.slice(offset, offset + 32).map(ownershipPath));
+  const files = stateFiles();
+  for (const target of unique) {
+    const bytes = files.read(ownershipPath(target));
+    if (!bytes) {
+      result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+      continue;
+    }
+    const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
+    validateOwnership(value, target);
+    result.set(target, { value, digest: sha256(bytes), bytes: bytes.length });
+  }
+  return result;
+}
+
+/** Enumerate protected receipts with one protection check for the whole batch. */
+export function readOwnershipReceipts(check: () => void): { receipts: Ownership[]; count: number; bytes: number } {
+  try { lstatSync(stateRoot()); }
+  catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+      return { receipts: [], count: 0, bytes: 0 };
+    throw error;
+  }
+  protectState(['ownership']);
+  check();
+  protectState();
+  const directory = join(stateRoot(), 'ownership');
+  try { if (!lstatSync(directory).isDirectory()) throw new Error('ownership-invalid'); }
+  catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+      return { receipts: [], count: 0, bytes: 0 };
+    throw error;
+  }
+  check();
+  const allNames = readdirSync(directory);
+  if (allNames.length > 8192) throw new Error('ownership-limit');
+  const names = allNames.filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort();
+  // Keep the Windows environment argument bounded while checking many receipts per process.
+  for (let offset = 0; offset < names.length; offset += 128) {
+    check();
+    protectState(names.slice(offset, offset + 128).map(name => `ownership/${name}`));
+  }
+  check();
+  const receipts: Ownership[] = []; let total = 0;
+  const files = stateFiles();
+  for (const name of names) {
+    check();
+    const data = files.read(`ownership/${name}`);
+    if (!data) throw new Error('ownership-invalid');
+    total += data.length;
+    if (total > 32 * 1024 * 1024) throw new Error('ownership-limit');
+    const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(data), 'ownership');
+    if (typeof value.target !== 'string' || !isAbsolute(value.target) ||
+      ownershipPath(value.target) !== `ownership/${name}`) throw new Error('ownership-invalid');
+    validateOwnership(value, value.target);
+    receipts.push(value);
+  }
+  return { receipts, count: names.length, bytes: total };
 }
 
 export function validateOwnership(input: unknown, target: string): asserts input is Ownership {
