@@ -110,7 +110,8 @@ never turn a meaningful state into a secret-like token or the reverse.
 Producer revision may be null when the installed package does not expose its source commit. The fresh command uses null for revision and original evidence identity; externally supplied snapshots may retain a caller-provided original-byte digest without authentication.
 
 Import and export always mask conventional home prefixes (`/home/<user>`,
-`/Users/<user>` and Windows user directories) and credential assignments using
-either `=` or `:`. Imports also accept explicit privacy context for nonstandard
+`/Users/<user>` and Windows user directories, including case variations and
+spaces in Windows usernames) and credential assignments using either `=` or
+`:` with plain or quoted keys. Imports also accept explicit privacy context for nonstandard
 home paths or arbitrary secrets. Applied projection is not a completeness or
 authentication claim; inspect the redacted report before sharing.

@@ -41,6 +41,8 @@ try {
  const browserContext={TextEncoder,TextDecoder,reportInputJSON:await readFile(join(consumer,'input.json'),'utf8')}; runInNewContext(browser.outputFiles[0].text,browserContext);
  const browserReport=runInNewContext('ReportAPI.createReport(JSON.parse(reportInputJSON))',browserContext);
  assert.equal(browserReport.metrics.counts.passed,1);
+ assert.equal(runInNewContext('ReportAPI.importSnapshot(ReportAPI.exportSnapshot(ReportAPI.createReport(JSON.parse(reportInputJSON)))).metrics.counts.passed',browserContext),1);
+ assert.throws(()=>runInNewContext('ReportAPI.importSnapshot(ReportAPI.exportSnapshot(ReportAPI.createReport(JSON.parse(reportInputJSON))).replace("\\\"status\\\":\\\"completed\\\"", "\\\"status\\\":\\\"invalid\\\",\\\"status\\\":\\\"completed\\\""))',browserContext),{code:'INPUT_INVALID'});
  assert.ok(browserContext.ReportAPI.renderReport(browserReport).includes('sec-ready'));
  await stop();
  console.log('Packed reporting browser bundle runs without Node globals or producer runtime.');

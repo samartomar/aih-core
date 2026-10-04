@@ -342,3 +342,19 @@ test('privacy projection also masks producer metadata and refuses expansion beyo
  expanded.diagnostic.helper.version=expanded.producer.version;
  assert.throws(()=>createReport(expanded),{code:'INPUT_INVALID'});
 });
+
+test('supplied Windows home paths mask case variations and complete spaced usernames', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = 'c:\\users\\bob\\project C:\\Users\\Bob Smith\\project C:/uSeRs/Jane Doe/project';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.equal(report.observations[0].detail, '<homePath>\\project <homePath>\\project <homePath>/project');
+  assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+});
+
+test('JSON-style credential keys are masked in supplied diagnostic strings', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = 'settings: {"password": "fixture-private-value", "API_KEY": "short"}';
+  const json = exportSnapshot(importSnapshot(JSON.stringify(snapshot)));
+  assert.ok(!json.includes('fixture-private-value'));
+  assert.ok(!json.includes('short'));
+});

@@ -300,16 +300,16 @@ const SECRET_PATTERNS = [
 const ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'ACCESS_KEY'];
 const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'APIKEY', 'ACCESS_KEY'];
 const SENSITIVE_FLAG_NAME = /^(token|access[-_]?token|auth[-_]?token|password|passwd|pass|secret|client[-_]?secret|api[-_]?key|apikey|auth|bearer)$/i;
-const CONVENTIONAL_HOME = /(?:[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/\s"'<>;]+|\/(?:home|Users)\/[^/\s"'<>;]+)/g;
+const CONVENTIONAL_HOME = /(?:[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/\r\n\t"'<>;]+|\/(?:home|Users)\/[^/\s"'<>;]+)/gi;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Mask `KEY=VALUE` / `KEY: VALUE` diagnostics with secret-ish uppercase keys. */
+/** Mask `KEY=VALUE` / `KEY: VALUE` diagnostics, including quoted credential keys. */
 function redactSecretAssignments(text) {
   return text.replace(
-    /\b([A-Za-z_][A-Za-z0-9_]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/g,
+    /(?:\b|["'])([A-Za-z_][A-Za-z0-9_]*)["']?(\s*[=:]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;{}\[\]"']+)/g,
     (match, key, separator, rawValue) => {
       const upper = key.toUpperCase();
       const value = rawValue.replace(/^["']|["']$/g, '');
