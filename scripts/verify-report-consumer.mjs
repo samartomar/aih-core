@@ -62,7 +62,7 @@ try {
  const commandEnv={...process.env,HOME:home,USERPROFILE:home};
  const cli=join(consumer,'node_modules/@aihq/core/dist/core/cli.js');
  const fresh=JSON.parse(execFileSync(process.execPath,[cli,'report','--output',join(consumer,'fresh'),'--json'],{cwd:consumer,env:commandEnv,encoding:'utf8',windowsHide:true,timeout:45000}));
- assert.equal(fresh.source,'fresh'); assert.equal(fresh.package.version,'1.0.0-dev.5'); assert.equal(fresh.counts.passed,2);
+ assert.equal(fresh.source,'fresh'); assert.deepEqual(fresh.package,{name:pack.name,version:pack.version}); assert.equal(fresh.counts.passed,2);
  const actual=await readFile(fresh.output.json,'utf8');
  const saved=JSON.parse(execFileSync(process.execPath,[cli,'report','--snapshot',fresh.output.json,'--output',join(consumer,'saved'),'--json'],{cwd:consumer,env:commandEnv,encoding:'utf8',windowsHide:true,timeout:10000}));
  assert.equal(saved.source,'snapshot'); assert.equal(await readFile(saved.output.json,'utf8'),actual);

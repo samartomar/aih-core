@@ -1,6 +1,7 @@
 import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
 import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock } from './recipe-editors.js';
+import type { Ownership } from './state.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
@@ -59,6 +60,29 @@ function validHook(member: HookDescriptor): boolean {
 export function claimIdentity(scope: 'project' | 'user', managementId: string, project: string): string {
   const anchor = scope === 'project' ? project : userHomeRoot();
   return `${scope}:${sha256(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${managementId}`;
+}
+/** Classify recorded claims once for policy cleanup and metadata-only removal previews. */
+export function classifyStoredClaims(receipts: Iterable<[string, { value: Ownership }]>,
+  candidate: (claim: Claim, root: string, identity: string) => boolean):
+  { candidates: Set<string>; retained: Set<string>; dependencies: Map<string, string[]> } {
+  const candidates = new Set<string>(); const retained = new Set<string>();
+  const dependencies = new Map<string, string[]>();
+  for (const [root, stored] of receipts)
+    for (const claim of [...Object.values(stored.value.selections ?? {}),
+      ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
+      const identity = claimIdentity(claim.scope, claim.managementId, root);
+      dependencies.set(identity, [...new Set([...(dependencies.get(identity) ?? []), ...claim.requires])]);
+      if (candidate(claim, root, identity)) candidates.add(identity);
+      else retained.add(identity);
+    }
+  return { candidates, retained, dependencies };
+}
+
+/** A retained selection also retains all recorded dependencies, transitively. */
+export function retainClaimDependencies(retained: Set<string>, dependencies: ReadonlyMap<string, readonly string[]>): void {
+  const queue = [...retained];
+  for (let index = 0; index < queue.length; index++) for (const dependency of dependencies.get(queue[index]!) ?? [])
+    if (!retained.has(dependency)) { retained.add(dependency); queue.push(dependency); }
 }
 export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor, bytes?: Buffer | null): boolean {
   const samePath = process.platform === 'win32' ? a.path.toLowerCase() === b.path.toLowerCase() : a.path === b.path;

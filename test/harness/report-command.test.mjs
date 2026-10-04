@@ -287,7 +287,9 @@ test('existing commands reject report-only options', () => {
     const file = join(w.cwd, 'x.json'); writeFileSync(file, '{}');
     for (const flags of [['--output', 'out'], ['--snapshot', file], ['--demo']]) {
       for (const args of [['inspect', ...flags], ['repair', 'node-npm-ca', '--target', 'node', '--inputs-file', file, ...flags],
-        ['policy', file, ...flags]]) {
+        ['policy', file, ...flags], ['managed', 'list', ...flags],
+        ['managed', 'remove', 'team-guidance', '--scope', 'project', '--mode', 'vibe', ...flags],
+        ['managed', 'help', ...flags]]) {
         const result = w.run([...args, '--json']);
         assert.equal(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
         assert.equal(summary(result).status, 'invalid');
@@ -310,6 +312,12 @@ test('help documents the report command and its modes', () => {
     assert.match(help.stdout, /--snapshot <report\.json>/);
     assert.match(help.stdout, /--demo/);
     assert.match(help.stdout, /aih inspect/);
+    assert.match(help.stdout, /aih managed <list\|remove>/);
+    for (const args of [['help', 'report'], ['report', '--help'], ['help', 'managed', 'list'], ['managed', 'remove', '--help']]) {
+      const topic = w.run(args);
+      assert.equal(topic.status, 0, topic.stdout + topic.stderr);
+      assert.match(topic.stdout, /Examples:/);
+    }
   } finally { w.cleanup(); }
 });
 

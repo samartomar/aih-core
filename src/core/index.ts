@@ -23,3 +23,8 @@ export type { SupportReportResult, WriteSupportReportOptions } from './support-r
 
 export { checkFileState } from './file-state.js';
 export type * from './file-state-types.js';
+export { listManagedSelections } from './managed-inventory.js';
+export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventoryResult,
+  ManagedInventorySelection } from './managed-inventory.js';
+export { prepareManagedRemoval } from './managed-removal.js';
+export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult } from './managed-removal.js';

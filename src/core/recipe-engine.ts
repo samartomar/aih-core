@@ -15,8 +15,8 @@ import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwners
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
-import { claimIdentity, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
-import { decideHookCleanup, decideHookStep, type HookDecision, type RetainedHook } from './internal/hook-prepare.js';
+import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
+import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
@@ -25,7 +25,7 @@ import { readRegularFile } from './internal/fsxn.js';
 import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
-import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
+import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -39,6 +39,8 @@ interface PreparedStep {
   managementId: string; recipeIdentity: string; checks: PreparedCheck[];
   process?: PreparedProcess; unavailable?: string; resolution?: 'replace' | 'adopt';
   custody?: Record<string, Owner | null>; custodyOnly?: boolean; lifecycle?: boolean;
+  /** Keyed resolution address of an authored operation; generated lifecycle cleanup has none. */
+  authored?: { selectionId: string; operationId: string; overlayKey?: string; choices: ('replace' | 'adopt')[] };
 }
 interface PreparedState {
   request: PolicyRequest; requestDigest: string; privateInputs: HostControls['privateInputs']; privateDigest: string;
@@ -258,9 +260,12 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 }
 
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
-    unavailableInvocations?: CapturedUnavailableInvocations): Promise<PreparationResult> {
+    unavailableInvocations?: CapturedUnavailableInvocations,
+    custodyImageStillCurrent?: () => boolean): Promise<PreparationResult> {
   const runId = randomUUID();
-  let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled };
+  // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
+  const hinted = unavailableInvocations === undefined;
+  let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled, ...(hinted ? { resolutionInputs: [] } : {}) };
   let logging: 'on' | 'off' = 'off'; let project: string | undefined; let secrets: string[] = [];
   try {
     validateControls(controls); logging = loggingOption(controls).value; secrets = bearerSecrets(controls);
@@ -419,6 +424,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let editConflict: string | undefined;
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
+        // Reviewed choices that would change this conflict or acquire identical unowned content.
+        const choices: ('replace' | 'adopt')[] = []; let overlayKey: string | undefined;
         if (op.kind === 'process.run') {
           const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
@@ -426,7 +433,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         } else {
           const target = resolvePath(op.target, op.scope, bound, project, selectionKey);
           root = target.root; path = target.path; pins = pathPins(target.absolute); ownerKey = path;
-          const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`;
+          const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`; overlayKey = key;
           const overlay = overlays.get(key);
           if (overlay) requires.push(overlay.priorId);
           const tx = transaction(root); const live = tx.inspect(path);
@@ -463,10 +470,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }
             const priorConflict = hookConflicts.get(`${root}:${hookKey}`);
             if (priorConflict) requires.push(priorConflict);
-            const decision: HookDecision = decideHookStep({ authored: { format: op.format, container: op.container, groupId: op.groupId,
+            const stepInput: HookStepInput = { authored: { format: op.format, container: op.container, groupId: op.groupId,
               selector: op.selector, action: op.action, ...(op.group ? { group: op.group.literal } : {}) }, path, key: hookKey, before,
-              owner: projected.members[hookKey], retained, resolution: choice?.choice, isMine: mine, addMine, recipeIdentity, mode: mode!,
-              ...(priorConflict ? { forced: 'hook-prior-conflict' } : incompatible ? { forced: 'existing-content' } : {}) });
+              owner: projected.members[hookKey], retained, resolution: undefined, isMine: mine, addMine, recipeIdentity, mode: mode!,
+              ...(priorConflict ? { forced: 'hook-prior-conflict' } : incompatible ? { forced: 'existing-content' } : {}) };
+            const decideWith = (option: 'replace' | 'adopt' | undefined): HookDecision => decideHookStep({ ...stepInput, resolution: option });
+            const decision = decideWith(choice?.choice);
+            if (decision.effect === 'conflict') for (const option of ['replace', 'adopt'] as const) {
+              try { if (decideWith(option).effect !== 'conflict') choices.push(option); }
+              catch (error) { if (!(error instanceof Error) || error.message !== 'resolution-invalid') throw error; }
+            }
             effect = decision.effect; after = decision.after; custody = { [hookKey]: decision.custody }; custodyOnly = decision.custodyOnly;
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;
@@ -549,19 +562,26 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             (overlappingMembers(member, owner.descriptor, before) || overlappingMembers(member, owner.descriptor, after)))); }
           catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
 
-          if (editConflict || sharedChange || overlap) effect = 'conflict';
-          else if (drift && !resolution) effect = 'conflict';
-          else if (same) effect = 'already-satisfied';
-          else if (before === null && after !== null) effect = 'create-file';
-          else if (before !== null && after === null) effect = changingOwned || resolution === 'replace' && descriptors.every(member => { const prior = projected.members[memberKey(member)]; return prior?.claims?.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); }) ? 'remove-file' : 'conflict';
-          else effect = changingOwned || selectedAbsent || resolution === 'replace' ? 'replace-file' : 'conflict';
+          const decide = (option: 'replace' | 'adopt' | undefined): ReviewOperation['effects'] => {
+            if (editConflict || sharedChange || overlap || drift && !option) return 'conflict';
+            if (same) return 'already-satisfied';
+            if (before === null && after !== null) return 'create-file';
+            if (before !== null && after === null) return changingOwned || option === 'replace' && descriptors.every(member => { const prior = projected.members[memberKey(member)]; return prior?.claims?.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); }) ? 'remove-file' : 'conflict';
+            return changingOwned || selectedAbsent || option === 'replace' ? 'replace-file' : 'conflict';
+          };
+          effect = decide(resolution);
+          const adoptable = same && before !== null && !managed;
+          if (effect === 'conflict' && decide('replace') !== 'conflict') choices.push('replace');
+          if (effect === 'conflict' && adoptable && decide('adopt') !== 'conflict') choices.push('adopt');
+          if (effect === 'already-satisfied' && adoptable && !resolution && !editConflict && !sharedChange && !overlap && !drift)
+            choices.push('adopt');
           if (!editConflict && custody && !resolution) for (const member of descriptors) {
             const key = memberKey(member); const bytes = memberBytes(member, before!); const prior = projected.members[key];
             const desired = memberBytes(member, after!);
             if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
           }
           custodyOnly = same && (managed || resolution === 'replace' && drift) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
-          if (resolution === 'adopt' && (!same || before === null || managed)) throw new Error('resolution-invalid');
+          if (resolution === 'adopt' && !adoptable) throw new Error('resolution-invalid');
           if (effect === 'conflict') conflicts.push({ ...diagnostic('STATE_CONFLICT', editConflict ?? 'existing-content',
             'Existing, edited or unsupported content requires an exact reviewed resolution or a narrower edit.'), path: safeText(path, privateValues) });
           details = { ...details, target: safeText(target.absolute, privateValues),
@@ -580,10 +600,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
             effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
           steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
-            recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly });
+            recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly,
+            authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices } });
         }
       }
       selectionOps.set(selection.id, currentIds);
+    }
+    // In prepared order, an unresolved operation may change every later overlay and digest on its target: no later hint.
+    const unresolvedTargets = new Set<string>();
+    for (const { authored, review } of steps) {
+      if (authored?.overlayKey === undefined) continue;
+      if (unresolvedTargets.has(authored.overlayKey)) authored.choices = [];
+      else if (review.effects === 'conflict' || review.effects === 'unavailable' || authored.choices.length > 0)
+        unresolvedTargets.add(authored.overlayKey);
     }
     // Omitted sets retain their roots. Explicit sets reconcile only their prior claims.
     for (const root of [project, userHomeRoot()]) if (!ownership.has(root)) ownership.set(root, readOwnership(root));
@@ -598,24 +627,20 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'dependency-custody-unverifiable', 'User cleanup requires verifiable retained dependency custody.'));
 
     const selectionUpdates = new Map<string, Record<string, { claim: Claim | null; requires: string[] }>>();
-    const candidates = new Set<string>(); const retained = new Set<string>(); const dependencies = new Map<string, string[]>();
     const claimId = (claim: Pick<Claim, 'scope' | 'managementId'>, target = project!) => claimIdentity(claim.scope, claim.managementId, target);
     const effectRoot = (root: string) => root === project || root === userHomeRoot() || isManagedContentRoot(root);
-    for (const [root, stored] of ownership) for (const claim of [...Object.values(stored.value.selections ?? {}), ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
-      const id = claimId(claim, root); dependencies.set(id, [...new Set([...(dependencies.get(id) ?? []), ...claim.requires])]);
+    const { candidates, retained, dependencies } = classifyStoredClaims(ownership, (claim, root, id) => {
       const sets = claim.sets.map(setId => policy.managedSelections?.find(set => set.id === setId && set.scope === claim.scope));
-      if (effectRoot(root) && (policy.removals?.some(removal => claimId(removal) === id) || sets.length && sets.every(set => !!set && !set.members.includes(claim.managementId)))) candidates.add(id);
-      else retained.add(id);
-    }
+      return effectRoot(root) && (policy.removals?.some(removal => claimId(removal) === id) ||
+        !!sets.length && sets.every(set => !!set && !set.members.includes(claim.managementId)));
+    });
     const priorDependencies = new Map(dependencies);
     for (const selection of policy.selections) {
       const id = claimId(selection); retained.add(id); candidates.delete(id);
       dependencies.set(id, selection.requires.map(required => { const dependency = policy.selections.find(item => item.id === required)!; return claimId(dependency); }));
     }
     if (foreignUnverifiable) for (const id of candidates) if (id.startsWith('user:')) retained.add(id);
-    const queue = [...retained];
-    for (let index = 0; index < queue.length; index++) for (const dependency of dependencies.get(queue[index]!) ?? [])
-      if (!retained.has(dependency)) { retained.add(dependency); queue.push(dependency); }
+    retainClaimDependencies(retained, dependencies);
     for (const selection of policy.selections.filter(selection => !unavailableSelections.has(selection.id))) {
       const root = selection.scope === 'project' ? project : userHomeRoot(); const key = claimId(selection);
       const old = ownership.get(root)!.value.selections?.[key];
@@ -703,7 +728,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
         if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
-      else if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
+      else if (!matching) { effect = 'conflict'; conflicts.push({
+        ...diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.'),
+        ...(policy.schema === POLICY_11 ? { guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.' } : {})
+      }); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
       const removedIds = removed.map(claim => claimId(claim, root));
@@ -786,7 +814,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs), nonce: randomBytes(32).toString('hex') }) });
     const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
-      diagnostics: [...conflicts, ...omissions], record: disabled, evidence };
+      diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps) } : {}) };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
@@ -807,6 +835,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
   }
   return finish();
   function finish(): PreparationResult {
+    // A managed-removal caller can classify custody before Prepare, then reject a
+    // changed image before a handle or routine history escapes this call.
+    if (custodyImageStillCurrent) {
+      let current = false;
+      try { current = custodyImageStillCurrent(); } catch { /* An unreadable image is not current. */ }
+      if (!current) {
+        if (result.prepared) handles.delete(result.prepared);
+        return { status: 'invalid', runId, diagnostics: [diagnostic('PREREQUISITE_UNAVAILABLE',
+          'ownership-changed', 'Protected custody changed during preparation; request removal again.')],
+          record: disabled, ...(hinted ? { resolutionInputs: [] } : {}) };
+      }
+    }
     const record = { ...result, prepared: undefined,
       review: result.review ? { ...result.review, operations: result.review.operations.map(op => ({ ...op,
         checks: op.checks.map(check => ({ ...check, details: historyDetails(check.details) })),
@@ -818,6 +858,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
   }
 }
 
+/** Digest hints in review operation order: exactly the target bytes each authored conflict compared, never content. */
+function resolutionInputs(steps: PreparedStep[]): ResolutionInput[] {
+  return steps.flatMap(step => step.authored && step.authored.choices.length &&
+    (step.review.effects === 'conflict' || step.review.effects === 'already-satisfied') ?
+    [{ selectionId: step.authored.selectionId, operationId: step.authored.operationId,
+      observedSha256: step.before ? sha256(step.before) : null, availableChoices: [...step.authored.choices] }] : []);
+}
 function historyDetails(details: ReviewOperation['details']): ReviewOperation['details'] {
   return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',
     stdin: details.stdin === undefined ? undefined : '[OMITTED]',
