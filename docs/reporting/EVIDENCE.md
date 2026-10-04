@@ -1,6 +1,6 @@
 # V9 reporting evidence
 
-This candidate implements [Core issue 15](https://github.com/samartomar/aih-core/issues/15) within the Core distribution. The report and data contract are experimental.
+This candidate implements [Core issue 15](https://github.com/samartomar/aih-core/issues/15) within the Core distribution. The report and data contract are experimental. The checked-in captures below retain the pre-integration reporting identity: reviewed source `db4d8f111bb930f18aea42d6c5812898f31b82e7`, whose delivery record identifies package SHA-256 `74b2cdf9d4f1be5e7ced1d3d6ef8289ee902a8198d31e5c8617d4a3bf9c08aa2`. The version label alone does not identify that artifact. The integrated dev.6 candidate is validated separately; these saved observations are not relabelled as a new acquisition.
 
 The [JSON snapshot](../../examples/reporting/workflow/report.json), [offline HTML](../../examples/reporting/workflow/report.html) and [data-only result](../../examples/reporting/workflow/data-only-result.json) come from an actual installed `@aihq/core@1.0.0-dev.5` reporting command. Its public Harness diagnostic contract is `urn:aihq:harness:diagnostic:1.0.0`; bounded offline Node/Git version checks completed with two passed checks. No demo values substitute for these observations. The installed package exposes no source revision, and raw evidence was not retained, so those identities remain null. Authentication remains explicitly not authenticated.
 

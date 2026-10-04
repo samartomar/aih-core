@@ -12,11 +12,15 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/diagnostic/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:repair:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/repair/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
+      schemaExport: '@aihq/core/report/schema' }),
     Object.freeze({ id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' })
   ]),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
+    { export: '@aihq/core/report', runtime: 'portable' },
+    { export: '@aihq/core/report/render', runtime: 'portable' },
     { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' }
   ])
 });

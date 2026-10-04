@@ -20,6 +20,13 @@ sample, a hydration function and a few styles were added, and the radar and heat
 scripts were guarded so they only run when their elements exist. No source from the
 legacy report engine, digest types or collectors is used.
 
+## Adapted redaction patterns
+
+The credential-shaped redaction patterns in src/harness/report/data.mjs are also
+adapted from the Apache-2.0 legacy ai-harness project at the revision above.
+They were re-authored for portable structured-data projection without host or
+environment access; they do not import the legacy engine or its collectors.
+
 ## Fonts and third-party assets
 
 The design uses system font stacks only. No font files, images or third-party

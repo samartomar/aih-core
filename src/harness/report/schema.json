@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:aihq:report:snapshot:1.0.0",
-  "title": "aih-report experimental ReportSnapshot",
+  "title": "@aihq/core experimental ReportSnapshot",
   "description": "Redacted, versioned projection of one @aihq/core Harness diagnostic result. Experimental interface; no stable ecosystem-format promise is made. The schema checks structure only: a structurally valid snapshot is not authenticated and its supplied assertions are not verified.",
   "type": "object",
   "additionalProperties": false,

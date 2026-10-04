@@ -536,7 +536,7 @@ requires a macOS 26 arm64 runner and establishes native evidence only when run.
 
 ## V9 reporting
 
-`aih report --output <new-directory> --json` acquires bounded offline Node/Git diagnostics and writes matching `report.json` and offline `report.html`. Use repeated `--target` for selected offline Harness diagnostics. `aih report --snapshot <report.json> --output <new-directory> --json` renders supplied data without acquisition. `--demo` labels the old V9 design sample separately. Report-only options are rejected by other commands. Outputs require a new directory and do not overwrite existing reports.
+`aih report --output <new-directory> --json` acquires bounded offline Node/Git diagnostics and writes matching `report.json` and offline `report.html`. Use repeated `--target` for selected offline Harness diagnostics. `aih report --snapshot <report.json> --output <new-directory> --json` renders supplied data without acquisition; the CLI accepts snapshot files up to 1,000,000 bytes, while the portable JSON import API has a 2 MiB raw-input limit and its own documented structural bounds. `--demo` makes only the HTML a labelled design sample; JSON retains the acquired or supplied observations and is not evidence for the demo values. Report-only options are rejected by other commands. Outputs require a new directory and do not overwrite existing reports.
 
 `@aihq/core/report` exports `createReport`, `validateSnapshot`, `importSnapshot`, `exportSnapshot`, schema identities, errors and reporting types. `@aihq/core/report/render` exports `renderReport`; `@aihq/core/report/schema` exposes the JSON Schema. The data import has no renderer or host effects. Both formats are **experimental**, with runtime validation and explicit unsupported-version rejection.
 
