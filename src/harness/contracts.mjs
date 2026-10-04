@@ -6,10 +6,11 @@ import { snapshotTrustData } from './trust-data.mjs';
 import { buildTrustCapabilities, selectRepairDefinition as selectDefinition } from './trust-definitions.mjs';
 import { trustCellRecords } from './trust-capabilities.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
-export { trustRepairIndex, trustLimits, trustAdapters, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
+export { buildTrustDefinitions, trustRepairIndex, trustLimits, trustAdapters, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
   validateTrustCapabilities, selectTrustCell, buildCertificateExportRecipe, trustProfiles, trustTransformIds, resolveTrustRecipeRef,
-  exportAdmissionTemplate } from './trust-definitions.mjs';
-// The admission document ships with no cells: no automatic OS route is admitted without published evidence.
+  exportAdmissionTemplate, exportDefaultNames } from './trust-definitions.mjs';
+// Admission cells are static raw data (trust-capabilities.mjs): only exact tested export format/profile cells are admitted;
+// native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',

@@ -243,19 +243,15 @@ test('known ownership record capacity failure blocks a new target write', async 
   document.selections[0].recipe.inline.operations[0].target.segments = [{literal:'NEXT.md'}];
   document.selections[0].managementId = 'additional-capacity-member';
   const next = await prepare({useCase:'policy',policy:document,target:{project}},{logging:'off'});
-  assert.equal(next.status,'ready');
-  const result = await apply(next.prepared,authorize(next),{logging:'off'});
+  assert.equal(next.status,'blocked');assert.equal(next.prepared,undefined);
+  assert.ok(next.diagnostics.some(d=>d.code==='SOURCE_LIMIT'&&d.reason==='custody-record-limit'));
   assert.equal(existsSync(join(project,'NEXT.md')),false);
-  assert.equal(result.completion,'rejected');
-  assert.equal(result.diagnostics[0].reason,'state-unwritable');
   // An update's final receipt removes TEAM.md, but its intermediate receipt
   // still holds both old and new members. Capacity must be proved before NEXT.
   document.selections[0].managementId = current.managementId;
   const update = await prepare({useCase:'policy',policy:document,target:{project}},{logging:'off'});
-  assert.equal(update.status,'ready',JSON.stringify(update));
-  const updateResult = await apply(update.prepared,authorize(update),{logging:'off'});
-  assert.equal(updateResult.completion,'rejected',JSON.stringify(updateResult));
-  assert.equal(updateResult.diagnostics[0].reason,'state-unwritable');
+  assert.equal(update.status,'blocked',JSON.stringify(update));assert.equal(update.prepared,undefined);
+  assert.ok(update.diagnostics.some(d=>d.code==='SOURCE_LIMIT'&&d.reason==='custody-record-limit'));
   assert.equal(existsSync(join(project,'NEXT.md')),false);
   assert.equal(existsSync(join(project,'TEAM.md')),true);
 });
@@ -287,10 +283,8 @@ for (const limit of ['selection', 'claim']) test(`ownership ${limit} count capac
   const resolutions = limit === 'claim' ? [{ selectionId: selection.id, operationId: selection.recipe.inline.operations[0].id,
     choice: 'adopt', observedSha256: createHash('sha256').update(readFileSync(join(project, 'TEAM.md'))).digest('hex') }] : undefined;
   const next = await prepare({ useCase: 'policy', policy: document, target: { project }, ...(resolutions ? { resolutions } : {}) }, { logging: 'off' });
-  assert.equal(next.status, 'ready', JSON.stringify(next));
-  const result = await apply(next.prepared, authorize(next), { logging: 'off' });
-  assert.equal(result.completion, 'rejected', JSON.stringify(result));
-  assert.equal(result.diagnostics[0].reason, 'state-unwritable');
+  assert.equal(next.status, 'blocked', JSON.stringify(next));assert.equal(next.prepared,undefined);
+  assert.ok(next.diagnostics.some(d=>d.code==='SOURCE_LIMIT'&&d.reason==='custody-record-limit'));
   assert.equal(existsSync(join(project, 'COUNT-NEXT.md')), false);
   assert.equal(readFileSync(ownership, 'utf8'), before);
   assert.equal((await prepare({ useCase: 'policy', policy: policy(), target: { project } }, { logging: 'off' })).diagnostics.some(diagnostic => diagnostic.reason === 'ownership-invalid'), false);

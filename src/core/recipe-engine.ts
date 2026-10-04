@@ -808,12 +808,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
         Object.keys(capturedUnavailable.checks).some(id => !knownChecks.has(id))) throw new Error('captured-prerequisite-invalid');
     if (steps.length > 8192) throw new Error('operation-limit');
-    // New trust work bounds every physical intermediate before its ready review.
-    // Legacy policy retains its existing Apply-time capacity admission.
-    if (trustParticipant) {
-      preflightOwnershipCapacity(steps, ownership, selectionUpdates);
-      trustParticipant.preflight(steps, ownership);
-    }
+    // Bound every projected physical receipt before a new-Core ready review.
+    preflightOwnershipCapacity(steps, ownership, selectionUpdates);
+    trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
     const base = { schema: policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
@@ -825,7 +822,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       effectiveOptions: { logging: loggingOption(controls), inputs } };
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
-        after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs), nonce: randomBytes(32).toString('hex') }) });
+        after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs),...(trustParticipant?{trustBinding:trustParticipant.reviewBinding}:{}), nonce: randomBytes(32).toString('hex') }) });
     const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
       diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps) } : {}) };
@@ -1180,7 +1177,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-    if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
+  if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
   result.record = writeHistory(runId, historySafe(result, state?.project, bearerSecrets(controls)), result.effectiveOptions.logging.value);
   if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
     'Routine history could not be saved; the returned outcomes remain available.'));

@@ -3,10 +3,10 @@ import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership }
 import { installedDistribution } from './internal/installed-distribution.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
-import { claimIdentity, classifyStoredClaims, retainClaimDependencies, memberKey, type Claim } from './internal/recipe-lifecycle.js';
-import { readTrustCustody, custodyParticipant, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
+import { claimIdentity, classifyStoredClaims, retainClaimDependencies, type Claim } from './internal/recipe-lifecycle.js';
+import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner, custodyParticipant, type TrustPendingImage, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
 import { lstatSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { pathPins } from './internal/host-files.js';
 import type { Diagnostic, ExecutionPolicy } from './types.js';
 import type { GitHubPolicySource, HostControls, PreparationResult } from './host-types.js';
@@ -142,11 +142,18 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   try { home = userHomeRoot(); image = readImage(project, home); } catch { return unverifiable(); }
   if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unverifiable();
   const custody = classify(image, project, home, scope, managementId);
-  let trustImage: TrustCustodyImage | undefined; let trustEntries: TrustCustodyEntry[] = [];
+  let trustImage: TrustCustodyImage | undefined; let trustEntries: TrustCustodyEntry[] = [];let pending:TrustPendingImage|undefined;
   if (scope === 'user') {
     try {
       trustImage = readTrustCustody(true); trustEntries = trustImage.value.entries.filter(entry => entry.managementId === managementId);
-      if (trustEntries.length) trustImage = readTrustCustody();
+      const observed=readPendingTrust(trustImage);const entries=observed?pendingEntries(observed):[];
+      if(entries.some(e=>e.managementId===managementId)) {
+        if(mode!=='vibe'||entries.some(e=>e.managementId!==managementId)) throw new Error('trust-custody-pending');
+        pending=observed;trustEntries=entries.map(entry=>{
+          const owner=readTrustOwner(entry).owner;
+          return [entry,...observed!.before.entries].find(candidate=>candidate.pathKey===entry.pathKey&&(!owner||candidate.recipeIdentity===owner.recipeIdentity&&candidate.outputSha256===owner.sha256))??entry;
+        });
+      } else if (trustEntries.length) trustImage = readTrustCustody();
     }
     catch (error) { return unavailable(error instanceof Error ? error.message : 'trust-custody-conflict','Protected trust custody requires reconciliation.','STATE_CONFLICT'); }
   }
@@ -168,9 +175,7 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   if (trustEntries.length) {
     try {
       for (const entry of trustEntries) {
-        const path = join(home,...entry.relativePath.split('/'));
-        const root = entry.relativePath.startsWith('.aih/core/content/') ? dirname(path):home;
-        const member = readOwnership(root).value.members[memberKey({kind:'file',path:root === home ? entry.relativePath : entry.relativePath.split('/').at(-1)!})];
+        const {absolute:path,owner:member}=readTrustOwner(entry);
         if (!custody.claimed) {
           if (mode === 'enterprise') return unavailable('metadata-only-removal','Organization admission does not cover trust-only cleanup.','AUTHORITY_DENIED');
           if (member || !absent(path)) return done('reconcile-required',known,[diagnostic('STATE_CONFLICT','trust-custody-conflict','Trust output or ownership remains; reconcile it before cleanup.')]);
@@ -193,7 +198,7 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   undefined, sameImage, trustImage && trustEntries.length ? custodyParticipant(trustImage,[],() => {
     if (!sameImage()) throw new Error('review-stale');
     for (const entry of trustEntries) if (!custody.claimed && !absent(join(home,...entry.relativePath.split('/')))) throw new Error('review-stale');
-  },trustEntries) : undefined);
+  },trustEntries,pending) : undefined);
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation });

@@ -5,6 +5,7 @@ import type { RunResult } from '../host-types.js';
 export interface TrustEngineParticipant {
   exactReplacement: boolean;
   lockRoot: string;
+  reviewBinding: string;
   allows(root: string, path: string): boolean;
   recheck(): void | Promise<void>;
   preflight(steps: readonly TrustEngineStep[], ownership: ReadonlyMap<string, { value: Ownership; digest: string | null }>): void;

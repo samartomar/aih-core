@@ -33,15 +33,37 @@ const request = file => ({ schema: 'urn:aihq:core:certificate-export-request:1.0
   useCase: 'certificate-export', sources: { os: false, supplied: [{ id: 'team', file }] } });
 const approve = p => ({ approved: true, origin: 'automation', reviewDigest: p.review.reviewDigest });
 
-testExport('supplied-only export reviews without output effects and applies with genuine paired custody', async () => {
+test('explicit missing supplied input is invalid before file repair availability',async()=>{
+  const {file}=setup();rmSync(file);
+  const p=await prepare({schema:'urn:aihq:core:repair-request:1.0.0',useCase:'repair',route:'file',network:'off',
+    repairs:[{id:'node-npm-ca',targets:['npm'],inputs:{}}],sources:{os:false,supplied:[{id:'team',file}]}},{logging:'off'});
+  assert.equal(p.status,'invalid',JSON.stringify(p.diagnostics));assert.equal(p.prepared,undefined);
+  assert.ok(p.diagnostics.some(d=>d.code==='INPUT_INVALID'&&d.reason==='source-unavailable'));
+});
+
+for(const [id,route,targets,inputs] of [
+  ['node-npm-ca','native',['node'],{backend:'arbitrary'}],
+  ['jvm-ca','native',['gradle'],{baselineStore:'C:/not-a-native-input.jks'}],
+  ['jvm-ca','file',['gradle'],{}],
+  ['jvm-ca','file',['gradle'],{baselineStore:true}],
+])test(`${id} ${route} validates declared variant inputs before capability availability (${JSON.stringify(inputs)})`,async()=>{
+  const {file}=setup();const p=await prepare({schema:'urn:aihq:core:repair-request:1.0.0',useCase:'repair',route,
+    repairs:[{id,targets,inputs}],...(route==='file'?{sources:{os:false,supplied:[{id:'team',file}]}}:{})},{logging:'off'});
+  assert.equal(p.status,'invalid',JSON.stringify(p.diagnostics));assert.equal(p.prepared,undefined);
+  assert.ok(p.diagnostics.some(d=>d.code==='INPUT_INVALID'));
+});
+
+testExport('unchanged supplied-only request applies with genuine paired custody after exact variant admission', async () => {
   const { home, file } = setup();
-  const p = await prepare(request(file), { logging: 'off' });
+  const submitted=request(file);const original=JSON.stringify(submitted);
+  const p = await prepare(submitted, { logging: 'off' });
   assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
   assert.equal(p.review.schema, 'urn:aihq:core:prepared-work:1.2.0');
   assert.equal(validatePreparedWork12(p.review).valid,true,JSON.stringify(validatePreparedWork12(p.review).diagnostics));
   const output = join(home, '.aih', 'exports', 'os-ca.pem');
   assert.equal(existsSync(output), false);
   const r = await apply(p.prepared, approve(p), { logging: 'off' });
+  assert.equal(JSON.stringify(submitted),original);
   assert.equal(r.completion, 'complete', JSON.stringify(r));
   assert.equal(r.schema, 'urn:aihq:core:run-result:1.2.0');
   assert.equal(validateRunResult12(r).valid,true,JSON.stringify(validateRunResult12(r).diagnostics));

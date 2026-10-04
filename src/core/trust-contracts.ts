@@ -294,7 +294,8 @@ function validateAgainst(
   return {
     valid: false, schema: expected,
     diagnostics: (check.errors ?? []).map(error => ({
-      code: 'INPUT_INVALID', reason: error.keyword, message: 'The document does not satisfy the published schema.', path: error.instancePath
+      code: 'INPUT_INVALID', reason: error.keyword === 'additionalProperties' ? 'unknown-field' : error.keyword,
+      message: 'The document does not satisfy the published schema.', path: error.instancePath
     }))
   };
 }

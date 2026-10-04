@@ -12,6 +12,9 @@ consult the installed `trustCapabilities` for exact proven format/platform cells
 Supplied sources retain separate provenance until explicit removal or replacement.
 Outputs use genuine recipe ownership plus a protected trust-custody sidecar,
 home-confined per-path identities, exact reviewed replacement and bounded recovery.
+Interrupted trust updates support fresh reviewed reconciliation through Prepare
+and managed removal; admission and evidence bytes are rechecked before effects.
+Ordinary policy Prepare also preflights aggregate ownership capacity.
 Old Core remains usable for unrelated operations; returning to this version detects
 older-binary changes to protected trust outputs. This local development candidate
 has not been published to npm.

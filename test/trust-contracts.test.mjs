@@ -79,7 +79,19 @@ test('unknown schema ids are refused without fallback', () => {
 });
 
 test('objects reject unknown members, optional null and hostile values', () => {
-  assert.equal(validateCertificateExportRequest({ ...fixture('certificate-export-request.json'), extra: true }).valid, false);
+  for (const [validate, document] of [
+    [validateCertificateExportRequest, { ...fixture('certificate-export-request.json'), extra: true }],
+    [validateCertificateExportInputs, { ...fixture('certificate-export-inputs.json'), extra: true }],
+    [validateTrustRepairRequest, { ...fixture('repair-request-native.json'), extra: true }],
+    [validateTrustRepairInputs, { ...fixture('repair-inputs-native.json'), extra: true }],
+    [validateCertificateExportRequest, { ...fixture('certificate-export-request.json'),
+      sources: { os: true, supplied: [], extra: true } }]
+  ]) {
+    const result = validate(document);
+    assert.equal(result.valid, false);
+    assert.ok(result.diagnostics.some(d => d.code === 'INPUT_INVALID' && d.reason === 'unknown-field'),
+      JSON.stringify(result.diagnostics));
+  }
   assert.equal(validateCertificateExportRequest({ ...fixture('certificate-export-request.json'), format: null }).valid, false);
   assert.equal(validateCertificateExportInputs({
     schema: 'urn:aihq:core:certificate-export-inputs:1.0.0',

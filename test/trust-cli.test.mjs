@@ -47,16 +47,33 @@ test('export-ca refuses repair, policy and partial options before observing stat
 test('CLI input schemas have exact identities and reject extra source controls', () => {
   const f = fixture();
   try {
-    for (const [document, code] of [
-      [{ schema: 'urn:aihq:core:certificate-export-inputs:2.0.0', sources: { os: true, supplied: [] } }, 'SCHEMA_UNSUPPORTED'],
-      [{ schema: 'urn:aihq:core:certificate-export-inputs:1.0.0', sources: { os: false, supplied: [] }, policy: {} }, 'INPUT_INVALID'],
-      [{ schema: 'urn:aihq:core:certificate-export-inputs:1.0.0', sources: { os: true, supplied: [], command: 'arbitrary' } }, 'INPUT_INVALID']
+    for (const [document, code, reason] of [
+      [{ schema: 'urn:aihq:core:certificate-export-inputs:2.0.0', sources: { os: true, supplied: [] } }, 'SCHEMA_UNSUPPORTED', 'schema-unsupported'],
+      [{ schema: 'urn:aihq:core:certificate-export-inputs:1.0.0', sources: { os: false, supplied: [] }, policy: {} }, 'INPUT_INVALID', 'unknown-field'],
+      [{ schema: 'urn:aihq:core:certificate-export-inputs:1.0.0', sources: { os: true, supplied: [], command: 'arbitrary' } }, 'INPUT_INVALID', 'unknown-field']
     ]) {
       const input = f.document('inputs.json', document);
       const result = f.run(['export-ca', '--inputs-file', input, '--json', '--no-log']);
       assert.equal(result.status, 2, result.stdout + result.stderr);
       assert.equal(JSON.parse(result.stdout).diagnostics[0].code, code);
+      assert.equal(JSON.parse(result.stdout).diagnostics[0].reason, reason);
     }
+  } finally { f.cleanup(); }
+});
+
+test('versioned repair input documents share portable source and member diagnostics', () => {
+  const f = fixture();
+  try {
+    for (const [document, reason] of [
+      [{ schema: 'urn:aihq:core:repair-inputs:1.0.0', route: 'native', repairs: { 'node-npm-ca': {} }, extra: true }, 'unknown-field'],
+      [{ schema: 'urn:aihq:core:repair-inputs:1.0.0', route: 'native', repairs: { 'node-npm-ca': {} }, sources: { os: true, supplied: [] } }, 'invalid-source-selection']
+    ]) {
+      const input = f.document('invalid-native.json', document);
+      const result = f.run(['repair', 'node-npm-ca', '--target', 'node', '--inputs-file', input, '--json', '--no-log']);
+      assert.equal(result.status, 2, result.stdout + result.stderr);
+      assert.equal(JSON.parse(result.stdout).diagnostics[0].reason, reason);
+    }
+    assert.equal(existsSync(join(f.home, '.aih')), false);
   } finally { f.cleanup(); }
 });
 

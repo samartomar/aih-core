@@ -1,6 +1,8 @@
 // Portable trust definitions and admission metadata: no host observation or Node imports.
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
+// Static raw admission data, excluded from every evidence subject; it is imported only to associate variants.
+import { trustCellRecords } from './trust-capabilities.mjs';
 
 export const repairDefinitionSchema11 = 'urn:aihq:harness:repair:1.1.0';
 export const trustCapabilitiesSchema = 'urn:aihq:harness:trust-capabilities:1.0.0';
@@ -62,7 +64,12 @@ const nativeVariant = variant => ({ ...cloneDefinition(variant), route: 'native'
   recipeRef: `${variant.recipeRef}/native`, inputIds: [], capabilityIds: [] });
 const withNative = variants => [...variants, ...variants.map(nativeVariant)];
 
-function buildDefinitions() {
+/** A cell belongs to a variant by definition, route, OS, architecture, target membership and network. */
+export const cellMatchesVariant = (definitionId, variant, cell) => cell.definitionId === definitionId && cell.route === variant.route &&
+  cell.platform?.os === variant.os && variant.architectures.includes(cell.platform?.architecture) && cell.network === variant.network &&
+  (variant.route === 'export' ? cell.target === null : variant.targets.includes(cell.target));
+
+function buildDefinitions(cells) {
   const node = { id: 'node-npm-ca', description: 'Add supplied CA certificates to user-scope Node and npm trust',
     inputs: {}, variants: withNative(nodeNpmVariants().map(variant => fileVariant(variant, []))),
     offlineVerification: [{ target: 'node', operationId: 'node-config', checkId: 'node-tls' },
@@ -79,6 +86,9 @@ function buildDefinitions() {
       architectures: ['x64', 'arm64'], targets: [], network, recipeRef: `certificate-export/${os}/${network}`,
       transformId: 'certificate-export-bindings', route: 'export', adapterId: 'certificate-export-v1',
       inputIds: [], capabilityIds: [] }))) };
+  // Empty capabilityIds means no admitted cell; otherwise exactly the matching cells, in cell order.
+  for (const base of [node, user, jvm, exported]) for (const variant of base.variants)
+    variant.capabilityIds = cells.filter(cell => cellMatchesVariant(base.id, variant, cell)).map(cell => cell.id);
   return [node, user, jvm, exported].map(base => freezeDeep({
     id: base.id, description: base.description, schema: repairDefinitionSchema11, scope: 'user',
     managementId: FAMILIES[base.id].managementId, materialName: FAMILIES[base.id].materialName,
@@ -86,9 +96,10 @@ function buildDefinitions() {
     trustLimits: { ...trustLimits }, offlineVerification: base.offlineVerification, variants: base.variants }));
 }
 
-/** Native variants exist with empty capabilityIds: no native cell has been proven, so every native
- * request selects a real definition and reports native-route-unsupported. */
-export const trustRepairIndex = Object.freeze(buildDefinitions());
+/** Definitions whose variants name the given admitted cells. Native and file variants keep empty capabilityIds
+ * unless a matching cell is admitted, so an unproven route selects a real definition and reports unavailable. */
+export const buildTrustDefinitions = (cells = []) => Object.freeze(buildDefinitions(cells));
+export const trustRepairIndex = buildTrustDefinitions(trustCellRecords);
 
 /** Cell records live in trust-capabilities.mjs, outside every evidence subject file; none is admitted without published evidence. */
 export function buildTrustCapabilities(packageIdentity, cells = []) {
@@ -316,12 +327,20 @@ export function validateTrustCapabilities(value, options = {}) {
       cell.launchContext, exported ? cell.configurationProfile : null, cell.client?.version, cell.client?.build]);
     if (tuples.has(tuple)) bad('cell-ambiguous', at, 'Matching tuples are unique.');
     tuples.add(tuple);
+    const variants = definition.variants.filter(variant => cellMatchesVariant(definition.id, variant, cell));
+    if (!variants.length || !variants.every(variant => variant.capabilityIds.includes(cell.id)))
+      bad('cell-unassociated', at, 'Every admitted cell must be named by each matching definition variant.');
+  });
+  // The reverse direction: a variant may name only admitted cells (validateRepairDefinition11 checks tuple agreement).
+  for (const definition of definitions) definition.variants.forEach((variant, index) => {
+    for (const id of variant.capabilityIds) if (!ids.has(id))
+      bad('cell-unassociated', `/definitions/${definition.id}/variants/${index}`, 'A variant names a cell that is not admitted.');
   });
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
 /** Select the admitted cell for one target. Absence is unavailable capability, never a support claim. */
-export function selectTrustCell(query, capabilities) {
+export function selectTrustCell(query, capabilities, definitions = trustRepairIndex) {
   const unavailable = reason => ({ status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason });
   const cells = capabilities?.cells ?? [];
   const wantRoute = query.route;
@@ -331,8 +350,14 @@ export function selectTrustCell(query, capabilities) {
     cell.target === (query.target ?? null) && cell.platform.os === query.platform?.os &&
     cell.platform.release === query.platform?.release && cell.platform.architecture === query.platform?.architecture &&
     cell.network === query.network && (profile === undefined || cell.configurationProfile === profile));
-  if (matches.length === 1) return { status: 'admitted', cell: matches[0] };
   if (matches.length > 1) return unavailable('trust-configuration-unavailable');
+  if (matches.length === 1) {
+    // The chosen variant must name the cell: a matching but unassociated cell is not an admission.
+    const [cell] = matches;
+    const variants = definitions.find(item => item.id === query.definitionId)?.variants.filter(variant => cellMatchesVariant(query.definitionId, variant, cell)) ?? [];
+    if (variants.length && variants.every(variant => variant.capabilityIds.includes(cell.id))) return { status: 'admitted', cell };
+    return unavailable('trust-configuration-unavailable');
+  }
   if (wantRoute === 'native') return unavailable('native-route-unsupported');
   if (wantRoute === 'file') return unavailable('file-route-unsupported');
   return unavailable('trust-platform-unsupported');
@@ -366,4 +391,13 @@ export function exportAdmissionTemplate(format, platform = trustPlatformMatrix[0
       projection: platform.projection, client: null, configurationProfile, probeProfile: probe[0], launchContext: 'no-client' },
     requiredCases: probe[1].requiredCases.filter(item => !item.os || item.os === platform.os).map(item => ({ ...item })),
     requiredLimitations: [...probe[1].requiredLimitations] };
+}
+
+/** Fixed file-route integration for supplied-file repairs; only Node/npm is integrated today. */
+export function getTrustFileIntegration(definitionId, targets) {
+  const unavailable = { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'file-route-unsupported' };
+  if (definitionId !== 'node-npm-ca' || !Array.isArray(targets) || !targets.length || new Set(targets).size !== targets.length ||
+      targets.some(target => !FAMILIES['node-npm-ca'].targets.includes(target))) return unavailable;
+  // npm's cafile replaces its bundled defaults, so the Node-bundled partition rides with npm.
+  return { status: 'supported', format: 'pem', includeNodeBundled: targets.includes('npm') };
 }

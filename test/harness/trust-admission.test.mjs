@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { verifyTrustAdmissionEvidence, trustCellSubjectSha256, hashTrustLibraries, trustHelperFiles, serializeTrustSet, parseTrustOutput,
   acceptanceRecordSchema } from '../../src/harness/trust.mjs';
-import { buildTrustCapabilities, exportAdmissionTemplate, trustProfiles } from '../../src/harness/trust-definitions.mjs';
+import { buildTrustCapabilities, buildTrustDefinitions, exportAdmissionTemplate, trustProfiles } from '../../src/harness/trust-definitions.mjs';
 import { trustCellRecords } from '../../src/harness/trust-capabilities.mjs';
 import { sha256Hex } from '../../src/harness/trust-encoding.mjs';
 
@@ -39,7 +39,8 @@ function stage(root, format, mutate, name = 'a.json') {
   const cell = { ...template.cell, evidence: { reference: `evidence/${name}`, sha256: sha256Hex(Buffer.from(text)), subjectSha256: subject } };
   return { cell, subject, text, capabilities: buildTrustCapabilities(pkg, [cell]) };
 }
-const reason = (root, capabilities) => verifyTrustAdmissionEvidence({ packageRoot: root, capabilities }).diagnostics[0]?.reason;
+const verify = (root, capabilities) => verifyTrustAdmissionEvidence({ packageRoot: root, capabilities, definitions: buildTrustDefinitions(capabilities.cells) });
+const reason = (root, capabilities) => verify(root, capabilities).diagnostics[0]?.reason;
 const withRoot = fn => { const root = installedRoot(); try { return fn(root); } finally { rmSync(root, { recursive: true, force: true }); } };
 
 test('shipped cells have actual passed records and claim only certificate transport', () => {
@@ -56,7 +57,7 @@ test('shipped cells have actual passed records and claim only certificate transp
 test('a complete acceptance record verifies for PEM and P7B; subject excludes admission data and evidence fields', () => withRoot(root => {
   for (const format of ['pem', 'pkcs7-der']) {
     const { cell, capabilities, subject } = stage(root, format, undefined, `${format}.json`);
-    assert.equal(verifyTrustAdmissionEvidence({ packageRoot: root, capabilities }).valid, true, JSON.stringify(verifyTrustAdmissionEvidence({ packageRoot: root, capabilities })));
+    assert.equal(verify(root, capabilities).valid, true, JSON.stringify(verify(root, capabilities)));
     assert.equal(trustCellSubjectSha256({ ...cell, evidence: { ...cell.evidence, sha256: 'f'.repeat(64) } }, root), subject);
   }
 }));

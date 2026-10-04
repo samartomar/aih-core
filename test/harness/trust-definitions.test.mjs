@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { trustRepairIndex, trustLimits, buildTrustCapabilities, validateRepairDefinition11, validateTrustCapabilities,
-  selectTrustCell, selectRepairDefinition, buildCertificateExportRecipe, resolveTrustRecipeRef, trustTransformIds, trustAdapters,
+  selectTrustCell, selectRepairDefinition, buildTrustDefinitions, buildCertificateExportRecipe, resolveTrustRecipeRef, trustTransformIds, trustAdapters,
   exportAdmissionTemplate } from '../../src/harness/trust-definitions.mjs';
 import { userToolsRepair } from '../../src/harness/user-trust-definitions.mjs';
 import { jvmRepair } from '../../src/harness/jvm-trust-definitions.mjs';
@@ -83,24 +83,26 @@ test('selection is by request schema, repair ID and definition schema; 1.0 stays
 test('empty admission metadata reports unavailable without inventing an admitted cell', () => {
   const capabilities = buildTrustCapabilities(pkg);
   assert.deepEqual(capabilities.cells, []);
-  assert.equal(validateTrustCapabilities(capabilities, { package: pkg }).valid, true);
+  const none = buildTrustDefinitions([]);
+  assert.equal(validateTrustCapabilities(capabilities, { package: pkg, definitions: none }).valid, true);
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema('trust-capabilities/1.0.0'));
   assert.equal(validate(capabilities), true, JSON.stringify(validate.errors));
   const query = { definitionId: 'user-tools-ca', route: 'native', target: 'git', network: 'declared',
     platform: { os: 'win32', release: 'Windows 11 25H2', architecture: 'x64' } };
-  assert.deepEqual(selectTrustCell(query, capabilities), { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'native-route-unsupported' });
-  assert.equal(selectTrustCell({ ...query, route: 'file' }, capabilities).reason, 'file-route-unsupported');
+  assert.deepEqual(selectTrustCell(query, capabilities, none), { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'native-route-unsupported' });
+  assert.equal(selectTrustCell({ ...query, route: 'file' }, capabilities, none).reason, 'file-route-unsupported');
   assert.equal(selectTrustCell({ definitionId: 'certificate-export', route: 'export', target: null, network: 'declared',
-    format: 'pem', platform: query.platform }, capabilities).reason, 'trust-platform-unsupported');
+    format: 'pem', platform: query.platform }, capabilities, none).reason, 'trust-platform-unsupported');
 });
 
 const evidence = { reference: 'evidence/trust/a.json', sha256: 'a'.repeat(64), subjectSha256: 'b'.repeat(64) };
 const exportCell = (format = 'pem', overrides = {}) => ({ ...exportAdmissionTemplate(format).cell, evidence, ...overrides });
 const doc = cells => ({ schema: 'urn:aihq:harness:trust-capabilities:1.0.0', package: pkg, cells });
-const reasons = (cells, options = {}) => validateTrustCapabilities(doc(cells), { package: pkg, ...options }).diagnostics.map(d => d.reason);
+const reasons = (cells, options = {}) => validateTrustCapabilities(doc(cells), { package: pkg, definitions: buildTrustDefinitions(cells), ...options }).diagnostics.map(d => d.reason);
 
 test('export admission cells validate against the tested matrix and fixed profiles; the template is staged, not admitted', () => {
-  assert.equal(validateTrustCapabilities(doc([exportCell('pem'), exportCell('pkcs7-der')]), { package: pkg }).valid, true);
+  const both = [exportCell('pem'), exportCell('pkcs7-der')];
+  assert.equal(validateTrustCapabilities(doc(both), { package: pkg, definitions: buildTrustDefinitions(both) }).valid, true);
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema('trust-capabilities/1.0.0'));
   assert.equal(validate(doc([exportCell()])), true, JSON.stringify(validate.errors));
   const template = exportAdmissionTemplate('pkcs7-der');
@@ -132,19 +134,20 @@ test('malformed or caller-asserted cells cannot enter: profiles, tuples, platfor
   assert.ok(reasons([exportCell('pem', { evidence: { ...evidence, sha256: 'A'.repeat(64) } })]).includes('evidence'));
   assert.ok(reasons([exportCell('pem'), exportCell('pem', { id: 'second' })]).includes('cell-ambiguous'));
   assert.ok(reasons([exportCell('pem'), exportCell('pem')]).includes('cell-id'));
-  assert.equal(validateTrustCapabilities({ ...doc([exportCell()]), package: { name: '@aihq/core', version: 'other' } }, { package: pkg }).valid, false);
-  assert.equal(validateTrustCapabilities({ ...doc([exportCell()]), extra: 1 }, { package: pkg }).valid, false);
+  assert.equal(validateTrustCapabilities({ ...doc([exportCell()]), package: { name: '@aihq/core', version: 'other' } }, { package: pkg, definitions: buildTrustDefinitions([exportCell()]) }).valid, false);
+  assert.equal(validateTrustCapabilities({ ...doc([exportCell()]), extra: 1 }, { package: pkg, definitions: buildTrustDefinitions([exportCell()]) }).valid, false);
 });
 
 test('selection finds exactly one admitted export cell per platform, network and format profile', () => {
   const capabilities = doc([exportCell('pem')]);
+  const definitions = buildTrustDefinitions(capabilities.cells);
   const query = { definitionId: 'certificate-export', route: 'export', target: null, network: 'declared', format: 'pem',
     platform: { os: 'win32', release: 'Windows 11 25H2', architecture: 'x64' } };
-  assert.equal(selectTrustCell(query, capabilities).status, 'admitted');
-  assert.equal(selectTrustCell({ ...query, format: 'pkcs7-der' }, capabilities).status, 'unavailable');
-  assert.equal(selectTrustCell({ ...query, network: 'off' }, capabilities).status, 'unavailable');
-  assert.equal(selectTrustCell({ ...query, format: 'jks' }, capabilities).reason, 'trust-format-unavailable');
-  assert.equal(selectTrustCell(query, doc([exportCell('pem'), exportCell('pem', { id: 'two', launchContext: 'no-client' })])).status, 'unavailable');
+  assert.equal(selectTrustCell(query, capabilities, definitions).status, 'admitted');
+  assert.equal(selectTrustCell({ ...query, format: 'pkcs7-der' }, capabilities, definitions).status, 'unavailable');
+  assert.equal(selectTrustCell({ ...query, network: 'off' }, capabilities, definitions).status, 'unavailable');
+  assert.equal(selectTrustCell({ ...query, format: 'jks' }, capabilities, definitions).reason, 'trust-format-unavailable');
+  assert.equal(selectTrustCell(query, doc([exportCell('pem'), exportCell('pem', { id: 'two', launchContext: 'no-client' })]), buildTrustDefinitions([exportCell('pem'), exportCell('pem', { id: 'two' })])).status, 'unavailable');
 });
 
 test('a variant capability must match its definition, route, target, platform and network', () => {

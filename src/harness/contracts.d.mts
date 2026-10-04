@@ -63,6 +63,7 @@ export interface TrustCapabilities {
 }
 export interface TrustDefinitionDiagnostic { code: 'INPUT_INVALID'; reason: string; message: string; path: string }
 export declare const trustRepairIndex: readonly RepairDefinition11[];
+export declare const exportDefaultNames: Readonly<{ pem: 'os-ca.pem'; 'pkcs7-der': 'os-ca.p7b' }>;
 export declare const trustLimits: TrustLimits;
 export declare const trustAdapters: readonly { id: string; modules: readonly string[] }[];
 export declare const trustPlatformMatrix: readonly { os: 'win32' | 'darwin' | 'linux'; release: string; architecture: 'x64' | 'arm64'; projection: string }[];
@@ -78,7 +79,8 @@ export declare function validateTrustCapabilities(value: unknown, options?: {
   { valid: boolean; diagnostics: TrustDefinitionDiagnostic[] };
 export declare function selectTrustCell(query: { definitionId: string; route: 'native' | 'file' | 'export'; target?: string | null;
   platform: { os: string; release: string; architecture: string }; network: 'declared' | 'off'; format?: 'pem' | 'pkcs7-der' },
-  capabilities: TrustCapabilities | undefined): { status: 'admitted'; cell: TrustCapabilityCell } |
+  capabilities: TrustCapabilities | undefined, definitions?: readonly RepairDefinition11[]):
+  { status: 'admitted'; cell: TrustCapabilityCell } |
   { status: 'unavailable'; code: 'PREREQUISITE_UNAVAILABLE'; reason: string };
 export interface TrustProfile {
   readonly kind: 'configuration' | 'probe'; readonly definitionId: string; readonly route: string; readonly format?: 'pem' | 'pkcs7-der';
@@ -92,6 +94,7 @@ export declare function resolveTrustRecipeRef(recipeRef: string):
   { kind: 'shipped' | 'native-unavailable' | 'export-generator'; definitionId: string; route: 'file' | 'native' | 'export' } | undefined;
 export declare function exportAdmissionTemplate(format: 'pem' | 'pkcs7-der', platform?: { os: string; release: string; architecture: string; projection: string }):
   { cell: Omit<TrustCapabilityCell, 'evidence'>; requiredCases: { id: string; kind: string; os?: string }[]; requiredLimitations: string[] } | undefined;
+export declare function buildTrustDefinitions(cells?: readonly TrustCapabilityCell[]): readonly RepairDefinition11[];
 export declare function buildCertificateExportRecipe(request: { materialId: string; materialPath: string;
   outputSegments: readonly string[]; sha256: string; byteLength: number }): Record<string, unknown>;
 export interface VerificationKeyRecord {

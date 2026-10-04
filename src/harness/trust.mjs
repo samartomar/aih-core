@@ -10,7 +10,7 @@ import { parsePemBundle, parsePkcs7, serializeCertificateSet, sha256Hex } from '
 import { validateTrustCapabilities, trustProfiles } from './trust-definitions.mjs';
 
 export { canonicalTrustJson, hashTrustSourceSet, reviewTrustDelta, detectTrustPlatform };
-export { buildCertificateExportRecipe } from './trust-definitions.mjs';
+export { buildCertificateExportRecipe, getTrustFileIntegration } from './trust-definitions.mjs';
 
 /** Dist-relative modules that the installed-helper byte binding must hash for trust requests. */
 export const trustHelperFiles = Object.freeze([

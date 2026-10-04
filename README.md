@@ -193,6 +193,15 @@ identities. `--no-log` disables optional history, while protected ownership and
 provenance remain required. Review public paths and certificate metadata before
 sharing JSON output.
 
+After an interrupted trust update, prepare the same output again with each
+recorded supplied ID explicitly supplied or removed. Apply revalidates the current
+sources and the reviewed recovery state. If ownership or provenance is missing,
+use the exact replacement offered in `resolutionInputs`, then prepare and approve
+again. Managed removal can retire a genuine owned output or clear interrupted
+metadata when both output and ownership are absent. Changed replacement bytes or
+unverifiable recovery evidence block reconciliation. Ordinary policy and trust
+Prepare both check aggregate ownership capacity before returning a ready review.
+
 ## Repair Python/pip, Git, Cargo and conda trust
 
 The bundled `user-tools-ca` repair accepts a complete supplied CA file and any selected combination of `python`, `pip`, `git`, `cargo` and `conda`. Save `{"user-tools-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`:

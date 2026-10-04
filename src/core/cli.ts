@@ -4,7 +4,8 @@ import { repairIndex, selectVerificationKeys, selectVerificationPublishers } fro
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
-import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe } from './contracts.js';
+import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe,
+  validateTrustRepairInputs, validateCertificateExportInputs } from './contracts.js';
 import { prepare, apply, inspect, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
 import { invalidFileStateResult } from './file-state.js';
 import type { FileStateControls, FileStateRequest } from './file-state-types.js';
@@ -81,20 +82,10 @@ function readCliDocument(path: string): BoundCliDocument {
   return { path: absolute, digest: sha256(bytes), document:
     parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), 'trust inputs') };
 }
-function cliTrustSources(value: unknown, inputPath: string): TrustSources {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('inputs-file');
-  const source = value as Record<string, unknown>;
-  if (Object.keys(source).some(key => !['os', 'supplied', 'removeSupplied'].includes(key)) ||
-      typeof source.os !== 'boolean' || !Array.isArray(source.supplied)) throw new Error('inputs-file');
-  const supplied = source.supplied.map(row => {
-    if (!row || typeof row !== 'object' || Array.isArray(row) ||
-        Object.keys(row).length !== 2 || Object.keys(row).some(key => !['id', 'file'].includes(key))) throw new Error('inputs-file');
-    const entry = row as Record<string, unknown>;
-    if (typeof entry.id !== 'string' || typeof entry.file !== 'string') throw new Error('inputs-file');
-    return { id: entry.id, file: resolve(dirname(inputPath), entry.file) };
-  });
-  return { os: source.os, supplied, ...(Object.hasOwn(source, 'removeSupplied') ?
-    { removeSupplied: source.removeSupplied as readonly string[] } : {}) };
+/** Resolve only the path fields of an already validated portable input document. */
+function cliTrustSources(source: TrustSources, inputPath: string): TrustSources {
+  return { ...source, supplied: source.supplied.map(entry =>
+    ({ id: entry.id, file: resolve(dirname(inputPath), entry.file) })) };
 }
 /** Approval applies only to the document bytes used to create this review. */
 async function runTrustCli(request: TrustRepairRequest | CertificateExportRequest,
@@ -246,12 +237,12 @@ try {
       const bound: BoundCliDocument[] = [];
       if (values['inputs-file'] !== undefined) {
         const input = readCliDocument(values['inputs-file']); bound.push(input);
-        if (input.document.schema !== 'urn:aihq:core:certificate-export-inputs:1.0.0') {
-          refused('SCHEMA_UNSUPPORTED', 'schema-unsupported');
-        } else if (Object.keys(input.document).length !== 2 || !Object.hasOwn(input.document, 'sources')) {
-          refused('INPUT_INVALID', 'unknown-field');
+        const validation = validateCertificateExportInputs(input.document);
+        if (!validation.valid) {
+          const diagnostic = validation.diagnostics[0] ?? { code: 'INPUT_INVALID', reason: 'inputs-file' };
+          refused(diagnostic.code, diagnostic.reason);
         } else {
-          request.sources = cliTrustSources(input.document.sources, input.path);
+          request.sources = cliTrustSources(input.document.sources as TrustSources, input.path);
           await runTrustCli(request, bound, { apply: values.apply, yes: values.yes, resolutions: values.resolutions, ...logging });
         }
       } else await runTrustCli(request, bound, { apply: values.apply, yes: values.yes, resolutions: values.resolutions, ...logging });
@@ -395,12 +386,12 @@ try {
       if (!input) throw new Error('inputs-file');
       const document = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(input), 'repair inputs');
       if (Object.hasOwn(document, 'schema')) {
-        if (document.schema !== 'urn:aihq:core:repair-inputs:1.0.0') refused('SCHEMA_UNSUPPORTED', 'schema-unsupported');
-        else if (values['support-markdown'] !== undefined ||
-            Object.keys(document).some(key => !['schema', 'route', 'repairs', 'sources'].includes(key)) ||
-            !document.repairs || typeof document.repairs !== 'object' || Array.isArray(document.repairs) ||
-            Object.keys(document.repairs).length !== 1 || !Object.hasOwn(document.repairs, definition.id) ||
-            !['native', 'file'].includes(document.route as string)) refused('INPUT_INVALID', 'unknown-field');
+        const validation = validateTrustRepairInputs(document);
+        if (!validation.valid) {
+          const diagnostic = validation.diagnostics[0] ?? { code: 'INPUT_INVALID', reason: 'inputs-file' };
+          refused(diagnostic.code, diagnostic.reason);
+        } else if (values['support-markdown'] !== undefined ||
+            !Object.hasOwn(document.repairs as object, definition.id)) refused('INPUT_INVALID', 'unknown-field');
         else {
           const rawInputs = (document.repairs as Record<string, unknown>)[definition.id];
           if (!rawInputs || typeof rawInputs !== 'object' || Array.isArray(rawInputs)) throw new Error('inputs-file');
@@ -409,7 +400,7 @@ try {
           const request: TrustRepairRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair',
             route: document.route as 'native' | 'file', repairs: [{ id: definition.id as TrustRepairRequest['repairs'][0]['id'],
               targets: values.target, inputs: inputs as TrustRepairRequest['repairs'][0]['inputs'] }],
-            ...(Object.hasOwn(document, 'sources') ? { sources: cliTrustSources(document.sources, inputPath) } : {}),
+            ...(Object.hasOwn(document, 'sources') ? { sources: cliTrustSources(document.sources as TrustSources, inputPath) } : {}),
             ...(values.offline ? { network: 'off' as const } : {}) };
           await runTrustCli(request, [{ path: inputPath, digest: sha256(input), document }],
             { apply: values.apply, yes: values.yes, allowPartial: values['allow-partial'], resolutions: values.resolutions, ...logging });

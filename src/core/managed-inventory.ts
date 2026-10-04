@@ -1,13 +1,13 @@
 import { performance } from 'node:perf_hooks';
-import { relative,join,dirname } from 'node:path';
+import { relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { installedDistribution } from './internal/installed-distribution.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { readOwnership, readOwnershipReceipts, stateRoot } from './internal/state.js';
 import type { Ownership } from './internal/state.js';
-import { memberKey, type Claim } from './internal/recipe-lifecycle.js';
+import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
-import { readTrustCustody } from './internal/trust-custody.js';
+import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
 
 const SCHEMA = 'urn:aihq:core:managed-inventory-result:1.0.0' as const;
 const DEFAULT_BUDGET_MS = 30000;
@@ -152,11 +152,18 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       }
     }
     if (request.scope !== 'project') {
-      const trust = readTrustCustody();
+      const trust = readTrustCustody(true);const pending=readPendingTrust(trust);
+      if(pending) {
+        result.status='incomplete';result.diagnostics.push(diagnostic('STATE_CONFLICT','trust-custody-pending','Review the pending trust selection before restoration or removal.'));
+        for(const entry of pendingEntries(pending)) {
+          const key=`user\0${entry.managementId}`;
+          if(!rows.has(key))rows.set(key,{managementId:entry.managementId,scope:'user',custody:'legacy-reconcile',memberCount:0,sharedMemberCount:0});
+          else rows.get(key)!.custody='legacy-reconcile';
+        }
+      }
       for (const entry of trust.value.entries) {
         check(); const key = `user\0${entry.managementId}`;
-        const path = join(home,...entry.relativePath.split('/')); const root = entry.relativePath.startsWith('.aih/core/content/') ? dirname(path):home;
-        const owner = readOwnership(root).value.members[memberKey({kind:'file',path:root === home ? entry.relativePath : entry.relativePath.split('/').at(-1)!})];
+        const {owner}=readTrustOwner(entry);
         if (!owner || owner.sha256 !== entry.outputSha256 || owner.recipeIdentity !== entry.recipeIdentity) {
           if (!rows.has(key)) rows.set(key,{managementId:entry.managementId,scope:'user',custody:'legacy-reconcile',memberCount:0,sharedMemberCount:0});
           result.status='incomplete'; result.diagnostics.push(diagnostic('STATE_CONFLICT','trust-custody-conflict','Retained trust provenance requires reviewed reconciliation.'));

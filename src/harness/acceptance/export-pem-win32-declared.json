@@ -1,7 +1,7 @@
 {
   "schema": "aih.trust.acceptance.v1",
   "cellId": "export-pem-win32-declared",
-  "subjectSha256": "cf66572d342a9730b1d3724b05ebbc24f74e710eb72e27570651c2fdf5e85a3b",
+  "subjectSha256": "ee7e8d9339d2c28e6205cec42dd7e483678239e59ffe0627709d38449bb87733",
   "cell": {
     "id": "export-pem-win32-declared",
     "definitionId": "certificate-export",

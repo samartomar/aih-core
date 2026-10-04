@@ -1,20 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { lstatSync, mkdirSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
-import { contractSupport as harnessSupport, selectRepairDefinition, selectTrustCell, trustCapabilities } from '../harness/contracts.mjs';
+import { contractSupport as harnessSupport, selectRepairDefinition, selectTrustCell, trustCapabilities, exportDefaultNames, type TrustCapabilityCell } from '../harness/contracts.mjs';
 import { discoverTrustSources, serializeTrustSet, parseTrustOutput, reviewTrustDelta, trustHelperFiles,
-  detectTrustPlatform, verifyTrustAdmissionEvidence, hashTrustLibraries, type TrustDiscovery } from '../harness/trust.mjs';
-import { getRepairRecipe, renderRepair, assessRepairObservations } from '../harness/runtime.mjs';
+  detectTrustPlatform, verifyTrustAdmissionEvidence, hashTrustLibraries, getTrustFileIntegration, type TrustDiscovery } from '../harness/trust.mjs';
+import { getTrustRecipe, renderRepair, assessRepairObservations } from '../harness/runtime.mjs';
 import { observeRepair } from './repair.js';
 import { validateTrustRepairRequest, validateCertificateExportRequest } from './trust-contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
-import { cloneJsonValueStructureV1, deepFreezeStrictJsonV1 } from './internal/strict-json.js';
+import { cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
 import { pathPins, pinsMatch, sha256, userHomeRoot, type PathPin } from './internal/host-files.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
 import { readOwnership, stateRoot, protectState, writeHistory } from './internal/state.js';
-import { readTrustCustody, custodyParticipant, type TrustCustodyEntry, type TrustCustodyImage } from './internal/trust-custody.js';
+import { readTrustCustody, readPendingTrust, pendingEntries, custodyParticipant, type TrustCustodyEntry, type TrustCustodyImage } from './internal/trust-custody.js';
 import { memberKey } from './internal/recipe-lifecycle.js';
 import { resolveTrustPath, type TrustPath } from './internal/trust-path.js';
 import type { Diagnostic, Recipe } from './types.js';
@@ -30,6 +30,9 @@ const RESULT = 'urn:aihq:core:run-result:1.2.0' as const;
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 type Request = TrustRepairRequest | CertificateExportRequest;
 interface Capture { file: string; pins: PathPin[]; bytes: Buffer; sha256: string; origin: 'explicit' | 'retained'; admittedSha256?: string }
+class SourceCaptureFailure extends Error {
+  constructor(readonly origin: Capture['origin'], reason: string) { super(reason); }
+}
 interface TrustState { request: Request; requestSha256: string; policy: PreparedHandle; policyDigest: string; review: PreparedReview;
   inputs: TrustInputs; captures: Map<string, Capture>; discovery: TrustDiscovery; helperSha256: string; material: { path: string; directory: string; pins: PathPin[] };
   output: TrustPath; entry: TrustCustodyEntry; includeNodeBundled: boolean; policyControls: HostControls; recheck(signal?:AbortSignal):Promise<void> }
@@ -38,6 +41,27 @@ const knownHandles = new WeakMap<PreparedHandle, Request['useCase']>();
 const stagedMaterials = new Set<TrustState['material']>();
 process.once('exit',() => { for (const material of stagedMaterials) cleanup(material); });
 const hash = (v: unknown) => sha256(canonicalJson(v));
+const admissionModule=join(dirname(distributionManifest),'dist/harness/trust-capabilities.mjs');
+// An ESM import stays cached. A changed installed module cannot revoke a cell while
+// leaving its old imported object authorized in this process.
+const loadedAdmissionSha256=(()=>{try {
+  const bytes=readRegularFile(admissionModule,{maxBytes:1_048_576});if(!bytes)return null;
+  // Harness may have been imported before Core. Compare the fixed JSON payload
+  // with its cached object without evaluating changed installed JavaScript.
+  const payload=/export const trustCellRecords = Object\.freeze\((\[[\s\S]*\])\);\s*$/.exec(bytes.toString('utf8'))?.[1];
+  if(!payload||canonicalJson(parseStrictJsonObjectV1(`{"cells":${payload}}`,'admission').cells)!==canonicalJson(trustCapabilities.cells))return null;
+  return sha256(bytes);
+}catch{return null;}})();
+function installedAdmission(cell?: TrustCapabilityCell): string {
+  const bytes=readRegularFile(admissionModule,{maxBytes:1_048_576});
+  if(!bytes||sha256(bytes)!==loadedAdmissionSha256) throw new Error('trust-admission-changed');
+  if(!cell) return hash({module:sha256(bytes)});
+  const root=dirname(distributionManifest),path=join(root,cell.evidence.reference);
+  if(relative(root,path).startsWith('..')||isAbsolute(relative(root,path))) throw new Error('evidence-path');
+  const evidence=readRegularFile(path,{maxBytes:1_048_576});
+  if(!evidence||sha256(evidence)!==cell.evidence.sha256) throw new Error('evidence-unavailable');
+  return hash({module:sha256(bytes),cell,evidence:{reference:cell.evidence.reference,sha256:sha256(evidence)}});
+}
 const diagnostic = (code: string, reason: string): Diagnostic => ({ code, reason, message: 'Review the reported trust prerequisite and prepare again.' });
 function publicDiagnostics(rows: readonly Diagnostic[], review?: PreparedReview): Diagnostic[] {
   return rows.map(row => {
@@ -73,6 +97,7 @@ function installedHelper(): string {
     if (!bytes) throw new Error('harness-unavailable'); return { name, sha256: sha256(bytes) }; })});
 }
 function capture(file: string, origin: Capture['origin'], admittedSha256?: string): Capture {
+  try {
   if (typeof file !== 'string' || !isAbsolute(file) || file.length > 4096) throw new Error('source-path');
   const pins = pathPins(file); const first = readRegularFileWithStats(file, { maxBytes: 1_048_576 });
   const second = readRegularFileWithStats(file, { maxBytes: 1_048_576 });
@@ -81,16 +106,20 @@ function capture(file: string, origin: Capture['origin'], admittedSha256?: strin
   const digest = sha256(first.contents);
   if (origin === 'retained' && digest !== admittedSha256) throw new Error('supplied-source-changed');
   return { file, pins, bytes: first.contents, sha256: digest, origin, ...(admittedSha256 === undefined ? {} : { admittedSha256 }) };
+  } catch(error) {
+    const reason=error instanceof Error&&/^[a-z-]{1,64}$/.test(error.message)?error.message:'source-unavailable';
+    throw new SourceCaptureFailure(origin,origin==='retained'&&reason!=='supplied-source-changed'?'supplied-source-unavailable':reason);
+  }
 }
-function captureSources(sources: TrustSources, prior?: TrustCustodyEntry): Map<string, Capture> {
+function captureSources(sources: TrustSources, prior?: TrustCustodyEntry, pendingIds:ReadonlySet<string>=new Set()): Map<string, Capture> {
   const paths = new Map((prior?.sources ?? []).filter(s => s.kind === 'supplied').map(s => [s.id.startsWith('supplied:') ? s.id.slice(9) : s.id, { file: s.privateFile!, digest: s.sourceSha256 }]));
-  for (const id of sources.removeSupplied ?? []) { if (!paths.delete(id)) throw new Error('invalid-source-selection'); }
+  for (const id of sources.removeSupplied ?? []) { if (!paths.delete(id)&&!pendingIds.has(id)) throw new Error('invalid-source-selection'); }
   for (const item of sources.supplied) paths.set(item.id, { file: item.file, digest: '' });
   if (paths.size > 32) throw new Error('source-limit');
   const captures = new Map<string,Capture>();
   for (const [id, p] of [...paths].sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0))
     captures.set(id, capture(p.file, p.digest ? 'retained' : 'explicit', p.digest || undefined));
-  if (!sources.os && captures.size === 0 && !prior) throw new Error('invalid-source-selection');
+  if (!sources.os && captures.size === 0 && !prior&&!pendingIds.size) throw new Error('invalid-source-selection');
   return captures;
 }
 async function discover(sources: TrustSources, captures: Map<string,Capture>, request: Request, includeNodeBundled: boolean, signal?: AbortSignal): Promise<TrustDiscovery> {
@@ -139,41 +168,64 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     if (controls.signal?.aborted) return done('cancelled', [diagnostic('CANCELLED','cancelled')]);
     const definition = selectRepairDefinition({ requestSchema: request.schema, repairId: id, definitionSchema: DEFINITION });
     if (!definition) return done('invalid', [diagnostic('SCHEMA_UNSUPPORTED','schema-unsupported')]);
-    const helperSha256 = installedHelper();
-    const inputs = review.inputs as TrustInputs; inputs.trust.helperSha256 = helperSha256;
-    inputs.trust.bindingSha256 = hash({request,helperSha256,home:userHomeRoot()});
     const targetIds = request.useCase === 'repair' ? definition.targets.filter(t => request.repairs[0].targets.includes(t)) : [];
-    if (route === 'native' || id !== 'node-npm-ca' && id !== 'certificate-export') {
+    const variant = definition.variants.find(v => 'route' in v && v.route === route && v.os === process.platform && v.architectures.some(a => a === process.arch) &&
+      v.network === (request.network ?? 'declared') && canonicalJson(v.targets) === canonicalJson(targetIds));
+    const inputVariants=definition.variants.filter(v=>'route' in v&&v.route===route);
+    const inputIds=variant&&'inputIds' in variant?variant.inputIds:inputVariants.reduce<string[]>((ids,v)=>ids.filter(key=>'inputIds' in v&&v.inputIds.includes(key)),
+      inputVariants[0]&&'inputIds' in inputVariants[0]?[...inputVariants[0].inputIds]:[]);
+    if (request.useCase === 'repair') {
+      dataObject(request.repairs[0].inputs,[...inputIds]);
+      for(const key of inputIds) {
+        const declaration=definition.inputs[key];const value=request.repairs[0].inputs[key];
+        if (!declaration) throw new Error('harness-unsupported');
+        if (value===undefined&&!declaration.required) continue;
+        const invalid=declaration.type==='file' ? typeof value!=='string'||!isAbsolute(value)||value.length>4096||/[\p{Cc}\p{Cf}]/u.test(value) :
+          declaration.type==='string' ? typeof value!=='string'||value.length>(declaration.maxLength??4096)||/[\p{Cc}\p{Cf}]/u.test(value) :
+          declaration.type==='boolean' ? typeof value!=='boolean' : typeof value!=='number'||!Number.isSafeInteger(value);
+        if(invalid) return done('invalid',[diagnostic('INPUT_INVALID','repair-input')]);
+      }
+    }
+    const helperSha256 = installedHelper();
+    let cell: TrustCapabilityCell|undefined;let admissionSha256=installedAdmission();
+    const inputs = review.inputs as TrustInputs; inputs.trust.helperSha256 = helperSha256;
+    inputs.trust.bindingSha256 = hash({request,helperSha256,admissionSha256,home:userHomeRoot()});
+    const isExport=request.useCase==='certificate-export';
+    const integration=isExport?undefined:getTrustFileIntegration(id,targetIds);
+    if (route === 'native' || !isExport&&integration?.status!=='supported') {
       const reason = route === 'native' ? 'native-route-unsupported' : 'file-route-unsupported';
       inputs.trust.targets = targetIds.map(t => unavailableTarget(t,route === 'native' ? 'native':'file',reason));
       return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE',reason)]);
     }
-    const image = readTrustCustody(); const home = userHomeRoot(); const isExport = request.useCase === 'certificate-export';
-    const format = isExport ? request.format ?? 'pem' : 'pem';
+    const image = readTrustCustody(true);const pending=readPendingTrust(image); const home = userHomeRoot();
+    const format = isExport ? request.format ?? 'pem' : integration!.status==='supported'?integration!.format:'pem';
     if (isExport) {
       const platform = detectTrustPlatform();
       if (!platform.release) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','trust-platform-unsupported')]);
       const admission = selectTrustCell({ definitionId:id,route:'export',target:null,
         platform:{ os:platform.os,release:platform.release,architecture:platform.architecture },network:request.network ?? 'declared',format },trustCapabilities);
       if (admission.status !== 'admitted') return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','trust-format-unavailable')]);
+      if (!variant||!('capabilityIds' in variant)||!variant.capabilityIds.includes(admission.cell.id)) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','trust-format-unavailable')]);
       const evidence = verifyTrustAdmissionEvidence({ packageRoot:dirname(distributionManifest),capabilities:trustCapabilities });
       if (!evidence.valid) return done('blocked',evidence.diagnostics);
+      cell=admission.cell;admissionSha256=installedAdmission(cell);
+      inputs.trust.bindingSha256=hash({request,helperSha256,admissionSha256,home});
     }
     let output: TrustPath; let managementId: string; const selectionId = isExport ? 'export':'trust'; const operationId = isExport ? 'write-ca':'material';
     if (isExport) {
-      output = resolveTrustPath(request.output ?? `.aih/exports/os-ca.${format === 'pem' ? 'pem':'p7b'}`,format,image.value.entries);
+      const known=new Map(image.value.entries.map(e=>[e.pathKey,e]));
+      for(const entry of pending?pendingEntries(pending):[])if(!known.has(entry.pathKey))known.set(entry.pathKey,entry);
+      output = resolveTrustPath(request.output ?? `.aih/exports/${exportDefaultNames[format]}`,format,[...known.values()]);
       managementId = `ca-export-${sha256(output.pathKey)}`;
     } else {
-      managementId = 'node-npm-trust';
-      const managed = join(stateRoot(),'content',sha256(`${home}\0user\0${managementId}`),'trust.pem');
+      if(!definition.managementId||!definition.materialName) throw new Error('harness-unsupported');
+      managementId = definition.managementId;
+      const managed = join(stateRoot(),'content',sha256(`${home}\0user\0${managementId}`),definition.materialName);
       const relativePath = relative(home,managed).replaceAll('\\','/');
       output = { home,path:managed,relativePath,pathKey:canonicalJson({ home,segments:relativePath.split('/') }),pins:pathPins(managed) };
     }
-    const variant = !isExport ? definition.variants.find(v => 'route' in v && v.route === 'file' && v.os === process.platform && v.architectures.some(a => a === process.arch) &&
-      v.network === (request.network ?? 'declared') && canonicalJson(v.targets) === canonicalJson(targetIds)) : undefined;
     if (!isExport && !variant) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','file-route-unsupported')]);
-    if (!isExport && Object.keys(request.repairs[0].inputs).length) return done('invalid',[diagnostic('INPUT_INVALID','unknown-field')]);
-    const observations = variant ? assessRepairObservations({id,managedPath:output.path,variantRef:variant.recipeRef,
+    const observations = !isExport && variant ? assessRepairObservations({id,managedPath:output.path,variantRef:variant.recipeRef,
       observations:observeRepair(id,targetIds,variant.recipeRef)}) : [];
     const unresolvedObservations = observations.filter(o => o.conflict && !request.resolutions?.some(r => r.selectionId === selectionId && r.operationId === o.operationId &&
       r.choice === 'replace' && r.observedSha256 === sha256(o.observedValue!)));
@@ -182,6 +234,17 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     const policyResolutions = request.resolutions?.filter(r => !observations.some(o => r.selectionId === selectionId && r.operationId === o.operationId));
     const prior = image.value.entries.find(e => e.pathKey === output.pathKey);
     const sources: TrustSources = request.sources ?? { os: true,supplied: [] };
+    const pendingIds=new Set<string>();
+    if(pending) {
+      // A one-output request cannot discharge another pending output's obligations.
+      if(pending.intent.outputs.length!==1||pending.intent.outputs[0]!.pathKey!==output.pathKey) throw new Error('trust-custody-pending');
+      const explicit=new Set(sources.supplied.map(s=>s.id)),removed=new Set(sources.removeSupplied??[]);
+      const obligations=[...pending.before.entries,...pending.after.entries].filter(e=>e.pathKey===output.pathKey).flatMap(e=>e.sources.filter(s=>s.kind==='supplied'));
+      for(const source of obligations)pendingIds.add(source.id.slice(9));
+      if([...removed].some(sourceId=>!pendingIds.has(sourceId)&&!prior?.sources.some(s=>s.kind==='supplied'&&s.id===`supplied:${sourceId}`)))throw new Error('invalid-source-selection');
+      if(obligations.some(s=>!explicit.has(s.id.slice(9))&&!removed.has(s.id.slice(9)))) throw new Error('trust-custody-pending');
+      review.observations.push({id:'pending-trust-reconciliation',reason:`pending-intent:${pending.digest}; before:${pending.beforeSha256}; after:${pending.afterSha256}`});
+    }
     let osFileAdmissionUnavailable = false;
     if (!isExport) {
       const platform=detectTrustPlatform();
@@ -195,8 +258,8 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
         return unavailableTarget(target,'file',selected?.status === 'admitted' ? 'client-binding-unavailable':'file-route-unsupported');
       });
     }
-    const captures = captureSources(sources,prior); const includeNodeBundled = !isExport && targetIds.includes('npm');
-    if (prior && !sources.os && captures.size === 0 && !includeNodeBundled) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','trust-output-empty')]);
+    const captures = captureSources(sources,prior,pendingIds); const includeNodeBundled = integration?.status==='supported'&&integration.includeNodeBundled;
+    if ((prior||pending) && !sources.os && captures.size === 0 && !includeNodeBundled) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','trust-output-empty')]);
     const discovery = await discover(sources,captures,request,includeNodeBundled,controls.signal);
     inputs.trust.sources = discovery.sources; inputs.trust.sourceSetSha256 = discovery.sourceSetSha256 ?? sha256(`aih.trust.sources.v1\0${canonicalJson(discovery.sources)}`);
     inputs.trust.certificates = reviewTrustDelta({ discovery, ...(prior ? { prior: { sources: prior.sources } } : {}) });
@@ -206,7 +269,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     if (serialized.status !== 'serialized') return done('blocked',[diagnostic(serialized.code,serialized.reason)]);
     const before = readRegularFile(output.path,{ maxBytes:16*1024*1024 });
     const ownership = readOwnership(isExport ? home : dirname(output.path));
-    const owner = ownership.value.members[memberKey({kind:'file',path:isExport ? output.relativePath : 'trust.pem'})];
+    const owner = ownership.value.members[memberKey({kind:'file',path:isExport ? output.relativePath : definition.materialName!})];
     const beforeSha256 = before ? sha256(before):null;
     let conflict: string | undefined; let hint = false;
     if (!prior && owner?.managementId.startsWith('ca-export-')) conflict='trust-custody-conflict';
@@ -218,6 +281,12 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     } else if (before) {
       conflict = owner?.managementId.startsWith('ca-export-') ? 'trust-custody-conflict':'trust-output-conflict';
       hint = conflict === 'trust-output-conflict' && (!owner || owner.managementId === managementId && !owner.claims?.some(c => c.managementId !== managementId));
+    }
+    if(pending&&!(prior&&before&&owner&&owner.managementId===prior.managementId&&owner.recipeIdentity===prior.recipeIdentity&&
+      owner.sha256===prior.outputSha256&&beforeSha256===prior.outputSha256)) {
+      // Pending evidence proves consistency only. Fresh exact replacement establishes
+      // missing authority/provenance from explicitly validated sources.
+      conflict=before?'trust-output-conflict':undefined;hint=!!before;
     }
     if (prior && beforeSha256 !== prior.outputSha256) review.observations.push({id:'recorded-trust-custody',
       reason:`recorded-output:${prior.outputSha256}; observed-output:${beforeSha256 ?? 'absent'}; recorded-recipe:${prior.recipeIdentity}; observed-recipe:${owner?.recipeIdentity ?? 'absent'}`});
@@ -248,13 +317,16 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     let recipe: Recipe; let configuration: Record<string,string> = {};
     const descriptor = { id:'generated-ca',source:{ kind:'local' as const,input:'generated-export' },path:'trust-material',sha256:serialized.sha256,byteLength:serialized.bytes.byteLength };
     if (isExport) {
-      const target = { root:'userHome' as const,segments:output.relativePath.split('/').map(literal => ({ literal })) };
-      recipe = { schema:'urn:aihq:core:recipe:1.0.0',id:'certificate-export',description:'Write reviewed certificate-only trust material',inputs:{},materials:[descriptor],targets:['user'],prerequisites:[],
-        operations:[{ id:operationId,purpose:'Write the reviewed complete certificate set',kind:'file.write',scope:'user',requires:[],checks:['export-digest'],target,material:descriptor.id,mode:0o600 }],
-        checks:[{ id:'export-digest',purpose:'Check the persisted certificate bytes',kind:'file.sha256',target,sha256:serialized.sha256 }] };
+      if(!variant) throw new Error('harness-unsupported');
+      const generated=getTrustRecipe(variant.recipeRef,{materialId:descriptor.id,materialPath:descriptor.path,
+        outputSegments:output.relativePath.split('/'),sha256:serialized.sha256,byteLength:serialized.bytes.length});
+      if(generated?.status!=='recipe'||!generated.recipe) throw new Error('harness-unsupported');
+      recipe=generated.recipe as Recipe;
     } else {
       if (!variant) return done('blocked',[diagnostic('PREREQUISITE_UNAVAILABLE','file-route-unsupported')]);
-      recipe = cloneJsonValueStructureV1(getRepairRecipe(variant.recipeRef),'recipe',32) as Recipe;
+      const fixed=getTrustRecipe(variant.recipeRef);
+      if(fixed?.status!=='recipe'||!fixed.recipe) throw new Error('harness-unsupported');
+      recipe = cloneJsonValueStructureV1(fixed.recipe,'recipe',32) as Recipe;
       const rendered = renderRepair({ id,variantRef:variant.recipeRef,bundlePath:output.path,bundleSha256:serialized.sha256,fingerprints:serialized.fingerprints });
       if (rendered.status !== 'completed') return done(rendered.status,rendered.diagnostics);
       configuration = rendered.bindings; delete recipe.inputs.bundle; recipe.materials = [descriptor];
@@ -267,7 +339,8 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
     const capturedMaterial = material!;
     const recheck = async (signal = controls.signal) => {
       try {
-        if (installedHelper() !== helperSha256 || hash(input) !== requestSha256) throw new Error('review-stale');
+        if (installedHelper() !== helperSha256 || installedAdmission(cell)!==admissionSha256 || hash(input) !== requestSha256) throw new Error('review-stale');
+        if(cell&&!verifyTrustAdmissionEvidence({packageRoot:dirname(distributionManifest),capabilities:trustCapabilities}).valid) throw new Error('review-stale');
         const current = new Map<string,Capture>();
         for (const [sourceId,c] of captures) {
           if (!pinsMatch(c.pins)) throw new Error('review-stale');
@@ -276,7 +349,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
         const observed = await discover(sources,current,request,includeNodeBundled,signal);
         if (observed.status !== 'ready' || observed.sourceSetSha256 !== discovery.sourceSetSha256 || hash(observed.binding) !== hash(discovery.binding)) throw new Error('review-stale');
         if (!pinsMatch(capturedMaterial.pins) || sha256(readRegularFile(capturedMaterial.path,{maxBytes:12*1024*1024}) ?? Buffer.alloc(0)) !== serialized.sha256) throw new Error('review-stale');
-        if (variant) {
+        if (!isExport && variant) {
           const live=assessRepairObservations({id,managedPath:output.path,variantRef:variant.recipeRef,observations:observeRepair(id,targetIds,variant.recipeRef)});
           if (live.length !== observations.length || live.some((o,i) => o.id !== observations[i]?.id || ![observations[i]?.raw,observations[i]?.expectedRaw].includes(o.raw))) throw new Error('review-stale');
         }
@@ -285,7 +358,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
         throw new Error(signal?.aborted ? 'cancelled':'review-stale');
       }
     };
-    const participant = custodyParticipant(image,[entry],recheck);
+    const participant = custodyParticipant(image,[entry],recheck,[],pending);
     const policyControls: HostControls = { ...controls,logging:'off',materialRoots:{ 'generated-export':directory } };
     const prepared = await preparePolicy({ useCase:'policy',target:{ project:home },policy:{ schema:'urn:aihq:core:execution-policy:1.0.0',mode:'vibe',
       selections:[{ id:selectionId,managementId,scope:'user',configuration,requires:[],recipe:{ inline:recipe } }] },
@@ -294,7 +367,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
       review.operations = prepared.review?.operations ?? []; return done(prepared.status,prepared.diagnostics,prepared.resolutionInputs?.map(r => ({ ...r,availableChoices:['replace'] })) ?? []);
     }
     outputRow.effect = beforeSha256 === serialized.sha256 ? 'unchanged':before ? 'replace':'create';
-    inputs.trust.bindingSha256 = hash({ request,helperSha256,paths:[...captures].map(([id,c]) => ({ id,file:c.file,pins:c.pins,sha256:c.sha256 })),
+    inputs.trust.bindingSha256 = hash({ request,helperSha256,admissionSha256,pending:participant.reviewBinding,paths:[...captures].map(([id,c]) => ({ id,file:c.file,pins:c.pins,sha256:c.sha256 })),
       output,ownership:ownership.digest,custody:image.digest,discovery:discovery.binding,recipeIdentity:entry.recipeIdentity,outputSha256:serialized.sha256,
       observations:observations.map(o => ({id:o.id,sha256:sha256(o.raw)})) });
     review.operations = prepared.review.operations; review.conflicts = prepared.review.conflicts; review.omissions = prepared.review.omissions;
@@ -309,7 +382,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
   } catch (error) {
     const caught = error instanceof Error && /^[a-z-]{1,64}$/.test(error.message) ? error.message:'trust-input';
     const reason = caught === 'request-field' ? 'unknown-field':caught;
-    const invalid = ['invalid-source-selection','source-path','invalid-path','format-path-mismatch','request-object','unknown-field','logging','signal'].includes(reason);
+    const invalid = error instanceof SourceCaptureFailure && error.origin==='explicit' || ['invalid-source-selection','source-path','invalid-path','format-path-mismatch','request-object','unknown-field','logging','signal'].includes(reason);
     const state = ['output-path-alias','trust-custody-conflict','trust-custody-pending'].includes(reason);
     return done(reason === 'cancelled' ? 'cancelled':invalid ? 'invalid':'blocked',[diagnostic(reason === 'cancelled' ? 'CANCELLED':invalid ? 'INPUT_INVALID':
       state ? 'STATE_CONFLICT':['source-limit','custody-record-limit'].includes(reason) ? 'SOURCE_LIMIT':'PREREQUISITE_UNAVAILABLE',reason)]);
