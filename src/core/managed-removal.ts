@@ -107,7 +107,8 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   const known: Partial<ManagedRemovalPreparationResult> = {};
   const invalid = (reason: 'request-shape' | 'organization-source') => done('invalid', known, [diagnostic('INPUT_INVALID', reason,
     reason === 'request-shape' ? 'The managed removal request is not valid.' : 'Enterprise removal needs an organization source and Vibe removal accepts none.')]);
-  if (!identityValid) return done('invalid', known, [diagnostic('INPUT_INVALID', 'package-identity', 'The installed Core package identity is invalid.')]);
+  if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
+    'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
   try {
     dataObject(request, ['target', 'managementId', 'scope', 'mode', 'organizationSource']);
     validateControls(controls);

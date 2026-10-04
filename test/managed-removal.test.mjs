@@ -80,6 +80,23 @@ test('a claim another selection requires is retained with a fixed reason and no 
   assert.equal(top.disposition, 'prepared', JSON.stringify(top));
 });
 
+test('a dependency claim change after a removal review rejects Apply before removing the selected member', async () => {
+  const s = open();
+  const base = policy().selections[0];
+  await install(s, document => { document.selections = [alsoNamed(base, 'base-item', 'BASE.md'),
+    alsoNamed(base, 'top-item', 'TOP.md', { requires: ['base-item'] })]; });
+  const top = await prepareManagedRemoval(removal(s, { managementId: 'top-item' }), { logging: 'off' });
+  assert.equal(top.disposition, 'prepared', JSON.stringify(top));
+  assert.equal(top.preparation.status, 'ready', JSON.stringify(top.preparation.diagnostics));
+  rewriteReceipt(s, value => {
+    const topClaim = Object.values(value.selections).find(item => item.managementId === 'top-item');
+    topClaim.requires = [];
+  });
+  const stale = await apply(top.preparation.prepared, approve(top.preparation), { logging: 'off' });
+  assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
+  assert.equal(existsSync(join(s.project, 'TOP.md')), true, 'no reviewed removal runs after a dependency changes');
+});
+
 test('claimless legacy custody asks for reconciliation, including when mixed with a claimed member', async () => {
   const s = open();
   await install(s);
@@ -232,6 +249,22 @@ test('Enterprise removal delegates admission to lifecycle.remove and keeps the d
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('Enterprise removal rejects a changed organization source after review', async () => {
+  const s = open();
+  await install(s);
+  const counter = { calls: 0 };
+  try {
+    stubOrg(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }), counter);
+    const prepared = await prepareManagedRemoval(enterprise(s), { logging: 'off' });
+    assert.equal(prepared.disposition, 'prepared', JSON.stringify(prepared));
+    assert.equal(prepared.preparation.status, 'ready', JSON.stringify(prepared.preparation.diagnostics));
+    stubOrg(orgDocument(enterprisePolicy()), counter);
+    const stale = await apply(prepared.preparation.prepared, approve(prepared.preparation), { logging: 'off' });
+    assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
+    assert.equal(existsSync(join(s.project, 'TEAM.md')), true, 'changed authority cannot remove managed content');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('claimless custody in a receipt shared by project and home has no scope and is unavailable', async () => {
   const s = open();
   await install(s);
@@ -301,6 +334,8 @@ test('edited managed content is a reviewed conflict that is never silently delet
   assert.deepEqual(result.preparation.review.operations.map(op => op.effects), ['conflict']);
   assert.deepEqual(result.preparation.review.conflicts.map(item => item.reason), ['managed-content-changed']);
   assert.deepEqual(result.preparation.resolutionInputs, [], 'generated cleanup has no keyed resolution');
+  assert.match(result.preparation.diagnostics[0].guidance, /manual/i,
+    'unkeyed lifecycle cleanup gives a manual recovery path');
   assert.equal(readFileSync(join(s.project, 'TEAM.md'), 'utf8'), 'My own edits.\n');
   assert.deepEqual((await inventoryOf(s)).selections.map(item => item.managementId), ['team-guidance'], 'the claim survives so recovery stays possible');
 });

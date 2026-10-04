@@ -143,19 +143,18 @@ try {
     else process.stdout.write(`${contractSupport.package.name} ${contractSupport.package.version}\n`);
   } else if (helpWord || values.help || positionals[0] === 'managed' && positionals[1] === 'help') {
     // Existing commands have historically accepted their ordinary arguments with --help.
-    const existingHelp = values.help === true && positionals[0] !== 'managed' &&
-      commands.includes(positionals[0] as keyof typeof usage) &&
+    const legacyHelp = values.help === true && positionals[0] !== 'managed' && !helpWord &&
       values.scope === undefined && values.mode === undefined;
     const subject = helpWord ? positionals.slice(1) : positionals[0] === 'managed' && positionals[1] === 'help' ?
       ['managed', ...positionals.slice(2)] : positionals;
-    const validSubject = existingHelp || subject.length === 0 || subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) ||
+    const validSubject = legacyHelp || subject.length === 0 || subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) ||
       subject.length === 2 && subject[0] === 'managed' && ['list', 'remove'].includes(subject[1]!);
-    if ((!existingHelp && !helpFlags) || !validSubject || helpWord && !onlyJson) refused('INPUT_INVALID', 'cli-options');
+    if ((!legacyHelp && !helpFlags) || !validSubject || helpWord && !onlyJson) refused('INPUT_INVALID', 'cli-options');
     else if (subject[0] === 'managed' && subject.length === 2)
       process.stdout.write(managedUsage[subject[1] as keyof typeof managedUsage] + managedExamples[subject[1] as keyof typeof managedExamples]);
-    else if (subject.length === 1 || existingHelp) {
-      const topic = subject[0] as keyof typeof usage;
-      process.stdout.write(usage[topic] + (topic === 'managed' ? managedUsage.list + managedUsage.remove : examples[topic]));
+    else if (subject.length === 1 && commands.includes(subject[0] as keyof typeof usage) || legacyHelp && command) {
+      const topic = (legacyHelp ? command : subject[0]) as keyof typeof usage;
+      process.stdout.write(usage[topic] + (topic === 'managed' ? managedUsage.list + managedUsage.remove + examples.managed : examples[topic]));
     } else process.stdout.write(commands.map(name => usage[name]).join('') +
       'aih --version | -V [--json]    Print the installed package version.\n' +
       'aih help [<command>] | aih <command> --help | -h    Show usage and examples.\n' +

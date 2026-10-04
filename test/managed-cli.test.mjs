@@ -27,6 +27,12 @@ test('managed CLI exposes bounded list and dedicated help without touching custo
       const shown = run(args);
       assert.equal(shown.status, 0, `${args.join(' ')}: ${shown.stdout}${shown.stderr}`);
       assert.match(shown.stdout, /aih managed/);
+      assert.match(shown.stdout, /Examples:/);
+    }
+    for (const args of [['bogus', '--help'], ['--help', '--project', project]]) {
+      const shown = run(args);
+      assert.equal(shown.status, 0, `${args.join(' ')}: ${shown.stdout}${shown.stderr}`);
+      assert.match(shown.stdout, /aih inspect/);
     }
     for (const args of [['managed', 'help', '--scope', 'user'], ['managed', 'list', '--help', '--mode', 'vibe'],
       ['policy', '--help', '--scope', 'user']]) {

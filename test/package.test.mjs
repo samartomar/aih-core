@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { lstatSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, copyFileSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -165,6 +166,17 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       join(consumer, 'lifecycle-empty.json'), '--project', join(project, 'lifecycle'), '--apply', '--yes', '--json'],
       { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
     assert.equal(JSON.parse(lifecycleCli).completion, 'complete');
+    const localContent = 'Local notes.\n';
+    writeFileSync(join(project, 'TEAM.md'), localContent);
+    const policyPreview = spawnSync(process.execPath, [join(installed, 'dist/core/cli.js'), 'policy',
+      join(consumer, 'policy.json'), '--project', project, '--json'],
+      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(policyPreview.status, 1, policyPreview.stdout + policyPreview.stderr);
+    const policyHintPreview = JSON.parse(policyPreview.stdout);
+    assert.deepEqual(policyHintPreview.resolutionInputs, [{ selectionId: 'guidance', operationId: 'write',
+      observedSha256: createHash('sha256').update(localContent).digest('hex'),
+      availableChoices: ['replace'] }]);
+    rmSync(join(project, 'TEAM.md'));
     writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';

@@ -93,8 +93,9 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   };
   const finish = () => { result.limits.elapsedMs = Math.max(0, Math.round(performance.now() - started)); return result; };
   if (!identityValid) {
-    result.status = 'invalid';
-    result.diagnostics.push(diagnostic('INPUT_INVALID', 'package-identity', 'The installed Core package identity is invalid.'));
+    result.status = 'incomplete';
+    result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'core-distribution-identity',
+      'The installed Core distribution identity could not be verified.'));
     return finish();
   }
   if (!Number.isInteger(budgetMs) || budgetMs < 1 || budgetMs > 120000) {

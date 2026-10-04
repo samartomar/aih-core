@@ -728,7 +728,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
         if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
-      else if (!matching) { effect = 'conflict'; conflicts.push(diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.')); }
+      else if (!matching) { effect = 'conflict'; conflicts.push({
+        ...diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.'),
+        guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.'
+      }); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
       const removedIds = removed.map(claim => claimId(claim, root));
