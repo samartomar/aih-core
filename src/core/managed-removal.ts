@@ -3,7 +3,11 @@ import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership }
 import { installedDistribution } from './internal/installed-distribution.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
-import { claimIdentity, classifyStoredClaims, retainClaimDependencies, type Claim } from './internal/recipe-lifecycle.js';
+import { claimIdentity, classifyStoredClaims, retainClaimDependencies, memberKey, type Claim } from './internal/recipe-lifecycle.js';
+import { readTrustCustody, custodyParticipant, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
+import { lstatSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { pathPins } from './internal/host-files.js';
 import type { Diagnostic, ExecutionPolicy } from './types.js';
 import type { GitHubPolicySource, HostControls, PreparationResult } from './host-types.js';
 
@@ -138,6 +142,14 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   try { home = userHomeRoot(); image = readImage(project, home); } catch { return unverifiable(); }
   if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unverifiable();
   const custody = classify(image, project, home, scope, managementId);
+  let trustImage: TrustCustodyImage | undefined; let trustEntries: TrustCustodyEntry[] = [];
+  if (scope === 'user') {
+    try {
+      trustImage = readTrustCustody(true); trustEntries = trustImage.value.entries.filter(entry => entry.managementId === managementId);
+      if (trustEntries.length) trustImage = readTrustCustody();
+    }
+    catch (error) { return unavailable(error instanceof Error ? error.message : 'trust-custody-conflict','Protected trust custody requires reconciliation.','STATE_CONFLICT'); }
+  }
   const sameImage = () => {
     const current = readImage(project!, home);
     return current.fingerprint === image.fingerprint && current.ownUnreadable === image.ownUnreadable &&
@@ -148,7 +160,25 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   if (custody.ambiguous) return unavailable('ambiguous-scope', 'Legacy custody for this ID cannot be assigned to one scope.');
   if (custody.claimless) return done('reconcile-required', known, [diagnostic('PREREQUISITE_UNAVAILABLE', 'legacy-reconcile',
     'This ID has legacy custody without an explicit claim.', 'Reselect the original recipe under the same management ID to establish a claim, then request removal again; otherwise reconcile manually.')]);
-  if (!custody.claimed) return done('absent', known);
+  const absent = (path: string) => {
+    pathPins(path);
+    try { lstatSync(path); return false; } catch(error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+  };
+  if (!custody.claimed && !trustEntries.length) return done('absent', known);
+  if (trustEntries.length) {
+    try {
+      for (const entry of trustEntries) {
+        const path = join(home,...entry.relativePath.split('/'));
+        const root = entry.relativePath.startsWith('.aih/core/content/') ? dirname(path):home;
+        const member = readOwnership(root).value.members[memberKey({kind:'file',path:root === home ? entry.relativePath : entry.relativePath.split('/').at(-1)!})];
+        if (!custody.claimed) {
+          if (mode === 'enterprise') return unavailable('metadata-only-removal','Organization admission does not cover trust-only cleanup.','AUTHORITY_DENIED');
+          if (member || !absent(path)) return done('reconcile-required',known,[diagnostic('STATE_CONFLICT','trust-custody-conflict','Trust output or ownership remains; reconcile it before cleanup.')]);
+        } else if (member && (member.recipeIdentity !== entry.recipeIdentity || member.sha256 !== entry.outputSha256))
+          return done('reconcile-required',known,[diagnostic('STATE_CONFLICT','trust-custody-conflict','Trust ownership and provenance disagree.')]);
+      }
+    } catch { return unavailable('trust-custody-conflict','Trust custody could not be verified.','STATE_CONFLICT'); }
+  }
   if (custody.retained) return done('retained', known, [diagnostic('PREREQUISITE_UNAVAILABLE', 'dependency-retained',
     'Another managed selection still requires this one, so its claim is retained.')]);
   if (mode === 'enterprise' && custody.members === 0) return unavailable('metadata-only-removal',
@@ -160,7 +190,10 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
     ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) };
   const preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
     ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
-  undefined, sameImage);
+  undefined, sameImage, trustImage && trustEntries.length ? custodyParticipant(trustImage,[],() => {
+    if (!sameImage()) throw new Error('review-stale');
+    for (const entry of trustEntries) if (!custody.claimed && !absent(join(home,...entry.relativePath.split('/')))) throw new Error('review-stale');
+  },trustEntries) : undefined);
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation });

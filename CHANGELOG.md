@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.7 adds versioned Node/npm trust repair and standalone `aih export-ca`
+with deterministic PEM and certificates-only DER P7B. New request/input schemas,
+full prepared-work/run-result 1.2.0 schemas, Harness repair 1.1.0 definitions and
+exact admission metadata are exported. Schema-less repairs and prior schemas
+retain their meanings. Native OS repair and OS-sourced export block when actual
+client admission, complete discovery or restriction preservation is unavailable;
+consult the installed `trustCapabilities` for exact proven format/platform cells.
+Supplied sources retain separate provenance until explicit removal or replacement.
+Outputs use genuine recipe ownership plus a protected trust-custody sidecar,
+home-confined per-path identities, exact reviewed replacement and bounded recovery.
+Old Core remains usable for unrelated operations; returning to this version detects
+older-binary changes to protected trust outputs. This local development candidate
+has not been published to npm.
+
 Core 1.0.0-dev.6 combines managed inventory/removal with the V9 reporting command and separate portable data/rendering APIs. Both modules advertise the portable reporting entries in `contractSupport`; Harness declares `urn:aihq:report:snapshot:1.0.0` as both accepted and produced. Reporting snapshots are experimental; unsupported analytics remain unavailable. This candidate has not been published.
 
 Adds protected managed selection inventory and a reviewed removal convenience to the Core API and `aih managed` CLI. Inventory reports project and user claim identities, including Core-managed content roots, shared-member counts and claimless legacy custody; unreadable or changed relevant receipts cannot produce a complete or authorized result. Removal distinguishes absence, retained dependencies, legacy reconciliation and unavailable custody before invoking cleanup-only policy 1.1 Prepare. Eligible work uses the existing review, approval, Apply and recovery path; Enterprise mode requires the organization lifecycle removal grant and conservatively refuses metadata-only claims. Policy Prepare now exposes keyed `resolutionInputs` digest hints for actionable authored conflicts and identical unowned content outside its unchanged prepared-work schema. Core exports the `managed-inventory-result` and `managed-removal-preparation` 1.0.0 JSON Schemas as produced contracts. The bundled Harness source also shares the Enterprise source admission check. The separate pre-integration dev.5 inventory and reporting candidates are superseded by the combined dev.6 candidate; npm publication remains pending.

@@ -1,0 +1,80 @@
+{
+  "schema": "urn:aihq:core:prepared-work:1.2.0",
+  "useCase": "repair",
+  "mode": "standalone",
+  "target": { "scope": "user", "project": "" },
+  "inputs": {
+    "trust": {
+      "route": "native",
+      "definition": { "id": "user-tools-ca", "schema": "urn:aihq:harness:repair:1.1.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.6" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": null,
+      "targets": [
+        {
+          "id": "python",
+          "route": "native",
+          "admission": "unavailable",
+          "reason": "native-route-unsupported",
+          "cellId": null,
+          "client": null,
+          "policy": null,
+          "configurationSha256": null,
+          "secondarySources": [],
+          "verification": { "status": "unavailable", "reason": "native-route-unsupported", "checkIds": [] }
+        },
+        {
+          "id": "git",
+          "route": "native",
+          "admission": "admitted",
+          "reason": null,
+          "cellId": "example-git-schannel",
+          "client": {
+            "version": "example-client-1",
+            "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "backend": "schannel",
+            "backendVersion": "example-os-backend-1",
+            "applicationId": null
+          },
+          "policy": {
+            "projection": "windows-effective-server-auth-v1",
+            "binding": "live-os",
+            "observationSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "scope": "effective-current-user"
+          },
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "secondarySources": [],
+          "verification": { "status": "planned", "reason": "", "checkIds": ["git-https-read"] }
+        }
+      ],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    }
+  },
+  "operations": [
+    {
+      "id": "git-config",
+      "purpose": "Configure the admitted Git native route",
+      "kind": "config.entries",
+      "scope": "user",
+      "effects": "replace-file",
+      "ownership": "managed",
+      "requires": [],
+      "checks": [],
+      "details": {
+        "target": "/home/example/.gitconfig",
+        "format": "toml",
+        "entries": [ { "path": ["http", "sslVerify"], "action": "set", "value": "true" } ]
+      }
+    }
+  ],
+  "observations": [],
+  "conflicts": [],
+  "omissions": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "native-route-unsupported", "message": "Python has no admitted native cell." }
+  ],
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" }, "inputs": {} },
+  "reviewDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

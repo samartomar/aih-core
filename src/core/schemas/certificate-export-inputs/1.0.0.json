@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:certificate-export-inputs:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "sources"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:certificate-export-inputs:1.0.0" },
+    "sources": { "$ref": "#/$defs/trustSources" }
+  },
+  "$defs": {
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "suppliedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "file": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "trustSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "supplied"],
+      "properties": {
+        "os": { "type": "boolean" },
+        "supplied": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/suppliedSource" }
+        },
+        "removeSupplied": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    }
+  }
+}

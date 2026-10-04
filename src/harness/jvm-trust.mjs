@@ -69,7 +69,7 @@ function jksStoreFingerprints(bytes, crypto) {
 }
 
 /** Reviewed baseline admission: complete JKS parse, CA-only entries, public container password. */
-function validateBaselineStore(bytes) {
+export function validateBaselineStore(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1)
     return { valid: false, reason: 'baseline-store-invalid', message: 'The selected baseline truststore is missing or empty.' };
   try {

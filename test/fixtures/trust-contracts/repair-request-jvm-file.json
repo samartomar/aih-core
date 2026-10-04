@@ -1,0 +1,12 @@
+{
+  "schema": "urn:aihq:core:repair-request:1.0.0",
+  "useCase": "repair",
+  "repairs": [
+    { "id": "jvm-ca", "targets": ["gradle"], "inputs": { "baselineStore": "/home/example/.aih/baseline.jks" } }
+  ],
+  "route": "file",
+  "sources": {
+    "os": false,
+    "supplied": []
+  }
+}

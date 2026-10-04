@@ -1,0 +1,5 @@
+{
+  "schema": "urn:aihq:core:repair-inputs:1.0.0",
+  "route": "native",
+  "repairs": { "user-tools-ca": {} }
+}

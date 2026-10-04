@@ -16,8 +16,15 @@ import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObje
 import { canonicalJson } from './internal/canonical.js';
 import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
 import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
+import { trustContractSchemas } from './trust-contracts.js';
 export type * from './types.js';
 export type * from './file-state-types.js';
+export type * from './trust-contracts.js';
+export {
+  validateTrustRepairRequest, validateTrustRepairInputs,
+  validateCertificateExportRequest, validateCertificateExportInputs,
+  validatePreparedWork12, validateRunResult12, validateTrustCustody
+} from './trust-contracts.js';
 
 const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
@@ -28,16 +35,35 @@ const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
 const checkRecipe11 = validator.getSchema(recipeSchema11.$id)! as ValidateFunction;
 const checkOrganization = validator.compile(organizationSchema);
 const schemaVersion = (id: string): string => id.split(':')[4]!;
+const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
+  [trustContractSchemas[0].$id]: 'accepts',
+  [trustContractSchemas[1].$id]: 'accepts',
+  [trustContractSchemas[2].$id]: 'accepts',
+  [trustContractSchemas[3].$id]: 'accepts',
+  [trustContractSchemas[4].$id]: 'produces',
+  [trustContractSchemas[5].$id]: 'produces',
+  [trustContractSchemas[6].$id]: 'both'
+});
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
-  contracts: [policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
-    policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
-    managedInventorySchema, managedRemovalSchema].map(schema => ({
-    id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
-      managedInventorySchema, managedRemovalSchema].includes(schema as never) ? 'produces' : 'accepts',
-    schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
-  })),
+  contracts: [
+    ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
+      policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
+      managedInventorySchema, managedRemovalSchema].map(schema => ({
+      id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
+        managedInventorySchema, managedRemovalSchema].includes(schema as never) ? 'produces' : 'accepts',
+      schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
+    })),
+    ...trustContractSchemas.map(schema => ({
+      id: schema.$id, role: trustSchemaRoles[schema.$id] ?? 'accepts',
+      schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
+    })),
+    { id: 'urn:aihq:harness:repair:1.1.0', role: 'accepts',
+      schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' },
+    { id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'accepts',
+      schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }
+  ],
   entries: [
     { export: '@aihq/core/contracts', runtime: 'portable' },
     { export: '@aihq/core/support', runtime: 'portable' },

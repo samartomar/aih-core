@@ -13,6 +13,7 @@ import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';
 import { pathPins, pinsMatch, projectRoot, sha256, validSegment } from './internal/host-files.js';
 import { resolveExecutable, resolveLauncher, executableIdentityMatches } from './internal/approved-process.js';
 import { stateRoot, writeHistory } from './internal/state.js';
+import { readTrustCustody } from './internal/trust-custody.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
 import type { Diagnostic, ProcessInvocation, Recipe } from './types.js';
 import type { Authorization, HostControls, PreparationResult, PreparedHandle, PreparedReview, RunResult } from './host-types.js';
@@ -210,7 +211,7 @@ function unavailableExecutableInvocations(recipe: Recipe, executables: RepairSta
   return unavailable;
 }
 
-function observeRepair(id: string, targets: string[], variantRef: string) {
+export function observeRepair(id: string, targets: string[], variantRef: string) {
   return repairObservationRequests({ id, targets, variantRef }).map(probe => {
     if (!isAbsolute(probe.executable) || probe.timeoutMs < 1 || probe.timeoutMs > 30_000 ||
         probe.maxOutputBytes < 1 || probe.maxOutputBytes > 65_536 || probe.args.some(arg => typeof arg !== 'string'))
@@ -279,6 +280,9 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
     safeControls = controls;
     if (controls.signal?.aborted) return fail('cancelled', 'CANCELLED', 'cancelled');
     const selected = request.repairs[0]!;
+    const trustCustody = readTrustCustody(true);
+    if (trustCustody.value.entries.some(entry => entry.managementId === definition.managementId))
+      return fail('blocked','STATE_CONFLICT','new-custody-legacy-request');
     const helperSha256 = installedHelperSha256(selected.id);
     const ordinaryInputs = Object.fromEntries(Object.entries(selected.inputs).filter(([key]) =>
       definition.inputs[key]?.type !== 'file'));

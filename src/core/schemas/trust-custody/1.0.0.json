@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:trust-custody:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "entries"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:trust-custody:1.0.0" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "partitionId": { "type": "string", "pattern": "^(?:os|node-bundled-default|jvm-baseline|supplied:[A-Za-z0-9][A-Za-z0-9._-]{0,127})$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "fingerprints", "sourceSha256", "policySha256", "runtimeVersion", "privateFile"],
+      "properties": {
+        "id": { "$ref": "#/$defs/partitionId" },
+        "kind": { "enum": ["os", "supplied", "node-bundled", "jvm-baseline"] },
+        "fingerprints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sha256" }
+        },
+        "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "policySha256": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        },
+        "runtimeVersion": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 512 }
+          ]
+        },
+        "privateFile": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 4096 }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "properties": { "kind": { "enum": ["supplied", "jvm-baseline"] } }, "required": ["kind"] },
+          "then": { "type": "object", "properties": { "privateFile": { "type": "string", "minLength": 1, "maxLength": 4096 } } }
+        },
+        {
+          "if": { "type": "object", "properties": { "kind": { "enum": ["os", "node-bundled"] } }, "required": ["kind"] },
+          "then": { "type": "object", "properties": { "privateFile": { "type": "null" } } }
+        }
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managementId", "selectionId", "operationId", "pathKey", "relativePath", "format", "outputSha256", "recipeIdentity", "sourceSetSha256", "sources"],
+      "properties": {
+        "managementId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "selectionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pathKey": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "relativePath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "format": { "enum": ["pem", "pkcs7-der", "jks"] },
+        "outputSha256": { "$ref": "#/$defs/sha256" },
+        "recipeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sourceSetSha256": { "$ref": "#/$defs/sha256" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/source" }
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,14 @@ import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { snapshotTrustData } from './trust-data.mjs';
+import { buildTrustCapabilities, selectRepairDefinition as selectDefinition } from './trust-definitions.mjs';
+import { trustCellRecords } from './trust-capabilities.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
+export { trustRepairIndex, trustLimits, trustAdapters, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
+  validateTrustCapabilities, selectTrustCell, buildCertificateExportRecipe, trustProfiles, trustTransformIds, resolveTrustRecipeRef,
+  exportAdmissionTemplate } from './trust-definitions.mjs';
+// The admission document ships with no cells: no automatic OS route is admitted without published evidence.
+export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
@@ -12,6 +19,10 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/diagnostic/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:repair:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/repair/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:repair:1.1.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
       schemaExport: '@aihq/core/report/schema' }),
     Object.freeze({ id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
@@ -60,6 +71,8 @@ export const repairIndex = Object.freeze([Object.freeze({
   limits: Object.freeze({ sourceBytes: 1048576, certificateBlocks: 256, blockBytes: 65536 }),
   offlineVerification: Object.freeze([])
 }), userToolsRepair, jvmRepair]);
+/** Select by (request schema, repair ID, definition schema); the 1.0 index stays reachable for legacy requests. */
+export const selectRepairDefinition = query => selectDefinition(query, repairIndex);
 // Organization keys are selected independently. AIHQ publisher trust is carried
 // by verificationPublishers; test keys never ship in either inventory.
 export const verificationKeys = Object.freeze([]);

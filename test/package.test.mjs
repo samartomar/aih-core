@@ -41,8 +41,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   try {
     const packed = pack(packageRoot);
     for (const entry of packed.files) {
-      assert.equal(/(?:^|\/)(?:src|test|ai-harness|AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/@sigstore\/(?:verify|core|bundle|protobuf-specs)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust-data\.mjs|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      // Bundled dependency sources are part of their reviewed package bytes.
+      // Product sources and private instructions/scratch remain excluded.
+      assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -56,8 +58,11 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
     const packedSupport = (await import(pathToFileURL(join(installed, 'dist/core/contracts.js')).href)).contractSupport;
     const packedSchemas = new Ajv2020({ strict: true });
-    for (const entry of packedSupport.contracts) packedSchemas.addSchema(JSON.parse(readFileSync(join(installed,
-      entry.schemaExport.replace('@aihq/core/schemas/', 'dist/core/schemas/')), 'utf8')));
+    for (const entry of packedSupport.contracts) {
+      const exported = manifest.exports[entry.schemaExport.replace('@aihq/core', '.')];
+      assert.equal(typeof exported, 'string', entry.schemaExport);
+      packedSchemas.addSchema(JSON.parse(readFileSync(join(installed, exported), 'utf8')));
+    }
     writeFileSync(join(consumer, 'contracts.mts'), `
       import {contractSupport,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
       import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
@@ -65,6 +70,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
       import {checkFileState,listManagedSelections,prepareManagedRemoval} from '@aihq/core';
       import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
+      import type {CertificateExportRequest,TrustRepairRequest,TrustSources} from '@aihq/core';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
@@ -87,6 +93,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const fsAuthority: 'not-evaluated' = fsResult.authority;
       const inventory: ManagedInventoryResult = await listManagedSelections({target:{project:'/absolute/project'},scope:'both'});
       const removal: ManagedRemovalPreparationResult = await prepareManagedRemoval({target:{project:'/absolute/project'},managementId:'team-guidance',scope:'project',mode:'vibe'});
+      const sources: TrustSources = {os:false,supplied:[{id:'company',file:'/absolute/company.pem'}]};
+      const exportRequest: CertificateExportRequest = {schema:'urn:aihq:core:certificate-export-request:1.0.0',useCase:'certificate-export',sources};
+      const trustRepairRequest: TrustRepairRequest = {schema:'urn:aihq:core:repair-request:1.0.0',useCase:'repair',route:'file',repairs:[{id:'node-npm-ca',targets:['npm'],inputs:{}}],sources};
     `);
     const compilerManifest = createRequire(import.meta.url).resolve('typescript/package.json');
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
@@ -114,6 +123,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/scan')), false);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/catalog')), false);
     copyFileSync(new URL('./fixtures/evidence/production.scan.json', import.meta.url), join(consumer, 'production.scan.json'));
+    copyFileSync(new URL('./fixtures/root-a.pem', import.meta.url), join(consumer, 'ca.pem'));
+    copyFileSync(new URL('./fixtures/trust-consumer.mjs', import.meta.url), join(consumer, 'trust-consumer.mjs'));
+    const trustHome = join(root, 'trust-home'); mkdirSync(trustHome);
+    assert.match(run('trust-consumer.mjs', { HOME: trustHome, USERPROFILE: trustHome }, 180_000), /packed trust public contracts passed/);
     copyFileSync(new URL('./fixtures/evidence/test-dsse-0.0.2.artifact.json', import.meta.url), join(consumer, 'partial.scan.json'));
     copyFileSync(new URL('./fixtures/evidence/test-dsse-0.0.2.trust.json', import.meta.url), join(consumer, 'partial-trust.json'));
     writeFileSync(join(consumer, 'evidence.mjs'), `

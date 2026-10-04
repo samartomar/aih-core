@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:repair-inputs:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "route", "repairs"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:repair-inputs:1.0.0" },
+    "route": { "enum": ["native", "file"] },
+    "repairs": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": { "enum": ["node-npm-ca", "user-tools-ca", "jvm-ca"] },
+      "additionalProperties": { "$ref": "#/$defs/inputRecord" }
+    },
+    "sources": { "$ref": "#/$defs/trustSources" }
+  },
+  "allOf": [
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "file" } }, "required": ["route"] },
+      "then": { "type": "object", "properties": { "sources": {} }, "required": ["sources"] }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "native" } }, "required": ["route"] },
+      "then": { "not": { "type": "object", "properties": { "sources": {} }, "required": ["sources"] } }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "native" } }, "required": ["route"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "repairs": {
+            "type": "object",
+            "additionalProperties": { "type": "object", "propertyNames": { "not": { "const": "baselineStore" } } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "file" } }, "required": ["route"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "repairs": {
+            "type": "object",
+            "properties": { "jvm-ca": { "type": "object", "properties": { "baselineStore": {} }, "required": ["baselineStore"] } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "inputRecord": {
+      "type": "object",
+      "propertyNames": { "not": { "const": "caFile" } },
+      "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }] }
+    },
+    "suppliedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "file": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "trustSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "supplied"],
+      "properties": {
+        "os": { "type": "boolean" },
+        "supplied": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/suppliedSource" }
+        },
+        "removeSupplied": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    }
+  }
+}

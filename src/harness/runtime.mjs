@@ -15,8 +15,12 @@ import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
   userToolsObservationRequests, assessUserToolsObservations } from './user-trust.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { jvmRecipe, renderJvmRepair, prepareJvmRepair } from './jvm-trust.mjs';
+import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 export { readGitHubPolicy } from './github-policy.mjs';
+export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,
+  canonicalTrustJson, detectTrustPlatform, verifyTrustAdmissionEvidence, buildCertificateExportRecipe,
+  trustHelperFiles, trustCellSubjectSha256, trustLibraryPackages, hashTrustLibraries, acceptanceRecordSchema } from './trust.mjs';
 
 const literal = value => ({ literal: value });
 const userTarget = (...segments) => ({ root: 'userHome', segments: segments.map(literal) });
@@ -238,6 +242,25 @@ for (const variant of jvmRepair.variants) shippedRecipes.set(variant.recipeRef, 
 export function getRepairRecipe(recipeRef) {
   const recipe = shippedRecipes.get(recipeRef);
   return recipe ? structuredClone(recipe) : undefined;
+}
+
+/**
+ * Resolve a 1.1 recipe reference to its fixed implementation: shipped file recipes, the export generator,
+ * or an explicit unavailable result for native variants (never a recipe, so no native effect can execute).
+ */
+export function getTrustRecipe(recipeRef, bindings) {
+  const resolved = resolveTrustRecipeRef(recipeRef);
+  if (!resolved) return undefined;
+  if (resolved.kind === 'native-unavailable')
+    return { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'native-route-unsupported' };
+  if (resolved.kind === 'shipped') return { status: 'recipe', recipe: getRepairRecipe(recipeRef) };
+  const segments = bindings?.outputSegments;
+  if (!bindings || typeof bindings !== 'object' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(bindings.materialId ?? '') ||
+      typeof bindings.materialPath !== 'string' || !bindings.materialPath || /[\0\r\n]/.test(bindings.materialPath) ||
+      !Array.isArray(segments) || !segments.length || segments.length > 8 || segments.some(item => typeof item !== 'string' || !item || /[\0\r\n]/.test(item)) ||
+      !/^[a-f0-9]{64}$/.test(bindings.sha256 ?? '') || !Number.isSafeInteger(bindings.byteLength) || bindings.byteLength < 1 || bindings.byteLength > 12_582_912)
+    return { status: 'invalid', code: 'INPUT_INVALID', reason: 'repair-bindings' };
+  return { status: 'recipe', recipe: buildCertificateExportRecipe(bindings) };
 }
 
 /** This transform supplies literal bindings only; it cannot alter an operation graph. */

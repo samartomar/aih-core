@@ -279,7 +279,7 @@ export function assertJsonValueStructureV1(value: unknown, label: string, maxDep
  * through its descriptors, so a getter is never invoked and later reads of the copy see exactly
  * the validated data. Shared references stay shared; primitives are kept as they are.
  */
-export function cloneJsonValueStructureV1<T>(value: T, label: string, maxDepth: number): T {
+export function cloneJsonValueStructureV1<T>(value: T, label: string, maxDepth: number, maxSize = 1_000_000): T {
   if (!isObject(value)) return value;
   const read = new Map<object, { copy: object; entries: [string, unknown][] }>();
   let size = 0;
@@ -293,7 +293,7 @@ export function cloneJsonValueStructureV1<T>(value: T, label: string, maxDepth: 
         const entries = jsonOwnEntriesV1(item, label);
         for (const [key, child] of entries) {
           size += key.length + 1 + (typeof child === 'string' ? child.length : 1);
-          if (size > 1_000_000) throw new TypeError('document byte limit');
+          if (size > maxSize) throw new TypeError('document byte limit');
         }
         node = { copy: Array.isArray(item) ? [] : {}, entries };
         read.set(item, node);

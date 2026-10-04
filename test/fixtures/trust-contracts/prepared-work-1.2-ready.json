@@ -1,0 +1,92 @@
+{
+  "schema": "urn:aihq:core:prepared-work:1.2.0",
+  "useCase": "certificate-export",
+  "mode": "standalone",
+  "target": { "scope": "user", "project": "" },
+  "inputs": {
+    "trust": {
+      "route": "export",
+      "definition": { "id": "certificate-export", "schema": "urn:aihq:harness:repair:1.1.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.6" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "targets": [],
+      "sources": [
+        {
+          "id": "os",
+          "kind": "os",
+          "adapter": { "id": "windows-native-trust", "version": "1.0.0", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+          "scope": "effective-current-user",
+          "completeness": "complete",
+          "policySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runtimeVersion": null,
+          "reason": null,
+          "fingerprints": [
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ]
+        }
+      ],
+      "certificates": [
+        {
+          "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+          "subject": "CN=Example Root A",
+          "issuer": "CN=Example Root A",
+          "notBefore": "2020-01-01T00:00:00Z",
+          "notAfter": "2035-01-01T00:00:00Z",
+          "beforeSources": [],
+          "afterSources": ["os"],
+          "disposition": "added",
+          "reasons": []
+        },
+        {
+          "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+          "subject": "CN=Example Root B",
+          "issuer": "CN=Example Root B",
+          "notBefore": "2020-01-01T00:00:00Z",
+          "notAfter": "2035-01-01T00:00:00Z",
+          "beforeSources": [],
+          "afterSources": ["os"],
+          "disposition": "added",
+          "reasons": []
+        }
+      ],
+      "outputs": [
+        {
+          "selectionId": "export",
+          "operationId": "write-ca",
+          "managementId": "ca-export-abc",
+          "path": "/home/example/.aih/exports/os-ca.pem",
+          "pathKey": "{\"home\":\"/home/example\",\"segments\":[\"aih\",\"exports\",\"os-ca.pem\"]}",
+          "format": "pem",
+          "consumerProfile": "pem-server-ca-v1",
+          "beforeSha256": null,
+          "afterSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "custodyBeforeSha256": null,
+          "certificateCount": 2,
+          "effect": "create"
+        }
+      ]
+    }
+  },
+  "operations": [
+    {
+      "id": "write-ca",
+      "purpose": "Write the reviewed certificate snapshot",
+      "kind": "file.write",
+      "scope": "user",
+      "effects": "create-file",
+      "ownership": "unowned",
+      "requires": [],
+      "checks": [],
+      "details": { "target": "/home/example/.aih/exports/os-ca.pem", "material": "ca-export.pem" }
+    }
+  ],
+  "observations": [],
+  "conflicts": [],
+  "omissions": [],
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" }, "inputs": {} },
+  "reviewDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

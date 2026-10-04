@@ -1,0 +1,85 @@
+{
+  "schema": "aih.trust.acceptance.v1",
+  "cellId": "export-pem-win32-off",
+  "subjectSha256": "40ec46d98899804e6e70c1dfe7b8441d8d7443b946084663c4a013adc705563b",
+  "cell": {
+    "id": "export-pem-win32-off",
+    "definitionId": "certificate-export",
+    "route": "export",
+    "target": null,
+    "platform": {
+      "os": "win32",
+      "release": "Windows 11 25H2",
+      "architecture": "x64"
+    },
+    "network": "off",
+    "projection": "windows-effective-server-auth-v1",
+    "client": null,
+    "configurationProfile": "pem-server-ca-v1",
+    "probeProfile": "export-pem-parse-v1",
+    "launchContext": "no-client"
+  },
+  "cases": [
+    {
+      "id": "pem-custody-recorded",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Persisted provenance matched a genuine ordinary recipe receipt and observed output digest."
+    },
+    {
+      "id": "pem-deterministic-bytes",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Reversed source DER order preserved exact output bytes through packed public refresh."
+    },
+    {
+      "id": "pem-independent-parse-set",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Strict independent parser found the exact two DER fingerprints and certificate-only container."
+    },
+    {
+      "id": "pem-public-api-write",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Packed public Prepare/Apply wrote the reviewed path; full 1.2 review and result validated."
+    },
+    {
+      "id": "pem-refresh-replace-reviewed",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Explicit same-ID replacement reviewed removal and persisted the exact refreshed source set."
+    },
+    {
+      "id": "pem-reject-key-material",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "A supplied private-key block rejected the whole request and preserved prior output."
+    },
+    {
+      "id": "pem-reject-output-extension-mismatch",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Mismatched output extension rejected before user-output effects."
+    },
+    {
+      "id": "pem-reject-unsafe-path",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "A parent-traversal output was rejected and no outside file appeared."
+    },
+    {
+      "id": "pem-removal-reconciled",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Managed public removal retired the output, ordinary claim and protected provenance."
+    }
+  ],
+  "limitations": [
+    "no-os-fullset-claim",
+    "no-native-client-claim",
+    "supplied-only-export",
+    "windows-os-discovery-incomplete",
+    "native-node-npm-unavailable"
+  ]
+}

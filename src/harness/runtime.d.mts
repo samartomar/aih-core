@@ -52,6 +52,11 @@ export declare function assessRepairObservations(request: { id: string; managedP
   observations: { id: string; output: string }[] }):
   { id: string; operationId: string; raw: string; expectedRaw: string; conflict: boolean;
     observedValue: string | null; reason: string }[];
+export * from './trust.mjs';
+export declare function getTrustRecipe(recipeRef: string, bindings?: { materialId: string; materialPath: string;
+  outputSegments: readonly string[]; sha256: string; byteLength: number }):
+  { status: 'recipe'; recipe: object } | { status: 'unavailable'; code: 'PREREQUISITE_UNAVAILABLE'; reason: 'native-route-unsupported' } |
+  { status: 'invalid'; code: 'INPUT_INVALID'; reason: 'repair-bindings' } | undefined;
 export interface GitHubPolicySource {
   provider: 'github'; repository: { owner: string; name: string }; path: string;
   revision: { kind: 'commit' | 'branch' | 'tag'; value: string };

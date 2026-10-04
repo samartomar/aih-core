@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { repairIndex, selectVerificationKeys, selectVerificationPublishers } from '../harness/contracts.mjs';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe } from './contracts.js';
@@ -17,6 +17,8 @@ import { writeSupportReport } from './support-report.js';
 import type { HostControls, PreparationResult, RunResult } from './host-types.js';
 import type { PolicyRequest } from './host-types.js';
 import type { RepairRequest } from './repair.js';
+import type { CertificateExportRequest, TrustRepairRequest, TrustSources } from './trust-contracts.js';
+import { disposeTrustHandle } from './trust.js';
 import type { ManagedRemovalRequest, ManagedRemovalPreparationResult } from './managed-removal.js';
 
 const controller = new AbortController();
@@ -35,6 +37,7 @@ function refused(code: string, reason: string, message = 'Check the policy, targ
       REVIEW_STALE: 'review-stale' } as Record<string, string>)[code] ?? 'input-rejected'}\n`);
 }
 const usage = {
+  'export-ca': 'aih export-ca [--format pem|pkcs7-der] [--output user-home-relative-path] [--inputs-file sources.json] [--resolutions resolutions.json] [--offline] [--apply --yes] [--no-log] [--json]\n',
   report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--demo] [--json]\n' +
     'aih report --output <new-directory> --snapshot <report.json> [--demo] [--json]\n',
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
@@ -45,6 +48,7 @@ const usage = {
   managed: 'aih managed <list|remove> [options]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
+  'export-ca': 'Examples:\n  aih export-ca --json\n  aih export-ca --format pkcs7-der --output certificates/os-ca.p7b --apply\n',
   report: 'Examples:\n  aih report --output local-report --json\n  aih report --snapshot saved-report.json --output replay --json\n',
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
@@ -67,6 +71,70 @@ function exitCode(result: PreparationResult | RunResult): number {
   // Required authority failure or denial is a rejection, not merely blocked work.
   if (result.status === 'blocked' && result.diagnostics.some(item => item.code.startsWith('AUTHORITY_'))) return 2;
   return ({ ready: 0, partial: 1, blocked: 1, invalid: 2, cancelled: 130 })[result.status];
+}
+
+interface BoundCliDocument { path: string; digest: string; document: Record<string, unknown> }
+function readCliDocument(path: string): BoundCliDocument {
+  const absolute = resolve(path);
+  const bytes = readRegularFile(absolute, { maxBytes: 1_000_000 });
+  if (!bytes) throw new Error('inputs-file');
+  return { path: absolute, digest: sha256(bytes), document:
+    parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), 'trust inputs') };
+}
+function cliTrustSources(value: unknown, inputPath: string): TrustSources {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('inputs-file');
+  const source = value as Record<string, unknown>;
+  if (Object.keys(source).some(key => !['os', 'supplied', 'removeSupplied'].includes(key)) ||
+      typeof source.os !== 'boolean' || !Array.isArray(source.supplied)) throw new Error('inputs-file');
+  const supplied = source.supplied.map(row => {
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        Object.keys(row).length !== 2 || Object.keys(row).some(key => !['id', 'file'].includes(key))) throw new Error('inputs-file');
+    const entry = row as Record<string, unknown>;
+    if (typeof entry.id !== 'string' || typeof entry.file !== 'string') throw new Error('inputs-file');
+    return { id: entry.id, file: resolve(dirname(inputPath), entry.file) };
+  });
+  return { os: source.os, supplied, ...(Object.hasOwn(source, 'removeSupplied') ?
+    { removeSupplied: source.removeSupplied as readonly string[] } : {}) };
+}
+/** Approval applies only to the document bytes used to create this review. */
+async function runTrustCli(request: TrustRepairRequest | CertificateExportRequest,
+  bound: BoundCliDocument[], options: { apply?: boolean; yes?: boolean; allowPartial?: boolean; resolutions?: string;
+    logging?: 'off' }): Promise<void> {
+  if (options.resolutions !== undefined) {
+    const resolution = readCliDocument(options.resolutions);
+    if (Object.keys(resolution.document).length !== 1 || !Array.isArray(resolution.document.resolutions)) throw new Error('resolutions-file');
+    request.resolutions = resolution.document.resolutions as TrustRepairRequest['resolutions'];
+    bound.push(resolution);
+  }
+  const controls = { signal: controller.signal, ...(options.logging ? { logging: options.logging } : {}) };
+  const preparation = await prepare(request, controls);
+  const { prepared: handle, ...publicPreparation } = preparation;
+  if (!options.apply || !handle || !preparation.review) {
+    if (handle) disposeTrustHandle(handle);
+    emit(publicPreparation, exitCode(preparation));
+    return;
+  }
+  let approved = options.yes === true;
+  if (!approved && stdin.isTTY && stderr.isTTY) {
+    stderr.write(JSON.stringify(preparation.review, null, 2) + '\n');
+    const prompt = createInterface({ input: stdin, output: stderr });
+    try { approved = /^y(?:es)?$/i.test((await prompt.question('Apply this reviewed work? [y/N] ', { signal: controller.signal })).trim()); }
+    finally { prompt.close(); }
+  }
+  if (!approved) { disposeTrustHandle(handle); refused('APPROVAL_REQUIRED', 'explicit-approval'); return; }
+  if (bound.some(item => {
+    const bytes = readRegularFile(item.path, { maxBytes: 1_000_000 });
+    return !bytes || sha256(bytes) !== item.digest;
+  })) { disposeTrustHandle(handle); refused('REVIEW_STALE', 'input-file-changed'); return; }
+  const result = await apply(handle, { reviewDigest: preparation.review.reviewDigest, approved: true,
+    origin: options.yes ? 'automation' : 'interactive',
+    ...(options.allowPartial === undefined ? {} : { allowPartial: options.allowPartial }) }, controls);
+  emit(result, exitCode(result));
+  if (!json) {
+    const trust = (result as RunResult & { trust?: { targets: { id: string; verification: string; reason: string }[] } }).trust;
+    for (const target of trust?.targets ?? []) if (target.verification !== 'passed')
+      stderr.write(`${escapeReportPath(target.id)} connection ${escapeReportPath(target.verification)}: ${escapeReportPath(target.reason)}\n`);
+  }
 }
 
 let supportMarkdown: string | undefined;
@@ -123,7 +191,7 @@ try {
     'material-root': { type: 'string', multiple: true }, 'resolutions': { type: 'string' },
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
-    output: { type: 'string' }, snapshot: { type: 'string' }, demo: { type: 'boolean' },
+    output: { type: 'string' }, format: { type: 'string' }, snapshot: { type: 'string' }, demo: { type: 'boolean' },
     'probe-configured-mcp': { type: 'boolean' },
     'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
@@ -143,7 +211,7 @@ try {
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
   supportMarkdown = values['support-markdown'];
   // Version, help and validate answer before any target, network, history or state access.
-  if (hasReportFlags && command !== 'report') {
+  if (hasReportFlags && command !== 'report' && !(command === 'export-ca' && values.snapshot === undefined && values.demo === undefined)) {
     refused('INPUT_INVALID','cli-options');
   } else if (values.version) {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
@@ -166,7 +234,28 @@ try {
     } else process.stdout.write(commands.map(name => usage[name]).join('') +
       'aih --version | -V [--json]    Print the installed package version.\n' +
       'aih help [<command>] | aih <command> --help | -h    Show usage and examples.\n' +
-      '--no-log (policy, repair and managed remove) turns routine history off for Prepare and Apply.\n');
+      '--no-log (policy, repair, export-ca and managed remove) turns routine history off for Prepare and Apply.\n');
+  } else if (positionals[0] === 'export-ca') {
+    if (positionals.length !== 1 || !acceptsOnly(['format', 'output', 'inputs-file', 'resolutions', 'offline', 'apply', 'yes', 'no-log', 'json']) ||
+        values.yes && !values.apply || values.format !== undefined && !['pem', 'pkcs7-der'].includes(values.format)) {
+      refused('INPUT_INVALID', 'cli-options');
+    } else {
+      const request: CertificateExportRequest = { schema: 'urn:aihq:core:certificate-export-request:1.0.0', useCase: 'certificate-export',
+        ...(values.format !== undefined ? { format: values.format as 'pem' | 'pkcs7-der' } : {}),
+        ...(values.output !== undefined ? { output: values.output } : {}), ...(values.offline ? { network: 'off' as const } : {}) };
+      const bound: BoundCliDocument[] = [];
+      if (values['inputs-file'] !== undefined) {
+        const input = readCliDocument(values['inputs-file']); bound.push(input);
+        if (input.document.schema !== 'urn:aihq:core:certificate-export-inputs:1.0.0') {
+          refused('SCHEMA_UNSUPPORTED', 'schema-unsupported');
+        } else if (Object.keys(input.document).length !== 2 || !Object.hasOwn(input.document, 'sources')) {
+          refused('INPUT_INVALID', 'unknown-field');
+        } else {
+          request.sources = cliTrustSources(input.document.sources, input.path);
+          await runTrustCli(request, bound, { apply: values.apply, yes: values.yes, resolutions: values.resolutions, ...logging });
+        }
+      } else await runTrustCli(request, bound, { apply: values.apply, yes: values.yes, resolutions: values.resolutions, ...logging });
+    }
   } else if (positionals[0] === 'report') {
     // Acquisition or import only: no repair, policy, upload or service is reachable from this branch.
     const reportMessage = 'Choose one new output directory and either fresh offline targets or one supplied snapshot file.';
@@ -294,7 +383,8 @@ try {
     await supportReport({ kind: 'inspect', result }, code);
   } else if (positionals[0] === 'repair') {
     const definition = repairIndex.find(item => item.id === positionals[1]);
-    if (positionals.length !== 2 || !definition || !values['inputs-file'] ||
+    if (!acceptsOnly(['target', 'inputs-file', 'offline', 'resolutions', 'apply', 'yes', 'allow-partial', 'no-log', 'support-markdown', 'json']) ||
+        positionals.length !== 2 || !definition || !values['inputs-file'] ||
         !values.target?.length || values.target.some(id => !definition.targets.includes(id)) ||
         values.project || values['probe-configured-mcp'] || values['private-input']?.length || hasOrganizationFlags || values.evidence ||
         values['material-root']?.length || values['budget-ms'] !== undefined || values.scope !== undefined || values.mode !== undefined || values.yes && !values.apply ||
@@ -304,6 +394,27 @@ try {
       const input = readRegularFile(inputPath, { maxBytes: 1_000_000 });
       if (!input) throw new Error('inputs-file');
       const document = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(input), 'repair inputs');
+      if (Object.hasOwn(document, 'schema')) {
+        if (document.schema !== 'urn:aihq:core:repair-inputs:1.0.0') refused('SCHEMA_UNSUPPORTED', 'schema-unsupported');
+        else if (values['support-markdown'] !== undefined ||
+            Object.keys(document).some(key => !['schema', 'route', 'repairs', 'sources'].includes(key)) ||
+            !document.repairs || typeof document.repairs !== 'object' || Array.isArray(document.repairs) ||
+            Object.keys(document.repairs).length !== 1 || !Object.hasOwn(document.repairs, definition.id) ||
+            !['native', 'file'].includes(document.route as string)) refused('INPUT_INVALID', 'unknown-field');
+        else {
+          const rawInputs = (document.repairs as Record<string, unknown>)[definition.id];
+          if (!rawInputs || typeof rawInputs !== 'object' || Array.isArray(rawInputs)) throw new Error('inputs-file');
+          const inputs = Object.fromEntries(Object.entries(rawInputs).map(([key, value]) =>
+            [key, key === 'baselineStore' && typeof value === 'string' ? resolve(dirname(inputPath), value) : value]));
+          const request: TrustRepairRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair',
+            route: document.route as 'native' | 'file', repairs: [{ id: definition.id as TrustRepairRequest['repairs'][0]['id'],
+              targets: values.target, inputs: inputs as TrustRepairRequest['repairs'][0]['inputs'] }],
+            ...(Object.hasOwn(document, 'sources') ? { sources: cliTrustSources(document.sources, inputPath) } : {}),
+            ...(values.offline ? { network: 'off' as const } : {}) };
+          await runTrustCli(request, [{ path: inputPath, digest: sha256(input), document }],
+            { apply: values.apply, yes: values.yes, allowPartial: values['allow-partial'], resolutions: values.resolutions, ...logging });
+        }
+      } else {
       const selected = document[definition.id];
       if (Object.keys(document).length !== 1 || !selected || typeof selected !== 'object' || Array.isArray(selected) ||
           Object.keys(selected).some(key => !Object.hasOwn(definition.inputs, key)) ||
@@ -358,6 +469,7 @@ try {
             await supportReport({ kind: 'run', result, repair: repairContext }, code);
           }
         }
+      }
       }
     }
   } else if (positionals[0] === 'check-files') {

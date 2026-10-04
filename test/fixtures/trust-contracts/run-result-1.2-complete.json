@@ -1,0 +1,60 @@
+{
+  "schema": "urn:aihq:core:run-result:1.2.0",
+  "runId": "run-export-1",
+  "useCase": "certificate-export",
+  "completion": "complete",
+  "inputs": {
+    "trust": {
+      "route": "export",
+      "definition": { "id": "certificate-export", "schema": "urn:aihq:harness:repair:1.1.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.6" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "targets": [],
+      "sources": [],
+      "certificates": [],
+      "outputs": [
+        {
+          "selectionId": "export",
+          "operationId": "write-ca",
+          "managementId": "ca-export-abc",
+          "path": "/home/example/.aih/exports/os-ca.pem",
+          "pathKey": "{\"home\":\"/home/example\",\"segments\":[\"aih\",\"exports\",\"os-ca.pem\"]}",
+          "format": "pem",
+          "consumerProfile": "pem-server-ca-v1",
+          "beforeSha256": null,
+          "afterSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "custodyBeforeSha256": null,
+          "certificateCount": 2,
+          "effect": "create"
+        }
+      ]
+    }
+  },
+  "authorization": { "origin": "automation", "allowPartial": { "value": false, "origin": "default" } },
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [
+    { "id": "write-ca", "application": "applied", "verification": { "status": "passed", "reason": "export-digest" } }
+  ],
+  "checks": [
+    { "id": "export-digest", "operationId": "write-ca", "status": "passed", "reason": "digest-match" }
+  ],
+  "diagnostics": [],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "recovery": "",
+  "followUp": [],
+  "trust": {
+    "outputs": [
+      {
+        "operationId": "write-ca",
+        "path": "/home/example/.aih/exports/os-ca.pem",
+        "format": "pem",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "certificateCount": 2,
+        "status": "written"
+      }
+    ],
+    "targets": []
+  }
+}
