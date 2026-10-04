@@ -125,6 +125,26 @@ function expectRemoval(result, disposition, status, reasons) {
   return wrapper;
 }
 
+test('managed CLI cancellation exits 130 with schema-valid wrappers', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-managed-cancel-'));
+  const home = join(root, 'home'); const project = join(root, 'project');
+  mkdirSync(home); mkdirSync(project);
+  const preload = new URL('./fixtures/signal-on-register.mjs', import.meta.url).href;
+  const run = args => spawnSync(process.execPath, ['--import', preload, cli, ...args], {
+    encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: home, USERPROFILE: home }
+  });
+  try {
+    const listed = run(['managed', 'list', '--project', project, '--scope', 'both', '--json']);
+    assert.equal(listed.status, 130, listed.stdout + listed.stderr);
+    const inventory = parse(listed);
+    assert.equal(inventory.status, 'cancelled');
+    assert.equal(validateInventory(inventory), true, JSON.stringify(validateInventory.errors));
+    const removed = run(['managed', 'remove', 'team-guidance', '--project', project,
+      '--scope', 'project', '--mode', 'vibe', '--json']);
+    expectRemoval(removed, 'cancelled', 130, ['cancelled']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('managed list JSON validates against its schema with the complete, incomplete and invalid exit codes', () => {
   const w = world();
   try {

@@ -107,8 +107,6 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   const known: Partial<ManagedRemovalPreparationResult> = {};
   const invalid = (reason: 'request-shape' | 'organization-source') => done('invalid', known, [diagnostic('INPUT_INVALID', reason,
     reason === 'request-shape' ? 'The managed removal request is not valid.' : 'Enterprise removal needs an organization source and Vibe removal accepts none.')]);
-  if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
-    'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
   try {
     dataObject(request, ['target', 'managementId', 'scope', 'mode', 'organizationSource']);
     validateControls(controls);
@@ -130,6 +128,8 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
     if (!validSource) return invalid('organization-source');
   }
   if (controls.signal?.aborted) return done('cancelled', known, [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
+  if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
+    'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
 
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', known, [diagnostic(code, reason, message)]);
   const unverifiable = () => unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.');

@@ -92,12 +92,6 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       budgetMs: Number.isInteger(budgetMs) && budgetMs >= 1 && budgetMs <= 120000 ? budgetMs : 0 }
   };
   const finish = () => { result.limits.elapsedMs = Math.max(0, Math.round(performance.now() - started)); return result; };
-  if (!identityValid) {
-    result.status = 'incomplete';
-    result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'core-distribution-identity',
-      'The installed Core distribution identity could not be verified.'));
-    return finish();
-  }
   if (!Number.isInteger(budgetMs) || budgetMs < 1 || budgetMs > 120000) {
     result.status = 'invalid';
     result.diagnostics.push(diagnostic('INPUT_INVALID', 'budget-ms', 'The inventory time budget is invalid.'));
@@ -133,6 +127,12 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       if (performance.now() - started > budgetMs) throw new Error('inventory-time-budget');
     };
     check();
+    if (!identityValid) {
+      result.status = 'incomplete';
+      result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'core-distribution-identity',
+        'The installed Core distribution identity could not be verified.'));
+      return finish();
+    }
     const home = userHomeRoot();
     const rows = new Map<string, ManagedInventorySelection>();
     let ambiguous = false;

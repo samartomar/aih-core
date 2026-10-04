@@ -385,6 +385,39 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(managedFinal.status, 0, managedFinal.stdout + managedFinal.stderr);
     assert.equal(JSON.parse(managedFinal.stdout).selections.some(item => item.managementId === 'team-guidance'), false);
 
+    // An installed package identity mismatch is a prerequisite failure, and
+    // both wrappers must still satisfy their public schemas.
+    writeFileSync(join(consumer, 'identity-failure.mjs'), `
+      import assert from 'node:assert/strict';
+      import {readFileSync,writeFileSync} from 'node:fs';
+      import {Ajv2020} from 'ajv/dist/2020.js';
+      import {listManagedSelections,prepareManagedRemoval} from '@aihq/core';
+      import {contractSupport} from '@aihq/core/contracts';
+      const manifest=process.env.TEST_MANIFEST;
+      const original=readFileSync(manifest);
+      const ajv=new Ajv2020({strict:true});
+      for(const entry of contractSupport.contracts)
+        ajv.addSchema((await import(entry.schemaExport,{with:{type:'json'}})).default);
+      const validateInventory=ajv.getSchema('urn:aihq:core:managed-inventory-result:1.0.0');
+      const validateRemoval=ajv.getSchema('urn:aihq:core:managed-removal-preparation:1.0.0');
+      try {
+        const changed=JSON.parse(original);changed.version='1.0.0-dev.999';
+        writeFileSync(manifest,JSON.stringify(changed));
+        const request={target:{project:process.env.TEST_PROJECT},scope:'project'};
+        const inventory=await listManagedSelections(request);
+        assert.equal(inventory.status,'incomplete');
+        assert.deepEqual(inventory.diagnostics.map(item=>item.reason),['core-distribution-identity']);
+        assert.equal(validateInventory(inventory),true,JSON.stringify(validateInventory.errors));
+        const removal=await prepareManagedRemoval({...request,managementId:'team-guidance',mode:'vibe'});
+        assert.equal(removal.disposition,'unavailable');
+        assert.deepEqual(removal.diagnostics.map(item=>item.reason),['core-distribution-identity']);
+        assert.equal(validateRemoval(removal),true,JSON.stringify(validateRemoval.errors));
+      } finally {writeFileSync(manifest,original)}
+      console.log('packed identity failures matched result schemas');
+    `);
+    assert.match(run('identity-failure.mjs', { TEST_MANIFEST: join(installed, 'package.json') }),
+      /packed identity failures matched result schemas/);
+
     // The installed CLI writes an explicit support Markdown report with a receipt.
     const reportHome = join(root, 'report-home'); mkdirSync(reportHome);
     const reportTarget = join(root, 'packed-inspect-report.md');

@@ -730,7 +730,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       }
       else if (!matching) { effect = 'conflict'; conflicts.push({
         ...diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.'),
-        guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.'
+        ...(policy.schema === POLICY_11 ? { guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.' } : {})
       }); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';

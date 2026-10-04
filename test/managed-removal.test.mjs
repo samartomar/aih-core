@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { prepare, apply, listManagedSelections, prepareManagedRemoval } from '../dist/core/index.js';
+import prepared11Schema from '../dist/core/schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';
 import { fakeFetch, orgRoutes, orgSource, orgDocument, enterprisePolicy } from './fixtures/github-org.mjs';
@@ -94,6 +96,7 @@ test('a dependency claim change after a removal review rejects Apply before remo
   });
   const stale = await apply(top.preparation.prepared, approve(top.preparation), { logging: 'off' });
   assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
+  assert.ok(stale.diagnostics.some(item => item.code === 'REVIEW_STALE'), JSON.stringify(stale.diagnostics));
   assert.equal(existsSync(join(s.project, 'TOP.md')), true, 'no reviewed removal runs after a dependency changes');
 });
 
@@ -261,6 +264,7 @@ test('Enterprise removal rejects a changed organization source after review', as
     stubOrg(orgDocument(enterprisePolicy()), counter);
     const stale = await apply(prepared.preparation.prepared, approve(prepared.preparation), { logging: 'off' });
     assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
+    assert.ok(stale.diagnostics.some(item => item.code === 'REVIEW_STALE'), JSON.stringify(stale.diagnostics));
     assert.equal(existsSync(join(s.project, 'TEAM.md')), true, 'changed authority cannot remove managed content');
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -336,6 +340,8 @@ test('edited managed content is a reviewed conflict that is never silently delet
   assert.deepEqual(result.preparation.resolutionInputs, [], 'generated cleanup has no keyed resolution');
   assert.match(result.preparation.diagnostics[0].guidance, /manual/i,
     'unkeyed lifecycle cleanup gives a manual recovery path');
+  const validate11 = new Ajv2020({ strict: true }).compile(prepared11Schema);
+  assert.equal(validate11(result.preparation.review), true, JSON.stringify(validate11.errors));
   assert.equal(readFileSync(join(s.project, 'TEAM.md'), 'utf8'), 'My own edits.\n');
   assert.deepEqual((await inventoryOf(s)).selections.map(item => item.managementId), ['team-guidance'], 'the claim survives so recovery stays possible');
 });

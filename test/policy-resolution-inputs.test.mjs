@@ -2,6 +2,7 @@
 // digest hints a caller may copy into a fresh reviewed `resolutions` request.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
@@ -9,6 +10,7 @@ import { SETTINGS as HOOKS, groupOf, hookOp, hookSelection, policy11, request, s
 import { compact, groupsOf, guard, neighbor, opOf, prep, run } from './hook-group-harness.mjs';
 import { policy } from './fixture.mjs';
 import { enterprisePolicy, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
+import prepared10Schema from '../dist/core/schemas/prepared-work/1.0.0.json' with { type: 'json' };
 
 const controls = { logging: 'off' };
 
@@ -160,6 +162,8 @@ test('unowned removal, lifecycle cleanup and unavailable operations offer no hin
     const cleanup = await prepare(request(s.project, document10([], { removals: [{ managementId: 'edits', scope: 'project' }] })), controls);
     assert.deepEqual(cleanup.review.conflicts.map(item => item.reason), ['managed-content-changed']);
     assert.deepEqual(cleanup.resolutionInputs, []);
+    const validate10 = new Ajv2020({ strict: true }).compile(prepared10Schema);
+    assert.equal(validate10(cleanup.review), true, JSON.stringify(validate10.errors));
 
     s.write('LOCAL.md', 'Local.\n');
     const unavailable = await prepare(request(s.project, document10([
