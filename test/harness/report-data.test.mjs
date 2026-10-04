@@ -397,3 +397,24 @@ test('credential-bearing flags mask escaped quoted arguments and punctuation', (
   assert.equal(report.observations[0].detail, '--password [REDACTED] --token=[REDACTED]');
   assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
 });
+
+test('hyphenated assignments, headers and colon flags cannot bypass credential masking', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = '--db-password=fixture-private-value --api-token=fixture-private-value X-Api-Token: fixture-private-value client-secret: fixture-private-value --password: fixture-private-value';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.ok(!report.observations[0].detail.includes('fixture-private-value'));
+});
+
+test('implicit home masking and assignment masking are stable on their first projection', () => {
+  const diagnostic = validDiagnostic();
+  diagnostic.observations[0].detail = 'SECRET_DIR=/home/a';
+  const report = createReport(validInput({ diagnostic }));
+  assert.deepEqual(importSnapshot(exportSnapshot(report)), report);
+});
+
+test('complete spaced Windows usernames are masked before prose delimiters', () => {
+  const snapshot = createReport(validInput());
+  snapshot.observations[0].detail = 'C:\\Users\\Bob Smith; x C:\\Users\\Jane Doe: note C:\\Users\\Long Name|y';
+  const report = importSnapshot(JSON.stringify(snapshot));
+  assert.equal(report.observations[0].detail, '<homePath>; x <homePath>: note <homePath>|y');
+});

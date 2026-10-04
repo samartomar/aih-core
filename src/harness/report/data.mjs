@@ -300,7 +300,7 @@ const SECRET_PATTERNS = [
 const ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'ACCESS_KEY'];
 const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'APIKEY', 'ACCESS_KEY'];
 const SENSITIVE_FLAG_NAME = /^(token|access[-_]?token|auth[-_]?token|password|passwd|pass|secret|client[-_]?secret|api[-_]?key|apikey|auth|bearer)$/i;
-const WINDOWS_HOME = /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?:[^\\/:\r\n\t"'<>;|?*]+(?=[\\/]|$|["'])|[^\s\\/:"'<>;|?*]+)/gi;
+const WINDOWS_HOME = /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?:[^\\/:\r\n\t"'<>;|?*]+(?=[\\/]|$|["';\r\n\t|?*<>]|:(?![\\/]))|[^\s\\/:"'<>;|?*]+)/gi;
 const UNIX_HOME = /\/(?:home|Users)\/[^/\s"'<>;]+/g;
 
 function escapeRegExp(value) {
@@ -310,13 +310,18 @@ function escapeRegExp(value) {
 /** Mask `KEY=VALUE` / `KEY: VALUE` diagnostics, including quoted credential keys. */
 function redactSecretAssignments(text) {
   // Scan keys first: consuming a noncredential value could skip a nested credential key.
-  const keys = /(?:["']|\b)([A-Za-z_][A-Za-z0-9_]*)["']?\s*[=:]\s*/g;
-  let output = '', copied = 0, match;
+  const keys = /(?:["']|\b)([A-Za-z_][A-Za-z0-9_-]*)["']?(\s*[=:]\s*)/g;
+  let output = '';
+  let copied = 0;
+  let match;
   while ((match = keys.exec(text)) !== null) {
-    if (match.index > 0 && text[match.index - 1] === '-') continue; // Flags retain their names below.
+    const prefix = text.slice(Math.max(0, match.index - 3), match.index);
+    // Delegate only a complete, recognized bare flag with '=' to the flag scanner.
+    if (/(?:^|[^\w-])--?$/.test(prefix) && SENSITIVE_FLAG_NAME.test(match[1]) &&
+        match[2].trim() === '=' && match[0] === match[1] + match[2]) continue;
     const upper = match[1].toUpperCase();
-    const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some(keyword => upper.endsWith(keyword));
-    const possibleLongAssignment = ASSIGNMENT_KEYWORDS.some(keyword => upper.includes(keyword));
+    const shortAssignment = SHORT_ASSIGNMENT_KEYWORDS.some((keyword) => upper.endsWith(keyword));
+    const possibleLongAssignment = ASSIGNMENT_KEYWORDS.some((keyword) => upper.includes(keyword));
     if (!shortAssignment && !possibleLongAssignment) continue;
     const start = keys.lastIndex;
     const end = credentialValueEnd(text, start);
@@ -328,6 +333,7 @@ function redactSecretAssignments(text) {
   return output + text.slice(copied);
 }
 
+/** Find one credential value's end without leaving quoted or punctuated suffixes exposed. */
 function credentialValueEnd(text, start) {
   const redactedEnd = start + '[REDACTED]'.length;
   if (text.startsWith('[REDACTED]', start) && (redactedEnd === text.length || /[\s,;}\]]/.test(text[redactedEnd]))) return redactedEnd;
@@ -350,7 +356,9 @@ function credentialValueEnd(text, start) {
 /** Mask `--token value` / `--token=value` for credential-bearing flags. */
 function redactSensitiveFlags(text) {
   const flags = /(--?[A-Za-z][\w-]*)(=|\s+)/g;
-  let output = '', copied = 0, match;
+  let output = '';
+  let copied = 0;
+  let match;
   while ((match = flags.exec(text)) !== null) {
     if (!SENSITIVE_FLAG_NAME.test(match[1].replace(/^--?/, ''))) continue;
     const end = credentialValueEnd(text, flags.lastIndex);
@@ -407,8 +415,9 @@ function applyLiteral(text, rule) {
 function redactText(value, rules) {
   let output = value;
   for (const rule of rules) output = applyLiteral(output, rule);
+  output = output.replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
   for (const pattern of SECRET_PATTERNS) output = output.replace(pattern, '[REDACTED]');
-  return redactSensitiveFlags(redactSecretAssignments(output)).replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
+  return redactSensitiveFlags(redactSecretAssignments(output));
 }
 
 function countOutcomes(checks) {
