@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:report:snapshot:1.0.0",
+  "title": "aih-report experimental ReportSnapshot",
+  "description": "Redacted, versioned projection of one @aihq/core Harness diagnostic result. Experimental interface; no stable ecosystem-format promise is made. The schema checks structure only: a structurally valid snapshot is not authenticated and its supplied assertions are not verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "compatibility",
+    "producer",
+    "capture",
+    "evidence",
+    "status",
+    "tools",
+    "observations",
+    "checks",
+    "diagnostics",
+    "metrics"
+  ],
+  "properties": {
+    "schema": { "const": "urn:aihq:report:snapshot:1.0.0" },
+    "compatibility": { "const": "experimental" },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "revision", "contract"],
+      "properties": {
+        "name": { "const": "@aihq/core" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "revision": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "contract": { "const": "urn:aihq:harness:diagnostic:1.0.0" }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observedAt", "acquisition"],
+      "properties": {
+        "observedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z$"
+        },
+        "acquisition": { "enum": ["supplied", "newly-acquired"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originalSha256", "authentication", "structuralValidation", "projection"],
+      "properties": {
+        "originalSha256": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          ]
+        },
+        "authentication": { "const": "not-authenticated" },
+        "structuralValidation": { "const": "passed" },
+        "projection": { "const": "redacted" }
+      }
+    },
+    "status": { "enum": ["completed", "cancelled", "invalid", "unavailable"] },
+    "tools": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "state", "selection"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "state": { "enum": ["binary", "runnable", "broken", "config-only", "absent"] },
+          "selection": { "enum": ["requested", "detected", "unselected"] },
+          "config": { "type": "string", "maxLength": 65536 }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "target", "detail"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "target": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "detail": { "type": "string", "maxLength": 65536 }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "target", "outcome", "reason", "detail"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "target": { "type": "string", "minLength": 1, "maxLength": 65536 },
+          "outcome": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+          "reason": { "type": "string", "maxLength": 65536 },
+          "detail": { "type": "string", "maxLength": 65536 }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "reason", "message"],
+        "properties": {
+          "code": { "type": "string", "maxLength": 65536 },
+          "reason": { "type": "string", "maxLength": 65536 },
+          "message": { "type": "string", "maxLength": 65536 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budgetMs", "elapsedMs", "maxActiveProbes", "counts"],
+      "properties": {
+        "budgetMs": { "type": "integer", "minimum": 1, "maximum": 180000 },
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "maxActiveProbes": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "failed", "unavailable", "skipped"],
+          "properties": {
+            "passed": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 },
+            "unavailable": { "type": "integer", "minimum": 0 },
+            "skipped": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Reproduce Core V9 reporting
+
+The Apache-2.0 rendering donor is `samartomar/ai-harness` commit `f5d5f84b9006b628778983dab56dd92dc8888156`. Core reporting does not import or execute that engine. Its public Harness diagnostic contract is `urn:aihq:harness:diagnostic:1.0.0`. The originally inspected producer was Core `5b70f8e698a4ec1e346b9718ef0067b2c856a1c6`, `1.0.0-dev.3`; the reporting command ships in the uniquely versioned `1.0.0-dev.5` candidate. Package identities are observed from the installed distribution. A current package Git revision is null unless a caller actually knows it.
+
+1. From this committed Core branch use Node >=24.15.0 <25 and run `npm ci --ignore-scripts`, `npm run build`, `npm run typecheck`, `npm test`, `npm run verify:public-consumer` and `npm run verify:report-consumer`.
+2. Pack with `npm pack` and install that exact tarball in a separate consumer directory. Run its `aih report --output <new-directory> --json` command from a temporary home/target. This uses bounded offline Node/Git diagnostics; it does not repair or write configuration. A saved JSON snapshot is rendered with `aih report --snapshot <file> --output <new-directory> --json`, without acquisition.
+3. Read the matching `report.json` with `examples/reporting/data-only.mjs`. Use `examples/reporting/http.mjs` to serve that snapshot on loopback. Check GET/HEAD, unknown routes, query-selected inputs and mutation rejection. These examples import only public reporting APIs.
+4. Identical explicit snapshot inputs produce identical JSON and HTML. A fresh run has a new acquisition time and elapsed duration. Render demo mode separately and never use it as integration evidence.
+5. Generate and verify a Git bundle of the reviewed committed branch. Record its exact HEAD, fixed base, donor/producer identities, package digest, matching example digests, visual screenshots and actually run check/review results in the delivery manifest. No CI or published release is inferred from local checks.
+
+The original evidence digest, when supplied, identifies original bytes. It does not authenticate them, and is never recomputed over the redacted projection. The command does not retain raw diagnostics by default and uses null for unavailable original-byte identity. Snapshot mode retains the caller's original identity and acquisition label; serving or rendering a saved snapshot never implies new collection.
+
+The fourteen V9 sections remain visible. Unsupported score/history/usage/governance bindings are EMPTY. Offline version checks do not establish TLS trust, native loading, policy delivery or signature authentication. Static and hydrated visual checks establish presentation separately from the real producer workflow.
+
+The public reporting contract is experimental; this candidate promises only its documented schema and validators. No separate reporting package, service or UI adoption is required.

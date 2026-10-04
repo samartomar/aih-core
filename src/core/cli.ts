@@ -25,15 +25,17 @@ function emit(result: unknown, code: number): void {
   process.stdout.write(JSON.stringify(result, null, json ? undefined : 2) + '\n');
   process.exitCode = code;
 }
-function refused(code: string, reason: string): void {
+function refused(code: string, reason: string, message = 'Check the policy, target and explicit approval options.'): void {
   emit({ status: 'invalid', diagnostics: [{ code, reason,
-    message: 'Check the policy, target and explicit approval options.' }] }, code === 'CANCELLED' ? 130 : 2);
+    message }] }, code === 'CANCELLED' ? 130 : 2);
   // A refusal is not a public result; a requested report is never written for it.
   if (process.argv.some(arg => arg === '--support-markdown' || arg.startsWith('--support-markdown=')))
     stderr.write(`Support report not written: ${({ CANCELLED: 'cancelled', APPROVAL_REQUIRED: 'approval-required',
       REVIEW_STALE: 'review-stale' } as Record<string, string>)[code] ?? 'input-rejected'}\n`);
 }
 const usage = {
+  report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--demo] [--json]\n' +
+    'aih report --output <new-directory> --snapshot <report.json> [--demo] [--json]\n',
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
   policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
   repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--support-markdown <path>] [--json]\n',
@@ -41,6 +43,7 @@ const usage = {
   'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
+  report: 'Examples:\n  aih report --output local-report --json\n  aih report --snapshot saved-report.json --output replay --json\n',
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
   repair: 'Examples:\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --json\n  aih repair node-npm-ca --target node --target npm --inputs-file repair-inputs.json --apply --no-log\n  aih repair node-npm-ca --target node --inputs-file repair-inputs.json --json --support-markdown repair-report.md\n',
@@ -100,6 +103,7 @@ try {
     'material-root': { type: 'string', multiple: true }, 'resolutions': { type: 'string' },
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
+    output: { type: 'string' }, snapshot: { type: 'string' }, demo: { type: 'boolean' },
     'probe-configured-mcp': { type: 'boolean' },
     'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
@@ -111,11 +115,14 @@ try {
   json = values.json ?? false;
   const command = commands.find(name => name === positionals[0]);
   const helpWord = positionals[0] === 'help';
+  const hasReportFlags = values.output !== undefined || values.snapshot !== undefined || values.demo !== undefined;
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
   supportMarkdown = values['support-markdown'];
   // Version, help and validate answer before any target, network, history or state access.
-  if (values.version) {
+  if (hasReportFlags && command !== 'report') {
+    refused('INPUT_INVALID','cli-options');
+  } else if (values.version) {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
     else if (json) emit({ name: contractSupport.package.name, version: contractSupport.package.version }, 0);
     else process.stdout.write(`${contractSupport.package.name} ${contractSupport.package.version}\n`);
@@ -129,6 +136,37 @@ try {
       'aih --version | -V [--json]    Print the installed package version.\n' +
       'aih help [<command>] | aih <command> --help | -h    Show usage and examples.\n' +
       '--no-log (policy and repair only) turns routine history off for Prepare and Apply.\n');
+  } else if (positionals[0] === 'report') {
+    // Acquisition or import only: no repair, policy, upload or service is reachable from this branch.
+    const reportMessage = 'Choose one new output directory and either fresh offline targets or one supplied snapshot file.';
+    if (positionals.length !== 1 || !values.output || Object.keys(values).some(name => !['output','snapshot','target','offline','demo','json'].includes(name)) || values.snapshot !== undefined && (values.target || values.offline) ||
+        values.project || values.apply || values.yes || values['allow-partial'] || values['private-input']?.length ||
+        values['material-root']?.length || values.resolutions || values['inputs-file'] || values['probe-configured-mcp'] ||
+        hasOrganizationFlags || values.evidence) refused('INPUT_INVALID', 'cli-options', reportMessage);
+    else {
+      let snapshotJson: string | undefined; let unreadable: string | undefined;
+      if (values.snapshot !== undefined) {
+        const bytes = readRegularFile(resolve(values.snapshot), { maxBytes: 1_000_000 });
+        if (!bytes) unreadable = 'snapshot-unreadable';
+        else try { snapshotJson = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+        catch { unreadable = 'snapshot-invalid'; }
+      }
+      if (unreadable) refused('INPUT_INVALID', unreadable, reportMessage);
+      else {
+        // Report rendering and diagnostics load only for this command.
+        const { runReportCommand, ReportCommandError } = await import('../harness/report-command.mjs');
+        try {
+          emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }),
+            ...(values.target === undefined ? {} : { targets: values.target }), ...(values.demo ? { demo: true } : {}) },
+          { signal: controller.signal }), 0);
+        } catch (error) {
+          if (!(error instanceof ReportCommandError)) throw error;
+          if (error.code === 'INCOMPLETE') emit({ status: 'incomplete', diagnostics: [{ code: 'EXECUTION_FAILED', reason: error.reason,
+            message: 'The diagnostic did not complete; no report was written.' }] }, 1);
+          else refused(error.code, error.reason, reportMessage);
+        }
+      }
+    }
   } else if (positionals[0] === 'validate') {
     const kind = ['execution-policy', 'organization-policy', 'recipe'].find(name => name === positionals[1]);
     if (positionals.length !== 3 || !kind || !onlyJson) refused('INPUT_INVALID', 'cli-options');

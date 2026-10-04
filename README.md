@@ -520,3 +520,12 @@ CI runs these gates on Linux, Windows and macOS. The separate manually invoked
 native macOS trust acceptance uses a disposable runner, installs a temporary CA
 in its OS keychain and exercises packed system-CA and supplied npm repair. It
 requires a macOS 26 arm64 runner and establishes native evidence only when run.
+
+## V9 reporting
+
+`aih report --output <new-directory> --json` acquires bounded offline Node/Git diagnostics and writes matching `report.json` and offline `report.html`. Use repeated `--target` for selected offline Harness diagnostics. `aih report --snapshot <report.json> --output <new-directory> --json` renders supplied data without acquisition. `--demo` labels the old V9 design sample separately. Report-only options are rejected by other commands. Outputs require a new directory and do not overwrite existing reports.
+
+`@aihq/core/report` exports `createReport`, `validateSnapshot`, `importSnapshot`, `exportSnapshot`, schema identities, errors and reporting types. `@aihq/core/report/render` exports `renderReport`; `@aihq/core/report/schema` exposes the JSON Schema. The data import has no renderer or host effects. Both formats are **experimental**, with runtime validation and explicit unsupported-version rejection.
+
+Read [reporting contracts](docs/reporting/CONTRACT.md), [field/source mapping](docs/reporting/FIELDS.md), [V9 presentation](docs/reporting/RENDERING.md) and [reproduction](docs/reporting/REPRODUCE.md). Consumer-owned [data](examples/reporting/data-only.mjs) and [loopback HTTP](examples/reporting/http.mjs) examples use only public imports. Unsupported analytics stay EMPTY. Supplied assertions remain unauthenticated; presence/configuration is not verification, and importing or serving a snapshot does not collect observations.
+
