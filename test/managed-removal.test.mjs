@@ -276,7 +276,7 @@ test('claimless custody in a receipt shared by project and home has no scope and
   const home = realpathSync.native(s.home);
   const claimlessHome = { schema: 'urn:aihq:core:ownership:1.0.0', target: home, members: { 'LEGACY.md': {
     managementId: 'legacy-item', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: sha('x'), mode: 0o644 } } };
-  writeFileSync(receiptPath(s, home), JSON.stringify(claimlessHome));
+  writeFileSync(receiptPath(s, home), JSON.stringify(claimlessHome), { mode: 0o600 });
   for (const scope of ['project', 'user']) {
     const result = await prepareManagedRemoval({ target: { project: s.home }, managementId: 'legacy-item', scope, mode: 'vibe' }, { logging: 'off' });
     assert.deepEqual([result.disposition, result.diagnostics.map(item => item.reason)], ['unavailable', ['ambiguous-scope']], scope);

@@ -167,7 +167,7 @@ const selectionsOf = (target, claims) => Object.fromEntries(claims.map(item => [
 function plant(root, value) {
   mkdirSync(join(homeNow, '.aih', 'core', 'ownership'), { recursive: true });
   const path = receiptFile(root); const previous = existsSync(path) ? readFileSync(path) : undefined;
-  writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value));
+  writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value), { mode: 0o600 });
   return () => { if (previous === undefined) rmSync(path, { force: true }); else writeFileSync(path, previous); };
 }
 const valid = result => { const check = new Ajv2020({ strict: true }).compile(inventorySchema); assert.equal(check(result), true, JSON.stringify(check.errors)); };
@@ -267,7 +267,7 @@ test('count, byte and output bounds return incomplete limit-exceeded instead of 
       const text = JSON.stringify(ownership(target));
       return [join(store, `${sha(target)}.json`), text + ' '.repeat(1_000_000 - text.length)];
     });
-    for (const [path, text] of padded) writeFileSync(path, text);
+    for (const [path, text] of padded) writeFileSync(path, text, { mode: 0o600 });
     try { await expectLimit('bytes', 'user'); } finally { padded.forEach(([path]) => rmSync(path, { force: true })); }
     // Output: valid claims whose serialized rows exceed 1 MiB.
     const homeRoot = realpathSync.native(homeNow);
