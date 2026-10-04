@@ -42,7 +42,9 @@ const unsupported = reopenPolicy(JSON.stringify({ ...authored.policy, schema: 'u
 assert.equal(unsupported.valid, false);
 const diagnostic = unsupported.diagnostics.find(entry => entry.code === 'SCHEMA_UNSUPPORTED');
 assert.equal(diagnostic.encountered, 'urn:aihq:core:execution-policy:99.0.0');
-assert.deepEqual(diagnostic.supported, ['urn:aihq:core:execution-policy:1.0.0']);
+assert.deepEqual(diagnostic.supported, [
+  'urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0'
+]);
 
 async function execute(policyText, name) {
   const projectRoot = join(process.cwd(), name);
