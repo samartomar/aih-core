@@ -136,13 +136,16 @@ function cloneChecked(value, path, depth, state) {
   const own = Reflect.ownKeys(value);
   if (own.length > MAX_OBJECT_KEYS) invalid(`${path}: object exceeds ${MAX_OBJECT_KEYS} keys`);
   const copy = {};
-  for (const key of own) {
+  for (let index = 0; index < own.length; index += 1) {
+    const key = own[index];
+    const memberPath = `${path}.field[${index}]`;
     if (typeof key !== 'string') invalid(`${path}: symbol keys are not JSON`);
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
-      invalid(`${path}.${key}: expected an enumerable data property`);
+      invalid(`${memberPath}: expected an enumerable data property`);
     }
-    copy[key] = cloneChecked(descriptor.value, `${path}.${key}`, depth + 1, state);
+    // Define data properties so own __proto__ keys survive admission without invoking a setter.
+    Object.defineProperty(copy, key, { value: cloneChecked(descriptor.value, memberPath, depth + 1, state), enumerable: true, writable: true, configurable: true });
   }
   return copy;
 }

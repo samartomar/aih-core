@@ -54,8 +54,9 @@ development loop.
   string that this version does not support.
 
 Messages name structural paths only (for example `snapshot.metrics.counts`).
-They never echo the offending values, so sensitive bytes cannot leak through an
-error.
+During plain-data admission, arbitrary object members use indexed locations
+such as `snapshot.field[0]`; neither caller-controlled keys nor offending values
+are echoed in errors.
 
 ## Validation rules
 
@@ -77,6 +78,8 @@ Both entry points first require **bounded plain JSON**:
 `validateSnapshot`, `importSnapshot` and `exportSnapshot` enforce the closed
 snapshot shape, the exact version and contract, and that
 `metrics.counts` matches the actual `checks` outcomes.
+Own `__proto__` fields remain visible to closed-object validation and are
+rejected as unknown fields rather than silently disappearing during cloning.
 
 ## JSON import / export
 

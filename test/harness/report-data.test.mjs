@@ -436,3 +436,27 @@ test('spaced equals separators never expose a credential argument', () => {
   const report = importSnapshot(JSON.stringify(snapshot));
   assert.ok(!report.observations[0].detail.includes('fixture-private'));
 });
+
+test('unknown own prototype keys are rejected at root and nested public snapshot seams', () => {
+  const json = exportSnapshot(createReport(validInput()));
+  for (const malformed of [json.replace('{', '{"__proto__":null,'), json.replace('"producer":{', '"producer":{"__proto__":null,')]) {
+    assert.throws(() => importSnapshot(malformed), { code: 'INPUT_INVALID' });
+    assert.throws(() => exportSnapshot(JSON.parse(malformed)), { code: 'INPUT_INVALID' });
+    assert.equal(validateSnapshot(JSON.parse(malformed)).valid, false);
+  }
+  assert.throws(() => createReport(JSON.parse(JSON.stringify(validInput()).replace('{', '{"__proto__":null,'))), { code: 'INPUT_INVALID' });
+});
+
+test('bounded-copy errors never echo arbitrary caller keys or execute getters', () => {
+  const snapshot = createReport(validInput());
+  const key = 'TOKEN=fixture-private';
+  snapshot[key] = 'x'.repeat(65537);
+  assert.throws(() => importSnapshot(JSON.stringify(snapshot)), (error) => error.code === 'INPUT_INVALID' && !error.message.includes(key) && !error.message.includes('fixture-private'));
+  delete snapshot[key];
+  let calls = 0;
+  Object.defineProperty(snapshot.producer, key, { enumerable: true, get() { calls++; return 'ignored'; } });
+  const result = validateSnapshot(snapshot);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.every((message) => !message.includes(key) && !message.includes('fixture-private')));
+  assert.equal(calls, 0);
+});
