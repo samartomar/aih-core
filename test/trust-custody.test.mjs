@@ -17,7 +17,7 @@ const originalRename=fs.renameSync;
 const originalLink=fs.linkSync;
 const originalRemove=fs.rmSync;
 const previous={HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE};let scratch;
-function setup(){scratch=fs.mkdtempSync(join(tmpdir(),'aih-trust-custody-'));const home=join(scratch,'home');fs.mkdirSync(home);
+function setup(){scratch=fs.realpathSync.native(fs.mkdtempSync(join(tmpdir(),'aih-trust-custody-')));const home=join(scratch,'home');fs.mkdirSync(home);
   process.env.HOME=home;process.env.USERPROFILE=home;const file=join(scratch,'team.pem');fs.copyFileSync(new URL('./fixtures/root-a.pem',import.meta.url),file);
   return {home,file,output:join(home,'.aih','exports','os-ca.pem'),state:join(home,'.aih','core')};}
 afterEach(()=>{fs.renameSync=originalRename;fs.linkSync=originalLink;fs.rmSync=originalRemove;syncBuiltinESMExports();for(const [key,value] of Object.entries(previous))if(value===undefined)delete process.env[key];else process.env[key]=value;

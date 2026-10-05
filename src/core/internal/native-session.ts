@@ -27,7 +27,7 @@ export interface NativeSessionObservations {
   sessionId: string | null; resumed: boolean;
   loading: 'observed' | 'bare' | 'unobservable' | 'not-loaded';
   restrictions: 'observed' | 'managed' | 'unobservable';
-  authentication: 'matched' | 'missing' | 'wrong-session' | 'conflict';
+  authentication: 'matched' | 'missing' | 'wrong-session' | 'conflict' | 'limited';
   discovery: { complete: boolean; clientTools: string[]; serverList: boolean };
   instructions: { nativeSha256: string[]; attestations: { markerSha256: string; challengeMatched: boolean; clientReceipt: boolean }[];
     rejected: boolean; alternateRead: boolean };
@@ -83,25 +83,27 @@ export function evaluateNativeSession(result: NativeVerificationResult, session:
   };
   const skip = (id: string) => session.stages.push({ id, session: session.index, outcome: 'unavailable',
     reason: stop?.outcome === 'failed' ? 'not-run-after-failure' : stop?.outcome === 'restricted' ? 'not-run-after-restriction' : 'not-run-after-unavailable', evidence: { kind: 'none' } });
-  const interruption = stoppedReason ?? observations.failure?.reason;
+  const interruption = stoppedReason ?? observations.failure?.reason ?? (observations.authentication === 'limited' ? 'limit-exceeded' : undefined);
+  const managed = observations.restrictions === 'managed' || interruption === 'managed-restriction';
   // The canonical row order does not imply observations completed in that order. Preserve every
   // completed proof when interruption leaves another row unfinished, including known contradictions.
-  const completed = new Set<string>(observations.completed ?? nativeSessionRows.slice(0, -1));
+  // A finalized managed refusal may omit all loading/provider evidence. Only an explicit
+  // partial completion list can retain those proofs; the observed session identity is independent.
+  const completed = new Set<string>(observations.completed ?? (managed ? observations.sessionId ? ['session-freshness'] : [] : nativeSessionRows.slice(0, -1)));
+  // A positive cap observation completes an unavailable authentication row, never a pass.
+  if (observations.authentication === 'limited') completed.add('provider-authentication');
   for (const id of nativeSessionRows.slice(0, -1)) {
+    if (managed && id === 'tool-restrictions') { row(id, 'restricted', 'managed-restriction'); continue; }
+    if (managed && !completed.has(id)) {
+      session.stages.push({ id, session: session.index, outcome: 'unavailable', reason: 'not-run-after-restriction', evidence: { kind: 'none' } });
+      continue;
+    }
     if (interruption && !completed.has(id)) {
       if (stop) skip(id);
       else row(id, 'unavailable', interruption);
       continue;
     }
-    if (stop && !interruption) { skip(id); continue; }
-    // A positive native managed-policy observation precedes omitted loading/identity evidence.
-    if (observations.restrictions === 'managed' && !interruption) {
-      if (id === 'tool-restrictions') row(id, 'restricted', 'managed-restriction');
-      else if (id === 'session-freshness' && observations.sessionId && !observations.resumed && observations.sessionId !== previousSessionId && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(observations.sessionId)) {
-        session.process.clientSessionId = observations.sessionId; row(id, 'passed', 'observed', { kind: 'match', matched: true });
-      } else session.stages.push({ id, session: session.index, outcome: 'unavailable', reason: 'not-run-after-restriction', evidence: { kind: 'none' } });
-      continue;
-    }
+    if (stop && !interruption && !managed) { skip(id); continue; }
     switch (id) {
       case 'session-freshness':
         if (!observations.sessionId || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(observations.sessionId)) row(id, 'unavailable', 'session-identity-unobservable');
@@ -120,7 +122,7 @@ export function evaluateNativeSession(result: NativeVerificationResult, session:
         break;
       case 'provider-authentication':
         row(id, observations.authentication === 'matched' ? 'passed' : 'unavailable', observations.authentication === 'matched' ? 'observed' :
-          observations.authentication === 'conflict' ? 'identity-conflict' : observations.authentication === 'wrong-session' ? 'identity-session-mismatch' : 'authentication-unavailable',
+          observations.authentication === 'limited' ? 'limit-exceeded' : observations.authentication === 'conflict' ? 'identity-conflict' : observations.authentication === 'wrong-session' ? 'identity-session-mismatch' : 'authentication-unavailable',
           { kind: 'match', matched: observations.authentication === 'matched' });
         break;
       case 'tool-discovery':
@@ -149,9 +151,10 @@ export function evaluateNativeSession(result: NativeVerificationResult, session:
       case 'read-only-query':
         if (!observations.serverPeerBound) row(id, 'unavailable', 'server-evidence-unavailable');
         else if (observations.query.correlated && !observations.query.challengeMatched) row(id, 'unavailable', 'query-challenge-mismatch');
-        else if (observations.query.correlated && (observations.query.resultSha256 !== material.server.expectedResultSha256 || observations.query.answerSha256 !== sha256(material.server.expectedAnswer))) row(id, 'failed', 'query-answer-mismatch');
+        else if (observations.query.correlated && observations.query.resultSha256 !== null && observations.query.resultSha256 !== material.server.expectedResultSha256) row(id, 'failed', 'query-answer-mismatch');
+        else if (observations.query.correlated && observations.query.answerSha256 !== null && observations.query.answerSha256 !== sha256(material.server.expectedAnswer)) row(id, 'failed', 'query-answer-mismatch');
         else if (observations.query.rejectedCalls) row(id, 'unavailable', 'restriction-unobservable');
-        else if (!observations.query.correlated) row(id, 'unavailable', 'server-evidence-unavailable');
+        else if (!observations.query.correlated || observations.query.resultSha256 === null || observations.query.answerSha256 === null) row(id, 'unavailable', 'server-evidence-unavailable');
         else row(id, 'passed', 'observed', { kind: 'digest', sha256: observations.query.answerSha256! });
         break;
       case 'isolation':

@@ -204,8 +204,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
           catch { /* An unavailable snapshot cannot manufacture proof; retain the empty observation. */ }
         }
       }
-      // Preserve operational stop evidence outside the proof rows, even if every received row
-      // completed before a later cancellation, cap or helper fault.
+      // Session-local failures stop another session; completed proof survives their interruption.
       sessionStop ??= observations.failure?.reason;
       if (!Object.values(observations.counts).every(value => Number.isSafeInteger(value) && value >= 0)) {
         sessionStop = 'native-internal'; observations.counts = { observedBytes: 0, telemetryEvents: 0, rpcMessages: 0 };
@@ -223,7 +222,13 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       } else {
         result.security = { sandbox: { level: 'hygiene-only', mechanism: definition.isolation.mechanism, reason: 'isolation-unobserved' }, hostSecretIsolation: { outcome: 'unavailable', reason: 'isolation-unobserved' } };
       }
-      if (sessionStop) throw new NativeStop(sessionStop);
+      if (sessionStop) {
+        stopped = sessionStop;
+        // Cancellation/budget needs a run row only when no unfinished session row records it.
+        // Managed, identity, parser and collector faults remain in canonical session rows.
+        if (['cancelled', 'budget-exhausted'].includes(sessionStop) && !session.stages.some(stage => stage.reason === sessionStop)) row('stop', 'unavailable', sessionStop);
+        break;
+      }
       if (!confirmed) break;
       if (index === 2) {
         activeStage = 'configuration-unchanged';

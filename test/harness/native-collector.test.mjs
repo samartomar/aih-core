@@ -86,6 +86,22 @@ test('events for another session are mismatched evidence, not authentication', a
   assert.equal(result.counts.wrongSession, 1);
 });
 
+test('a wrong-session event beside a match does not become an immediate identity negative', async () => {
+  const c = make();
+  await c.start();
+  try {
+    await post(c, { payload: body(event(), event({ session: OTHER, request: 'other-session' })) });
+    const partial = c.snapshot(times());
+    assert.equal(partial.outcome, 'unavailable');
+    assert.equal(partial.reason, 'authentication-unavailable', 'positive authentication still needs final drain');
+    assert.equal(partial.counts.matched, 1);
+    assert.equal(partial.counts.wrongSession, 1);
+    const final = await c.drain({ ...times(), timeoutMs: 50 });
+    assert.equal(final.outcome, 'passed');
+    assert.equal(final.reason, 'observed');
+  } finally { await c.cancel(); }
+});
+
 test('a wrong account or organization conflicts even beside a good event', async () => {
   for (const bad of [{ account: '33333333-3333-4333-8333-333333333333' }, { org: '44444444-4444-4444-8444-444444444444' }]) {
     const c = make();

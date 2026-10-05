@@ -21,7 +21,7 @@ function createNativeRuntime(module, dependencies) {
   const definitions = module.nativeVerificationDefinitions;
   const adapters = new Set(["claude-stream-json.v1"]);
   const identitiesSupported = new Set(["claude-oauth-otel.v1"]);
-  const identities = /* @__PURE__ */ new WeakMap();
+  const identities = new WeakMap();
   const checkTime = (input) => {
     if (input.signal?.aborted) throw new NativeStop("cancelled");
     if (performance.now() >= input.deadline) throw new NativeStop("budget-exhausted");
@@ -32,7 +32,7 @@ function createNativeRuntime(module, dependencies) {
     if (resolved.outcome !== "selected") throw new NativeStop(resolved.reason, "unsupported");
     const metadata = module.bundledNativeFixtures.find((value) => value.client === definition.client);
     if (!metadata || !module.verifyFixtureMaterials(resolved).ok) throw new NativeStop("fixture-bytes-mismatch", "failed");
-    const bytes = /* @__PURE__ */ new Map();
+    const bytes = new Map();
     for (const file of [...metadata.outputTree, ...metadata.guardrails]) {
       const captured = resolved.files.find((value) => value.root === file.root && value.path === file.path);
       if (!captured) throw new NativeStop("fixture-bytes-mismatch", "failed");
@@ -68,6 +68,8 @@ function createNativeRuntime(module, dependencies) {
     },
     nativeCapabilities(definition) {
       const lifecycle = module.lifecycleAvailability(definition.lifecycleId, definition.platform.os);
+      // The installed runtime cannot observe OS peer credentials or an effective dedicated
+      // credential channel. These capabilities stay false, so native sessions are refused.
       return {
         lifecycle: lifecycle.status === "available",
         peerIdentity: false,
@@ -129,7 +131,7 @@ function createNativeRuntime(module, dependencies) {
       const stoppedPromise = new Promise((resolve) => {
         notifyStopped = resolve;
       });
-      const terminate = () => termination ??= terminateBounded(processHandle, cleanupStartedAt === void 0 ? input.deadline : cleanupStartedAt + 1e4, 1e3);
+      const terminate = () => termination ??= terminateBounded(processHandle, cleanupStartedAt === undefined ? input.deadline : cleanupStartedAt + 10_000, 1000);
       const abort = () => {
         stopped = "cancelled";
         cleanupStartedAt ??= performance.now();
@@ -197,7 +199,7 @@ function createNativeRuntime(module, dependencies) {
       if (input.signal?.aborted || performance.now() >= input.deadline || process.platform === "win32") return false;
       try {
         const stats = lstatSync(cell.path);
-        return stats.isDirectory() && !stats.isSymbolicLink() && stats.uid === process.getuid?.() && (stats.mode & 63) === 0;
+        return stats.isDirectory() && !stats.isSymbolicLink() && stats.uid === process.getuid?.() && (stats.mode & 0o077) === 0;
       } catch {
         return false;
       }
@@ -230,7 +232,7 @@ function createNativeRuntime(module, dependencies) {
         if (watchdog) clearInterval(watchdog);
         if (abort) input.signal?.removeEventListener("abort", abort);
       };
-      const closeChannel = () => channelClose ??= channel ? channel.close().then((result) => channelResult = result) : Promise.resolve(void 0);
+      const closeChannel = () => channelClose ??= channel ? channel.close().then((result) => channelResult = result) : Promise.resolve(undefined);
       const cleanup = async (deadline, graceMs) => {
         detach();
         if (!lifecycle) {
@@ -295,13 +297,13 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const failure = stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : void 0);
+            const failure = stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
               loading: row("loading-mode")?.outcome === "passed" ? "observed" : row("loading-mode")?.reason === "configuration-not-loaded" ? "not-loaded" : "unobservable",
               restrictions: managed.outcome === "restricted" ? "managed" : row("tool-restrictions")?.outcome === "passed" && server.unrequestedCalls === 0 ? "observed" : "unobservable",
-              authentication: telemetryResult.outcome === "passed" ? "matched" : telemetryResult.reason === "identity-conflict" ? "conflict" : telemetryResult.reason === "identity-session-mismatch" ? "wrong-session" : "missing",
+              authentication: telemetryResult.outcome === "passed" ? "matched" : telemetryResult.reason === "identity-conflict" ? "conflict" : telemetryResult.reason === "identity-session-mismatch" ? "wrong-session" : telemetryResult.reason === "limit-exceeded" ? "limited" : "missing",
               discovery: { complete: server.initialize && server.discovery === "complete" && stream.toolsListed, clientTools: stream.visibleSelectedTools, serverList: server.initialize && server.discovery === "complete" },
               instructions: {
                 nativeSha256: [],
@@ -336,7 +338,7 @@ function createNativeRuntime(module, dependencies) {
               ...(['identity-conflict','identity-session-mismatch','limit-exceeded'].includes(telemetryResult.reason) ? ['provider-authentication'] : []),
               ...(server.discovery === 'complete' && stream.toolsListed ? ['tool-discovery'] : []),
               ...(observation.instructions.attestations.length || observation.instructions.alternateRead ? ['instruction-loading'] : []),
-              ...(server.query !== 'missing' ? ['read-only-query'] : [])
+              ...(server.query !== 'missing' && (server.query !== 'answered' || stream.answerReturned) ? ['read-only-query'] : [])
             ];
             return observation;
         };
@@ -391,7 +393,7 @@ function createNativeRuntime(module, dependencies) {
           stopped ??= reason;
           cleanupStartedAt ??= performance.now();
           try {
-            await cleanup(cleanupStartedAt + 1e4, 1e3);
+            await cleanup(cleanupStartedAt + 10_000, 1000);
           } catch {
           } finally {
             notifyStopped();
@@ -420,7 +422,7 @@ function createNativeRuntime(module, dependencies) {
             const streams = parsers.map((parser) => parser.finish());
             const stream = streams[0];
             collector.bindSession(stream.sessionId);
-            const telemetryResult = await collector.drain({ launchedAtMs, closedAtMs: Date.now(), timeoutMs: Math.min(2e3, Math.max(0, input.deadline - performance.now())) });
+            const telemetryResult = await collector.drain({ launchedAtMs, closedAtMs: Date.now(), timeoutMs: Math.min(2000, Math.max(0, input.deadline - performance.now())) });
             const evidence = await closeChannel();
             return capture(streams, telemetryResult, evidence, true);
           } finally {
@@ -434,7 +436,7 @@ function createNativeRuntime(module, dependencies) {
           cleanupStartedAt ??= performance.now();
           return { outcome: "unavailable", reason, partial: ownedHandle(Promise.resolve({ ...snapshot(), failure: { reason, outcome: "unavailable" } })) };
         }
-        await cleanup(input.deadline, 1e3);
+        await cleanup(input.deadline, 1000);
         return { outcome: "unavailable", reason };
       }
     },

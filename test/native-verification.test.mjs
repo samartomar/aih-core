@@ -89,7 +89,7 @@ export function revalidateNativeIdentity(){return true;}
 export async function protectNativeCell(){return true;}
 export function nativeStatePaths(){return {home:[],project:[]};}
 export function createNativeRuntime(){return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
-const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
+const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
   if(scenario==='spawn-rejected')return {outcome:'unavailable',reason:'session-launch-failed'};
   const child=spawn(process.execPath,['-e',childScript],{cwd:input.cell.project,env:input.environment,stdio:['pipe','pipe','pipe'],windowsHide:true});
@@ -97,6 +97,19 @@ export async function startNativeSession(input){
   const partial=scenario.includes('-snapshot-'); let snapshot;
   if(scenario.includes('-snapshot-bad-query'))observations.query.resultSha256=hash('wrong');
   if(scenario.endsWith('-unfinished-auth'))observations.authentication='missing';
+  if(scenario.endsWith('-pending-receipt'))observations.query.answerSha256=null;
+  if(scenario.includes('-missing-result'))observations.query.resultSha256=null;
+  if(scenario.endsWith('-bad-client-answer'))observations.query.answerSha256=hash('wrong-client-answer');
+  if(scenario.startsWith('active-')){
+    const early=scenario==='active-managed'||scenario==='active-managed-final'||scenario==='active-malformed';
+    observations.completed=early?['session-freshness']:['session-freshness','loading-mode','tool-restrictions','provider-authentication'];
+    if(scenario==='active-managed-final')delete observations.completed;
+    if(scenario==='active-collector-cap-unfinished')observations.completed.pop();
+    observations.loading=scenario==='active-managed-final'?'not-loaded':early?'unobservable':'observed';
+    observations.restrictions=scenario.startsWith('active-managed')?'managed':'observed';
+    observations.authentication=early?'missing':scenario==='active-identity'?'conflict':'limited';
+    observations.failure={reason:scenario.startsWith('active-managed')?'managed-restriction':scenario==='active-malformed'?'native-internal':scenario==='active-identity'?'identity-conflict':'limit-exceeded',outcome:scenario.startsWith('active-managed')?'restricted':'unavailable'};
+  }
   let output='';let closed=false;let ended;
   const closePromise=new Promise(resolve=>ended=resolve);child.once('close',()=>{closed=true;ended();});
   let timer; let abort;
@@ -105,11 +118,11 @@ export async function startNativeSession(input){
     child.once('error',reject);
     abort=()=>{child.stdin.destroy();child.kill();reject(Error('controlled cancellation'));};
     if(input.signal)input.signal.addEventListener('abort',abort,{once:true});
-    timer=setTimeout(()=>{child.kill();resolve({...snapshot??observations,completed:snapshot?.completed??[],failure:{reason:'budget-exhausted',outcome:'unavailable'}});},Math.max(1,input.deadline-performance.now()));
+    timer=setTimeout(()=>{child.kill();resolve({...snapshot??observations,completed:snapshot?.completed??[],counts:{...snapshot?.counts??observations.counts,observedBytes:Buffer.byteLength(output)},failure:{reason:'budget-exhausted',outcome:'unavailable'}});},Math.max(1,input.deadline-performance.now()));
     child.once('close',()=>{clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(scenario==='partial-spawn')return resolve({...observations,completed:[],failure:{reason:'native-internal',outcome:'unavailable'}});try{const value=JSON.parse(output);value.counts.observedBytes=Buffer.byteLength(output);if(scenario==='changed-config'&&input.index===1)writeFileSync(join(input.cell.project,'INSTRUCTIONS.md'),'changed');if(scenario==='replaced-config'&&input.index===1){const p=join(input.cell.project,'INSTRUCTIONS.md');unlinkSync(p);writeFileSync(p,fixture);}resolve(value);}catch{reject(Error('controlled output unavailable'));}});
   });
-  child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial}));
-  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:0,telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:scenario!=='cleanup-unresolved',survivors:scenario==='cleanup-unresolved'?[{pid:child.pid,role:'client'}]:[]};}};
+  child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial,ready:scenario==='deadline'}));
+  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:scenario!=='cleanup-unresolved',survivors:scenario==='cleanup-unresolved'?[{pid:child.pid,role:'client'}]:[]};}};
   return scenario==='partial-spawn'?{outcome:'unavailable',reason:'native-internal',partial:handle}:handle;
 }
 `;
@@ -264,12 +277,50 @@ test('controlled cancellation retains an actual launch and confirms cleanup', as
   assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 test('controlled deadline drains and cleans the single session without inventing session two', async t => {
-  const result = await controlled(t, 'deadline', { budgetMs: 1000 });
+  const result = await controlled(t, 'deadline', { budgetMs: 10000 });
   assert.equal(result.status, 'incomplete'); assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
   assert.ok(result.sessions[0].stages.some(row => row.reason === 'budget-exhausted'));
-  assert.equal(result.cleanup.files, 'removed');
+  // A ready receipt from the actual child proves the deadline interrupted an active session.
+  assert.ok(result.limits.observedBytes > 0);
+  assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
+});
+for (const [profile, stageId, outcome, reason] of [
+  ['active-managed', 'tool-restrictions', 'restricted', 'managed-restriction'],
+  ['active-managed-final', 'tool-restrictions', 'restricted', 'managed-restriction'],
+  ['active-malformed', 'loading-mode', 'unavailable', 'native-internal'],
+  ['active-identity', 'provider-authentication', 'unavailable', 'identity-conflict'],
+  ['active-collector-cap', 'provider-authentication', 'unavailable', 'limit-exceeded'],
+  ['active-collector-cap-unfinished', 'provider-authentication', 'unavailable', 'limit-exceeded'],
+]) test('controlled session-local ' + profile + ' keeps canonical rows without a run stop', async t => {
+  const result = await controlled(t, profile);
+  assert.equal(result.status, 'incomplete'); assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
+  assert.equal(result.stages.some(row => row.id === 'stop'), false);
+  const stages = result.sessions[0].stages;
+  assert.deepEqual(stages.map(row => row.id), ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication', 'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup']);
+  assert.ok(stages.some(row => row.id === 'session-freshness' && row.outcome === 'passed'));
+  assert.ok(stages.some(row => row.id === stageId && row.outcome === outcome && row.reason === reason), JSON.stringify(stages));
+  if (profile.startsWith('active-managed')) assert.ok(stages.filter(row => !['session-freshness', 'tool-restrictions', 'cleanup'].includes(row.id)).every(row => row.outcome === 'unavailable' && row.reason === 'not-run-after-restriction'));
+  if (profile.startsWith('active-collector-cap')) assert.equal(stages.some(row => row.id === 'provider-authentication' && row.outcome === 'passed'), false);
+  assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 for (const interruption of ['cancel', 'budget']) {
+  for (const [profile, verdict, queryOutcome] of [
+    ['pending-receipt', 'unverified', 'unavailable'],
+    ['bad-query-pending-receipt', 'failed', 'failed'],
+    ['missing-result', 'unverified', 'unavailable'],
+    ['bad-client-answer', 'failed', 'failed'],
+    ['missing-result-bad-client-answer', 'failed', 'failed'],
+  ]) test('controlled ' + interruption + ' distinguishes missing query proof from contradiction: ' + profile, async t => {
+    const result = await controlled(t, interruption + '-snapshot-' + profile, { budgetMs: 4000 });
+    assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : verdict === 'failed' ? 'complete' : 'incomplete');
+    assert.equal(result.verdict, verdict); assert.equal(result.sessions.length, 1);
+    const stages = result.sessions[0].stages;
+    for (const id of ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication', 'tool-discovery', 'instruction-loading'])
+      assert.ok(stages.some(row => row.id === id && row.outcome === 'passed'), JSON.stringify(stages));
+    assert.ok(stages.some(row => row.id === 'read-only-query' && row.outcome === queryOutcome &&
+      row.reason === (queryOutcome === 'failed' ? 'query-answer-mismatch' : 'server-evidence-unavailable')));
+    assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
+  });
   test('controlled ' + interruption + ' retains a completed query contradiction and prior proof', async t => {
     const result = await controlled(t, interruption + '-snapshot-bad-query', { budgetMs: 4000 });
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');

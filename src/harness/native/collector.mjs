@@ -146,7 +146,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     snapshot({ launchedAtMs, closedAtMs }) {
       const result = evaluate({ launchedAtMs, closedAtMs }, performance.now());
       return { outcome: 'unavailable', reason: state.violation ? 'limit-exceeded' : result.conflict ? 'identity-conflict' :
-        result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable',
+        result.matched === 0 && result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable',
         counts: { requests: state.requests, events: Math.min(state.events, nativeBounds.collectorEvents),
           matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes };
     },
