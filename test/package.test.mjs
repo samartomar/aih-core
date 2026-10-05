@@ -27,8 +27,19 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   // A separate test invocation must not inherit Node's parent-test marker,
   // which would silently skip the updated artifact's owning test files.
   delete env.NODE_TEST_CONTEXT;
-  const npm = (args, cwd, timeout = 120_000) => execFileSync(process.execPath, [process.env.npm_execpath, ...args],
-    { cwd, env, encoding: 'utf8', timeout });
+  const npm = (args, cwd, timeout = 120_000) => {
+    try {
+      return execFileSync(process.execPath, [process.env.npm_execpath, ...args],
+        { cwd, env, encoding: 'utf8', timeout });
+    } catch (error) {
+      // Node's test reporter truncates large child output before its final failure.
+      // Preserve a bounded tail so nested upgrade checks remain diagnosable.
+      console.error('Package fixture command failed:', args.join(' '));
+      console.error(String(error.stdout ?? '').slice(-12_000));
+      console.error(String(error.stderr ?? '').slice(-4_000));
+      throw error;
+    }
+  };
   const pack = cwd => JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], cwd))[0];
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
