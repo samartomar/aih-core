@@ -73,6 +73,22 @@ test('partial adapter completes a query only after the response and client recei
   assert.equal(handle.snapshot().completed.includes('read-only-query'), true);
 });
 
+test('real parser leaves a textless query receipt unavailable through cancellation', async t => {
+  const { handle, stdout, controller } = await session(t, { realParser: true });
+  stdout.write(JSON.stringify({ type: 'assistant', message: { content: [
+    { type: 'tool_use', id: 'query-id', name: 'mcp__controlled__query' }
+  ] } }) + '\n');
+  stdout.write(JSON.stringify({ type: 'user', message: { content: [
+    { type: 'tool_result', tool_use_id: 'query-id', is_error: false, content: [] }
+  ] } }) + '\n');
+  assert.equal(handle.snapshot().query.answerSha256, null);
+  assert.equal(handle.snapshot().completed.includes('read-only-query'), false);
+  controller.abort();
+  const final = await handle.observations;
+  assert.equal(final.query.answerSha256, null);
+  assert.equal(final.completed.includes('read-only-query'), false);
+});
+
 test('adapter stops promptly on known identity conflict while retaining received query proof', async t => {
   const { handle, telemetry, terminationCount } = await session(t, { query: 'result-mismatch' });
   telemetry.reason = 'identity-conflict';

@@ -111,6 +111,16 @@ test('selected query receipts retain a bounded digest that distinguishes absence
   assert.equal(laterMatch.answerSha256, wrong.answerSha256, 'a later matching receipt cannot erase an observed contradiction');
 });
 
+test('selected query results without text leave the client receipt unobserved', () => {
+  for (const content of [[], [{ type: 'image', source: { type: 'base64', data: 'controlled' } }]]) {
+    const records = [init(), use('query-id', `${P}aihq_graph_query`, {}), result('query-id', content)];
+    const missing = parse([...records, done]);
+    assert.equal(missing.answerSha256, null);
+    assert.equal(missing.answerReturned, false);
+    assert.equal(parse([...records, result('query-id', [{ type: 'text', text: 'leaf' }]), done]).answerReturned, true);
+  }
+});
+
 test('denied built-in attempts are recorded as denied, not as permitted reads', () => {
   const o = parse([init(), use('t1', 'Bash', { command: 'x' }), result('t1', 'denied', true), done]);
   assert.deepEqual(o.unselectedToolUses, [{ name: 'Bash', permitted: false, beforeAttestation: true }]);

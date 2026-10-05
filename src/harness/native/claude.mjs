@@ -65,7 +65,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
             if (isRecord(parsed) && Object.keys(parsed).length === 2 && parsed.markerSha256 === markerSha256 &&
                 parsed.challenge === challenge) state.attestationReturned = true;
           } catch { /* not the attestation object */ }
-        } else if (call.role === 'query' && ok) {
+        } else if (call.role === 'query' && ok && texts.length > 0) {
           const matched = texts.some(text => text === expectedAnswer);
           const digest = sha256(matched ? expectedAnswer : texts.length === 1 ? texts[0] : canonicalJson(texts));
           // Retain only a bounded digest. A later matching receipt cannot erase a contradiction.
