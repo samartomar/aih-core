@@ -89,7 +89,7 @@ export type ClaudeStreamOptions = { serverName: string; attestTool: string; quer
   challenge: string; maxBytes?: number; maxRecordBytes?: number };
 export type ClaudeStreamObservation = { status: 'ok' | 'limit-exceeded' | 'malformed'; bytes: number; records: number; sessionId: string | null;
   sessionIdConsistent: boolean; serverStatus: string | null; visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
-  permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; resultSubtype: string | null; resultIsError: boolean | null;
+  permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; answerSha256: string | null; resultSubtype: string | null; resultIsError: boolean | null;
   unselectedTools: number; unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };
 export function createClaudeStreamParser(options: ClaudeStreamOptions): { push(chunk: Uint8Array | string): void; snapshot(): ClaudeStreamObservation; finish(): ClaudeStreamObservation };
 export function claudeStreamOptions(resolved: ResolvedFixture, challenge: string): ClaudeStreamOptions;

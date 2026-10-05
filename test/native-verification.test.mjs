@@ -100,6 +100,8 @@ export async function startNativeSession(input){
   if(scenario.endsWith('-pending-receipt'))observations.query.answerSha256=null;
   if(scenario.includes('-missing-result'))observations.query.resultSha256=null;
   if(scenario.endsWith('-bad-client-answer'))observations.query.answerSha256=hash('wrong-client-answer');
+  if(scenario==='completed-invalid-counts')observations.counts.telemetryEvents=-1;
+  if(scenario==='completed-over-limit-counts')observations.counts.rpcMessages=513;
   if(scenario.startsWith('active-')){
     const early=scenario==='active-managed'||scenario==='active-managed-final'||scenario==='active-malformed';
     observations.completed=early?['session-freshness']:['session-freshness','loading-mode','tool-restrictions','provider-authentication'];
@@ -282,6 +284,19 @@ test('controlled deadline drains and cleans the single session without inventing
   assert.ok(result.sessions[0].stages.some(row => row.reason === 'budget-exhausted'));
   // A ready receipt from the actual child proves the deadline interrupted an active session.
   assert.ok(result.limits.observedBytes > 0);
+  assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
+});
+for (const [profile, reason] of [
+  ['completed-invalid-counts', 'native-internal'],
+  ['completed-over-limit-counts', 'limit-exceeded'],
+]) test('controlled completed proof retains the stop reason for ' + profile, async t => {
+  const result = await controlled(t, profile);
+  assert.equal(result.status, 'incomplete'); assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
+  assert.ok(result.sessions[0].stages.every(row => row.outcome === 'passed'), JSON.stringify(result.sessions[0].stages));
+  const matching = [...result.stages, ...result.sessions[0].stages].filter(row => row.reason === reason);
+  assert.equal(matching.length, 1); assert.equal(matching[0].id, 'stop');
+  assert.equal(matching[0].outcome, 'unavailable'); assert.equal(matching[0].session, null);
+  assert.equal(result.diagnostics.filter(diagnostic => diagnostic.reason === reason).length, 1);
   assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 for (const [profile, stageId, outcome, reason] of [

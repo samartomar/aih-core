@@ -3,8 +3,9 @@
 // native run: the descriptor stays a candidate until an evidence-bound change says otherwise.
 import { closeSync, fstatSync, openSync, readSync, readdirSync } from 'node:fs';
 import { posix, win32, join } from 'node:path';
-import { isRecord, parseStrictJson } from './canonical.mjs';
+import { canonicalJson, isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
+import { sha256 } from './digest.mjs';
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const textOf = content => typeof content === 'string' ? [content]
@@ -13,8 +14,9 @@ const textOf = content => typeof content === 'string' ? [content]
 export function createClaudeStreamParser({ serverName, attestTool, queryTool, expectedAnswer, markerSha256, challenge,
   maxBytes = nativeBounds.childOutputBytes, maxRecordBytes = nativeBounds.childRecordBytes }) {
   const prefix = `mcp__${serverName}__`;
+  const expectedAnswerSha256 = sha256(expectedAnswer);
   const state = { status: 'ok', bytes: 0, records: 0, sessionId: null, ids: new Set(), initSeen: false,
-    serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false,
+    serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false, answerSha256: null,
     resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
   const calls = new Map();
   let pending = '';
@@ -63,7 +65,13 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
             if (isRecord(parsed) && Object.keys(parsed).length === 2 && parsed.markerSha256 === markerSha256 &&
                 parsed.challenge === challenge) state.attestationReturned = true;
           } catch { /* not the attestation object */ }
-        } else if (call.role === 'query' && ok && texts.some(text => text === expectedAnswer)) state.answerReturned = true;
+        } else if (call.role === 'query' && ok) {
+          const matched = texts.some(text => text === expectedAnswer);
+          const digest = sha256(matched ? expectedAnswer : texts.length === 1 ? texts[0] : canonicalJson(texts));
+          // Retain only a bounded digest. A later matching receipt cannot erase a contradiction.
+          if (state.answerSha256 === null || digest !== expectedAnswerSha256) state.answerSha256 = digest;
+          state.answerReturned = state.answerSha256 === expectedAnswerSha256;
+        }
       }
     } else if (value.type === 'result') {
       state.resultSubtype = typeof value.subtype === 'string' ? value.subtype.slice(0, 64) : null;
@@ -84,7 +92,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     sessionIdConsistent: state.initSeen && state.sessionId !== null && [...state.ids].every(id => id === state.sessionId),
     serverStatus: state.serverStatus, visibleSelectedTools: state.visible.slice(), toolsListed: state.toolsListed,
     builtinTools: state.builtin.slice(), unselectedTools: state.unselectedTools, permissionMode: state.permissionMode,
-    attestationReturned: state.attestationReturned, answerReturned: state.answerReturned,
+    attestationReturned: state.attestationReturned, answerReturned: state.answerReturned, answerSha256: state.answerSha256,
     resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected.map(value => ({ ...value })) });
   return {
     snapshot,

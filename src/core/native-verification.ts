@@ -224,9 +224,9 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       }
       if (sessionStop) {
         stopped = sessionStop;
-        // Cancellation/budget needs a run row only when no unfinished session row records it.
-        // Managed, identity, parser and collector faults remain in canonical session rows.
-        if (['cancelled', 'budget-exhausted'].includes(sessionStop) && !session.stages.some(stage => stage.reason === sessionStop)) row('stop', 'unavailable', sessionStop);
+        // Cleanup has ended the active session. Record an otherwise unrepresented stop
+        // without duplicating managed, identity, parser or collector canonical rows.
+        if (!session.stages.some(stage => stage.reason === sessionStop)) row('stop', 'unavailable', sessionStop);
         break;
       }
       if (!confirmed) break;

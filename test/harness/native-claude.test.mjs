@@ -98,6 +98,19 @@ test('answers only count when returned by the selected tool for its call', () =>
   assert.deepEqual(o.unselectedToolUses, [{ name: 'Read', permitted: true, beforeAttestation: true }]);
 });
 
+test('selected query receipts retain a bounded digest that distinguishes absence and contradiction', () => {
+  const missing = parse([init(), use('query-id', `${P}aihq_graph_query`, {}), done]);
+  assert.equal(missing.answerSha256, null);
+  const wrong = parse([init(), use('query-id', `${P}aihq_graph_query`, {}),
+    result('query-id', [{ type: 'text', text: 'leaf2' }]), done]);
+  assert.equal(wrong.answerReturned, false);
+  assert.equal(wrong.answerSha256, '5038da95330ba16edb486954197e37eb777c3047327ca54df4199c35c5edc17a');
+  assert.ok(!JSON.stringify(wrong).includes('leaf2'));
+  const laterMatch = parse([init(), use('query-id', `${P}aihq_graph_query`, {}),
+    result('query-id', [{ type: 'text', text: 'leaf2' }]), result('query-id', [{ type: 'text', text: 'leaf' }]), done]);
+  assert.equal(laterMatch.answerSha256, wrong.answerSha256, 'a later matching receipt cannot erase an observed contradiction');
+});
+
 test('denied built-in attempts are recorded as denied, not as permitted reads', () => {
   const o = parse([init(), use('t1', 'Bash', { command: 'x' }), result('t1', 'denied', true), done]);
   assert.deepEqual(o.unselectedToolUses, [{ name: 'Bash', permitted: false, beforeAttestation: true }]);

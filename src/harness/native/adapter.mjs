@@ -323,7 +323,7 @@ function createNativeRuntime(module, dependencies) {
                 correlated: server.query !== "missing" && server.query !== "refused",
                 challengeMatched: server.query === "answered" || server.query === "result-mismatch",
                 resultSha256: server.queryResultSha256,
-                answerSha256: stream.answerReturned ? sha256(input.material.server.expectedAnswer) : null,
+                answerSha256: stream.answerSha256,
                 rejectedCalls: server.rejectedQueryCalls > 0
               },
               isolation: "unobservable",
@@ -335,10 +335,10 @@ function createNativeRuntime(module, dependencies) {
               ...(stream.sessionId !== null ? ['session-freshness'] : []),
               ...(stream.serverStatus !== null ? ['loading-mode'] : []),
               ...(stream.toolsListed || managed.outcome === 'restricted' ? ['tool-restrictions'] : []),
-              ...(['identity-conflict','identity-session-mismatch','limit-exceeded'].includes(telemetryResult.reason) ? ['provider-authentication'] : []),
+              ...(['identity-conflict','limit-exceeded'].includes(telemetryResult.reason) ? ['provider-authentication'] : []),
               ...(server.discovery === 'complete' && stream.toolsListed ? ['tool-discovery'] : []),
               ...(observation.instructions.attestations.length || observation.instructions.alternateRead ? ['instruction-loading'] : []),
-              ...(server.query !== 'missing' && (server.query !== 'answered' || stream.answerReturned) ? ['read-only-query'] : [])
+              ...(server.query !== 'missing' && (server.query !== 'answered' || stream.answerSha256 !== null) ? ['read-only-query'] : [])
             ];
             return observation;
         };
@@ -411,7 +411,6 @@ function createNativeRuntime(module, dependencies) {
           const observed = snapshot();
           if (observed.restrictions === 'managed') void stop('managed-restriction');
           else if (observed.sessionId && observed.authentication === 'conflict') void stop('identity-conflict');
-          else if (observed.sessionId && observed.authentication === 'wrong-session') void stop('identity-session-mismatch');
           else if (observed.failure) void stop(observed.failure.reason);
         }, 20);
         lifecycle.stdin.end(input.prompt.replaceAll(input.challenge, challenge));

@@ -119,6 +119,9 @@ test('query outcomes: wrong challenge unavailable, wrong result failed, unrelaye
   assert.deepEqual(pair(wrongResult, 'read-only-query'), ['failed', 'query-answer-mismatch']);
   const unrelayed = evaluateClaudeSession(input({ stream: stream({ answerReturned: false }) }));
   assert.deepEqual(pair(unrelayed, 'read-only-query'), ['unavailable', 'server-evidence-unavailable']);
+  const contradicted = evaluateClaudeSession(input({ stream: stream({ answerReturned: false,
+    answerSha256: '5038da95330ba16edb486954197e37eb777c3047327ca54df4199c35c5edc17a' }) }));
+  assert.deepEqual(pair(contradicted, 'read-only-query'), ['failed', 'query-answer-mismatch']);
   const extra = evaluateClaudeSession(input({ server: server({ evaluation: { ...server().evaluation, unrequestedCalls: 1 } }) }));
   assert.deepEqual(pair(extra, 'read-only-query'), ['unavailable', 'restriction-unobservable']);
   const refused = evaluateClaudeSession(input({ server: server({ evaluation: { ...server().evaluation, query: 'refused', queryResultSha256: null } }) }));

@@ -77,6 +77,8 @@ export function evaluateClaudeSession({ sessionIndex, previousSessionId, stream,
     if (ev.unrequestedCalls > 0) return unavailable('read-only-query', 'restriction-unobservable');
     if (ev.query === 'challenge-mismatch') return unavailable('read-only-query', 'query-challenge-mismatch');
     if (ev.query === 'result-mismatch') return row('read-only-query', 'failed', 'query-answer-mismatch');
+    if (ev.query === 'answered' && typeof stream.answerSha256 === 'string' && !stream.answerReturned)
+      return row('read-only-query', 'failed', 'query-answer-mismatch');
     if (ev.rejectedQueryCalls > 0) return unavailable('read-only-query', 'restriction-unobservable');
     if (ev.query === 'answered' && stream.answerReturned)
       return row('read-only-query', 'passed', 'observed', { kind: 'digest', sha256: ev.queryResultSha256 });
