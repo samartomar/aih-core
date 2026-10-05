@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.8 adds explicit bounded native-client verification API/CLI and
+portable version 1.0.0 contracts. Admission, identity, loading, isolation,
+persistence and cleanup evidence remain separate. Native acceptance requires
+independently provisioned identity and observed platform capabilities. This local
+development candidate has not been published to npm.
+
 Core 1.0.0-dev.7 adds versioned Node/npm trust repair and standalone `aih export-ca`
 with deterministic PEM and certificates-only DER P7B. New request/input schemas,
 full prepared-work/run-result 1.2.0 schemas, Harness repair 1.1.0 definitions and

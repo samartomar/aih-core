@@ -19,7 +19,11 @@ test('Harness declares exact supported formats and the installed public runtime 
     { id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
       schemaExport: '@aihq/core/report/schema' },
     { id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' }
+      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' },
+    { id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'both',
+      schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.0.0.json' },
+    { id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts',
+      schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' }
   ]);
   assert.deepEqual(contractSupport.entries, [
     { export: '@aihq/core/harness', runtime: 'portable' },

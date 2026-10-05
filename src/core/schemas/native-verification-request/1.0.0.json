@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:native-verification-request:1.0.0",
+  "title": "Native verification request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "client"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:native-verification-request:1.0.0" },
+    "client": {
+      "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"]
+    },
+    "configuration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "const": "bundled" },
+            "id": { "const": "aihq.native-fixture.v1" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "input", "bundleId", "manifestSha256"],
+          "properties": {
+            "kind": { "const": "supplied" },
+            "input": { "$ref": "#/$defs/nativeId" },
+            "bundleId": { "$ref": "#/$defs/nativeId" },
+            "manifestSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "nativeId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}
