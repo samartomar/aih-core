@@ -300,6 +300,41 @@ Prepare both check aggregate ownership capacity before returning a ready review.
 
 ## Repair Python/pip, Git, Cargo and conda trust
 
+The versioned request uses the shared source review and protected custody contract
+for any selected combination of `python`, `pip`, `git`, `cargo` and `conda`.
+For an explicit supplied-file repair, save this as `trust-inputs.json`:
+
+```json
+{
+  "schema": "urn:aihq:core:repair-inputs:1.0.0",
+  "route": "file",
+  "repairs": { "user-tools-ca": {} },
+  "sources": {
+    "os": false,
+    "supplied": [{ "id": "company", "file": "company-ca.pem" }]
+  }
+}
+```
+
+```sh
+aih repair user-tools-ca --target pip --target git --inputs-file trust-inputs.json --json
+aih repair user-tools-ca --target pip --target git --inputs-file trust-inputs.json --apply
+```
+
+The API uses `schema: 'urn:aihq:core:repair-request:1.0.0'`, `route: 'file'`,
+the same `sources`, and `repairs: [{ id: 'user-tools-ca', targets: ['pip', 'git'], inputs: {} }]`.
+API source paths are absolute; CLI document paths are relative to that document.
+Omitted supplied IDs retain their original source partitions and are revalidated.
+Use `sources.removeSupplied` to review their removal, or supply the same ID with a
+new file to review replacement. The complete managed PEM is rebuilt from those
+sources; previous output bytes do not become a source. A lost or edited custody
+record requires the explicit replacement offered in the review.
+
+Native routes and OS-sourced file routes require proven client and policy cells.
+They currently report unavailable for these clients. `sources.os: false` selects
+the explicit supplied-file fallback. Full prepared-work and run-result 1.2.0
+contracts report source changes, client verification and output custody.
+
 The bundled `user-tools-ca` repair accepts a complete supplied CA file and any selected combination of `python`, `pip`, `git`, `cargo` and `conda`. Save `{"user-tools-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`:
 
 ```sh
@@ -320,6 +355,36 @@ Vendor transforms retain neighboring settings. Preserved configuration bodies ar
 Python must be `python` on Windows or `python3` on macOS/Linux. pip, Git and conda require direct executables; Windows batch wrappers are unavailable. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
 
 ## Repair Gradle and Maven trust
+
+The versioned shared request selects `gradle`, `maven`, or both, with an explicit
+reviewed JKS baseline kept separate from supplied CA sources:
+
+```json
+{
+  "schema": "urn:aihq:core:repair-inputs:1.0.0",
+  "route": "file",
+  "repairs": { "jvm-ca": { "baselineStore": "reviewed-jdk-baseline.jks" } },
+  "sources": {
+    "os": false,
+    "supplied": [{ "id": "company", "file": "company-ca.pem" }]
+  }
+}
+```
+
+```sh
+aih repair jvm-ca --target gradle --target maven --inputs-file trust-inputs.json --json
+aih repair jvm-ca --target gradle --target maven --inputs-file trust-inputs.json --apply
+```
+
+The API uses the versioned repair request with `inputs: { baselineStore: absoluteBaselineJksPath }`.
+Prepare computes the complete PEM and derived JKS before effects and binds their
+exact bytes, the selected baseline, configuration snapshots and executables to
+the review. Both outputs receive ordinary ownership and protected source custody;
+dependent manager configuration waits for its store's committed custody. Refresh
+revalidates retained original sources and rebuilds the store, so removed supplied
+certificates are removed unless another reviewed source still owns them. Native
+and OS-sourced routes currently report unavailable. No JDK or baseline discovery
+is implied. The schema-less form below retains its existing behavior.
 
 The bundled `jvm-ca` repair selects `gradle`, `maven`, or both at user scope. Supply a complete CA-only PEM and explicitly select a trust-only **JKS** baseline containing the default roots from the JDK used by those managers. The baseline uses the conventional public-container password `changeit` and must contain only CA certificate entries. Some JDKs ship PKCS12 `cacerts`; those files are unsupported directly. Export or convert the selected baseline with an approved local tool, preserve its default CA identities, and review that JKS file explicitly. Core binds both source files to the review; selecting a CA does not authorize discovery or installation of another JDK.
 

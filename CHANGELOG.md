@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.12 integrates the versioned shared trust request with the existing
+Python/pip, Git, Cargo, conda, Gradle and Maven repairs. Supplied-source retention,
+reviewed replacement/removal, configuration and executable binding, and protected
+output custody now cover these families. JVM repairs keep their explicit JKS
+baseline separate and review the precomputed derived store before effects.
+Schema-less repairs retain their behavior. Automatic OS/native repair remains
+unavailable without actual client and policy admission. This development candidate
+has not been published to npm.
+
 Core 1.0.0-dev.11 adds versioned macOS session contracts, supplied-file Node/npm
 terminal integration, protected session custody and observation/removal support.
 Desktop requests remain unavailable until exact native application profiles are

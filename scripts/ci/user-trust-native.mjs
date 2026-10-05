@@ -8,14 +8,15 @@ import { fileURLToPath } from 'node:url';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const allTargets = ['python', 'pip', 'git', 'cargo', 'conda'];
+const shared = process.env.AIHQ_TRUST_CONTRACT === 'shared';
 
 async function exerciseConsumer() {
   const { prepare, apply } = await import('@aihq/core');
   const { repairIndex, contractSupport } = await import('@aihq/core/harness');
   const { Ajv2020 } = await import('ajv/dist/2020.js');
   const ajv = new Ajv2020({ strict: true });
-  for (const name of ['prepared-work', 'run-result'])
-    ajv.addSchema((await import(`@aihq/core/schemas/${name}/1.0.0.json`, { with: { type: 'json' } })).default);
+  for (const name of ['prepared-work', 'run-result']) for (const version of ['1.0.0', '1.2.0'])
+    ajv.addSchema((await import(`@aihq/core/schemas/${name}/${version}.json`, { with: { type: 'json' } })).default);
   const targets = process.argv[4].split(',');
   const definition = repairIndex.find(item => item.id === 'user-tools-ca');
   const variant = definition.variants.find(item => item.os === process.platform && item.network === 'declared' &&
@@ -32,7 +33,10 @@ async function exerciseConsumer() {
     writeFileSync(file.path, sentinels[file.id]);
   }
   const before = new Map(files.map(file => [file.path, readFileSync(file.path)]));
-  const request = { useCase: 'repair', repairs: [{ id: 'user-tools-ca', targets, inputs: { caFile: process.argv[3] } }] };
+  const request = shared ? { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair', route: 'file',
+    repairs: [{ id: 'user-tools-ca', targets, inputs: {} }],
+    sources: { os: false, supplied: [{ id: 'fixture', file: process.argv[3] }] } } :
+    { useCase: 'repair', repairs: [{ id: 'user-tools-ca', targets, inputs: { caFile: process.argv[3] } }] };
   const preview = await prepare(request, { logging: 'off' });
   assert.ok(preview.review, JSON.stringify(preview.diagnostics));
   assert.equal(ajv.validate(preview.review.schema, preview.review), true, JSON.stringify(ajv.errors));
@@ -44,7 +48,7 @@ async function exerciseConsumer() {
   });
   const prepared = await prepare({ ...request, ...(resolutions.length ? { resolutions } : {}) }, { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
-  assert.deepEqual(prepared.review.inputs.package, contractSupport.package);
+  assert.deepEqual(shared ? prepared.review.inputs.trust.package : prepared.review.inputs.package, contractSupport.package);
   const result = await apply(prepared.prepared, { approved: true, origin: 'automation',
     reviewDigest: prepared.review.reviewDigest }, { logging: 'off' });
   assert.equal(ajv.validate(result.schema, result), true, JSON.stringify(ajv.errors));
@@ -57,7 +61,7 @@ async function exerciseConsumer() {
     { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 }).trim() : undefined;
   writeFileSync('native-result.json', JSON.stringify({ platform: process.platform, architecture: process.arch,
     osRelease: release(), ...(osVersion ? { osVersion } : {}), privilege, node: process.version, package: contractSupport.package,
-    targets, review: prepared.review, result }, null, 2));
+    targets, contract: shared ? 'shared' : 'legacy', review: prepared.review, result }, null, 2));
   if (result.completion !== 'complete') {
     // These supplied vendor checks are read-only; bounded fixture diagnostics
     // remain separate from the product's redacted run history.
@@ -91,7 +95,7 @@ async function exerciseConsumer() {
     assert.ok(text.includes(retained), `${file.id} preserves neighboring configuration`);
   }
   const after = new Map(files.map(file => [file.path, readFileSync(file.path)]));
-  const repeated = await prepare(request, { logging: 'off' });
+  const repeated = await prepare(shared ? { ...request, sources: { os: false, supplied: [] } } : request, { logging: 'off' });
   assert.equal(repeated.status, 'ready', JSON.stringify(repeated));
   const reapplied = await apply(repeated.prepared, { approved: true, origin: 'automation',
     reviewDigest: repeated.review.reviewDigest }, { logging: 'off' });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { trustRepairIndex, trustLimits, buildTrustCapabilities, validateRepairDefinition11, validateTrustCapabilities,
   selectTrustCell, selectRepairDefinition, buildTrustDefinitions, buildCertificateExportRecipe, resolveTrustRecipeRef, trustTransformIds, trustAdapters,
-  exportAdmissionTemplate } from '../../src/harness/trust-definitions.mjs';
+  exportAdmissionTemplate, getTrustFileIntegration } from '../../src/harness/trust-definitions.mjs';
 import { userToolsRepair } from '../../src/harness/user-trust-definitions.mjs';
 import { jvmRepair } from '../../src/harness/jvm-trust-definitions.mjs';
 
@@ -41,6 +41,20 @@ test('file variants preserve the 1.0 recipe identities, bindings and management 
   assert.ok(node.variants.every(v => v.capabilityIds.length === 0 && ['file', 'native'].includes(v.route)));
   assert.ok(trustRepairIndex.filter(item => item.id !== 'certificate-export').every(item =>
     item.variants.some(v => v.route === 'native') && item.variants.every(v => v.route === 'native' ? v.adapterId === 'repair-native-v1' : true)));
+});
+
+test('file integration metadata covers exactly the shipped user-tool file variants and pins the JVM baseline shape', () => {
+  const user = trustRepairIndex.find(item => item.id === 'user-tools-ca');
+  const supported = { status: 'supported', format: 'pem', includeNodeBundled: true };
+  for (const variant of user.variants.filter(v => v.route === 'file'))
+    assert.deepEqual(getTrustFileIntegration('user-tools-ca', variant.targets), supported, variant.recipeRef);
+  const jvm = { status: 'supported', format: 'pem', includeNodeBundled: false, baseline: 'jks',
+    outputs: [{ operationId: 'jks-materialize', name: 'trust.jks', format: 'jks' }] };
+  for (const variant of trustRepairIndex.find(item => item.id === 'jvm-ca').variants.filter(v => v.route === 'file'))
+    assert.deepEqual(getTrustFileIntegration('jvm-ca', variant.targets), jvm, variant.recipeRef);
+  const unavailable = { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'file-route-unsupported' };
+  assert.deepEqual(getTrustFileIntegration('certificate-export', []), unavailable);
+  assert.deepEqual(getTrustFileIntegration('user-tools-ca', []), unavailable);
 });
 
 test('export definition has null identities, empty targets and one variant per OS/network', () => {
