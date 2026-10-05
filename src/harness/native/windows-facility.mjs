@@ -248,8 +248,10 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
       cleanup = (async () => {
         if (transport) windowsTransports.delete(transport);
         const start = performance.now(), allowance = Math.min(bound(deadlineMs, 10000, 10000), Math.max(0, 10000 - (start - (bridge.cleanupStartedAt ?? start))));
+        // Native stopping must leave time for its receipt and helper closure inside this allowance.
+        const nativeBudget = Math.max(0, Math.floor(allowance - Math.min(250, allowance / 4)));
         const cleanupTimer = bridge.beginCleanup(allowance);
-        const receipt = await bridge.rpc('terminate', { graceMs: bound(graceMs, 1000, Math.min(1000, allowance)), deadlineMs: allowance }, allowance);
+        const receipt = await bridge.rpc('terminate', { graceMs: Math.min(nativeBudget, bound(graceMs, 1000, 1000)), deadlineMs: nativeBudget }, allowance);
         clearTimeout(cleanupTimer);
         const closure = await bridge.finish(Math.max(0, allowance - (performance.now() - start)));
         stdout.end(); stderr.end(); for (const socket of peers.values()) socket.destroy(); peers.clear();

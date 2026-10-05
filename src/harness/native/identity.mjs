@@ -11,13 +11,20 @@ const unavailable = reason => ({ status: 'unavailable', reason });
 const MISSING = unavailable('authentication-unavailable');
 const INVALID = unavailable('identity-binding-invalid');
 
-// Claude's file login channel (documentation-derived, unverified on a native run).
+// Closed login-file shape, including optional metadata emitted by Claude Code 2.1.285.
+// Recognizing the file does not prove that a native session used the dedicated identity.
 export function validateClaudeOAuthFile(bytes) {
   try {
     const value = parseStrictJson(Buffer.from(bytes).toString('utf8'));
     const oauth = isRecord(value) && Object.keys(value).length === 1 ? value.claudeAiOauth : undefined;
-    const ok = isRecord(oauth) && ['accessToken', 'refreshToken'].every(key => typeof oauth[key] === 'string' && oauth[key].length >= 1 && oauth[key].length <= 4096) &&
-      Number.isFinite(oauth.expiresAt) && Object.keys(oauth).every(key => ['accessToken', 'refreshToken', 'expiresAt', 'scopes', 'subscriptionType'].includes(key));
+    const boundedText = (value, limit) => typeof value === 'string' && value.length >= 1 && value.length <= limit;
+    const timestamp = value => Number.isSafeInteger(value) && value >= 0;
+    const ok = isRecord(oauth) && ['accessToken', 'refreshToken'].every(key => boundedText(oauth[key], 4096)) &&
+      timestamp(oauth.expiresAt) &&
+      (!Object.hasOwn(oauth, 'refreshTokenExpiresAt') || timestamp(oauth.refreshTokenExpiresAt)) &&
+      ['subscriptionType', 'rateLimitTier'].every(key => !Object.hasOwn(oauth, key) || boundedText(oauth[key], 256)) &&
+      (!Object.hasOwn(oauth, 'scopes') || (Array.isArray(oauth.scopes) && oauth.scopes.length <= 64 && oauth.scopes.every(value => boundedText(value, 256)))) &&
+      Object.keys(oauth).every(key => ['accessToken', 'refreshToken', 'expiresAt', 'refreshTokenExpiresAt', 'scopes', 'subscriptionType', 'rateLimitTier'].includes(key));
     return { valid: ok };
   } catch { return { valid: false }; }
 }

@@ -48,6 +48,27 @@ test('Claude OAuth file format is closed and bounded', () => {
     assert.equal(validateClaudeOAuthFile(Buffer.from(bad)).valid, false, bad);
 });
 
+test('Claude OAuth login metadata is accepted with bounded types and preserved exactly', async t => {
+  const value = JSON.parse(oauth);
+  Object.assign(value.claudeAiOauth, { refreshTokenExpiresAt: 1896048000000,
+    subscriptionType: 'pro', rateLimitTier: 'default_claude_max_5x' });
+  const credential = JSON.stringify(value);
+  assert.equal(validateClaudeOAuthFile(Buffer.from(credential)).valid, true);
+  for (const [key, invalid] of [
+    ['refreshTokenExpiresAt', 'soon'], ['refreshTokenExpiresAt', -1],
+    ['refreshTokenExpiresAt', null], ['rateLimitTier', {}], ['rateLimitTier', 'x'.repeat(257)],
+    ['subscriptionType', []], ['scopes', 'user:inference'], ['scopes', ['x'.repeat(257)]],
+    ['scopes', Array(65).fill('user:inference')], ['unknownLoginField', true]
+  ]) {
+    const changed = { claudeAiOauth: { ...value.claudeAiOauth, [key]: invalid } };
+    assert.equal(validateClaudeOAuthFile(Buffer.from(JSON.stringify(changed))).valid, false, key);
+  }
+  const p = provision(t, { credential });
+  const captured = await capture(p);
+  assert.equal(captured.status, 'captured');
+  assert.deepEqual(captured.credential, Buffer.from(credential));
+});
+
 test('a valid provisioned root is captured once and staged into the cell home only', async t => {
   const p = provision(t);
   const captured = await capture(p);
