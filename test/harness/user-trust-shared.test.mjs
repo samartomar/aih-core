@@ -83,6 +83,14 @@ test('shared Python recipe accepts the complete set beyond the legacy supplied-f
   assert.equal(userToolsRecipe(variant).inputs.fingerprintCsv.maxLength, 16640, 'legacy contract unchanged');
 });
 
+test('declared Python verification blocks an oversized complete set before returning a recipe', () => {
+  const fingerprints = Array.from({ length: 401 }, (_, index) => index.toString(16).padStart(64, '0'));
+  const result = shared(['python'], { variantRef: variantRef(['python'], 'declared'), offline: false, fingerprints });
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(result.diagnostics.map(d => [d.code, d.reason]), [['SOURCE_LIMIT', 'source-limit']]);
+  assert.equal(result.recipe, undefined); assert.equal(result.bindings, undefined);
+});
+
 test('shared file route preserves the existing actual-client environment and config checks', () => {
   try {
     process.env.PIP_CONFIG_FILE = join(homedir(), 'other-pip.conf');

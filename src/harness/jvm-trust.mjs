@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { composeExistingTrust, validateSuppliedCa } from './ca.mjs';
-import { parsePemBundle } from './trust-encoding.mjs';
+import { parsePemBundle, describeCertificate } from './trust-encoding.mjs';
 
 const literal = value => ({ literal: value });
 const input = name => ({ input: name });
@@ -729,6 +729,19 @@ function jksIntegrity(body) {
   return createHash('sha1').update(password).update('Mighty Aphrodite', 'latin1').update(body).digest();
 }
 
+/** Complete read-only facts for reviewing the fixed repair's existing and proposed JKS. */
+export function parseJvmTrustStore(bytes) {
+  try {
+    const certificates = new Map();
+    for (const entry of jksTrustEntries(bytes)) {
+      const described = describeCertificate(entry.der);
+      if (!described) return { status: 'invalid', reason: 'jks-cert-invalid' };
+      certificates.set(described.fingerprint, described);
+    }
+    return { status: 'parsed', certificates: [...certificates.values()].sort((a, b) => a.fingerprint < b.fingerprint ? -1 : 1) };
+  } catch { return { status: 'invalid', reason: 'jks-invalid' }; }
+}
+
 /** Encode trusted entries back to the conventional JKS layout and public container password. */
 function encodeJksTrustEntries(entries) {
   const parts = [];
@@ -835,7 +848,7 @@ function buildJvmTrustFileRecipe(variant) {
     bundleSha256: { type: 'string', required: true, maxLength: 64 },
     jksPath: { type: 'string', required: true, maxLength: 4096 },
     jksSha256: { type: 'string', required: true, maxLength: 64 },
-    fingerprintCsv: { type: 'string', required: true, maxLength: JKS_ENTRY_LIMIT * 65 - 1 },
+    fingerprintCsv: { type: 'string', required: true, maxLength: 400 * 65 - 1 },
     keytoolExecutable: { type: 'string', required: true, maxLength: 4096 }
   };
   if (declared) {
@@ -913,8 +926,16 @@ export function renderJvmTrustFileRepair(request) {
   const store = buildJvmTrustStore({ bundle: request.bundle, bundleSha256: request.bundleSha256,
     fingerprints: request.fingerprints, baselineStore: request.baselineStore });
   if (store.status !== 'completed') return store;
+  const storeFingerprints = [...new Set(store.fingerprints)];
+  const fingerprintCsv = storeFingerprints.join(',');
+  const keytoolPath = typeof request.executablePaths?.keytoolExecutable === 'string' ? request.executablePaths.keytoolExecutable : '';
+  // Conservative quoting budget includes both bound paths and the fixed verifier source.
+  const verificationCharacters = fingerprintCsv.length + 2 * (process.execPath.length + jksContentScript.length + jksPath.length + keytoolPath.length) + 64;
+  if (storeFingerprints.length > 400 || verificationCharacters > 32000)
+    return { status: 'blocked', diagnostics: [{ code: 'SOURCE_LIMIT', reason: 'source-limit',
+      message: 'The complete JVM verification set exceeds the portable process-argument bound.' }] };
   const bindings = { bundlePath: request.bundlePath, bundleSha256: request.bundleSha256,
-    jksPath, jksSha256: store.sha256, fingerprintCsv: store.fingerprints.join(',') };
+    jksPath, jksSha256: store.sha256, fingerprintCsv };
   for (const { pathInput } of variant.executableBindings) {
     const path = request.executablePaths?.[pathInput] ?? '';
     if (typeof path !== 'string' || path && (!isAbsolute(path) || /[\p{Cc}\p{Cf}]/u.test(path)))

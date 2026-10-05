@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { contractSupport as harnessSupport, selectRepairDefinition, selectTrustCell, trustCapabilities, exportDefaultNames, type TrustCapabilityCell } from '../harness/contracts.mjs';
 import { discoverTrustSources, serializeTrustSet, parseTrustOutput, reviewTrustDelta, trustHelperFiles,
   detectTrustPlatform, verifyTrustAdmissionEvidence, hashTrustLibraries, getTrustFileIntegration, type TrustDiscovery } from '../harness/trust.mjs';
-import { getTrustRecipe, renderTrustFileRepair, validateBaselineStore, assessRepairObservations } from '../harness/runtime.mjs';
+import { getTrustRecipe, renderTrustFileRepair, parseJvmTrustStore, assessRepairObservations } from '../harness/runtime.mjs';
 import { observeRepair, captureRequiredAbsences, captureConfigFiles, resolveExecutableBindings, unavailableExecutableInvocations } from './repair.js';
 import { validateTrustRepairRequest, validateCertificateExportRequest } from './trust-contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
@@ -348,6 +348,19 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
     const outputs: Planned[] = planned.map((item,index) => index === 0 ?
       { ...item,bytes:serialized.bytes,sha256:serialized.sha256,certificateCount:serialized.certificateCount,consumerProfile:serialized.consumerProfile } :
       (o => ({ ...item,bytes:o.bytes,sha256:o.sha256,certificateCount:new Set(o.fingerprints).size,consumerProfile:o.consumerProfile ?? 'jvm-truststore-v1' }))(rendered!.outputs![index-1]!));
+    const reviewCertificates = new Map(discovery.certificates.map(c => [c.fingerprint, c]));
+    for (const item of outputs.filter(o => o.format === 'jks')) {
+      const parsed = parseJvmTrustStore(item.bytes);
+      if (parsed.status !== 'parsed') throw new Error('harness-unsupported');
+      for (const c of parsed.certificates) {
+        const existing = reviewCertificates.get(c.fingerprint);
+        const owners = discovery.sources.filter(s => s.fingerprints.includes(c.fingerprint)).map(s => s.id).sort();
+        reviewCertificates.set(c.fingerprint, { fingerprint:c.fingerprint,subject:c.subject,issuer:c.issuer,
+          notBefore:c.notBefore,notAfter:c.notAfter,sources:owners,excludedFrom:existing?.excludedFrom ?? [],reasons:existing?.reasons ?? [] });
+      }
+    }
+    const priorCertificates = new Map<string, Extract<ReturnType<typeof parseTrustOutput>,{status:'parsed'}>['certificates'][number]>();
+    const recordedSources = outputs.flatMap(o => o.prior?.sources ?? []);
 
     // Ordinary ownership and provenance must agree for each output; a missing half of known custody never self-heals.
     const recorded = outputs.some(o => o.prior);
@@ -380,12 +393,11 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
         reason:`recorded-output:${itemPrior.outputSha256}; observed-output:${beforeSha256 ?? 'absent'}; recorded-recipe:${itemPrior.recipeIdentity}; observed-recipe:${owner?.recipeIdentity ?? 'absent'}`});
       if (before) {
         // Review the whole observed output before any replacement; unparseable bytes are never replaceable.
-        const parsed = item.format === 'jks' ? undefined : parseTrustOutput(before,item.format,{ maxBytes:16*1024*1024 });
-        const parseable = item.format === 'jks' ? validateBaselineStore(before).valid : parsed?.status === 'parsed';
-        if (!parseable) {
+        const parsed = item.format === 'jks' ? parseJvmTrustStore(before) : parseTrustOutput(before,item.format,{ maxBytes:16*1024*1024 });
+        if (parsed.status !== 'parsed') {
           if (!conflict || conflict === 'trust-output-conflict') conflict = 'existing-trust-uncomposable';
           hint = false;
-        } else if (index === 0 && parsed?.status === 'parsed') inputs.trust.certificates = reviewTrustDelta({ discovery,prior:{ sources:priorSources ?? [],output:parsed } });
+        } else for (const c of parsed.certificates) priorCertificates.set(c.fingerprint, c);
       }
       const resolution = request.resolutions?.find(r => r.selectionId === selectionId && r.operationId === item.operationId);
       if (resolution && (!hint || resolution.observedSha256 !== beforeSha256 || resolution.choice !== 'replace')) return done('invalid',[diagnostic('INPUT_INVALID','resolution-stale')]);
@@ -399,6 +411,9 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
     }
     rows.sort((a,b) => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0);
     inputs.trust.outputs = rows;
+    inputs.trust.certificates = reviewTrustDelta({ discovery:{ ...discovery,certificates:[...reviewCertificates.values()] },
+      ...((recordedSources.length || priorCertificates.size) ? { prior:{ ...(recorded ? { sources:recordedSources } : {}),
+        ...(priorCertificates.size ? { output:{ certificates:[...priorCertificates.values()] } } : {}) } } : {}) });
     if (conflicts.length) return done('blocked',conflicts,hints);
     const sourceRows: TrustCustodySource[] = discovery.sources.map(s => ({ id:s.id,kind:s.kind,fingerprints:[...s.fingerprints],sourceSha256:s.sourceSha256!,
       policySha256:s.policySha256,runtimeVersion:s.runtimeVersion,privateFile:s.kind === 'supplied' ?
@@ -442,6 +457,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
     const requestSha256 = hash(request);
     const capturedMaterial = material;
     const renderedSha256 = rendered ? renderIdentity(rendered) : null;
+    const expectedConfigs = Object.fromEntries(Object.entries(configs).map(([key, c]) => [key,{ ...c,pins:[...c.pins] }]));
     const recheck = async (signal = controls.signal) => {
       try {
         if (installedHelper() !== helperSha256 || installedAdmission(cell)!==admissionSha256 || hash(input) !== requestSha256) throw new Error('review-stale');
@@ -460,10 +476,13 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
         if (!isExport && variant) {
           const live=assessRepairObservations({id,managedPath:output.path,variantRef:variant.recipeRef,observations:observeRepair(id,targetIds,variant.recipeRef)});
           if (live.length !== observations.length || live.some((o,i) => o.id !== observations[i]?.id || ![observations[i]?.raw,observations[i]?.expectedRaw].includes(o.raw))) throw new Error('review-stale');
-          // All rechecks precede every effect, so reviewed configuration bytes must still be present.
-          for (const config of Object.values(configs)) {
+          // Only engine-committed writes advance expectations; external changes remain stale.
+          for (const config of Object.values(expectedConfigs)) {
             if (!pinsMatch(config.pins)) throw new Error('review-stale');
-            if (config.sha256 === null) continue;
+            if (config.sha256 === null) {
+              if (pathPins(config.path).at(-1)?.identity !== 'absent') throw new Error('review-stale');
+              continue;
+            }
             const live = readRegularFileWithStats(config.path,{ maxBytes:config.maxBytes });
             if (!live || sha256(live.contents) !== config.sha256 || !pinsMatch(config.pins)) throw new Error('review-stale');
           }
@@ -479,6 +498,19 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
     };
     const custody = custodyParticipant(image,entries,recheck,[],pending);
     if (sessionParticipant && entries.length !== 1) throw new Error('session-output-unsupported');
+    const commitCustody = custody.committed.bind(custody);
+    custody.committed = step => {
+      commitCustody(step);
+      if (!step.root || !step.path) return;
+      const committedPath = join(step.root,...step.path.split('/'));
+      const parents = pathPins(committedPath).slice(0,-1);
+      for (const [operationId, c] of Object.entries(expectedConfigs)) {
+        if (c.path === committedPath && step.review.id === `${selectionId}/${operationId}`) {
+          c.sha256 = step.after ? sha256(step.after) : null;
+          c.pins = pathPins(c.path);
+        } else c.pins = c.pins.map(pin => pin.identity === 'absent' ? parents.find(parent => parent.path === pin.path) ?? pin : pin);
+      }
+    };
     const participant = sessionParticipant ? joinSessionParticipant(custody, sessionParticipant(entries[0]!)) : custody;
     const policyControls: HostControls = { ...controls,logging:'off',materialRoots:{ 'generated-export':directory },
       ...(Object.keys(privateBindings).length ? { privateInputs:{ [selectionId]:privateBindings } } : {}) };

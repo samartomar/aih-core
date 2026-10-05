@@ -200,18 +200,25 @@ export function renderUserToolsTrustFileRepair(request) {
       typeof request.offline !== 'boolean' || variant.network !== (request.offline ? 'off' : 'declared') ||
       typeof request.bundlePath !== 'string' || !isAbsolute(request.bundlePath) ||
       !/^[a-f0-9]{64}$/.test(request.bundleSha256 ?? '') ||
-      !Array.isArray(request.fingerprints) || !request.fingerprints.length)
+      !Array.isArray(request.fingerprints) || !request.fingerprints.length ||
+      request.fingerprints.some(value => typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)))
     return invalid('repair-input', 'Unsupported user-tool trust file input.');
   if (Object.hasOwn(request, 'caFile') || Object.hasOwn(request, 'files') ||
       Object.hasOwn(request, 'existing') || Object.hasOwn(request, 'validateOnly'))
     return invalid('repair-input', 'The shared file route binds the complete source set; supplied-file fields are not accepted.');
   const environment = userToolsEnvironmentBlock(variant, request.bundlePath);
   if (environment) return environment;
+  // The complete CSV is a process argument only for declared Python verification.
+  const pythonPath = typeof request.executablePaths?.pythonExecutable === 'string' ? request.executablePaths.pythonExecutable : '';
+  const verificationCharacters = request.fingerprints.join(',').length + 2 * (pythonTls.length + pythonPath.length) + 64;
+  if (variant.targets.includes('python') && !request.offline && (request.fingerprints.length > 400 || verificationCharacters > 32000))
+    return { status: 'blocked', diagnostics: [{ code: 'SOURCE_LIMIT', reason: 'source-limit',
+      message: 'The complete Python verification set exceeds the portable process-argument bound.' }] };
   const rendered = renderUserToolsRepair(request);
   if (rendered.status !== 'completed' || !variant.targets.includes('python')) return rendered;
   const recipe = userToolsRecipe(variant);
   // Shared discovery includes the complete aggregate, beyond the legacy single-file bound.
-  recipe.inputs.fingerprintCsv.maxLength = 4096 * 65 - 1;
+  recipe.inputs.fingerprintCsv.maxLength = (request.offline ? 4096 : 400) * 65 - 1;
   return { ...rendered, recipe };
 }
 

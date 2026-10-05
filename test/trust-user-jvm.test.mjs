@@ -87,6 +87,19 @@ test('supplied-only pip repair writes the original pip transform with paired cus
   assert.equal(again.trust.outputs[0].status, 'unchanged');
 }));
 
+test('multiple selected user tools complete and refresh after their own configuration writes', () => withPath(async () => {
+  fixtureTool('pip'); fixtureTool('git');
+  const request = repair('user-tools-ca', ['pip', 'git'], { sources: { os: false, supplied: [{ id: 'team', file: source('multiple.pem') }] } });
+  const p = await prepare(request, { logging: 'off' });
+  assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
+  const r = await apply(p.prepared, approve(p), { logging: 'off' });
+  assert.equal(r.completion, 'complete', JSON.stringify(r.diagnostics));
+  assert.deepEqual(r.trust.targets.map(t => [t.id, t.configuration]), [['pip', 'applied'], ['git', 'applied']]);
+  const retained = await prepare({ ...request, sources: { os: false, supplied: [] } }, { logging: 'off' });
+  assert.equal(retained.status, 'ready', JSON.stringify(retained.diagnostics));
+  assert.equal((await apply(retained.prepared, approve(retained), { logging: 'off' })).completion, 'complete');
+}));
+
 test('a configuration change after review rejects as trust-binding-changed before any effect', () => withPath(async () => {
   fixtureTool('pip');
   const p = await prepare(repair('user-tools-ca', ['pip'], { sources: { os: false, supplied: [{ id: 'team', file: source('stale.pem') }] } }), { logging: 'off' });
@@ -167,6 +180,18 @@ const baseline = Buffer.from(
 const jvm = baselineStore => ({ ...repair('jvm-ca', ['gradle'], { sources: { os: false, supplied: [{ id: 'team', file: source('jvm.pem', rootB) }] } }),
   repairs: [{ id: 'jvm-ca', targets: ['gradle'], inputs: { baselineStore } }] });
 
+// Replace the one certificate in the genuine keytool fixture, preserving its entry header.
+const baselineWithRootB = () => {
+  const original = new X509Certificate(rootA).raw;
+  const replacement = new X509Certificate(rootB).raw;
+  const offset = baseline.indexOf(original); assert.ok(offset > 4);
+  const length = Buffer.alloc(4); length.writeUInt32BE(replacement.length);
+  const body = Buffer.concat([baseline.subarray(0, offset - 4), length, replacement,
+    baseline.subarray(offset + original.length, baseline.length - 20)]);
+  const password = Buffer.from('006300680061006e0067006500690074', 'hex');
+  return Buffer.concat([body, createHash('sha1').update(password).update('Mighty Aphrodite', 'latin1').update(body).digest()]);
+};
+
 // Launch boundary only: this fixture reports selected fingerprints without doing TLS.
 const keytoolBoundary = (t, fingerprints = []) => {
   if (process.platform !== 'win32') {
@@ -192,7 +217,8 @@ const certificateFingerprint = pem => createHash('sha256').update(new X509Certif
 test('JVM launch boundary: Apply commits both outputs and custody before configuration, retains sources and removes the pair', t => withPath(async () => {
   if (!keytoolBoundary(t, [rootA, rootB].map(certificateFingerprint))) return;
   const baselineStore = source('apply-baseline.jks', baseline);
-  const p = await prepare(jvm(baselineStore), { logging: 'off' });
+  const request = { ...jvm(baselineStore), repairs: [{ id: 'jvm-ca', targets: ['gradle', 'maven'], inputs: { baselineStore } }] };
+  const p = await prepare(request, { logging: 'off' });
   assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
   const r = await apply(p.prepared, approve(p), { logging: 'off' });
   assert.equal(r.completion, 'complete', JSON.stringify(r.diagnostics)); valid(validateRunResult12, r);
@@ -205,7 +231,8 @@ test('JVM launch boundary: Apply commits both outputs and custody before configu
   }
   const jks = r.trust.outputs.find(o => o.format === 'jks');
   assert.ok(readFileSync(join(home, '.gradle', 'gradle.properties'), 'utf8').includes(jks.path.replaceAll('\\', '/')));
-  const retained = await prepare({ ...jvm(baselineStore), sources: { os: false, supplied: [] } }, { logging: 'off' });
+  assert.ok(existsSync(join(home, process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc')));
+  const retained = await prepare({ ...request, sources: { os: false, supplied: [] } }, { logging: 'off' });
   assert.equal(retained.status, 'ready', JSON.stringify(retained.diagnostics));
   assert.ok(retained.review.inputs.trust.sources.some(s => s.id === 'supplied:team'));
   const again = await apply(retained.prepared, approve(retained), { logging: 'off' });
@@ -225,6 +252,23 @@ test('JVM launch boundary: failed store verification never releases dependent co
   assert.notEqual(r.completion, 'complete'); valid(validateRunResult12, r);
   assert.equal(existsSync(join(home, '.gradle', 'gradle.properties')), false);
   assert.ok(r.trust.targets.every(target => target.configuration !== 'applied'));
+}));
+
+test('JVM baseline replacement reviews the removed truststore-only certificate and its provenance', t => withPath(async () => {
+  if (!keytoolBoundary(t, [rootA, rootB].map(certificateFingerprint))) return;
+  const baselineStore = source('review-baseline.jks', baseline);
+  const p = await prepare(jvm(baselineStore), { logging: 'off' });
+  assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
+  assert.equal((await apply(p.prepared, approve(p), { logging: 'off' })).completion, 'complete');
+  writeFileSync(baselineStore, baselineWithRootB());
+  const replacement = await prepare(jvm(baselineStore), { logging: 'off' });
+  assert.equal(replacement.status, 'ready', JSON.stringify(replacement.diagnostics));
+  const removed = replacement.review.inputs.trust.certificates.find(c => c.fingerprint === certificateFingerprint(rootA));
+  assert.ok(removed, 'old JKS-only root must be visible in the complete certificate review');
+  assert.equal(removed.disposition, 'removed'); assert.deepEqual(removed.beforeSources, ['jvm-baseline']);
+  assert.deepEqual(removed.afterSources, []); assert.ok(removed.subject.length > 0);
+  const retained = replacement.review.inputs.trust.certificates.find(c => c.fingerprint === certificateFingerprint(rootB));
+  assert.deepEqual(retained.afterSources, ['jvm-baseline', 'supplied:team']);
 }));
 
 test('JVM file repair binds the explicit baseline separately and reviews a precomputed JKS as managed output', () => withPath(async () => {

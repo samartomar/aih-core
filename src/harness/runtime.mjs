@@ -15,7 +15,7 @@ import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
   userToolsObservationRequests, assessUserToolsObservations, renderUserToolsTrustFileRepair } from './user-trust.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { jvmRecipe, renderJvmRepair, prepareJvmRepair, renderJvmTrustFileRepair } from './jvm-trust.mjs';
-export { validateBaselineStore } from './jvm-trust.mjs';
+export { validateBaselineStore, parseJvmTrustStore } from './jvm-trust.mjs';
 import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 export { readGitHubPolicy } from './github-policy.mjs';
