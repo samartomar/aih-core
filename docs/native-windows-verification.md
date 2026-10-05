@@ -29,6 +29,16 @@ runs on a consumer machine. The build record binds source, compiler and executab
 bytes; it makes no reproducible-build claim. Other platforms retain their separate
 unsupported or unavailable outcomes.
 
+Cell protection requires the current user to own every object. Windows derives
+the owner of a newly created file or directory from the creator token, separately
+from its inherited permissions. An elevated token can default to the
+Administrators group even inside a user-owned protected parent. That context
+remains unavailable: the verifier refuses the owner mismatch rather than taking
+ownership or accepting an Administrator-owned credential. Run native verification
+from the standard user context; standard-user facility evidence does not establish
+elevated-context support.
+[Windows object ownership](https://learn.microsoft.com/en-us/windows/win32/secauthz/owner-of-a-new-object)
+
 ## Dedicated identity preparation
 
 Provisioning is separate from verification. The trusted host creates a dedicated
