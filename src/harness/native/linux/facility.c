@@ -12,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <sys/ptrace.h>
 #include <sys/sysmacros.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -33,6 +34,9 @@
 #define MAX_ARG 64
 #define MAX_OBS_ARG 512
 #define MAX_PROC 256
+#define MAX_AUDIT 512
+#define MAX_TRACE 2048
+#define MAX_IMAGE_CACHE 32
 #define MAX_PEER 16
 #define MAX_TOKEN 24000
 #define OUT_LIMIT 2097152
@@ -65,6 +69,11 @@ static void sha_block(Sha *s) {
 }
 static void sha_init(Sha *s) { static const uint32_t init[8]={0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19}; memset(s,0,sizeof(*s)); memcpy(s->h,init,sizeof(init)); }
 static void sha_add(Sha *s,const unsigned char *p,size_t n) { s->bytes+=n; while(n--) { s->b[s->used++]=*p++; if(s->used==64) {sha_block(s);s->used=0;} } }
+static int sha_finish(Sha *s,char out[65]) {
+  uint64_t bits=s->bytes*8; unsigned char one=128,zero=0;sha_add(s,&one,1);while(s->used!=56)sha_add(s,&zero,1);
+  unsigned char end[8];for(unsigned i=0;i<8;i++)end[7-i]=(unsigned char)(bits>>(i*8));sha_add(s,end,8);
+  for(unsigned i=0;i<8;i++) { int ignored=snprintf(out+i*8,9,"%08x",s->h[i]); (void)ignored; } out[64]=0;return 0;
+}
 static int hash_fd(int fd,char out[65]) {
   Sha s;sha_init(&s); unsigned char b[65536]; off_t off=0; ssize_t n;
   while((n=pread(fd,b,sizeof(b),off))>0) {
@@ -73,9 +82,7 @@ static int hash_fd(int fd,char out[65]) {
     sha_add(&s,b,(size_t)n);
   }
   if(n<0)return -1;
-  uint64_t bits=s.bytes*8; unsigned char one=128,zero=0;sha_add(&s,&one,1);while(s.used!=56)sha_add(&s,&zero,1);
-  unsigned char end[8];for(unsigned i=0;i<8;i++)end[7-i]=(unsigned char)(bits>>(i*8));sha_add(&s,end,8);
-  for(unsigned i=0;i<8;i++) { int ignored=snprintf(out+i*8,9,"%08x",s.h[i]); (void)ignored; } out[64]=0;return 0;
+  return sha_finish(&s,out);
 }
 
 /* Closed, bounded JSON RPC parser. Tokens retain no pointers into freed input. */
@@ -116,16 +123,51 @@ static void event(const char *type,const char *v) {char *buf=malloc(FRAME);if(!b
 
 typedef struct {char *path;char hash[65];off_t bytes;int fd;dev_t dev;ino_t ino;} Pin;
 typedef struct {char *id,*exe;char hash[65];char *argv[MAX_ARG];int argc;} Entry;
-typedef struct {pid_t pid,ppid;uint64_t birth;uid_t uid;dev_t nsdev;ino_t nsino;dev_t nsdevs[4];ino_t nsinos[4];pid_t nspid;int fd,live,fresh;char state;} Proc;
+typedef struct {pid_t pid,ppid;uint64_t birth;uid_t uid;dev_t nsdev;ino_t nsino;dev_t nsdevs[4];ino_t nsinos[4];pid_t nspid;int fd,live,fresh;char state;void *audit_state;} Proc;
 static const char *namespace_files[4]={"pid","mnt","net","user"};
 static const char *namespace_names[4]={"pid","mount","network","user"};
 typedef struct {int fd,id,pipe_id;struct ucred cred;uint64_t birth;int processfd;size_t bytes;} Peer;
 typedef struct {int fd,id;char path[108];dev_t dev;ino_t ino;} Pipe;
 static Pin pins[MAX_PIN];static Entry entries[MAX_ENTRY];static int npin,nentry;
 static Proc owned[MAX_PROC];static int nowned;static pid_t rootpid;static int root_reaped,root_status,exit_sent;
+/* Kernel-issued child stops hold new tasks before userspace can run. Threads
+ * need trace bookkeeping, but share their leader's argv/image lifetime. */
+typedef struct {pid_t tid;int authorized,initial,waiting,status,terminal;} Trace;
+static Trace traces[MAX_TRACE];
+static int reap(void);
 static int child_in=-1,child_out=-1,child_err=-1;static Peer peers[MAX_PEER];static int next_peer;
 static Pipe pipes[2];static int pipe_count;
 static char directory[PATH_MAX];static uint64_t output_bytes,ipc_bytes;static int output_limited;
+
+/* Fixed owner-only snapshot storage: the whole-host discovery Proc table never
+ * contains argv buffers or executable descriptors. Raw values stay private and
+ * transient. Capture precedes hashing; a generation requires explicit audit ACK.
+ * Kernel child/exec stops precede userspace execution; arbitrary in-place argv
+ * mutations between samples remain outside this observation contract. */
+typedef struct { struct stat image; char digest[65]; dev_t nsdev[4]; ino_t nsino[4]; int captured,acknowledged,unobservable; } AuditState;
+typedef struct { Proc identity; struct stat image; int fd,generation,argc,inspected; size_t bytes; char path[PATH_MAX],argv[65536]; } Audit;
+typedef struct { int fd; struct stat image; char hash[65]; } ImageCache;
+static Audit *audits[MAX_AUDIT];static int audit_generation,coverage_gap;
+static ImageCache image_cache[MAX_IMAGE_CACHE];static int image_cache_count;
+static int capture_audit(Proc *p,int force);
+static void discard_audits(Proc *p);
+static int image_same(const struct stat *a,const struct stat *b) {
+  return S_ISREG(a->st_mode)&&S_ISREG(b->st_mode)&&a->st_dev==b->st_dev&&a->st_ino==b->st_ino&&a->st_size==b->st_size&&a->st_mode==b->st_mode&&a->st_uid==b->st_uid&&
+    a->st_mtim.tv_sec==b->st_mtim.tv_sec&&a->st_mtim.tv_nsec==b->st_mtim.tv_nsec&&a->st_ctim.tv_sec==b->st_ctim.tv_sec&&a->st_ctim.tv_nsec==b->st_ctim.tv_nsec;
+}
+/* Cache only an immutable observation of an exact still-held regular executable
+ * descriptor, never a pathname. Changed inode metadata forces a fresh full hash.
+ * Both the cache FD and requested FD are rechecked around every use. */
+static int image_hash(int fd,char hash[65]) {
+  struct stat before,after,held;if(fstat(fd,&before)||!S_ISREG(before.st_mode))return 0;
+  for(int i=0;i<image_cache_count;i++)if(!fstat(image_cache[i].fd,&held)&&image_same(&before,&held)&&image_same(&held,&image_cache[i].image)){
+    if(fstat(fd,&after)||!image_same(&before,&after))return 0;
+    strcpy(hash,image_cache[i].hash);return 1;
+  }
+  if(hash_fd(fd,hash)||fstat(fd,&after)||!image_same(&before,&after))return 0;
+  if(image_cache_count<MAX_IMAGE_CACHE){int copy=fcntl(fd,F_DUPFD_CLOEXEC,3);if(copy>=0){ImageCache *c=&image_cache[image_cache_count++];c->fd=copy;c->image=after;strcpy(c->hash,hash);}}
+  return 1;
+}
 static int read_small(const char *path,char *s,size_t max) {int fd=open(path,O_RDONLY|O_CLOEXEC);if(fd<0)return -1;ssize_t n=read(fd,s,max);close(fd);if(n<0||(size_t)n>=max)return -1;s[n]=0;return (int)n;}
 static int process(pid_t pid,Proc *p) {
   char name[80],buf[65536];int ignored=snprintf(name,sizeof(name),"/proc/%d/stat",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
@@ -161,13 +203,16 @@ static int parent_owned(const Proc *child) {
 }
 /* Exited identities keep their slots until adoption pressure needs them, so an
  * exited member stays distinguishable from a missing one. Reclaim closes the
- * pidfd of pidfd-confirmed dead entries only; root reap bookkeeping is waitpid's. */
-static void reclaim(void) {int w=0;for(int i=0;i<nowned;i++){if(owned[i].live){if(w!=i)owned[w]=owned[i];w++;}else close_fd(&owned[i].fd);}nowned=w;}
+ * pidfd of kernel-confirmed dead entries only; root reap bookkeeping is waitpid's. */
+static void reclaim(void) {int w=0;for(int i=0;i<nowned;i++){if(owned[i].live){if(w!=i)owned[w]=owned[i];w++;}else {discard_audits(&owned[i]);close_fd(&owned[i].fd);}}nowned=w;}
 /* Returns 1 when the identity is proven owned but owned[] is full. */
-static int adopt(Proc *p) {
-  int i=held(p->pid,p->birth);if(i>=0){int fd=owned[i].fd;owned[i]=*p;owned[i].fd=fd;return 0;}
+static int adopt(Proc *p,int kernel_receipt) {
+  int i=held(p->pid,p->birth);if(i>=0){int fd=owned[i].fd;void *audit=owned[i].audit_state;owned[i]=*p;owned[i].fd=fd;owned[i].audit_state=audit;capture_audit(&owned[i],0);return 0;}
   if(nowned>=MAX_PROC){reclaim();if(nowned>=MAX_PROC)return 1;}int fd=pid_open(p->pid);if(fd<0){if(errno==ESRCH)return 0;faulted=1;return -1;}
-  Proc again;if(process(p->pid,&again)||again.birth!=p->birth||!parent_owned(&again)){close(fd);return 0;}again.fd=fd;owned[nowned++]=again;return 0;
+  /* A stopped automatically traced child has a kernel lineage receipt even
+   * when its real parent has already exited. Ordinary scans still need the
+   * live, pidfd-bound parent check; a numeric PID never supplies that receipt. */
+  Proc again;if(process(p->pid,&again)||again.birth!=p->birth||(!kernel_receipt&&!parent_owned(&again))){close(fd);return 0;}again.fd=fd;owned[nowned]=again;capture_audit(&owned[nowned++],0);return 0;
 }
 /* Overflow adoptees never enter owned[]: a temporary pidfd binds the verified
  * birth and current parent authority; kill immediately and close it. No dynamic
@@ -183,6 +228,7 @@ static void overflow_adopt(const Proc *p) {
 }
 /* A whole-host table is used only to discover ancestry; unrelated processes are never signalled. */
 static int scan(void) {
+  reap();
   for(int i=0;i<nowned;i++) {
     struct pollfd status={owned[i].fd,POLLIN,0};
     int rc=poll(&status,1,0);
@@ -201,14 +247,146 @@ static int scan(void) {
        * Final success still requires waitpid(ECHILD), never a missing /proc entry. */
       continue;
     }
-    int fd=owned[i].fd;owned[i]=p;owned[i].fd=fd;
+    int fd=owned[i].fd;void *audit=owned[i].audit_state;owned[i]=p;owned[i].fd=fd;owned[i].audit_state=audit;capture_audit(&owned[i],0);
   }
   DIR *d=opendir("/proc");if(!d){faulted=1;return -1;}Proc *table=calloc(65536,sizeof(Proc));if(!table){closedir(d);faulted=1;return -1;}int count=0;struct dirent *e;
   while((e=readdir(d))){char *end;long pid=strtol(e->d_name,&end,10);if(*end||pid<=0||pid>INT_MAX)continue;if(count==65536){faulted=1;break;}Proc p;if(!process((pid_t)pid,&p))table[count++]=p;}
-  closedir(d);for(int pass=0;pass<MAX_PROC;pass++){int changed=0;for(int i=0;i<count;i++){Proc *p=&table[i];if(p->pid==getpid()||held(p->pid,p->birth)>=0)continue;if(p->ppid==getpid()||belongs(p->ppid)){int r=adopt(p);if(r<0)continue;if(r>0){overflow_adopt(p);continue;}if(held(p->pid,p->birth)>=0)changed=1;}}if(!changed)break;}
+  closedir(d);for(int pass=0;pass<MAX_PROC;pass++){int changed=0;for(int i=0;i<count;i++){Proc *p=&table[i];if(p->pid==getpid()||held(p->pid,p->birth)>=0)continue;if(p->ppid==getpid()||belongs(p->ppid)){int r=adopt(p,0);if(r<0)continue;if(r>0){overflow_adopt(p);continue;}if(held(p->pid,p->birth)>=0)changed=1;}}if(!changed)break;}
   free(table);return faulted?-1:0;
 }
-static int reap(void) {int status;pid_t p;for(;;){p=waitpid(-1,&status,WNOHANG);if(p>0){if(p==rootpid){root_reaped=1;root_status=status;}continue;}if(p==0)return 0;if(errno==EINTR)continue;if(errno==ECHILD)return 1;faulted=1;return 0;}}
+static int trace_slot(pid_t tid) {
+  int empty=-1;for(int i=0;i<MAX_TRACE;i++){if(traces[i].tid==tid)return i;if(!traces[i].tid&&empty<0)empty=i;}
+  if(empty<0){coverage_gap=1;faulted=1;return -1;}
+  traces[empty]=(Trace){.tid=tid};return empty;
+}
+static int trace_leader(pid_t tid,pid_t *leader) {
+  char path[80],buf[65536];int ignored=snprintf(path,sizeof(path),"/proc/%d/status",tid);(void)ignored;
+  if(read_small(path,buf,sizeof(buf)-1)<0)return 0;
+  char *line=strstr(buf,"\nTgid:");long id=0;if(!line||sscanf(line,"\nTgid:\t%ld",&id)!=1||id<1||id>INT_MAX)return 0;
+  *leader=(pid_t)id;return 1;
+}
+static void trace_resume(int slot);
+static void trace_kill(pid_t tid) {
+  /* Called only for an authorized kernel stop. Keep signals pidfd-bound even
+   * when fixed ownership storage cannot accept another stopped child. */
+  int fd=pid_open(tid);if(fd<0){faulted=1;return;}
+  if(pid_signal(fd,SIGKILL)&&errno!=ESRCH)faulted=1;
+  close(fd);
+}
+static void trace_child(pid_t tid) {
+  int slot=trace_slot(tid);if(slot<0)return;
+  /* Cleanup may have drained/reaped an unrecognized child before this delayed
+   * parent receipt. Retain the terminal wait receipt until here (or ECHILD),
+   * instead of inventing a live slot for a task which was already reaped. */
+  if(traces[slot].terminal){coverage_gap=1;traces[slot]=(Trace){0};return;}
+  traces[slot].authorized=1;traces[slot].initial=1;
+  /* A child's wait status can precede the parent's fork-event wait status.
+   * Keep it stopped until this kernel lineage receipt has authorized it. */
+  if(traces[slot].waiting)trace_resume(slot);
+}
+static void trace_resume(int slot) {
+  Trace *t=&traces[slot];if(!t->waiting)return;
+  pid_t tid=t->tid;unsigned eventno=(unsigned)t->status>>16;int sig=WSTOPSIG(t->status);
+  if(!t->authorized){
+    if(!stopped&&!faulted)return;
+    /* A fatal group exit can overtake the parent's clone receipt. The child's
+     * wait-reported stop must still be drained, especially an EXIT stop which
+     * can hold the whole thread group alive. PTRACE_CONT itself checks that this
+     * exact task is our tracee; it grants no capture/lineage authorization.
+     * Keep its slot until a terminal wait status, and keep coverage unavailable. */
+    coverage_gap=1;goto resume;
+  }
+  if(eventno==PTRACE_EVENT_FORK||eventno==PTRACE_EVENT_VFORK||eventno==PTRACE_EVENT_CLONE){
+    unsigned long child=0;
+    if(ptrace(PTRACE_GETEVENTMSG,tid,NULL,&child)){
+      /* SIGKILL may invalidate a previously wait-reported ptrace stop. ESRCH
+       * during cleanup is not death proof; only subsequent wait statuses and
+       * ECHILD can reconcile it. Missing receipts remain sticky coverage gaps. */
+      coverage_gap=1;if(!stopped||errno!=ESRCH)faulted=1;goto resume;
+    }
+    if(!child||child>INT_MAX){coverage_gap=1;faulted=1;goto resume;}
+    trace_child((pid_t)child);
+  }
+  if(eventno==PTRACE_EVENT_EXEC){
+    unsigned long oldtid=0;
+    if(ptrace(PTRACE_GETEVENTMSG,tid,NULL,&oldtid)){
+      coverage_gap=1;if(!stopped||errno!=ESRCH)faulted=1;goto resume;
+    }
+    /* A nonleader exec replaces another held birth. Do not infer a mapping.
+     * This unsupported transition remains unavailable with bounded cleanup. */
+    if(oldtid!=(unsigned long)tid){
+      for(int i=0;i<MAX_TRACE;i++)if(traces[i].tid==(pid_t)oldtid)traces[i]=(Trace){0};
+      coverage_gap=1;faulted=1;trace_kill(tid);
+    }
+  }
+  if(!faulted&&(t->initial||eventno==PTRACE_EVENT_EXEC||eventno==PTRACE_EVENT_EXIT)){
+    pid_t leader=0;
+    if(!trace_leader(tid,&leader)){coverage_gap=1;if(!stopped)faulted=1;goto resume;}
+    if(leader==tid){
+      Proc p;
+      int missing=process(tid,&p),adopted=missing?0:adopt(&p,1);
+      if(missing||adopted){
+        /* Capture may fail while termination tears down /proc identities.
+         * Do not strand the exit stop or equate missing reads with failed
+         * closure. Resource/ownership faults from adopt() remain faults. */
+        coverage_gap=1;if(adopted||!stopped){faulted=1;trace_kill(tid);}goto resume;
+      }
+      int h=held(p.pid,p.birth);AuditState *s=h<0?NULL:owned[h].audit_state;
+      /* adopt() reads argv twice and retains the actual held-image generation.
+       * A failed read permanently denies a clean proof, including at capacity;
+       * release permits lifecycle cleanup, never an inferred argv receipt. */
+      if(!s||!s->captured||s->unobservable){coverage_gap=1;}
+    }
+  }
+resume:;
+  int initial=t->initial;t->initial=0;t->waiting=0;
+  if(eventno==PTRACE_EVENT_STOP&&!initial&&sig!=SIGTRAP&&!stopped&&!faulted){
+    /* Preserve genuine SIGSTOP/job-control stops; LISTEN admits SIGCONT. */
+    if(ptrace(PTRACE_LISTEN,tid,NULL,NULL)){coverage_gap=1;faulted=1;}
+    return;
+  }
+  int deliver=eventno||initial?0:sig;
+  if(ptrace(PTRACE_CONT,tid,NULL,(void *)(intptr_t)deliver)){
+    /* ESRCH during SIGKILL is not a capture receipt. The wait/pidfd paths
+     * still have to establish death and complete descendant cleanup. */
+    if(errno!=ESRCH){coverage_gap=1;faulted=1;}
+  }
+}
+static int reap(void) {
+  int status;pid_t p;unsigned count=0;
+  /* A child stop collected before cleanup may still be waiting for its parent
+   * receipt. There need not be another wait notification for that held stop. */
+  if(stopped||faulted)for(int i=0;i<MAX_TRACE;i++)if(traces[i].waiting)trace_resume(i);
+  for(;;){
+    p=waitpid(-1,&status,WNOHANG|__WALL);
+    if(p>0){
+      if(WIFSTOPPED(status)){
+        int slot=trace_slot(p);if(slot>=0){
+          if(traces[slot].terminal){coverage_gap=1;faulted=1;traces[slot].terminal=0;}
+          traces[slot].waiting=1;traces[slot].status=status;trace_resume(slot);
+        }
+      }else if(WIFEXITED(status)||WIFSIGNALED(status)){
+        for(int i=0;i<MAX_TRACE;i++)if(traces[i].tid==p){
+          if(traces[i].initial||!traces[i].authorized)coverage_gap=1;
+          if(!traces[i].authorized)traces[i]=(Trace){.tid=p,.terminal=1};
+          else traces[i]=(Trace){0};
+        }
+        for(int i=0;i<nowned;i++)if(owned[i].pid==p)owned[i].live=0;
+        if(p==rootpid){root_reaped=1;root_status=status;}
+      }else{coverage_gap=1;faulted=1;}
+      if(++count>=8192)return 0;
+      continue;
+    }
+    if(p==0)return 0;
+    if(errno==EINTR)continue;
+    if(errno==ECHILD){
+      for(int i=0;i<MAX_TRACE;i++)if(traces[i].terminal)traces[i]=(Trace){0};
+      for(int i=0;i<MAX_TRACE;i++)if(traces[i].tid){coverage_gap=1;faulted=1;return 0;}
+      return 1;
+    }
+    coverage_gap=1;faulted=1;return 0;
+  }
+}
 static int pin_valid(Pin *p) {struct stat f,l;char hash[65];return !fstat(p->fd,&f)&&!lstat(p->path,&l)&&S_ISREG(l.st_mode)&&f.st_dev==l.st_dev&&f.st_ino==l.st_ino&&f.st_dev==p->dev&&f.st_ino==p->ino&&f.st_size==p->bytes&&!hash_fd(p->fd,hash)&&!strcmp(hash,p->hash);}
 static int all_pins(void) {for(int i=0;i<npin;i++)if(!pin_valid(&pins[i]))return 0;return 1;}
 static int pin_index(const char *path) {for(int i=0;i<npin;i++)if(!strcmp(pins[i].path,path))return i;return -1;}
@@ -271,8 +449,85 @@ static void host_result(long id,const char *status) {
   char response[512];Build b={response,0,0,sizeof(response)};
   add(&b,"{\"status\":");quote(&b,status);add(&b,",\"hostNamespaces\":");namespace_fields(&b,&host);add(&b,"}");reply(id,b.s);
 }
+
+static void audit_free(int slot) {if(audits[slot]){close_fd(&audits[slot]->fd);memset(audits[slot]->argv,0,sizeof(audits[slot]->argv));free(audits[slot]);audits[slot]=NULL;}}
+static int audit_pending(const Proc *p) {for(int i=0;i<MAX_AUDIT;i++)if(audits[i]&&audits[i]->identity.pid==p->pid&&audits[i]->identity.birth==p->birth)return 1;return 0;}
+static void discard_audits(Proc *p) {
+  AuditState *state=p->audit_state;if(!state||!state->acknowledged||audit_pending(p))coverage_gap=1;
+  for(int i=0;i<MAX_AUDIT;i++)if(audits[i]&&audits[i]->identity.pid==p->pid&&audits[i]->identity.birth==p->birth)audit_free(i);
+  free(state);p->audit_state=NULL;
+}
+static int capture_audit(Proc *p,int force) {
+  if(!p->live||!p->fresh)return 0;
+  AuditState *state=p->audit_state;
+  if(!state){state=calloc(1,sizeof(*state));if(!state){coverage_gap=1;return 0;}p->audit_state=state;}
+  if(operation&&now_ms()>=operation){state->unobservable=1;return 0;}
+  int slot=-1;for(int i=0;i<MAX_AUDIT;i++)if(!audits[i]){slot=i;break;}
+  if(slot<0){state->unobservable=1;coverage_gap=1;return 0;}
+  Audit *a=calloc(1,sizeof(*a));if(!a){state->unobservable=1;coverage_gap=1;return 0;}a->fd=-1;
+  Proc before,after;struct stat current;struct pollfd status={p->fd,POLLIN,0};char name[80],verify[65536],*args[MAX_OBS_ARG];int argc=0;
+  if(poll(&status,1,0)||process(p->pid,&before)||before.birth!=p->birth||!same_namespaces(&before,p))goto unavailable;
+  int ignored=snprintf(name,sizeof(name),"/proc/%d/exe",p->pid);(void)ignored;
+  ssize_t length=readlink(name,a->path,sizeof(a->path)-1);if(length<1||length>=(ssize_t)sizeof(a->path)-1)goto unavailable;a->path[length]=0;
+  a->fd=open(name,O_RDONLY|O_CLOEXEC);if(a->fd<0||fstat(a->fd,&a->image)||!S_ISREG(a->image.st_mode)||a->image.st_size>268435456)goto unavailable;
+  if(!cmdline(p->pid,a->argv,65535,args,&a->argc))goto unavailable;
+  a->bytes=0;for(int i=0;i<a->argc;i++)a->bytes+=strlen(args[i])+1;
+  if(!cmdline(p->pid,verify,65535,args,&argc)||argc!=a->argc||memcmp(verify,a->argv,a->bytes))goto unavailable;
+  if(stat(name,&current)||!image_same(&current,&a->image)||fstat(a->fd,&current)||!image_same(&current,&a->image)||
+    process(p->pid,&after)||after.birth!=before.birth||!same_namespaces(&before,&after))goto unavailable;
+  status.revents=0;if(poll(&status,1,0))goto unavailable;
+  if(operation&&now_ms()>=operation)goto unavailable;
+  Sha fingerprint;char digest[65];sha_init(&fingerprint);sha_add(&fingerprint,(unsigned char *)a->argv,a->bytes);sha_add(&fingerprint,(unsigned char *)a->path,strlen(a->path));sha_finish(&fingerprint,digest);
+  int same=state->captured&&image_same(&state->image,&a->image)&&!strcmp(state->digest,digest);
+  for(int i=0;i<4;i++)if(state->nsdev[i]!=before.nsdevs[i]||state->nsino[i]!=before.nsinos[i])same=0;
+  state->unobservable=0;
+  if(same&&(!force||audit_pending(p)))goto unchanged;
+  if(audit_generation==INT_MAX){coverage_gap=1;goto unavailable;}
+  state->captured=1;state->image=a->image;strcpy(state->digest,digest);
+  for(int i=0;i<4;i++){state->nsdev[i]=before.nsdevs[i];state->nsino[i]=before.nsinos[i];}
+  a->identity=before;a->generation=++audit_generation;audits[slot]=a;return 1;
+unavailable:
+  state->unobservable=1;
+  /* A racing exit is not a clean observation. A missing lifetime or pending
+   * generation becomes a permanent gap at reclaim/finalization. */
+unchanged:
+  close_fd(&a->fd);memset(a->argv,0,sizeof(a->argv));free(a);return 0;
+}
+static int audit_coverage(void) {
+  if(coverage_gap)return 0;
+  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(!state||!state->acknowledged||(owned[i].live&&(!owned[i].fresh||state->unobservable))||audit_pending(&owned[i]))return 0;}
+  return 1;
+}
+static void audit_inventory(long id) {
+  scan();for(int i=0;i<nowned;i++)if(owned[i].live)capture_audit(&owned[i],1);
+  char *buf=malloc(FRAME);if(!buf){refusal(id,"linux-facility-failed");return;}Build b={buf,0,0,FRAME};
+  add(&b,"{\"status\":\"observed\",\"coverageGap\":");int gap=coverage_gap;
+  int fresh=1;
+  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(owned[i].live&&(!owned[i].fresh||!state||state->unobservable))fresh=0;if(!owned[i].live&&(!state||!state->acknowledged)&&!audit_pending(&owned[i]))gap=1;}
+  if(gap){coverage_gap=1;}add(&b,gap?"true":"false");add(&b,",\"fresh\":");add(&b,fresh?"true":"false");add(&b,",\"snapshots\":[");int count=0;
+  for(int i=0;i<MAX_AUDIT;i++)if(audits[i]){if(count++)add(&b,",");add(&b,"{");identity_fields(&b,&audits[i]->identity);add(&b,",\"generation\":");integer(&b,(uint64_t)audits[i]->generation);add(&b,"}");}
+  add(&b,"]}");if(faulted||b.bad)refusal(id,"linux-facility-failed");else reply(id,b.s);free(buf);
+}
+static void audit_request(long id,int t,int acknowledge) {
+  long pid=number(field(t,"pid"),INT_MAX),generation=number(field(t,"generation"),INT_MAX);char *birth=string(field(t,"birth"));uint64_t n=0;
+  if(birth){char *end;errno=0;n=strtoull(birth,&end,10);if(errno||*end)n=0;}free(birth);
+  int slot=-1;for(int i=0;i<MAX_AUDIT;i++)if(audits[i]&&audits[i]->identity.pid==pid&&audits[i]->identity.birth==n&&audits[i]->generation==generation){slot=i;break;}
+  if(slot<0){if(acknowledge)reply(id,"{\"ok\":false}");else refusal(id,"ipc-peer-membership");return;}
+  Audit *a=audits[slot];
+  if(acknowledge){
+    int h=held((pid_t)pid,n);if(!a->inspected||h<0){reply(id,"{\"ok\":false}");return;}
+    AuditState *state=owned[h].audit_state;state->acknowledged=1;audit_free(slot);reply(id,"{\"ok\":true}");return;
+  }
+  char hash[65];struct stat current;
+  if(fstat(a->fd,&current)||!image_same(&current,&a->image)||!image_hash(a->fd,hash)||fstat(a->fd,&current)||!image_same(&current,&a->image)){coverage_gap=1;refusal(id,"ipc-peer-image");return;}
+  char *buf=malloc(FRAME);if(!buf){refusal(id,"linux-facility-failed");return;}Build b={buf,0,0,FRAME};
+  add(&b,"{\"status\":\"observed\",");identity_fields(&b,&a->identity);add(&b,",\"generation\":");integer(&b,(uint64_t)a->generation);
+  add(&b,",\"executablePath\":");quote(&b,a->path);add(&b,",\"executableSha256\":");quote(&b,hash);add(&b,",\"argv\":[");size_t offset=0;
+  for(int i=0;i<a->argc;i++){if(i)add(&b,",");quote(&b,a->argv+offset);offset+=strlen(a->argv+offset)+1;}add(&b,"]}");
+  if(b.bad)refusal(id,"ipc-peer-command-line");else {a->inspected=1;reply(id,b.s);}free(buf);
+}
 static int process_image(const Proc *p,char path[PATH_MAX],char hash[65],char *buf,char **args,int *argc) {
-  char name[80];int ignored=snprintf(name,sizeof(name),"/proc/%d/exe",p->pid);(void)ignored;ssize_t n=readlink(name,path,PATH_MAX-1);if(n<1||n>=PATH_MAX-1)return 0;path[n]=0;int fd=open(name,O_RDONLY|O_CLOEXEC);if(fd<0)return 0;int ok=!hash_fd(fd,hash);close(fd);return ok&&cmdline(p->pid,buf,65535,args,argc);
+  char name[80];int ignored=snprintf(name,sizeof(name),"/proc/%d/exe",p->pid);(void)ignored;ssize_t n=readlink(name,path,PATH_MAX-1);if(n<1||n>=PATH_MAX-1)return 0;path[n]=0;int fd=open(name,O_RDONLY|O_CLOEXEC);if(fd<0)return 0;int ok=image_hash(fd,hash);close(fd);return ok&&cmdline(p->pid,buf,65535,args,argc);
 }
 static void peer_result(long id,int peerid) {
   Peer *p=NULL;for(int i=0;i<MAX_PEER;i++)if(peers[i].fd>=0&&peers[i].id==peerid)p=&peers[i];if(!p){refusal(id,"ipc-peer-unavailable");return;}if(scan()){refusal(id,"ipc-peer-membership");return;}int h=held(p->cred.pid,p->birth);Proc proc;
@@ -299,12 +554,24 @@ static int start_request(int t,long id) {
     close(fdin[0]);close(fdin[1]);close(fdout[0]);close(fdout[1]);close(fderr[0]);close(fderr[1]);
     syscall(SYS_execveat,pins[pi].fd,"",args,environment,AT_EMPTY_PATH);int code=errno;ssize_t wrote=write(execerr[1],&code,sizeof(code));(void)wrote;_exit(125);
   }
-  rootpid=pid;Proc proc;if(process(pid,&proc)||adopt(&proc)){close_fd(&gate[1]);enter_cleanup();refusal(id,"session-launch-failed");ok=1;goto done;}
+  rootpid=pid;Proc proc;if(process(pid,&proc)||adopt(&proc,0)){close_fd(&gate[1]);enter_cleanup();refusal(id,"session-launch-failed");ok=1;goto done;}
+  /* The child is still blocked on the private gate. SEIZE installs inherited
+   * fork/clone/exec stops before its first permitted instruction after release.
+   * EXITKILL prevents a stopped or running tracee surviving observer death. */
+  unsigned long trace_options=PTRACE_O_TRACEFORK|PTRACE_O_TRACEVFORK|PTRACE_O_TRACECLONE|PTRACE_O_TRACEEXEC|PTRACE_O_TRACEEXIT|PTRACE_O_EXITKILL;
+  int trace=trace_slot(pid);
+  if(trace<0||ptrace(PTRACE_SEIZE,pid,NULL,(void *)trace_options)){
+    if(trace>=0)traces[trace]=(Trace){0};
+    coverage_gap=1;enter_cleanup();refusal(id,"session-launch-failed");ok=1;goto done;
+  }
+  traces[trace].authorized=1;
   close(gate[0]);gate[0]=-1;close(execerr[1]);execerr[1]=-1;
   child_in=fdin[1];fdin[1]=-1;child_out=fdout[0];fdout[0]=-1;child_err=fderr[0];fderr[0]=-1;nonblock(child_in);nonblock(child_out);nonblock(child_err);
   char created[128];int ignored=snprintf(created,sizeof(created),"{\"pid\":%d,\"birth\":\"%llu\"}",pid,(unsigned long long)proc.birth);(void)ignored;event("created",created);
   char released=1;if(write(gate[1],&released,1)!=1){enter_cleanup();refusal(id,"session-launch-failed");ok=1;goto done;}close(gate[1]);gate[1]=-1;
-  struct pollfd poller={execerr[0],POLLIN,0};int rc=poll(&poller,1,500);int errorcode;ssize_t n=read(execerr[0],&errorcode,sizeof(errorcode));if(rc<=0||n>0){enter_cleanup();char response[160];ignored=snprintf(response,sizeof(response),"{\"status\":\"unavailable\",\"reason\":\"session-launch-failed\",\"partialPid\":%d}",pid);(void)ignored;reply(id,response);}else{char response[160];ignored=snprintf(response,sizeof(response),"{\"status\":\"started\",\"pid\":%d,\"birth\":\"%llu\"}",pid,(unsigned long long)proc.birth);(void)ignored;reply(id,response);}ok=1;
+  struct pollfd poller={execerr[0],POLLIN,0};int rc=0,errorcode;ssize_t n=-1;uint64_t launch_end=now_ms()+500;if(launch_end>operation)launch_end=operation;
+  do{reap();rc=poll(&poller,1,2);if(rc>0){n=read(execerr[0],&errorcode,sizeof(errorcode));break;}if(rc<0&&errno!=EINTR)break;}while(!faulted&&now_ms()<launch_end);
+  if(faulted||rc<=0||n!=0){enter_cleanup();char response[160];ignored=snprintf(response,sizeof(response),"{\"status\":\"unavailable\",\"reason\":\"session-launch-failed\",\"partialPid\":%d}",pid);(void)ignored;reply(id,response);}else{char response[160];ignored=snprintf(response,sizeof(response),"{\"status\":\"started\",\"pid\":%d,\"birth\":\"%llu\"}",pid,(unsigned long long)proc.birth);(void)ignored;reply(id,response);}ok=1;
 done:
   for(int i=0;i<2;i++){close_fd(&fdin[i]);close_fd(&fdout[i]);close_fd(&fderr[i]);close_fd(&gate[i]);close_fd(&execerr[i]);}if(argc>0)free_strings(args+1,argc);free_strings(environment,nenv);free(file);free(cwd);return ok;
 }
@@ -338,7 +605,7 @@ static int cleanup(unsigned grace,unsigned budget) {
   do {if(now_ms()>=gentle)signal_owned(SIGKILL);else scan();empty=reap();io_step(5);if(empty)break;}while(now_ms()<end);
   scan();empty=reap();stop_pipe();close_fd(&child_in);if(empty){drain_fd(&child_out,"stdout");drain_fd(&child_err,"stderr");}return empty&&!faulted;
 }
-static void cleanup_result(long id,int confirmed) {char buf[8192];Build b={buf,0,0,sizeof(buf)};add(&b,"{\"processes\":");quote(&b,confirmed?"confirmed":"unresolved");add(&b,",\"survivors\":[");int count=0,active=0;for(int i=0;i<nowned;i++)if(owned[i].live&&owned[i].state!='Z'){active++;if(count>=32)continue;if(count++)add(&b,",");add(&b,"{\"pid\":");integer(&b,(uint64_t)owned[i].pid);add(&b,",\"role\":");quote(&b,owned[i].pid==rootpid?"client":"helper");add(&b,"}");}add(&b,"],\"activeProcesses\":");integer(&b,(uint64_t)active);add(&b,"}");reply(id,b.s);}
+static void cleanup_result(long id,int confirmed) {char buf[8192];Build b={buf,0,0,sizeof(buf)};add(&b,"{\"processes\":");quote(&b,confirmed?"confirmed":"unresolved");add(&b,",\"survivors\":[");int count=0,active=0;for(int i=0;i<nowned;i++)if(owned[i].live&&owned[i].state!='Z'){active++;if(count>=32)continue;if(count++)add(&b,",");add(&b,"{\"pid\":");integer(&b,(uint64_t)owned[i].pid);add(&b,",\"role\":");quote(&b,owned[i].pid==rootpid?"client":"helper");add(&b,"}");}add(&b,"],\"auditCoverage\":");add(&b,audit_coverage()?"true":"false");add(&b,",\"activeProcesses\":");integer(&b,(uint64_t)active);add(&b,"}");reply(id,b.s);}
 static void inventory(long id) {scan();char *buf=malloc(FRAME);if(!buf){refusal(id,"linux-facility-failed");return;}Build b={buf,0,0,FRAME};add(&b,"{\"status\":\"observed\",\"processes\":[");int count=0,unobserved=0;for(int i=0;i<nowned;i++)if(owned[i].live){if(!owned[i].fresh)unobserved=1;if(count++)add(&b,",");add(&b,"{");identity_fields(&b,&owned[i]);add(&b,"}");}add(&b,"]}");if(faulted||b.bad||unobserved)refusal(id,"termination-unresolved");else reply(id,b.s);free(buf);}
 static void inspect(long id,int t) {
   long pid=number(field(t,"pid"),INT_MAX);
@@ -387,6 +654,7 @@ static int request_shape(const char *op) {
   else if(!strcmp(op,"pipe-stop")){keys="id,op,pipeId";size=3;}
   else if(!strcmp(op,"peer")||!strcmp(op,"pipe-close")){keys="id,op,peer";size=3;}
   else if(!strcmp(op,"inspect")){keys="id,op,pid,birth";size=4;}
+  else if(!strcmp(op,"audit-inspect")||!strcmp(op,"audit-ack")){keys="id,op,pid,birth,generation";size=5;}
   else if(!strcmp(op,"input")){keys="id,op,data";size=3;}
   else if(!strcmp(op,"pipe-write")){keys="id,op,peer,data";size=4;}
   return tok[0].size==size&&closed(0,keys);
@@ -406,6 +674,8 @@ static void request(char *s,int len) {
   else if(!strcmp(op,"peer"))peer_result(id,(int)number(field(0,"peer"),INT_MAX));
   else if(!strcmp(op,"track")||!strcmp(op,"inventory"))inventory(id);
   else if(!strcmp(op,"inspect"))inspect(id,0);
+  else if(!strcmp(op,"audit-inventory"))audit_inventory(id);
+  else if(!strcmp(op,"audit-inspect")||!strcmp(op,"audit-ack"))audit_request(id,0,!strcmp(op,"audit-ack"));
   else if(!strcmp(op,"pipe-close")){int which=(int)number(field(0,"peer"),INT_MAX);for(int i=0;i<MAX_PEER;i++)if(peers[i].id==which)close_peer(&peers[i]);reply(id,"{\"ok\":true}");}
   else if(!strcmp(op,"input")||!strcmp(op,"pipe-write")){char *data=string(field(0,"data"));unsigned char buf[CHUNK];int n=data?decode(data,buf,sizeof(buf)):-1;free(data);int fd=child_in;if(!strcmp(op,"pipe-write")){fd=-1;int which=(int)number(field(0,"peer"),INT_MAX);for(int i=0;i<MAX_PEER;i++)if(peers[i].id==which)fd=peers[i].fd;}if(n<0||fd<0)reply(id,"{\"ok\":false}");else{ssize_t wrote=write(fd,buf,(size_t)n);if(wrote!=n){faulted=1;enter_cleanup();reply(id,"{\"ok\":false}");}else reply(id,"{\"ok\":true}");}}
   else {refusal(id,"input-limit");}free(op);
@@ -447,5 +717,5 @@ int main(int argc,char **argv) {
     if(closing){if(!outn)break;continue;}ssize_t n=read(0,input+used,FRAME-used);if(n>0){used+=(size_t)n;for(;;){char *newline=memchr(input,'\n',used);if(!newline)break;size_t len=(size_t)(newline-input);input[len]=0;request(input,(int)len);used-=len+1;memmove(input,newline+1,used);}if(used==FRAME){faulted=1;enter_cleanup();used=0;}}
     else if(!n||(errno!=EAGAIN&&errno!=EINTR)){cleanup(0,cleanup_at?(unsigned)(cleanup_end>now_ms()?cleanup_end-now_ms():0):10000);closing=1;}
   }
-  free(input);stop_pipe();for(int i=0;i<nowned;i++)close_fd(&owned[i].fd);for(int i=0;i<npin;i++){close_fd(&pins[i].fd);free(pins[i].path);}for(int i=0;i<nentry;i++){free(entries[i].id);free(entries[i].exe);free_strings(entries[i].argv,entries[i].argc>0?entries[i].argc:0);}close_fd(&child_out);close_fd(&child_err);return faulted?125:0;
+  free(input);stop_pipe();for(int i=0;i<nowned;i++){discard_audits(&owned[i]);close_fd(&owned[i].fd);}for(int i=0;i<MAX_AUDIT;i++)audit_free(i);for(int i=0;i<image_cache_count;i++)close_fd(&image_cache[i].fd);for(int i=0;i<npin;i++){close_fd(&pins[i].fd);free(pins[i].path);}for(int i=0;i<nentry;i++){free(entries[i].id);free(entries[i].exe);free_strings(entries[i].argv,entries[i].argc>0?entries[i].argc:0);}close_fd(&child_out);close_fd(&child_err);return faulted?125:0;
 }

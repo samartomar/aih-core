@@ -192,8 +192,8 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
       } else if (phase === 'end') {
         if (!hasExactKeys(message, ['type', 'code']) || message.type !== 'end' || !Number.isSafeInteger(message.code) ||
             message.code < 0 || message.code > 255) return close();
-        // A late refusal (exiting helpers) adds no evidence; only a proven leak changes the result.
-        if (await inspectArguments() === false) { proof.argumentsClean = false; return violate(); }
+        // Exit proves termination only. Missing acknowledged argv coverage cannot become clean.
+        if (await auditArguments() !== true || state.closed) return close();
         state.code = message.code; state.ended = true; phase = 'closed';
         socket.write('{"type":"finish"}\n');
       } else close();
@@ -263,23 +263,32 @@ export async function composeLinuxSandbox(input, observerPins) {
   };
   const inspectArguments = async () => {
     try { cellProfile.validate(); } catch { return false; }
-    const inventory = await context.observe();
-    if (inventory?.status !== 'observed' || !Array.isArray(inventory.processes) || inventory.processes.length > 128) return null;
-    let inspected = 0, complete = true;
-    for (const row of inventory.processes) {
-      const observed = await context.inspect(row);
+    let inventory = await context.auditInventory();
+    // Retry only a still-live capture race. A reclaimed/missing acknowledged lifetime is
+    // sticky in the native owner and cannot be erased by reobserving another process.
+    for (let attempt = 0; attempt < 2 && inventory?.status === 'observed' && inventory.coverageGap === false && inventory.fresh === false; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 25)); inventory = await context.auditInventory();
+    }
+    if (inventory?.status !== 'observed' || !Array.isArray(inventory.snapshots) || inventory.snapshots.length > 512) return null;
+    let inspected = 0, complete = inventory.coverageGap === false && inventory.fresh === true;
+    for (const row of inventory.snapshots) {
+      const observed = await context.inspectAudit(row);
       if (observed?.status !== 'observed') {
-        // An exited short-lived helper supplies no observation; any other refusal leaves the proof open.
-        if (observed?.reason !== 'process-exited') complete = false;
+        complete = false;
         continue;
       }
       const result = inspectLinuxArguments(observed.argv, protectedValues);
       if (result.clean === false) return false;
       if (result.clean !== true) complete = false;
+      if ([runtime.bwrap, runtime.bash].includes(observed.executablePath) &&
+          !input.runtimePins.some(pin => pin.path === observed.executablePath && pin.sha256 === observed.executableSha256)) return false;
       const proxy = inspectLinuxProxyCapability(observed, { sha256: receipt?.proxyCapabilitySha256, bwrap: runtime.bwrap, bash: runtime.bash });
       for (const key of Object.keys(proxyArguments)) proxyArguments[key] += proxy[key];
       if (proxy.clean === false) return false;
       if (proxy.clean !== true) complete = false;
+      // Generic process/peer inspection never acknowledges a secret audit. The kernel-held
+      // snapshot generation is acknowledged only after both private classifiers finish.
+      if (result.clean === true && proxy.clean === true && (await context.acknowledgeAudit(row)).ok !== true) complete = false;
       inspected += result.inspected;
     }
     argumentsInspected += inspected;
@@ -330,6 +339,7 @@ export async function composeLinuxSandbox(input, observerPins) {
     const closed = closeResources();
     const result = context ? await context.terminate({ graceMs: Number.isFinite(options.graceMs) ? options.graceMs : 1000,
       deadlineMs: Math.max(0, budget - (performance.now() - begun)) }) : { processes: 'confirmed', survivors: [], elapsedMs: 0 };
+    if (session && result.auditCoverage !== true && session.proof.argumentsClean !== false) session.proof.argumentsClean = null;
     await closed;
     const confirmed = result.processes === 'confirmed' && removeOwned();
     const released = cellProfile ? cellProfile.release(confirmed, preparedResources, {

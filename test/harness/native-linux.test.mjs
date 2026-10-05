@@ -2,10 +2,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, mkdtempSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { linuxAvailability, prepareLinuxContext, isLinuxTransport } from '../../src/harness/native/linux-facility.mjs';
@@ -44,6 +45,296 @@ async function context(t, f, selectedEntries = [], options = {}) {
   t.after(async () => { await prepared.context.terminate({ graceMs: 0, deadlineMs: 10_000 }); });
   return prepared.context;
 }
+
+async function executableCacheFixture(t) {
+  try { accessSync('/bin/bash', constants.X_OK); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+    t.skip('controlled executable cache fixture requires standalone /bin/bash'); return;
+  }
+  const f = fixture(t, `import {spawn} from 'node:child_process';
+    import {once} from 'node:events';import {createInterface} from 'node:readline';
+    const lines=createInterface({input:process.stdin});let child;
+    console.log('ready');for await(const text of lines){const command=JSON.parse(text);
+      if(command.file){child=spawn(command.file,['--noprofile','--norc','-c','read -r -t 30'],{stdio:['pipe','ignore','ignore'],env:{}});
+        await once(child,'spawn');console.log(child.pid);
+      }else if(command.status){console.log(child&&child.exitCode===null&&child.signalCode===null?'running':'exited');
+      }else{if(!child||child.exitCode!==null||child.signalCode!==null)throw Error('controlled cache child exited before stop');
+        const exited=once(child,'exit');child.kill('SIGKILL');await exited;child=null;console.log('stopped');}
+    }`);
+  const c = await context(t, f, [], { deadline: performance.now() + 60_000 });
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  const lines = createInterface({ input: started.handle.stdout });
+  const replies = lines[Symbol.asyncIterator](); t.after(() => lines.close());
+  const next = async () => { const reply = await bounded(replies.next()); assert.equal(reply.done, false); return reply.value; };
+  assert.equal(await next(), 'ready');
+  const command = async value => { started.handle.stdin.write(JSON.stringify(value) + '\n'); return next(); };
+  // Bash is a standalone ELF on both GNU-coreutils and uutils hosts. Its builtin
+  // read waits on the parent's open pipe, without starting another executable.
+  const image = readFileSync('/bin/bash');
+  assert.equal(image.subarray(0, 4).toString('hex'), '7f454c46', 'controlled cache fixture requires a regular ELF image');
+  const install = (name, suffix) => {
+    const file = join(f.directory, name);
+    writeFileSync(file, Buffer.concat([image, Buffer.from(suffix)]), { mode: 0o700 });
+    return file;
+  };
+  const start = async file => { const pid = Number(await command({ file })); assert.ok(Number.isSafeInteger(pid) && pid > 0); return pid; };
+  const stop = async pid => { assert.equal(await command({}), 'stopped'); assert.equal(alive(pid), false); };
+  const inspect = async (pid, file, expected) => {
+    let row;
+    await bounded((async () => { for (;;) {
+      assert.equal(await command({ status: true }), 'running', 'controlled cache child exited before discovery');
+      const inventory = await c.observe(); assert.equal(inventory.status, 'observed', JSON.stringify(inventory));
+      row = inventory.processes.find(row => row.pid === pid);
+      if (row) {
+        assert.equal(await command({ status: true }), 'running', 'controlled cache child exited before discovery');
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    } })());
+    // This fixture and its child share the observer's PID namespace.
+    assert.equal(row.namespacePid, pid);
+    // Repeated generic inspection and the held-generation audit both use the image cache.
+    for (let i = 0; i < 2; i++) {
+      const observed = await c.inspect(row); assert.equal(observed.status, 'observed', JSON.stringify(observed));
+      assert.equal(observed.executablePath, file); assert.equal(observed.executableSha256, expected);
+    }
+    const audit = await c.auditInventory(); assert.equal(audit.status, 'observed'); assert.equal(audit.fresh, true);
+    let found = false;
+    for (const snapshot of audit.snapshots) {
+      const observed = await c.inspectAudit(snapshot); assert.equal(observed.status, 'observed', JSON.stringify(observed));
+      if (snapshot.pid === pid && observed.executablePath === file) {
+        assert.equal(observed.executableSha256, expected); found = true;
+      }
+      assert.equal((await c.acknowledgeAudit(snapshot)).ok, true);
+    }
+    assert.equal(found, true);
+  };
+  return { ...f, c, install, start, stop, inspect };
+}
+
+test('executable hash cache rehashes a replacement inode at the same path', native, async t => {
+  const f = await executableCacheFixture(t); if (!f) return;
+  const file = f.install('helper', 'original-image'); const original = pin(file);
+  const before = statSync(file, { bigint: true });
+  let pid = await f.start(file); await f.inspect(pid, file, original.sha256); await f.stop(pid);
+  const replacement = f.install('replacement', 'replacement-image'); renameSync(replacement, file);
+  assert.notEqual(statSync(file, { bigint: true }).ino, before.ino);
+  const changed = pin(file); assert.notEqual(changed.sha256, original.sha256);
+  pid = await f.start(file); await f.inspect(pid, file, changed.sha256); await f.stop(pid);
+  assert.equal((await f.c.terminate({ graceMs: 0 })).processes, 'confirmed');
+});
+
+test('executable hash cache rehashes same-inode size and ctime changes with restored mtime', native, async t => {
+  const f = await executableCacheFixture(t); if (!f) return;
+  const file = f.install('helper', 'original-image'); const fixedTime = 1_600_000_000;
+  utimesSync(file, fixedTime, fixedTime);
+  let previous = pin(file), before = statSync(file, { bigint: true });
+  let pid = await f.start(file); await f.inspect(pid, file, previous.sha256); await f.stop(pid);
+  for (const grow of [true, false]) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const bytes = readFileSync(file);
+    if (!grow) bytes[bytes.length - 1] ^= 1;
+    writeFileSync(file, grow ? Buffer.concat([bytes, Buffer.from('changed-image')]) : bytes);
+    utimesSync(file, fixedTime, fixedTime);
+    const after = statSync(file, { bigint: true }), changed = pin(file);
+    assert.equal(after.ino, before.ino); assert.equal(after.mtimeNs, before.mtimeNs);
+    assert.notEqual(after.ctimeNs, before.ctimeNs);
+    if (grow) assert.ok(after.size > before.size); else assert.equal(after.size, before.size);
+    assert.notEqual(changed.sha256, previous.sha256);
+    pid = await f.start(file); await f.inspect(pid, file, changed.sha256); await f.stop(pid);
+    before = after; previous = changed;
+  }
+  assert.equal((await f.c.terminate({ graceMs: 0 })).processes, 'confirmed');
+});
+
+test('a full executable hash cache hashes distinct and rewritten images without stale entries', { ...native, timeout: 60_000 }, async t => {
+  const f = await executableCacheFixture(t); if (!f) return;
+  const source = readFileSync(new URL('../../src/harness/native/linux/facility.c', import.meta.url), 'utf8');
+  const limit = Number(source.match(/^#define MAX_IMAGE_CACHE (\d+)$/m)?.[1]);
+  assert.ok(Number.isSafeInteger(limit) && limit > 0 && limit < 128);
+  const files = [], hashes = new Set();
+  // Fill with distinct held inodes; the final images exceed every cache slot even without the root image.
+  for (let i = 0; i < limit + 2; i++) {
+    const file = f.install(`helper-${i}`, `distinct-image-${i}`), expected = pin(file);
+    files.push(file); hashes.add(expected.sha256);
+    const pid = await f.start(file); await f.inspect(pid, file, expected.sha256); await f.stop(pid);
+  }
+  assert.equal(hashes.size, limit + 2);
+  // Revisit one cached and one uncached inode, then change each while the cache stays full.
+  for (const file of [files[0], files.at(-1)]) {
+    const original = pin(file); let pid = await f.start(file);
+    await f.inspect(pid, file, original.sha256); await f.stop(pid);
+    const before = statSync(file, { bigint: true });
+    writeFileSync(file, Buffer.concat([readFileSync(file), Buffer.from('after-cache-full')]));
+    assert.equal(statSync(file, { bigint: true }).ino, before.ino);
+    const changed = pin(file); assert.notEqual(changed.sha256, original.sha256);
+    pid = await f.start(file); await f.inspect(pid, file, changed.sha256); await f.stop(pid);
+  }
+  assert.equal((await f.c.terminate({ graceMs: 0 })).processes, 'confirmed');
+});
+
+test('exited known argv snapshots require generation-bound audit acknowledgement', native, async t => {
+  const f = fixture(t, 'process.stdout.write("ready\\n");setTimeout(()=>{},3000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started'); await bounded(line(started.handle.stdout));
+  const inventory = await c.auditInventory();
+  assert.equal(inventory.status, 'observed'); assert.equal(inventory.coverageGap, false);
+  assert.ok(inventory.snapshots.length); await bounded(started.handle.exited);
+  const exited = await c.auditInventory();
+  assert.equal(exited.status, 'observed'); assert.equal(exited.coverageGap, false);
+  for (const row of inventory.snapshots) {
+    assert.ok(exited.snapshots.some(retained => retained.pid === row.pid && retained.birth === row.birth && retained.generation === row.generation));
+  }
+  let actualImage = false;
+  for (const row of inventory.snapshots) {
+    assert.equal((await c.inspect(row)).reason, 'process-exited');
+    assert.equal((await c.acknowledgeAudit(row)).ok, false);
+    const observed = await c.inspectAudit(row);
+    assert.equal(observed.status, 'observed'); assert.equal(observed.generation, row.generation);
+    if (observed.executablePath === f.nodePin.path) {
+      assert.deepEqual(observed.argv, [f.nodePin.path, f.file]); actualImage = true;
+    }
+    assert.equal((await c.acknowledgeAudit({ ...row, generation: row.generation + 1000 })).ok, false);
+    assert.equal((await c.acknowledgeAudit(row)).ok, true);
+    assert.equal((await c.acknowledgeAudit(row)).ok, false);
+  }
+  assert.equal(actualImage, true);
+  assert.equal((await c.auditInventory()).coverageGap, false);
+  assert.equal((await c.terminate({ graceMs: 0, deadlineMs: 10000 })).auditCoverage, true);
+});
+
+test('generic inspection cannot erase a known unaudited lifetime at finalization', native, async t => {
+  const f = fixture(t, 'process.stdout.write("ready\\n");setTimeout(()=>{},3000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(await bounded(new Promise(resolve => started.handle.stdout.once('data', bytes => resolve(bytes.toString().trim())))), 'ready');
+  const inventory = await c.observe(); const row = inventory.processes.find(row => row.pid === started.handle.pid);
+  assert.equal((await c.inspect(row)).status, 'observed'); await bounded(started.handle.exited);
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'confirmed'); assert.equal(receipt.auditCoverage, false);
+});
+
+test('immediate same-image forks from an owned descendant retain actual argv generations', native, async t => {
+  try { accessSync('/bin/bash', constants.X_OK); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+    t.skip('controlled pure-fork fixture requires standalone /bin/bash'); return;
+  }
+  // Each background builtin forks Bash and exits immediately, without exec or
+  // a readiness wait. The intermediate Bash is itself an owned descendant.
+  const count = 48, marker = 'controlled-fork-argv';
+  const script = `for ((i=0;i<${count};i++)); do (:) & printf '%s\\n' "$!"; done; wait; printf 'done\\n'; read -r hold`;
+  const bash = pin('/bin/bash');
+  const f = fixture(t, `import {spawn} from 'node:child_process';
+    const child=spawn(${JSON.stringify(bash.path)},['--noprofile','--norc','-c',${JSON.stringify(script)},${JSON.stringify(marker)}],
+      {stdio:['pipe','inherit','inherit'],env:{}});child.on('error',()=>process.exit(125));
+    child.on('exit',code=>process.exit(code??125));process.stdin.pipe(child.stdin);`);
+  const c = await context(t, f, [], { runtimePins: [f.nodePin, f.modulePin, bash] });
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  const lines = createInterface({ input: started.handle.stdout }); t.after(() => lines.close());
+  const children = [];
+  await bounded((async () => { for await (const value of lines) {
+    if (value === 'done') return;
+    assert.match(value, /^\d+$/); children.push(Number(value));
+  } throw new Error('controlled fork fixture exited before completion'); })());
+  assert.equal(children.length, count); assert.equal(new Set(children).size, count);
+  const inventory = await c.auditInventory();
+  assert.equal(inventory.status, 'observed', JSON.stringify(inventory));
+  const snapshots = new Map();
+  for (const row of inventory.snapshots) {
+    const observed = await c.inspectAudit(row);
+    assert.equal(observed.status, 'observed', JSON.stringify(observed));
+    if (children.includes(row.pid)) {
+      assert.equal(observed.executablePath, bash.path);
+      assert.equal(observed.executableSha256, bash.sha256);
+      assert.deepEqual(observed.argv, [bash.path, '--noprofile', '--norc', '-c', script, marker]);
+      assert.equal(alive(row.pid), false, 'the pure-fork snapshot must outlive its child');
+      snapshots.set(row.pid, row);
+    }
+    assert.equal((await c.acknowledgeAudit(row)).ok, true);
+  }
+  // A clean result must never cover a receipt-list child whose actual argv was
+  // not read. This fixture additionally demands complete supported capture.
+  if (snapshots.size !== count) {
+    assert.ok(inventory.coverageGap || !inventory.fresh);
+    assert.equal((await c.terminate({ graceMs: 0 })).auditCoverage, false);
+  }
+  assert.equal(snapshots.size, count, 'every immediate pure-fork lifetime requires its own retained snapshot');
+  assert.equal(inventory.coverageGap, false); assert.equal(inventory.fresh, true);
+  const exited = bounded(started.handle.exited);
+  started.handle.stdin.write('release\n'); await exited;
+  const final = await c.auditInventory();
+  assert.equal(final.coverageGap, false);
+  for (const row of final.snapshots) {
+    assert.equal((await c.inspectAudit(row)).status, 'observed');
+    assert.equal((await c.acknowledgeAudit(row)).ok, true);
+  }
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'confirmed'); assert.equal(receipt.auditCoverage, true);
+});
+
+test('kernel-held capture preserves job-control stops and ordinary signal delivery', native, async t => {
+  const f = fixture(t, `process.on('SIGTERM',()=>console.log('term-delivered'));
+    process.on('SIGCONT',()=>console.log('continued'));
+    process.stdin.on('data',()=>console.log('input-delivered'));console.log('ready');setInterval(()=>{},1000);`);
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  const lines = createInterface({ input: started.handle.stdout }); t.after(() => lines.close());
+  const replies = lines[Symbol.asyncIterator]();
+  const next = async () => { const reply = await bounded(replies.next()); assert.equal(reply.done, false); return reply.value; };
+  assert.equal(await next(), 'ready');
+  let inputDelivered = false;
+  lines.on('line', value => { if (value === 'input-delivered') inputDelivered = true; });
+  process.kill(started.handle.pid, 'SIGSTOP');
+  await bounded((async () => { for (;;) {
+    const stat = readFileSync(`/proc/${started.handle.pid}/stat`, 'utf8');
+    if (/^[Tt] /.test(stat.slice(stat.lastIndexOf(')') + 2))) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  } })());
+  started.handle.stdin.write('request\n');
+  // LISTEN can retain the kernel's tracing-stop state. Require persistence
+  // through observer progress and no userspace input processing before CONT.
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await c.observe()).status, 'observed');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const stat = readFileSync(`/proc/${started.handle.pid}/stat`, 'utf8');
+    assert.match(stat.slice(stat.lastIndexOf(')') + 2), /^[Tt] /);
+    assert.equal(inputDelivered, false);
+  }
+  process.kill(started.handle.pid, 'SIGCONT');
+  assert.deepEqual([await next(), await next()].sort(), ['continued', 'input-delivered']);
+  process.kill(started.handle.pid, 'SIGTERM'); assert.equal(await next(), 'term-delivered');
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'confirmed'); assert.equal(alive(started.handle.pid), false);
+});
+
+test('every live audit captures a fresh argv generation after an acknowledged observation', native, async t => {
+  const f = fixture(t, 'process.stdin.once("data",()=>{process.title="controlled-argv-change";console.log("changed");});console.log("ready");setInterval(()=>{},1000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(await bounded(new Promise(resolve => started.handle.stdout.once('data', bytes => resolve(bytes.toString().trim())))), 'ready');
+  const first = await c.auditInventory();
+  for (const row of first.snapshots) { assert.equal((await c.inspectAudit(row)).status, 'observed'); assert.equal((await c.acknowledgeAudit(row)).ok, true); }
+  const changed = new Promise(resolve => started.handle.stdout.once('data', bytes => resolve(bytes.toString().trim())));
+  started.handle.stdin.write('change\n'); assert.equal(await bounded(changed), 'changed');
+  const second = await c.auditInventory(); assert.equal(second.coverageGap, false); assert.equal(second.fresh, true);
+  let found = false;
+  for (const row of second.snapshots) {
+    assert.ok(row.generation > Math.max(...first.snapshots.map(row => row.generation)));
+    const observed = await c.inspectAudit(row); assert.equal(observed.status, 'observed');
+    found ||= observed.argv.some(value => value.includes('controlled-argv-change'));
+    assert.equal((await c.acknowledgeAudit(row)).ok, true);
+  }
+  assert.equal(found, true);
+  const third = await c.auditInventory(); assert.ok(third.snapshots.length > 0);
+  for (const row of third.snapshots) { assert.equal((await c.inspectAudit(row)).status, 'observed'); assert.equal((await c.acknowledgeAudit(row)).ok, true); }
+  assert.equal((await c.terminate({ graceMs: 0, deadlineMs: 10000 })).auditCoverage, true);
+});
 
 test('off-Linux facility reports unavailable without starting an OS helper', { skip: LINUX }, async () => {
   assert.equal((await linuxAvailability()).status, 'unavailable');
@@ -212,6 +503,76 @@ test('bounded output failure keeps cleanup observable without surfacing raw chil
   assert.equal(alive(started.handle.pid), false);
 });
 
+test('traced multithreaded Node roots confirm immediate, forced and graceful tree closure', { ...native, timeout: 90_000 }, async t => {
+  const f = fixture(t, `import {Worker} from 'node:worker_threads';
+    import {spawn} from 'node:child_process';import {once} from 'node:events';
+    import {readdirSync,writeFileSync} from 'node:fs';
+    const workers=Array.from({length:4},()=>new Worker(
+      "const {parentPort}=require('node:worker_threads');parentPort.postMessage('ready');setInterval(()=>{},1000)",{eval:true}));
+    await Promise.all(workers.map(worker=>once(worker,'message')));
+    const children=Array.from({length:3},()=>spawn(process.execPath,
+      ['-e',"console.log('ready');setInterval(()=>{},1000)"],{stdio:['ignore','pipe','ignore'],env:{}}));
+    await Promise.all(children.map(child=>once(child.stdout,'data')));
+    process.on('SIGTERM',()=>{
+      if(process.env.GRACEFUL==='yes'){writeFileSync(process.env.REPORT,'term-delivered');process.exit(0);}
+    });
+    console.log(JSON.stringify({pids:children.map(child=>child.pid),
+      tids:readdirSync('/proc/self/task').map(Number)}));setInterval(()=>{},1000);`);
+  // Preserve the host's reproducible held-closure input shape for the startup
+  // cases, in addition to testing the ordinary small-pin fully started roots.
+  const startupPins = [];
+  for (let i = 0; i < 300; i++) {
+    const file = join(f.directory, `startup-pin-${i}.mjs`);
+    writeFileSync(file, `export const value=${i};`); startupPins.push(pin(file));
+  }
+  // No readiness hold: terminate can interrupt Node's own startup clone events.
+  // Repeat the exact trigger separately from the fully started Worker fixture.
+  for (let i = 0; i < 3; i++) {
+    const c = await context(t, f, [], { runtimePins: [f.nodePin, f.modulePin, ...startupPins] });
+    const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+    assert.equal(started.status, 'started');
+    const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+    assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+    assert.equal(receipt.activeProcesses, 0); assert.deepEqual(receipt.survivors, []);
+    assert.ok(receipt.elapsedMs <= 10000); assert.equal(alive(started.handle.pid), false);
+  }
+  for (const graceful of [false, true]) {
+    const report = join(f.directory, graceful ? 'graceful.txt' : 'forced.txt');
+    const c = await context(t, f);
+    const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory,
+      env: env({ GRACEFUL: graceful ? 'yes' : 'no', REPORT: report }) });
+    assert.equal(started.status, 'started');
+    const { pids, tids } = JSON.parse(await bounded(line(started.handle.stdout)));
+    assert.equal(pids.length, 3); assert.ok(tids.length >= 5, 'root must have live Worker threads');
+    for (const pid of [...pids, ...tids]) assert.equal(alive(pid), true);
+    const receipt = await c.terminate({ graceMs: graceful ? 1000 : 0, deadlineMs: 10000 });
+    assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+    assert.equal(receipt.activeProcesses, 0); assert.deepEqual(receipt.survivors, []);
+    assert.ok(receipt.elapsedMs <= 10000);
+    for (const pid of [started.handle.pid, ...pids, ...tids]) assert.equal(alive(pid), false);
+    const exited = await bounded(started.handle.exited);
+    assert.equal(exited.code, graceful ? 0 : 137);
+    if (graceful) assert.equal(readFileSync(report, 'utf8'), 'term-delivered');
+  }
+});
+
+test('forced observer death cannot confirm traced process closure', native, async t => {
+  const f = fixture(t, `import {readFileSync} from 'node:fs';
+    const tracer=Number(readFileSync('/proc/self/status','utf8').match(/^TracerPid:\\s+(\\d+)$/m)?.[1]);
+    console.log(tracer);setInterval(()=>{},1000);`);
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  const tracer = Number(await bounded(line(started.handle.stdout)));
+  assert.ok(Number.isSafeInteger(tracer) && tracer > 0 && tracer !== process.pid);
+  // Only kill the kernel-reported observer of this controlled root. EXITKILL
+  // provides a backstop, but the lost wait/closure receipt must remain unresolved.
+  process.kill(tracer, 'SIGKILL');
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'unresolved', JSON.stringify(receipt));
+  assert.ok(receipt.elapsedMs <= 10000);
+});
+
 test('held runtime closure accepts more than 256 individually pinned files and refuses aggregate overflow', native, async t => {
   const f = fixture(t, 'setInterval(()=>{},1000);');
   const additional = [];
@@ -251,8 +612,10 @@ test('more than 256 sequential descendant lifetimes reclaim pidfd-confirmed dead
   const inventory = await c.observe();
   assert.equal(inventory.status, 'observed', JSON.stringify(inventory));
   assert.deepEqual(inventory.processes.map(p => p.pid), [started.handle.pid]);
+  assert.equal((await c.auditInventory()).coverageGap, true);
   const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
   assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(receipt.auditCoverage, false);
   assert.equal(alive(started.handle.pid), false);
 });
 

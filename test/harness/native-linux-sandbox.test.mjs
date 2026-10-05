@@ -110,6 +110,17 @@ test('a live helper argv leak remains violated after the helper exits before the
   assert.equal(session.state.ended, false);
 });
 
+test('a known argv coverage gap at end stays unavailable even if a later audit would be clean', async () => {
+  const { session, socket, calls } = await authenticated({ inspect: [true, true, null, true] });
+  socket.send(probes()); await waitFor(() => socket.sent.length === 2, 'start');
+  socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3, 'resume');
+  socket.send({ type: 'end', code: 0 }); await waitFor(() => session.state.closed, 'coverage gap closes proof');
+  assert.equal(session.proof.argumentsClean, null); assert.equal(session.state.ended, false);
+  assert.equal(session.state.violation, false); assert.equal(socket.sent.length, 3);
+  const before = calls.inspect; assert.equal(await session.auditArguments(), null);
+  assert.equal(calls.inspect, before); assert.equal(session.proof.argumentsClean, null);
+});
+
 test('the bound client is audited before resume and overlapping live audits share one observation', async () => {
   const refused = await authenticated({ inspect: [true, false] });
   refused.socket.send(probes()); await waitFor(() => refused.socket.sent.length === 2, 'start');
@@ -362,6 +373,8 @@ test('pinned SRT session proves every denial, binds the client and leaves no bri
   for (const secret of secrets) assert.equal(JSON.stringify(record).includes(secret), false);
   const receipt = await context.terminate({ graceMs: 1000, deadlineMs: 10_000 });
   assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(receipt.auditCoverage, true, JSON.stringify(receipt));
+  assert.equal(context.versionProbeReady(), true);
   assertNoLeftovers(cell);
 });
 
@@ -387,6 +400,7 @@ test('sequential sessions retain one immutable base and reject changed or concur
   const firstResources = readdirSync(first.cell.observations).filter(name => /^[bpw][0-9a-f]+\.(?:json|exe)$/.test(name) || /^l[0-9a-zA-Z]+$/.test(name)).sort();
   assert.equal(first.context.versionProbeReady(), true);
   assert.equal((await first.context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
+  assert.equal(first.context.versionProbeReady(), true);
   for (const changed of [
     { selectedPaths: [...first.input.selectedPaths, join(first.cell.project, 'extra.txt')] },
     { runtime: { ...first.input.runtime, readFiles: [...first.input.runtime.readFiles, '/etc/hosts'] } },
@@ -414,7 +428,7 @@ test('sequential sessions retain one immutable base and reject changed or concur
   assert.equal((await composeLinuxSandbox({ ...first.input, deadline: performance.now() + 60000 }, () => first.observerPins)).status, 'unavailable');
 });
 
-test('a live descendant leaking an environment-only token permanently violates isolation', composed, async t => {
+test('a short descendant token leak can never leave a clean argv sub-proof', composed, async t => {
   const { runtime } = JSON.parse(readFileSync(RUNTIME, 'utf8'));
   // Built-in bounded waits keep the leaked helper alive even when native stdin is already at EOF.
   const argv = ['-c', `"${runtime.bash}" -c 'end=$((SECONDS+2)); while ((SECONDS<end)); do :; done' "$AIHQ_NATIVE_EVIDENCE_TOKEN" & end=$((SECONDS+4)); while ((SECONDS<end)); do :; done; wait`];
@@ -423,10 +437,30 @@ test('a live descendant leaking an environment-only token permanently violates i
     await handle.track(); await new Promise(resolve => setTimeout(resolve, 20));
   }
   assert.equal(context.isolationRecord().clientBound, true, JSON.stringify(context.isolationRecord()));
-  assert.equal(context.isolation(), 'violated', JSON.stringify(context.isolationRecord()));
   await handle.exited;
-  assert.equal(context.isolation(), 'violated');
+  assert.notEqual(context.isolationRecord().argumentsClean, true, JSON.stringify(context.isolationRecord()));
+  assert.ok(['violated', 'unobservable'].includes(context.isolation()));
   assert.equal(context.versionProbeReady(), false);
+  for (const value of secrets) assert.equal(JSON.stringify(context.isolationRecord()).includes(value), false);
+  assert.equal((await context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
+});
+
+test('a readiness-held live helper token leak is detected and remains a violation', composed, async t => {
+  const { runtime } = JSON.parse(readFileSync(RUNTIME, 'utf8'));
+  const argv = ['-c', `"${runtime.bash}" -c 'printf "audit-helper-ready\\n"; end=$((SECONDS+15)); while [[ ! -e "$TMPDIR/argv-audit-release" ]] && ((SECONDS<end)); do :; done' "$AIHQ_NATIVE_EVIDENCE_TOKEN" & wait`];
+  const { context, handle, cell, secrets } = await composition(t, argv);
+  let seen = false, pending = '';
+  const ready = new Promise(resolve => handle.stdout.on('data', bytes => {
+    pending += bytes.toString(); assert.ok(pending.length <= 256);
+    if (pending.includes('audit-helper-ready\n')) { seen = true; resolve(); }
+  }));
+  await Promise.race([ready, handle.exited]); assert.equal(seen, true);
+  for (let i = 0; i < 100 && context.isolation() !== 'violated'; i++) {
+    await handle.track(); await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(context.isolation(), 'violated', JSON.stringify(context.isolationRecord()));
+  writeFileSync(join(cell.scratch, 'tmp', 'argv-audit-release'), 'release', { mode: 0o600 });
+  await handle.exited; assert.equal(context.isolation(), 'violated');
   for (const value of secrets) assert.equal(JSON.stringify(context.isolationRecord()).includes(value), false);
   assert.equal((await context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
 });

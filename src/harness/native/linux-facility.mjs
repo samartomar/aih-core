@@ -238,6 +238,17 @@ export async function prepareLinuxContext({ directory, deadline, signal, runtime
       return { status: 'ready', transport };
     },
     observe() { return bridge.rpc('inventory'); },
+    auditInventory() { return bridge.rpc('audit-inventory'); },
+    inspectAudit({ pid, birth, generation } = {}) {
+      if (!Number.isSafeInteger(pid) || pid <= 0 || typeof birth !== 'string' || !/^[0-9]+$/.test(birth) ||
+          !Number.isSafeInteger(generation) || generation < 1) return Promise.resolve(unavailable('ipc-peer-membership'));
+      return bridge.rpc('audit-inspect', { pid, birth, generation });
+    },
+    acknowledgeAudit({ pid, birth, generation } = {}) {
+      if (!Number.isSafeInteger(pid) || pid <= 0 || typeof birth !== 'string' || !/^[0-9]+$/.test(birth) ||
+          !Number.isSafeInteger(generation) || generation < 1) return Promise.resolve({ ok: false });
+      return bridge.rpc('audit-ack', { pid, birth, generation });
+    },
     inspect({ pid, birth } = {}) {
       if (!Number.isSafeInteger(pid) || pid <= 0 || typeof birth !== 'string' || !/^[0-9]+$/.test(birth)) return Promise.resolve(unavailable('ipc-peer-membership'));
       return bridge.rpc('inspect', { pid, birth });
@@ -269,6 +280,7 @@ export async function prepareLinuxContext({ directory, deadline, signal, runtime
         const closure = await bridge.finish(Math.max(0, allowance - (performance.now() - start)));
         stdout.end(); stderr.end(); for (const socket of peers.values()) socket.destroy(); peers.clear();
         return { processes: receipt.processes === 'confirmed' && closure.cleanup.confirmed ? 'confirmed' : 'unresolved',
+          auditCoverage: receipt.auditCoverage === true,
           survivors: [...(receipt.survivors ?? []), ...closure.cleanup.survivors], elapsedMs: Math.round(performance.now() - start), cleanupStartedAt: closure.cleanupStartedAt,
           ...(Number.isSafeInteger(receipt.activeProcesses) && receipt.activeProcesses >= 0 ? { activeProcesses: receipt.activeProcesses } : {}) };
       })();
