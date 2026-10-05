@@ -126,6 +126,7 @@ test('versioned supplied pip repair resolves document-relative sources and previ
     const input = f.document('documents/pip-inputs.json', { schema: 'urn:aihq:core:repair-inputs:1.0.0', route: 'file',
       repairs: { 'user-tools-ca': {} }, sources: { os: false, supplied: [{ id: 'corporate', file: 'corporate.pem' }] } });
     const env = { ...process.env, HOME: f.home, USERPROFILE: f.home, PATH: bin,
+      XDG_CONFIG_HOME: join(f.home, '.config'),
       APPDATA: join(f.home, 'AppData', 'Roaming') };
     for (const name of ['PIP_CERT', 'PIP_CONFIG_FILE', 'PIP_TRUSTED_HOST', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL',
       'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) delete env[name];
