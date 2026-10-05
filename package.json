@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.9",
+  "version": "1.0.0-dev.10",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": { "node": ">=24.15.0 <25" },
