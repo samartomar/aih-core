@@ -12,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
+#include <sys/sysmacros.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -353,8 +354,36 @@ static void request(char *s,int len) {
   else if(!strcmp(op,"input")||!strcmp(op,"pipe-write")){char *data=string(field(0,"data"));unsigned char buf[CHUNK];int n=data?decode(data,buf,sizeof(buf)):-1;free(data);int fd=child_in;if(!strcmp(op,"pipe-write")){fd=-1;int which=(int)number(field(0,"peer"),INT_MAX);for(int i=0;i<MAX_PEER;i++)if(peers[i].id==which)fd=peers[i].fd;}if(n<0||fd<0)reply(id,"{\"ok\":false}");else{ssize_t wrote=write(fd,buf,(size_t)n);if(wrote!=n){faulted=1;enter_cleanup();reply(id,"{\"ok\":false}");}else reply(id,"{\"ok\":true}");}}
   else {refusal(id,"input-limit");}free(op);
 }
+/* Fixed MZ canary syscall. No shell fallback and no path/errno diagnostics.
+ * EACCES proves this WSL refusal only with an executable held canary and the
+ * independently known interpreter replaced by non-executable /dev/null. */
+static int probe_same(const struct stat *a,const struct stat *b) {
+  return a->st_dev==b->st_dev&&a->st_ino==b->st_ino&&a->st_size==b->st_size&&a->st_mode==b->st_mode&&a->st_uid==b->st_uid&&
+    a->st_mtim.tv_sec==b->st_mtim.tv_sec&&a->st_mtim.tv_nsec==b->st_mtim.tv_nsec&&a->st_ctim.tv_sec==b->st_ctim.tv_sec&&a->st_ctim.tv_nsec==b->st_ctim.tv_nsec;
+}
+static int probe_report(int denied) {
+  const char *message=denied?"exec-denied":"unproven";size_t size=strlen(message);
+  ssize_t wrote=write(STDOUT_FILENO,message,size);return wrote==(ssize_t)size&&denied?0:125;
+}
+static int interop_probe(const char *path) {
+  if(getuid()==0||getuid()!=geteuid()||!path||path[0]!='/'||strlen(path)>=PATH_MAX||strstr(path,"//")||strstr(path,"/./")||strstr(path,"/../"))return probe_report(0);
+  size_t length=strlen(path);if(length<2||path[length-1]=='/'||!strcmp(path+length-2,"/.")||(length>=3&&!strcmp(path+length-3,"/..")))return probe_report(0);
+  for(size_t i=0;i<length;i++){unsigned char c=(unsigned char)path[i];if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||strchr("/._+-:",c)))return probe_report(0);}
+  struct stat before,held,current;if(lstat(path,&before)||!S_ISREG(before.st_mode)||before.st_uid!=getuid()||before.st_nlink!=1||before.st_size<2||before.st_size>1048576||access(path,X_OK))return probe_report(0);
+  int fd=open(path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(fd<0)return probe_report(0);unsigned char magic[2];
+  int valid=!fstat(fd,&held)&&probe_same(&before,&held)&&pread(fd,magic,2,0)==2&&magic[0]=='M'&&magic[1]=='Z'&&
+    !lstat(path,&current)&&probe_same(&held,&current)&&!access(path,X_OK);
+  if(!valid||prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0)){close(fd);return probe_report(0);}
+  char *args[]={(char *)path,NULL},*environment[]={"LANG=C","LC_ALL=C",NULL};execve(path,args,environment);int failure=errno;
+  int unchanged=!fstat(fd,&current)&&probe_same(&held,&current)&&!lstat(path,&before)&&probe_same(&held,&before)&&!access(path,X_OK);close(fd);
+  int denied=unchanged&&failure==ENOENT;
+  if(unchanged&&failure==EACCES){struct stat interpreter;if(!lstat("/init",&interpreter)&&S_ISCHR(interpreter.st_mode)&&major(interpreter.st_rdev)==1&&minor(interpreter.st_rdev)==3&&!(interpreter.st_mode&0111))denied=1;}
+  return probe_report(denied);
+}
 int main(int argc,char **argv) {
-  (void)argv;if(argc!=1||getuid()==0||getuid()!=geteuid())return 125;umask(0077);int sub=0;
+  if(argc==3&&!strcmp(argv[1],"--interop-probe"))return interop_probe(argv[2]);
+  if(argc!=1||getuid()==0||getuid()!=geteuid()){return 125;}
+  umask(0077);int sub=0;
   if(prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0)||prctl(PR_SET_CHILD_SUBREAPER,1)||prctl(PR_GET_CHILD_SUBREAPER,&sub)||sub!=1){return 125;}int self=pid_open(getpid());if(self<0)return 125;close(self);
   for(int i=0;i<MAX_PEER;i++){peers[i].fd=-1;peers[i].processfd=-1;}signal(SIGPIPE,SIG_IGN);struct sigaction sa;memset(&sa,0,sizeof(sa));sa.sa_handler=interrupted_handler;sigemptyset(&sa.sa_mask);sigaction(SIGTERM,&sa,NULL);sigaction(SIGINT,&sa,NULL);pid_t parent=getppid();if(parent==1||prctl(PR_SET_PDEATHSIG,SIGTERM)||getppid()!=parent)return 125;
   if(nonblock(0)||nonblock(1)){return 125;}operation=now_ms()+30000;event("ready","{\"protocol\":1}");char *input=malloc(FRAME+1);if(!input)return 125;size_t used=0;uint64_t last_scan=0;

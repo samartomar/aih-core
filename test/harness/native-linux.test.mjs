@@ -1,15 +1,18 @@
 // Real Linux OS facility tests. Off-Linux behavior is unavailable; no simulated peers.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { accessSync, constants, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { linuxAvailability, prepareLinuxContext, isLinuxTransport } from '../../src/harness/native/linux-facility.mjs';
 
 const LINUX = process.platform === 'linux' && process.arch === 'x64';
 const native = { skip: LINUX ? false : 'Linux x64 OS mechanism only', timeout: 40_000 };
+const facility = fileURLToPath(new URL('../../src/harness/native/linux/facility', import.meta.url));
 const pin = file => { const path = realpathSync.native(file); const bytes = readFileSync(path); return { path, sha256: createHash('sha256').update(bytes).digest('hex'), byteLength: bytes.length }; };
 const env = extra => ({ LANG: 'C.UTF-8', ...extra });
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -25,6 +28,15 @@ function fixture(t, script) {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return { directory, file, nodePin: pin(process.execPath), modulePin: pin(file) };
 }
+
+test('fixed interop exec probe refuses non-MZ and non-executable MZ with closed output', native, t => {
+  const f = fixture(t, 'controlled non-MZ');
+  for (const [bytes, mode] of [[Buffer.from('controlled non-MZ'), 0o700], [Buffer.from('MZcontrolled'), 0o600]]) {
+    rmSync(f.file); writeFileSync(f.file, bytes, { mode });
+    const result = spawnSync(facility, ['--interop-probe', f.file], { env: { LANG: 'C', LC_ALL: 'C' }, encoding: 'utf8', timeout: 1000 });
+    assert.equal(result.status, 125); assert.equal(result.stdout, 'unproven'); assert.equal(result.stderr, '');
+  }
+});
 async function context(t, f, selectedEntries = [], options = {}) {
   const prepared = await prepareLinuxContext({ directory: f.directory, deadline: performance.now() + 25_000,
     runtimePins: [f.nodePin, f.modulePin], selectedEntries, ...options });
@@ -139,6 +151,11 @@ test('a real same-user socket connection outside the facility tree is rejected',
 
 test('an authenticated peer in nested namespaces reports host and namespace PIDs separately', native, async t => {
   const f = fixture(t, 'import net from "node:net";const s=net.connect(process.env.SOCKET);s.on("connect",()=>s.write(String(process.pid)));setInterval(()=>{},1000);');
+  try { accessSync('/usr/bin/bwrap', constants.X_OK); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+    t.skip('controlled nested namespace test requires executable /usr/bin/bwrap'); return;
+  }
   const bwrap = pin('/usr/bin/bwrap');
   const entry = { id: 'controlled-namespaced-peer', executablePath: f.nodePin.path, executableSha256: f.nodePin.sha256, argv: [f.file] };
   const c = await context(t, f, [entry], { runtimePins: [f.nodePin, f.modulePin, bwrap] }); const pipe = await c.createPipe();

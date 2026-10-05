@@ -1,18 +1,21 @@
 {
+  "protocol": 1,
+  "platform": "linux-x64",
   "resources": [
     {
-      "byteLength": 40102,
-      "sha256": "4cd9f7cb2d75f02b74c3d06a4b13ab72d81892bfb6593d1bef30344e53079cde",
-      "name": "facility.c"
+      "name": "facility.c",
+      "sha256": "78c0e0bd1e6e3839008ab151a69b0a906d7d696947ad48c8e84858372a285725",
+      "byteLength": 42701
     },
     {
-      "byteLength": 1062408,
-      "sha256": "b77ceb44d296f3abe1e4fe9f22529bdb4bc6c66dd9d72ebc4cd1cf64a2145b2b",
-      "name": "facility"
+      "name": "facility",
+      "sha256": "4407726c0f553fae77afcfa0488820b0386a4f62259e918f6eba142934dbdee7",
+      "byteLength": 1062536
     }
   ],
-  "protocol": 1,
   "compiler": {
+    "identity": "x86_64-linux-gnu-gcc-15 (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "sha256": "b5f1b773a7c733738352000c92a077dc5852a1a2fc6d836b1e411be1e9ec5f88",
     "flags": [
       "--sysroot=<toolchain>",
       "-B<toolchain>/usr/lib/x86_64-linux-gnu/",
@@ -26,24 +29,21 @@
       "-Wall",
       "-Wextra",
       "-Werror"
-    ],
-    "sha256": "b5f1b773a7c733738352000c92a077dc5852a1a2fc6d836b1e411be1e9ec5f88",
-    "identity": "x86_64-linux-gnu-gcc-15 (Ubuntu 15.2.0-16ubuntu1) 15.2.0"
+    ]
   },
-  "platform": "linux-x64",
   "build": {
-    "linker": {
-      "sha256": "97f48d93b8b076a92d2809ec29dcb17f0f37c8827358f832255e2ed22fef6075",
-      "identity": "GNU Binutils for Ubuntu 2.46"
-    },
-    "elf": "ELF64 x86-64 static PIE; no PT_INTERP; GNU_RELRO; non-executable GNU_STACK",
-    "libcHeaders": "2.43-2ubuntu2.4",
     "status": "local-preliminary",
+    "independentBuildVerified": false,
+    "libcHeaders": "2.43-2ubuntu2.4",
     "kernelHeaders": "7.0.0-34.34",
+    "elf": "ELF64 x86-64 static PIE; no PT_INTERP; GNU_RELRO; non-executable GNU_STACK",
     "assembler": {
-      "sha256": "4e5fcaa3cdc160173cb5cfe7aa35dc39d7aa1f06ba8d75b8d923bbae5473991b",
-      "identity": "GNU Binutils for Ubuntu 2.46"
+      "identity": "GNU Binutils for Ubuntu 2.46",
+      "sha256": "4e5fcaa3cdc160173cb5cfe7aa35dc39d7aa1f06ba8d75b8d923bbae5473991b"
     },
-    "independentBuildVerified": false
+    "linker": {
+      "identity": "GNU Binutils for Ubuntu 2.46",
+      "sha256": "97f48d93b8b076a92d2809ec29dcb17f0f37c8827358f832255e2ed22fef6075"
+    }
   }
 }
