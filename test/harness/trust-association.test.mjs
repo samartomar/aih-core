@@ -66,12 +66,15 @@ test('definitions validate against the shipped capabilities, and association fol
   assert.equal(validateRepairDefinition11(exportDefinition, { capabilities: buildTrustCapabilities(pkg, []) }).valid, false);
 });
 
-test('file integration is supplied-file PEM for Node/npm only; everything else is truthfully unavailable', () => {
+test('file integration covers existing families and declares the explicit JVM baseline and store', () => {
   assert.deepEqual(getTrustFileIntegration('node-npm-ca', ['node']), { status: 'supported', format: 'pem', includeNodeBundled: false });
   assert.deepEqual(getTrustFileIntegration('node-npm-ca', ['npm']), { status: 'supported', format: 'pem', includeNodeBundled: true });
   assert.deepEqual(getTrustFileIntegration('node-npm-ca', ['node', 'npm']), { status: 'supported', format: 'pem', includeNodeBundled: true });
+  assert.deepEqual(getTrustFileIntegration('user-tools-ca', ['git']), { status: 'supported', format: 'pem', includeNodeBundled: true });
+  assert.deepEqual(getTrustFileIntegration('jvm-ca', ['maven']), { status: 'supported', format: 'pem', includeNodeBundled: false,
+    baseline: 'jks', outputs: [{ operationId: 'jks-materialize', name: 'trust.jks', format: 'jks' }] });
   const unavailable = { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'file-route-unsupported' };
-  for (const [id, targets] of [['user-tools-ca', ['git']], ['jvm-ca', ['maven']], ['certificate-export', []], ['unknown', ['node']],
+  for (const [id, targets] of [['user-tools-ca', ['maven']], ['jvm-ca', ['git']], ['certificate-export', []], ['unknown', ['node']],
     ['node-npm-ca', []], ['node-npm-ca', ['git']], ['node-npm-ca', ['node', 'node']], ['node-npm-ca', 'node'], ['node-npm-ca', undefined], ['__proto__', ['node']]])
     assert.deepEqual(getTrustFileIntegration(id, targets), unavailable, `${id} ${JSON.stringify(targets)}`);
   assert.equal(trust.getTrustFileIntegration, getTrustFileIntegration);

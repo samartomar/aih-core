@@ -64,7 +64,8 @@ export declare function hashTrustLibraries(request: { packageRoot: string }):
   { status: 'hashed'; packages: { name: string; version: string | null; sha256: string }[]; sha256: string } |
   { status: 'unavailable'; reason: 'trust-library-unavailable' | 'trust-library-unbounded'; name: string };
 export declare function getTrustFileIntegration(definitionId: string, targets: readonly string[]):
-  { status: 'supported'; format: 'pem'; includeNodeBundled: boolean } |
+  { status: 'supported'; format: 'pem'; includeNodeBundled: boolean; baseline?: 'jks';
+    outputs?: readonly { operationId: string; name: string; format: 'jks' }[] } |
   { status: 'unavailable'; code: 'PREREQUISITE_UNAVAILABLE'; reason: 'file-route-unsupported' };
 export declare const acceptanceRecordSchema: 'aih.trust.acceptance.v1';
 export declare const trustHelperFiles: readonly string[];

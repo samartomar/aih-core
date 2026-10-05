@@ -21,6 +21,8 @@ export type SuppliedCaResult = { valid: false; diagnostics: CaDiagnostic[]; asse
 export declare function validateSuppliedCa(bytes: Uint8Array, options?: { now?: number }): SuppliedCaResult;
 export declare function composeExistingTrust(existing: Uint8Array | undefined, additions: string,
   options?: { includeNodeDefaults?: boolean }): string | undefined;
+export declare function validateBaselineStore(bytes: Uint8Array):
+  { valid: true; fingerprints: string[] } | { valid: false; reason: string; message: string };
 export declare function getRepairRecipe(recipeRef: string): object | undefined;
 export declare function assessRepairCandidate(request: { id: string; inputs: Record<string, string | boolean | number> },
   controls?: { signal?: AbortSignal; budgetMs?: number }): Promise<
@@ -34,6 +36,18 @@ export declare function renderRepair(request: { id: string; variantRef: string;
   configSnapshots?: Record<string, Uint8Array>; executablePaths?: Record<string, string> }):
   { status: 'invalid' | 'blocked'; diagnostics: { code: string; reason: string; message: string }[] } |
   { status: 'completed'; bindings: Record<string, string>; privateBindings?: Record<string, string> };
+/** Render client configuration from the complete Core-composed trust set. */
+export declare function renderTrustFileRepair(request: {
+  id: 'node-npm-ca' | 'user-tools-ca' | 'jvm-ca'; variantRef: string;
+  targets: string[]; offline: boolean; bundle: Uint8Array; bundlePath: string; bundleSha256: string;
+  fingerprints: string[]; configSnapshots: Record<string, Uint8Array>;
+  executablePaths: Record<string, string>; baselineStore?: Uint8Array;
+}):
+  { status: 'invalid' | 'blocked'; diagnostics: { code: string; reason: string; message: string }[] } |
+  { status: 'completed'; bindings: Record<string, string>; privateBindings: Record<string, string>;
+    recipe?: object;
+    outputs?: { operationId: string; format: 'jks'; bytes: Uint8Array; sha256: string;
+      fingerprints: string[]; baselineSha256: string }[] };
 export declare function prepareRepairDefinition(request: { id: string; variantRef: string;
   targets: string[]; files: Record<string, Uint8Array>;
   configSnapshots?: Record<string, Uint8Array>;

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const allTargets = ['gradle', 'maven'];
 const repairId = 'jvm-ca';
+const shared = process.env.AIHQ_TRUST_CONTRACT === 'shared';
 // Per-target reviewed config operation IDs declared by the jvm-ca definition.
 const configOperationIds = { gradle: 'gradle-config', maven: 'maven-config' };
 // The JVM truststore materialization (keytool) operation. Its outcome is
@@ -253,8 +254,8 @@ async function loadPublicConsumer() {
   const { repairIndex, contractSupport } = await import('@aihq/core/harness');
   const { Ajv2020 } = await import('ajv/dist/2020.js');
   const ajv = new Ajv2020({ strict: true });
-  for (const name of ['prepared-work', 'run-result'])
-    ajv.addSchema((await import(`@aihq/core/schemas/${name}/1.0.0.json`, { with: { type: 'json' } })).default);
+  for (const name of ['prepared-work', 'run-result']) for (const version of ['1.0.0', '1.2.0'])
+    ajv.addSchema((await import(`@aihq/core/schemas/${name}/${version}.json`, { with: { type: 'json' } })).default);
   return { prepare, apply, repairIndex, contractSupport, ajv };
 }
 
@@ -295,8 +296,10 @@ async function exerciseConsumer() {
   const baselineStore = process.argv[4];
   const files = fixtureConfigFiles(repairIndex, targets);
   const before = seedSentinels(files);
-  const request = { useCase: 'repair', repairs: [{ id: repairId, targets,
-    inputs: { caFile: process.argv[3], baselineStore } }] };
+  const request = shared ? { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair', route: 'file',
+    repairs: [{ id: repairId, targets, inputs: { baselineStore } }],
+    sources: { os: false, supplied: [{ id: 'fixture', file: process.argv[3] }] } } :
+    { useCase: 'repair', repairs: [{ id: repairId, targets, inputs: { caFile: process.argv[3], baselineStore } }] };
   const preview = await prepare(request, { logging: 'off' });
   assert.ok(preview.review, JSON.stringify(preview.diagnostics));
   assert.equal(ajv.validate(preview.review.schema, preview.review), true, JSON.stringify(ajv.errors));
@@ -308,8 +311,10 @@ async function exerciseConsumer() {
   });
   const prepared = await prepare({ ...request, ...(resolutions.length ? { resolutions } : {}) }, { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
-  assert.deepEqual(prepared.review.inputs.package, contractSupport.package);
-  const materialize = prepared.review.operations.find(operation => operation.id === `trust/${materializeOperationId}`);
+  assert.deepEqual(shared ? prepared.review.inputs.trust.package : prepared.review.inputs.package, contractSupport.package);
+  const storeOperationId = shared ? prepared.review.inputs.trust.outputs.find(output => output.format === 'jks')?.operationId : materializeOperationId;
+  assert.ok(storeOperationId, 'The selected contract must review the actual JKS output');
+  const materialize = prepared.review.operations.find(operation => operation.id === `trust/${storeOperationId}`);
   assert.ok(materialize, 'Review must show the explicit JVM truststore materialization operation');
   const result = await apply(prepared.prepared, { approved: true, origin: 'automation',
     reviewDigest: prepared.review.reviewDigest }, { logging: 'off' });
@@ -318,8 +323,8 @@ async function exerciseConsumer() {
   // failed acceptance keeps the actual review/result rather than a summary.
   writeFileSync('native-result.json', JSON.stringify({ ...identity, privilege,
     node: process.version, package: contractSupport.package, targets, baselineStore,
-    review: prepared.review, result }, null, 2));
-  const materializeOutcome = result.operations.find(operation => operation.id === `trust/${materializeOperationId}`);
+    contract: shared ? 'shared' : 'legacy', review: prepared.review, result }, null, 2));
+  const materializeOutcome = result.operations.find(operation => operation.id === `trust/${storeOperationId}`);
   assert.ok(materializeOutcome, 'Result must report the explicit JVM materialization outcome');
   const materializeApplied = ['applied', 'already-satisfied'].includes(materializeOutcome.application);
   if (result.completion !== 'complete') {
@@ -357,7 +362,7 @@ async function exerciseConsumer() {
     assert.ok(text.includes(retainedText[file.id]), `${file.id} preserves neighboring configuration`);
   }
   const after = new Map(files.map(file => [file.path, readFileSync(file.path)]));
-  const repeated = await prepare(request, { logging: 'off' });
+  const repeated = await prepare(shared ? { ...request, sources: { os: false, supplied: [] } } : request, { logging: 'off' });
   assert.equal(repeated.status, 'ready', JSON.stringify(repeated));
   const reapplied = await apply(repeated.prepared, { approved: true, origin: 'automation',
     reviewDigest: repeated.review.reviewDigest }, { logging: 'off' });
@@ -377,9 +382,11 @@ async function exerciseNegative() {
   const files = fixtureConfigFiles(repairIndex, targets);
   const before = seedSentinels(files);
   const evidenceFile = `native-negative-${scenario}.json`;
-  const inputs = { caFile: process.argv[4],
-    baselineStore: scenario === 'invalid-baseline' ? process.argv[4] : process.argv[5] };
-  const request = { useCase: 'repair', repairs: [{ id: repairId, targets, inputs }] };
+  const inputs = { baselineStore: scenario === 'invalid-baseline' ? process.argv[4] : process.argv[5],
+    ...(shared ? {} : { caFile: process.argv[4] }) };
+  const request = { ...(shared ? { schema: 'urn:aihq:core:repair-request:1.0.0', route: 'file',
+    sources: { os: false, supplied: [{ id: 'fixture', file: process.argv[4] }] } } : {}),
+    useCase: 'repair', repairs: [{ id: repairId, targets, inputs }] };
   const record = { ...identity, privilege, node: process.version, package: contractSupport.package,
     scenario, targets, inputs: { caFile: inputs.caFile, baselineStore: inputs.baselineStore } };
   const preview = await prepare(request, { logging: 'off' });

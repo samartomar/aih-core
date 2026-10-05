@@ -12,9 +12,10 @@ import { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 import { candidateOrigins, selectTrustCandidateWith } from './candidate.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
-  userToolsObservationRequests, assessUserToolsObservations } from './user-trust.mjs';
+  userToolsObservationRequests, assessUserToolsObservations, renderUserToolsTrustFileRepair } from './user-trust.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
-import { jvmRecipe, renderJvmRepair, prepareJvmRepair } from './jvm-trust.mjs';
+import { jvmRecipe, renderJvmRepair, prepareJvmRepair, renderJvmTrustFileRepair } from './jvm-trust.mjs';
+export { validateBaselineStore } from './jvm-trust.mjs';
 import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 export { readGitHubPolicy } from './github-policy.mjs';
@@ -261,6 +262,17 @@ export function getTrustRecipe(recipeRef, bindings) {
       !/^[a-f0-9]{64}$/.test(bindings.sha256 ?? '') || !Number.isSafeInteger(bindings.byteLength) || bindings.byteLength < 1 || bindings.byteLength > 12_582_912)
     return { status: 'invalid', code: 'INPUT_INVALID', reason: 'repair-bindings' };
   return { status: 'recipe', recipe: buildCertificateExportRecipe(bindings) };
+}
+
+/** Render the existing client configuration around Core's complete shared source set. */
+export function renderTrustFileRepair(request) {
+  if (request?.id === 'user-tools-ca') return renderUserToolsTrustFileRepair(request);
+  if (request?.id === 'jvm-ca') return renderJvmTrustFileRepair(request);
+  if (request?.id !== 'node-npm-ca') return { status: 'invalid', diagnostics: [
+    { code: 'INPUT_INVALID', reason: 'repair-bindings', message: 'Invalid shared trust repair bindings.' }
+  ] };
+  const result = renderRepair(request);
+  return result.status === 'completed' ? { ...result, privateBindings: result.privateBindings ?? {} } : result;
 }
 
 /** This transform supplies literal bindings only; it cannot alter an operation graph. */

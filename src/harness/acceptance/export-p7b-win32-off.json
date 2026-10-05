@@ -1,7 +1,7 @@
 {
   "schema": "aih.trust.acceptance.v1",
   "cellId": "export-p7b-win32-off",
-  "subjectSha256": "ff2106624390aa13c61c8c2e8227a8d9b779ba7a85c527b57fbdc3144799c454",
+  "subjectSha256": "035bbd9fda95e2d604babf8626bba6f24a22740f677f2a10f343a4261d6401ac",
   "cell": {
     "id": "export-p7b-win32-off",
     "definitionId": "certificate-export",
@@ -24,67 +24,67 @@
       "id": "p7b-custody-recorded",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Persisted provenance matched a genuine ordinary recipe receipt and observed output digest."
+      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
     },
     {
       "id": "p7b-custom-store-import",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Windows 11 25H2 x64 standard-user Import-Certificate preserved both fixture DER fingerprints in a unique disposable custom CurrentUser store; fixture-only cleanup verified."
+      "summary": "Exact unchanged P7B bytes match the prior Windows 11 25H2 standard-user disposable-store import and verified cleanup."
     },
     {
       "id": "p7b-deterministic-bytes",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Reversed source DER order preserved exact output bytes through packed public refresh."
+      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
     },
     {
       "id": "p7b-independent-parse-set",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Strict independent parser found the exact two DER fingerprints and certificate-only container."
+      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
     },
     {
       "id": "p7b-public-api-write",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Packed public Prepare/Apply wrote the reviewed path; full 1.2 review and result validated."
+      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
     },
     {
       "id": "p7b-refresh-replace-reviewed",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Explicit same-ID replacement reviewed removal and persisted the exact refreshed source set."
+      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
     },
     {
       "id": "p7b-reject-key-material",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "A supplied private-key block rejected the whole request and preserved prior output."
+      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
     },
     {
       "id": "p7b-reject-output-extension-mismatch",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Mismatched output extension rejected before user-output effects."
+      "summary": "An output extension mismatch rejected before output effects."
     },
     {
       "id": "p7b-reject-unsafe-path",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "A parent-traversal output was rejected and no outside file appeared."
+      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
     },
     {
       "id": "p7b-removal-reconciled",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Managed public removal retired the output, ordinary claim and protected provenance."
+      "summary": "Managed public removal retired the output and protected provenance with its ordinary ownership."
     },
     {
       "id": "p7b-serializer-failure-unavailable",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Fixed serializer loading failure returned unavailable without a substituted encoding."
+      "summary": "Fixed serializer backend loading failure returned unavailable without a substituted encoding."
     }
   ],
   "limitations": [

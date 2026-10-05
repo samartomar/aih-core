@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.10 integrates the versioned shared trust request with the existing
+Python/pip, Git, Cargo, conda, Gradle and Maven repairs. Supplied-source retention,
+reviewed replacement/removal, configuration and executable binding, and protected
+output custody now cover these families. JVM repairs keep their explicit JKS
+baseline separate and review the precomputed derived store before effects.
+Schema-less repairs retain their behavior. Automatic OS/native repair remains
+unavailable without actual client and policy admission. This development candidate
+has not been published to npm.
+
 Core 1.0.0-dev.9 adds bounded Windows Job lifecycle and OS-bound named-pipe
 facilities with packaged helper byte binding, partial-launch cleanup and protected
 dedicated OAuth staging. Runtime entry ownership is independent of a claimed PID

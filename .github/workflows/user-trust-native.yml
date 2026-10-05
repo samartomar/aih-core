@@ -5,6 +5,8 @@ on:
     paths:
       - 'src/harness/user-trust*'
       - 'src/core/repair.ts'
+      - 'src/core/trust.ts'
+      - 'src/harness/trust*'
       - 'scripts/ci/user-trust-native.mjs'
       - '.github/workflows/user-trust-native.yml'
   workflow_dispatch:
@@ -14,12 +16,16 @@ permissions:
 
 jobs:
   native:
+    name: User trust (${{ matrix.os }}, ${{ matrix.contract }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2025, macos-26]
+        contract: [legacy, shared]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    env:
+      AIHQ_TRUST_CONTRACT: ${{ matrix.contract }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,6 +58,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-user-trust-${{ matrix.os }}
+          name: native-user-trust-${{ matrix.os }}-${{ matrix.contract }}
           path: native-trust-results/
           if-no-files-found: warn

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { composeExistingTrust, validateSuppliedCa } from './ca.mjs';
+import { parsePemBundle } from './trust-encoding.mjs';
 
 const literal = value => ({ literal: value });
 const input = name => ({ input: name });
@@ -620,6 +621,39 @@ export function prepareJvmRepair(request) {
   const facts = { fingerprints: accepted.certificates.map(item => item.fingerprint), evaluatedAt: accepted.evaluatedAt,
     count: accepted.certificates.length, duplicates: accepted.duplicates };
   if (request.validateOnly) return { status: 'completed', ...facts };
+  const environment = jvmEnvironmentGuard(variant);
+  if (environment) return environment;
+  // The derived store carries baseline entries from the reviewed JDK copy plus all managed certificates.
+  const bundle = composeExistingTrust(request.existing, accepted.material, { includeNodeDefaults: false });
+  if (bundle === undefined) return invalid('existing-trust-uncomposable', 'Existing managed trust cannot be safely composed.', 'STATE_CONFLICT');
+  if (Buffer.byteLength(bundle) > 16 * 1024 * 1024) return invalid('managed-material-limit', 'Managed trust would exceed its bound.', 'STATE_CONFLICT');
+  const baselineBytes = Buffer.from(request.files.baselineStore);
+  const rendered = renderJvmRepair({ ...request, fingerprints: facts.fingerprints, bundlePath: request.managedPath,
+    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+    baselineStoreSha256: createHash('sha256').update(baselineBytes).digest('hex'),
+    baselineStoreBase64: baselineBytes.toString('base64') });
+  return rendered.status === 'completed' ? { ...rendered, ...facts, bundle } : rendered;
+}
+// ---------------------------------------------------------------------------------------------
+// New-contract JVM file repair: deterministic CA-only JKS from the complete reviewed PEM set
+// plus the explicitly selected baseline store. The legacy 1.0 exports above stay unchanged.
+// ---------------------------------------------------------------------------------------------
+
+const JKS_ENTRY_LIMIT = 2048;
+const JKS_STORE_LIMIT = 4 * 1024 * 1024;
+const JKS_CA_BUDGET = 8 * 1024 * 1024;
+const SOURCE_FINGERPRINT_LIMIT = 4096;
+const JKS_OPERATION_ID = 'jks-materialize';
+const JKS_OUTPUT_NAME = 'trust.jks';
+const JKS_MATERIAL_ID = 'generated-jks';
+const hex64 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
+/**
+ * Shared JVM environment guardrails. Manager launchers, JVMs and redirected user
+ * locations can silently move trust away from the reviewed store; prepare and the
+ * renderer must reject those before any effect. Returns a diagnostic envelope or undefined.
+ */
+function jvmEnvironmentGuard(variant) {
   const home = homedir();
   if (variant.targets.includes('gradle') && process.env.GRADLE_USER_HOME &&
       resolveEnv(process.env.GRADLE_USER_HOME) !== resolveEnv(join(home, '.gradle')))
@@ -631,16 +665,286 @@ export function prepareJvmRepair(request) {
   for (const key of ['JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'JAVA_OPTS', 'GRADLE_OPTS', 'MAVEN_OPTS'])
     if (/trustStore/i.test(process.env[key] ?? ''))
       return invalid('trust-override-environment', 'An inherited JVM or manager option overrides the selected truststore. Remove that override before preparing.', 'PREREQUISITE_UNAVAILABLE');
-  // The derived store carries baseline entries from the reviewed JDK copy plus all managed certificates.
-  const bundle = composeExistingTrust(request.existing, accepted.material, { includeNodeDefaults: false });
-  if (bundle === undefined) return invalid('existing-trust-uncomposable', 'Existing managed trust cannot be safely composed.', 'STATE_CONFLICT');
-  if (Buffer.byteLength(bundle) > 16 * 1024 * 1024) return invalid('managed-material-limit', 'Managed trust would exceed its bound.', 'STATE_CONFLICT');
-  const baselineBytes = Buffer.from(request.files.baselineStore);
-  const rendered = renderJvmRepair({ ...request, fingerprints: facts.fingerprints, bundlePath: request.managedPath,
-    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
-    baselineStoreSha256: createHash('sha256').update(baselineBytes).digest('hex'),
-    baselineStoreBase64: baselineBytes.toString('base64') });
-  return rendered.status === 'completed' ? { ...rendered, ...facts, bundle } : rendered;
+  return undefined;
+}
+
+/**
+ * Read-only JKS trusted-certificate reader for the deterministic new-contract merge.
+ * Structural limits, integrity and CA-only admission match the embedded legacy
+ * materialization parser; unlike it, this reader also preserves each entry's raw
+ * alias, timestamp and DER bytes so baseline entries are reproduced without
+ * reinterpretation. Throws Error with a stable reason code on any problem.
+ */
+function jksTrustEntries(input) {
+  const fail = reason => { throw new Error(reason); };
+  if (!(input instanceof Uint8Array) && !Buffer.isBuffer(input)) fail('jks-bytes');
+  const bytes = Buffer.from(input);
+  if (bytes.length < 12 + 20 || bytes.length > JKS_STORE_LIMIT) fail('jks-length');
+  if (bytes.readUInt32BE(0) !== 0xfeedfeed) fail('jks-magic');
+  if (bytes.readUInt32BE(4) !== 2) fail('jks-version');
+  const count = bytes.readUInt32BE(8);
+  if (count < 1 || count > JKS_ENTRY_LIMIT) fail('jks-count');
+  let offset = 12;
+  const entries = [];
+  const aliases = new Set();
+  for (let index = 0; index < count; index++) {
+    if (offset + 4 > bytes.length - 20) fail('jks-truncated');
+    const tag = bytes.readUInt32BE(offset); offset += 4;
+    if (tag !== 2) fail(tag === 1 ? 'jks-private-key' : 'jks-entry-tag');
+    const string = () => {
+      if (offset + 2 > bytes.length - 20) fail('jks-truncated');
+      const length = bytes.readUInt16BE(offset); offset += 2;
+      if (offset + length > bytes.length - 20) fail('jks-truncated');
+      const value = Buffer.from(bytes.subarray(offset, offset + length)); offset += length;
+      return value;
+    };
+    const alias = string();
+    const aliasKey = alias.toString('latin1').toLowerCase();
+    if (aliases.has(aliasKey)) fail('jks-alias-duplicate');
+    aliases.add(aliasKey);
+    if (offset + 8 > bytes.length - 20) fail('jks-truncated');
+    const timestamp = Buffer.from(bytes.subarray(offset, offset + 8)); offset += 8;
+    const type = string().toString('latin1');
+    if (type !== 'X.509') fail('jks-cert-type');
+    if (offset + 4 > bytes.length - 20) fail('jks-truncated');
+    const length = bytes.readUInt32BE(offset); offset += 4;
+    if (length < 1 || length > 262144 || offset + length > bytes.length - 20) fail('jks-cert-length');
+    const der = Buffer.from(bytes.subarray(offset, offset + length)); offset += length;
+    let cert;
+    try { cert = new X509Certificate(der); } catch { fail('jks-cert-invalid'); }
+    if (!cert.raw.equals(der)) fail('jks-cert-invalid');
+    if (!cert.ca) fail('jks-not-ca');
+    entries.push({ alias, timestamp, der, fingerprint: createHash('sha256').update(cert.raw).digest('hex') });
+  }
+  if (offset !== bytes.length - 20) fail('jks-trailing');
+  const integrity = jksIntegrity(bytes.subarray(0, bytes.length - 20));
+  if (!integrity.equals(bytes.subarray(bytes.length - 20))) fail('jks-integrity');
+  return entries;
+}
+
+/** JKS integrity: SHA-1 over the UTF-16BE public container password, fixed salt and store body. */
+function jksIntegrity(body) {
+  const password = Buffer.alloc(STORE_PASSWORD.length * 2);
+  for (let i = 0; i < STORE_PASSWORD.length; i++) password.writeUInt16BE(STORE_PASSWORD.charCodeAt(i), i * 2);
+  return createHash('sha1').update(password).update('Mighty Aphrodite', 'latin1').update(body).digest();
+}
+
+/** Encode trusted entries back to the conventional JKS layout and public container password. */
+function encodeJksTrustEntries(entries) {
+  const parts = [];
+  const u32 = value => { const buffer = Buffer.alloc(4); buffer.writeUInt32BE(value); return buffer; };
+  const u16 = value => { const buffer = Buffer.alloc(2); buffer.writeUInt16BE(value); return buffer; };
+  parts.push(u32(0xfeedfeed), u32(2), u32(entries.length));
+  for (const entry of entries) parts.push(u32(2), u16(entry.alias.length), entry.alias, entry.timestamp,
+    u16(5), Buffer.from('X.509', 'latin1'), u32(entry.der.length), entry.der);
+  const body = Buffer.concat(parts);
+  return Buffer.concat([body, jksIntegrity(body)]);
+}
+
+/**
+ * Bounded deterministic merge for the new contract: preserve every baseline trusted
+ * certificate entry and add only the selected roots absent from the baseline. No
+ * automatic baseline discovery, no prior managed output input, no general JKS writer.
+ * Returns {status:'completed', bytes, sha256, fingerprints, ...} or a diagnostic envelope.
+ */
+export function buildJvmTrustStore(request) {
+  const blocked = (reason, message) => ({ status: 'blocked', diagnostics: [{ code: 'SOURCE_LIMIT', reason, message }] });
+  const pemBytes = request?.bundle;
+  if (!(pemBytes instanceof Uint8Array) || !hex64(request?.bundleSha256))
+    return invalid('repair-bindings', 'A complete reviewed PEM source set is required.');
+  if (createHash('sha256').update(pemBytes).digest('hex') !== request.bundleSha256)
+    return invalid('pem-digest-mismatch', 'The reviewed PEM source bytes do not match their digest.');
+  const parsed = parsePemBundle(pemBytes, 16 * 1024 * 1024);
+  if (parsed.status !== 'parsed')
+    return invalid('pem-source-invalid', 'The complete PEM source set could not be parsed.');
+  const fingerprints = parsed.certificates.map(item => item.fingerprint).sort();
+  if (!Array.isArray(request.fingerprints) || !request.fingerprints.length ||
+      request.fingerprints.length > SOURCE_FINGERPRINT_LIMIT ||
+      request.fingerprints.some(value => !hex64(value)) ||
+      new Set(request.fingerprints).size !== request.fingerprints.length ||
+      JSON.stringify([...request.fingerprints].sort()) !== JSON.stringify(fingerprints))
+    return invalid('repair-bindings', 'The reviewed PEM fingerprints do not match the complete source bytes.');
+  const baselineBytes = request.baselineStore;
+  if (!(baselineBytes instanceof Uint8Array))
+    return invalid('baseline-store-invalid', 'An explicit selected JDK baseline truststore is required.');
+  const baselineSha256 = createHash('sha256').update(baselineBytes).digest('hex');
+  if (request.baselineSha256 !== undefined && request.baselineSha256 !== baselineSha256)
+    return invalid('baseline-store-changed', 'The selected baseline truststore bytes do not match their digest.');
+  let baselineEntries;
+  try { baselineEntries = jksTrustEntries(baselineBytes); }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : 'jks-bytes';
+    return ['jks-length', 'jks-magic', 'jks-version'].includes(reason) ?
+      invalid('baseline-store-unsupported', 'The selected baseline truststore is not a JKS store. Select the JDK cacerts file in JKS format.') :
+      invalid('baseline-store-invalid', 'The selected baseline truststore is not a readable CA-only JKS store with the conventional public container password.');
+  }
+  const retained = new Set(baselineEntries.map(item => item.fingerprint));
+  const known = new Set(retained);
+  const seenAliases = new Set(baselineEntries.map(item => item.alias.toString('latin1').toLowerCase()));
+  const added = [];
+  for (const certificate of [...parsed.certificates].sort((a, b) => a.fingerprint < b.fingerprint ? -1 : 1)) {
+    if (known.has(certificate.fingerprint)) continue;
+    if (!certificate.ca) return invalid('jks-not-ca', 'Only CA certificates may be added to the managed JVM truststore.');
+    known.add(certificate.fingerprint);
+    let alias = `aihq-ca-${certificate.fingerprint.slice(0, 16)}`;
+    for (let suffix = 2; seenAliases.has(alias); suffix++) {
+      if (suffix > JKS_ENTRY_LIMIT) return blocked('source-limit', 'The managed JVM truststore alias space is exhausted.');
+      alias = `aihq-ca-${certificate.fingerprint.slice(0, 16)}-${suffix}`;
+    }
+    seenAliases.add(alias);
+    added.push({ alias: Buffer.from(alias, 'latin1'), timestamp: Buffer.alloc(8),
+      der: Buffer.from(certificate.der), fingerprint: certificate.fingerprint });
+  }
+  const entries = [...baselineEntries, ...added];
+  if (entries.length > JKS_ENTRY_LIMIT)
+    return blocked('source-limit', 'The managed JVM truststore entry count exceeds its bound.');
+  if (entries.reduce((total, item) => total + item.der.length, 0) > JKS_CA_BUDGET)
+    return blocked('source-limit', 'The managed JVM truststore CA material exceeds its bound.');
+  const encoded = encodeJksTrustEntries(entries);
+  if (encoded.length > JKS_STORE_LIMIT)
+    return blocked('source-limit', 'The managed JVM truststore exceeds its bound.');
+  // Independent self-check: re-read the exact produced bytes and require the merged multiset
+  // plus byte-identical baseline entry prefixes before the bytes are offered for review.
+  let verified;
+  try { verified = jksTrustEntries(encoded); }
+  catch { return invalid('jks-encode', 'The deterministic JVM truststore encoding did not validate.'); }
+  const expected = entries.map(item => item.fingerprint).sort();
+  const found = verified.map(item => item.fingerprint).sort();
+  if (JSON.stringify(expected) !== JSON.stringify(found) ||
+      !verified.slice(0, baselineEntries.length).every((item, index) =>
+        item.alias.equals(baselineEntries[index].alias) && item.timestamp.equals(baselineEntries[index].timestamp) &&
+        item.der.equals(baselineEntries[index].der)))
+    return invalid('jks-encode', 'The deterministic JVM truststore did not preserve the reviewed entries.');
+  return { status: 'completed', bytes: new Uint8Array(encoded), sha256: createHash('sha256').update(encoded).digest('hex'),
+    fingerprints: expected, certificateCount: entries.length, baselineSha256,
+    retainedFingerprints: [...retained].sort(), addedFingerprints: added.map(item => item.fingerprint).sort(),
+    baselineEntryCount: baselineEntries.length, addedEntryCount: added.length };
+}
+
+/**
+ * Fixed new-contract graph. The PEM and the deterministic JKS are precomputed
+ * `file.write` materials: no process.run creates or modifies the truststore, so a
+ * materialization check can never mutate unreviewed bytes. Core swaps the generated
+ * materials in (PEM `material` content and the `generated-jks` descriptor).
+ */
+function buildJvmTrustFileRecipe(variant) {
+  const declared = variant.network !== 'off';
+  const inputs = {
+    bundle: { type: 'string', required: true, sensitive: true, maxLength: 16 * 1024 * 1024 },
+    bundlePath: { type: 'string', required: true, maxLength: 4096 },
+    bundleSha256: { type: 'string', required: true, maxLength: 64 },
+    jksPath: { type: 'string', required: true, maxLength: 4096 },
+    jksSha256: { type: 'string', required: true, maxLength: 64 },
+    fingerprintCsv: { type: 'string', required: true, maxLength: JKS_ENTRY_LIMIT * 65 - 1 },
+    keytoolExecutable: { type: 'string', required: true, maxLength: 4096 }
+  };
+  if (declared) {
+    inputs.javaExecutable = { type: 'string', required: true, maxLength: 4096 };
+    if (variant.targets.includes('gradle')) inputs.gradleExecutable = { type: 'string', required: true, maxLength: 4096 };
+    if (variant.targets.includes('maven')) inputs.mavenExecutable = { type: 'string', required: true, maxLength: 4096 };
+  }
+  const operations = [
+    { id: 'material', purpose: 'Write composed trust preserving all existing managed certificates', kind: 'file.write',
+      scope: 'user', target: { root: 'userState', segments: [literal('trust.pem')] }, content: input('bundle'),
+      mode: 0o600, requires: [], checks: ['material-digest'] },
+    { id: 'keytool-ready', purpose: 'Verify the selected existing keytool runs before any truststore work',
+      kind: 'process.run', scope: 'user', executable: { name: 'keytool' }, args: [literal('-help')], cwd, env: {},
+      timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0],
+      effects: ['Read-only keytool help process'], requires: [], checks: ['keytool-available'] },
+    { id: JKS_OPERATION_ID, purpose: 'Publish the reviewed deterministic JVM truststore from precomputed material',
+      kind: 'file.write', scope: 'user', target: { root: 'userState', segments: [literal(JKS_OUTPUT_NAME)] },
+      material: JKS_MATERIAL_ID, mode: 0o600, requires: ['keytool-ready'], checks: ['jks-digest', 'jks-content'] }
+  ];
+  const checks = [
+    { id: 'material-digest', purpose: 'Check managed CA material bytes', kind: 'process.exit',
+      ...nodeInvocation(digestScript, [input('bundlePath'), input('bundleSha256')]) },
+    { id: 'jks-digest', purpose: 'Check the reviewed JVM truststore bytes', kind: 'process.exit',
+      ...nodeInvocation(digestScript, [input('jksPath'), input('jksSha256')]) },
+    namedCheck('keytool-available', 'Require the selected existing keytool executable', 'keytool', ['-help']),
+    { id: 'jks-content', purpose: 'Check every reviewed store fingerprint is trusted by the published store', kind: 'process.exit',
+      ...nodeInvocation(jksContentScript, [input('jksPath'), input('keytoolExecutable'), input('fingerprintCsv')]),
+      timeoutMs: 60000, maxOutputBytes: 16384 }
+  ];
+  for (const file of variant.configFiles) {
+    if (file.operationId !== 'gradle-config' && file.operationId !== 'maven-config') continue;
+    const id = file.operationId.split('-')[0];
+    inputs[`${id}Config`] = { type: 'string', required: true, sensitive: true, maxLength: 2 * 1024 * 1024 };
+    inputs[`${id}ConfigPath`] = { type: 'string', required: true, maxLength: 4096 };
+    const behavior = `${id}-behavior`;
+    operations.push({ id: file.operationId, purpose: `Set ${id === 'gradle' ?
+      'Gradle JVM truststore properties' : 'Maven JVM truststore options'} using the reviewed store; preserve neighboring configuration privately`,
+      kind: 'file.write', scope: 'user', target: structuredClone(file.target), content: input(`${id}Config`),
+      requires: [JKS_OPERATION_ID], checks: declared ? [behavior] : [] });
+    if (!declared) continue;
+    const gradle = id === 'gradle';
+    checks.push({ id: behavior, purpose: `Check the real ${id} manager consumes the repaired truststore, trusts the selected CA identities and reaches its declared endpoint`,
+      kind: 'process.exit',
+      ...nodeInvocation(gradle ? gradleBehaviorScript : mavenBehaviorScript,
+        [input(`${id}ConfigPath`), input('jksPath'), input(`${id}Executable`), input('javaExecutable')]),
+      env: { AIH_EXPECTED_FINGERPRINTS: input('fingerprintCsv'), AIH_EXPECTED_STORE: input('jksPath'),
+        AIH_ENDPOINT: literal(gradle ? GRADLE_ENDPOINT : MAVEN_ENDPOINT) },
+      timeoutMs: gradle ? 240000 : 540000, maxOutputBytes: 16384 });
+  }
+  return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'jvm-ca', description: jvmRepair.description,
+    inputs, materials: [], targets: ['user'], prerequisites: [], operations, checks };
+}
+
+/**
+ * New-contract JVM file renderer (shared seam). Pure with respect to host files:
+ * it parses the complete Core-composed PEM bytes, merges the explicit baseline and
+ * returns the precomputed CA-only JKS plus the fixed recipe whose JKS operation is a
+ * file.write. It never reads a prior output and never discovers a baseline. The
+ * legacy renderJvmRepair/prepareJvmRepair exports above remain unchanged.
+ */
+export function renderJvmTrustFileRepair(request) {
+  const variant = variantFor(request);
+  if (!variant || request?.id !== 'jvm-ca' || !Array.isArray(request.targets) ||
+      variant.targets.length !== request.targets.length || !variant.targets.every(id => request.targets.includes(id)) ||
+      variant.network !== (request.offline ? 'off' : 'declared'))
+    return invalid('repair-input', 'Unsupported JVM trust file repair input.');
+  if (!(request.bundle instanceof Uint8Array) || !hex64(request.bundleSha256) ||
+      typeof request.bundlePath !== 'string' || !isAbsolute(request.bundlePath) || /[\p{Cc}\p{Cf}]/u.test(request.bundlePath))
+    return invalid('repair-bindings', 'Invalid JVM trust bindings.');
+  const environment = jvmEnvironmentGuard(variant);
+  if (environment) return environment;
+  const jksPath = join(dirname(request.bundlePath), JKS_OUTPUT_NAME);
+  const pathIssue = managedPathIssue(variant, jksPath);
+  if (pathIssue) return invalid('managed-path-unsupported', pathIssue);
+  const store = buildJvmTrustStore({ bundle: request.bundle, bundleSha256: request.bundleSha256,
+    fingerprints: request.fingerprints, baselineStore: request.baselineStore });
+  if (store.status !== 'completed') return store;
+  const bindings = { bundlePath: request.bundlePath, bundleSha256: request.bundleSha256,
+    jksPath, jksSha256: store.sha256, fingerprintCsv: store.fingerprints.join(',') };
+  for (const { pathInput } of variant.executableBindings) {
+    const path = request.executablePaths?.[pathInput] ?? '';
+    if (typeof path !== 'string' || path && (!isAbsolute(path) || /[\p{Cc}\p{Cf}]/u.test(path)))
+      return invalid('executable-binding', 'The selected executable path is invalid.');
+    bindings[pathInput] = path;
+  }
+  const privateBindings = {};
+  const snapshots = request.configSnapshots ?? {};
+  for (const file of variant.configFiles) {
+    const bytes = snapshots[file.operationId] ?? new Uint8Array();
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > file.maxBytes)
+      return invalid('config-snapshot-limit', 'A user configuration snapshot exceeds its bound.');
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+    catch { return invalid('config-encoding', 'User configuration must be complete UTF-8 text.'); }
+    if (text.includes('\0')) return invalid('config-encoding', 'User configuration contains invalid text.');
+    if (file.operationId === 'gradle-config') {
+      if (gradleConfigAmbiguous(text)) return invalid('config-ambiguous', 'The selected Gradle user configuration has ambiguous trust entries.');
+      privateBindings.gradleConfig = gradlePropertiesConfig(text, jksPath);
+      bindings.gradleConfigPath = join(homedir(), '.gradle', 'gradle.properties');
+    } else if (file.operationId === 'maven-config') {
+      if (mavenRcAmbiguous(text, variant.os)) return invalid('config-ambiguous', 'The selected Maven user configuration has conflicting trust entries.');
+      privateBindings.mavenConfig = mavenRcConfig(text, jksPath, variant.os);
+      bindings.mavenConfigPath = join(homedir(), variant.os === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc');
+    } else if (/trustStore/i.test(text))
+      return invalid('config-ambiguous', 'A later Windows Maven rc file sets JVM trust options and would override the repaired settings.');
+  }
+  return { status: 'completed', bindings, privateBindings, recipe: buildJvmTrustFileRecipe(variant),
+    outputs: [{ operationId: JKS_OPERATION_ID, format: 'jks', bytes: store.bytes, sha256: store.sha256,
+      fingerprints: store.fingerprints, baselineSha256: store.baselineSha256 }] };
 }
 function resolveEnv(value) {
   const resolved = resolve(value);

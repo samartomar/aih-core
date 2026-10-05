@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
 import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
 import { validatePreparedWork12, validateRunResult12 } from '@aihq/core/contracts';
 import { trustCapabilities, selectTrustCell } from '@aihq/core/harness';
@@ -24,6 +24,41 @@ const repair = await prepare({ schema: 'urn:aihq:core:repair-request:1.0.0', use
 assert.equal(repair.status, 'ready', JSON.stringify(repair.diagnostics));
 assert.equal(validatePreparedWork12(repair.review).valid, true);
 assert.equal(repair.review.inputs.trust.targets[0].verification.status, 'skipped');
+
+// This executable proves installed-package discovery and binding only. Native
+// client behavior is covered by the separate user-tool acceptance fixture.
+const bin = join(process.cwd(), 'trust-bin'); mkdirSync(bin);
+const pip = join(bin, process.platform === 'win32' ? 'pip.exe' : 'pip');
+if (process.platform === 'win32') copyFileSync(process.execPath, pip);
+else writeFileSync(pip, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+process.env.PATH = bin + delimiter + process.env.PATH;
+process.env.APPDATA = join(process.env.USERPROFILE ?? process.env.HOME, 'AppData', 'Roaming');
+for (const name of ['PIP_CERT', 'PIP_CONFIG_FILE', 'PIP_TRUSTED_HOST', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL',
+  'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) delete process.env[name];
+const userRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair', route: 'file', sources: source,
+  repairs: [{ id: 'user-tools-ca', targets: ['pip'], inputs: {} }], network: 'off' };
+const userRepair = await prepare(userRequest, { logging: 'off' });
+assert.equal(userRepair.status, 'ready', JSON.stringify(userRepair.diagnostics));
+assert.equal(validatePreparedWork12(userRepair.review).valid, true);
+assert.ok(userRepair.review.operations.some(operation => operation.id === 'trust/pip-config'));
+assert.ok(userRepair.review.inputs.trust.sources.some(item => item.kind === 'supplied' && item.id === 'supplied:company'));
+const userDocument = join(process.cwd(), 'user-trust-inputs.json');
+writeFileSync(userDocument, JSON.stringify({ schema: 'urn:aihq:core:repair-inputs:1.0.0', route: 'file',
+  repairs: { 'user-tools-ca': {} }, sources: { os: false, supplied: [{ id: 'company', file: 'ca.pem' }] } }));
+const userCli = spawnSync(process.execPath, [cli, 'repair', 'user-tools-ca', '--target', 'pip',
+  '--inputs-file', userDocument, '--offline', '--no-log', '--json'], {
+  cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 60_000, windowsHide: true
+});
+assert.equal(userCli.status, 0, userCli.stdout + userCli.stderr);
+const userPreview = JSON.parse(userCli.stdout);
+assert.equal(userPreview.status, 'ready'); assert.equal(validatePreparedWork12(userPreview.review).valid, true);
+for (const [id, targets] of [['user-tools-ca', ['python', 'pip', 'git', 'cargo', 'conda']], ['jvm-ca', ['gradle', 'maven']]]) {
+  const unavailable = await prepare({ schema: userRequest.schema, useCase: 'repair', route: 'native',
+    repairs: [{ id, targets, inputs: {} }], network: 'off' }, { logging: 'off' });
+  assert.equal(unavailable.status, 'blocked'); assert.deepEqual(unavailable.resolutionInputs, []);
+  assert.equal(validatePreparedWork12(unavailable.review).valid, true);
+  assert.ok(unavailable.review.inputs.trust.targets.every(target => target.admission === 'unavailable'));
+}
 
 const document = join(process.cwd(), 'trust-inputs.json');
 writeFileSync(document, JSON.stringify({ schema: 'urn:aihq:core:certificate-export-inputs:1.0.0',
