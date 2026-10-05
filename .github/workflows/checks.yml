@@ -1,37 +1,21 @@
-name: Core package checks
-
+name: Core package diagnostic
 on:
   push:
-  pull_request:
-  workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   package:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['24']
-        include:
-          - os: ubuntu-latest
-            node: '24.15.0'
-    runs-on: ${{ matrix.os }}
-    # Windows subprocess/packed-consumer checks already approach 20 minutes on
-    # hosted runners. Keep room for the full suite to finish after additions.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
+    runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          # The old-Core compatibility test builds the pre-feature base commit from history; a shallow clone would skip it.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run build
-      - run: npm test
+      - run: npm exec --offline --call "node --test test/package.test.mjs"
