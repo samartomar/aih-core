@@ -134,9 +134,24 @@ step outside verification; the normal user profile is never its credential sourc
 Supplied configuration uses independent archive/member pins and exact starting
 and output trees. The bundled fixture proves only its mechanism; test content
 cannot establish production configuration. Both fresh sessions must separately
-observe initial instruction loading, MCP discovery and the fixed read-only query,
-then establish unchanged configuration and cleanup. Identity, loading, isolation
-and cleanup remain distinct; hygiene evidence cannot become full native proof.
+observe initial instruction loading, MCP discovery and the fixed read-only query.
+Before and after the second session, selected configuration and guardrail bytes
+must be unchanged, and every other path in the cell must be fixed client-owned
+state named by the installed adapter. Such a state tree may change except beneath
+its fixed loading exclusions; for Claude, per-project memory and the client's other
+reserved non-transcript names stay excluded. The client's global state file is
+accepted only when a separate inspection finds bounded bookkeeping, without MCP
+servers, tool or permission grants, trust or approval entries, credentials,
+environment values or unrecognized keys. Any new instruction, settings, hook,
+plugin, MCP, memory, shell-snapshot, session-environment or managed-policy file
+is `configuration-changed`, as are links and other non-regular files in state.
+
+Accepted limitation: provider feature-gate and experiment caches recorded by the
+client, such as `cachedGrowthBookFeatures`, `cachedDynamicConfigs` and the
+`cachedExperiment*` keys, persist from the first session into the second. The
+second session's loading, restriction, tool-discovery and authentication evidence
+is still observed independently. Identity, loading, isolation and cleanup remain
+distinct; hygiene evidence cannot become full native proof.
 Unavailable process/peer-identity facilities fail closed. Native platform acceptance
 requires actual observations and separate maintained evidence.
 

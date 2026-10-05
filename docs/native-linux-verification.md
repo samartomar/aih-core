@@ -46,7 +46,15 @@ identities, observes Unix-socket credentials and adopts descendants as a Linux
 subreaper. The workload, client and selected MCP peer must have matching PID,
 mount, user and network namespaces, each distinct from the host. A namespace PID
 claimed in a protocol message is only a cross-check after kernel authentication.
-The real client pauses while the observer binds its executable, argv and namespaces.
+The observer launches the real client itself and holds it behind a private
+launch gate. Before releasing that gate it attaches with unprivileged
+`PTRACE_SEIZE` to this one root only, so kernel fork, vfork, clone, exec and exit
+stops apply before the client's first instruction and to every traced descendant.
+Each new process stays held until its executable, namespaces and actual argv have
+been read twice with matching results; each captured generation is classified and
+then explicitly acknowledged. If tracing is denied, for example by Yama ptrace
+scope, another security module or seccomp, the launch is unavailable. There is no
+untraced fallback or exemption.
 
 Before the client continues, synthetic probes check host-home, sibling,
 provisioner and outside temporary files; pathname and abstract agent sockets;
@@ -81,15 +89,39 @@ policy are checked outside the sandbox. Restricting policy wins; unreadable or
 unknown policy gives unavailable. Registry, MDM and server-managed policy retain
 their explicitly unobserved limitations.
 
+Process observation requires the host to let an unprivileged process trace a
+child it launched: the observer uses only `PTRACE_SEIZE` on its own held client,
+with no added capability, setuid helper or host policy change. Where Yama ptrace
+scope, another security module or seccomp denies that, the session is unavailable
+rather than exempted. Every captured argument generation is retained until it is
+classified and acknowledged; a pending generation, or a lifetime that ended without
+an acknowledged capture, keeps argument proof unavailable. Capture is sampled at
+kernel stops and audits, so arguments rewritten in place between samples, clones
+created explicitly with `CLONE_UNTRACED` and exec from a non-leader thread are
+outside the claim; the last fails closed.
+
+The client's ordinary state persists in the cell between the two sessions,
+including provider feature-gate and experiment caches in its global state file
+(for example `cachedGrowthBookFeatures`, `cachedDynamicConfigs` and the
+`cachedExperiment*` keys). Those caches can change how the second session starts.
+This is an accepted limitation: the second session's loading, restriction,
+tool-discovery and authentication evidence is still observed independently, and
+new instruction, settings, MCP, memory or managed-policy files remain configuration
+changes.
+
 The vendor places a fresh local proxy capability in its bubblewrap environment
 arguments and shell command. This is an acknowledged argv exposure: local readers
 permitted by host process visibility may reuse the capability for the same
 allowlisted egress or denial of service while the proxy lives. It is not an OAuth,
 identity, telemetry or evidence credential. The latter values must never appear
-in argv. The observer audits the bound client before resume and audits owned
-process arguments while it runs; detected leaks remain failures after a process
-exits. Unreadable live identity is missing proof. No raw capability or argv is
-retained in admission records. The fixed
+in argv. The observer audits the held client before it continues and each traced
+process generation while the session runs; detected leaks remain failures after a
+process exits. An owned lifetime without an acknowledged capture, a missing kernel
+receipt or an unreadable live identity leaves argument proof unavailable. Accepted
+limits: argv rewritten in place between captures is outside this observation,
+clones created explicitly with `CLONE_UNTRACED` are not held by the kernel, and
+exec from a non-leader thread is unsupported and fails closed. No raw capability
+or argv is retained in admission records. The fixed
 integration does not claim protection from a hostile host account or kernel.
 
 Optional process-local subscribers to `aih.native.admission.v1` through Node's

@@ -318,6 +318,7 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
     cachedUsageUtilization: { fetchedAtMs: 1, utilization: {} }, groveConfigCache: {}, passesEligibilityCache: {},
     oauthAccount: { accountUuid: '11111111-1111-4111-8111-111111111111' }, opusProMigrationComplete: true,
     sonnet1m45MigrationComplete: true, sonnet45To46MigrationTimestamp: 1, hasResetAutoModeOptInForDefaultOffer: true,
+    opusProMigrationTimestamp: 1, legacyOpusMigrationTimestamp: 1, fable5ToFableAliasMigrationTimestamp: 1,
     projects: { '/cell/project': { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [],
       hasTrustDialogAccepted: false, projectOnboardingSeenCount: 1, hasClaudeMdExternalIncludesApproved: false,
       hasClaudeMdExternalIncludesWarningShown: false, lastSessionId: '00000000-0000-4000-8000-000000000000', lastCost: 0,
@@ -342,6 +343,12 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
     'environment': { env: { NODE_OPTIONS: '--require x' } },
     'bypass acceptance': { bypassPermissionsModeAccepted: true },
     'non-boolean migration marker': { opusProMigrationComplete: { load: 'x' } },
+    'unknown migration marker': { futureLoaderMigrationComplete: true },
+    'unknown migration time': { futureLoaderMigrationTimestamp: 1 },
+    'non-integer migration time': { legacyOpusMigrationTimestamp: 1.5 },
+    'unknown seen hint': { hasSeenFutureLoaderHint: true },
+    'unknown cache': { cachedFutureLoader: {} },
+    'unknown project metric': project({ lastFutureLoader: 1 }),
     'non-numeric migration time': { sonnet45To46MigrationTimestamp: 'x' },
     'malformed identifier': { machineID: '../x' },
     'user preference': { theme: 'dark' },
@@ -358,6 +365,40 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
     'top-level array': [],
   };
   for (const [name, value] of Object.entries(refused)) assert.equal(inspect(value), false, name);
+  // Allowed keys still carry bounded value shapes; a grant cannot hide inside bookkeeping.
+  const shaped = {
+    'MCP server inside account metadata': { oauthAccount: { accountUuid: 'x', mcpServers: { extra: { command: 'node' } } } },
+    'unknown account metadata field': { oauthAccount: { accountUuid: 'x', apiKeyHelper: 'x' } },
+    'nested account metadata': { oauthAccount: { displayName: { nested: true } } },
+    'account onboarding flags with a grant': { oauthAccount: { ccOnboardingFlags: { allowedTools: ['Bash'] } } },
+    'updater enabled': { autoUpdates: true },
+    'updater object': { autoUpdates: { channel: 'latest' } },
+    'non-integer counter': { numStartups: 'many' },
+    'negative counter': { numStartups: -1 },
+    'non-string install method': { installMethod: { path: '/x' } },
+    'non-boolean onboarding': { hasCompletedOnboarding: 'yes' },
+    'non-string first start': { firstStartTime: { at: 1 } },
+    'first start version with object': { firstStartVersion: { VERSION: { nested: 'x' } } },
+    'tip counter object': { tipsHistory: { tip: { load: 'x' } } },
+    'usage map with a grant': { skillUsage: { skill: { usageCount: 1, permissions: { allow: ['Bash'] } } } },
+    'non-numeric session metric': project({ lastCost: 'free' }),
+    'session id object': project({ lastSessionId: { id: 'x' } }),
+    'example files objects': project({ exampleFiles: [{ path: '/x' }] }),
+    'history entry with a grant': project({ history: [{ display: 'x', allowedTools: ['Bash'] }] }),
+    'history entry with nested grant': project({ history: [{ display: 'x', pastedContents: { 1: { mcpServers: {} } } }] }),
+    'history not an array': project({ history: { display: 'x' } }),
+    'history too long': project({ history: Array.from({ length: 101 }, () => ({ display: 'x' })) }),
+    'history entry scalar': project({ history: ['x'] }),
+    'model usage with a grant': project({ lastModelUsage: { model: { env: { X: '1' } } } }),
+  };
+  for (const [name, value] of Object.entries(shaped)) assert.equal(inspect(value), false, name);
+  assert.equal(inspect({ autoUpdates: false, autoUpdatesProtectedForNative: true }), true, 'updater disabled');
+  assert.equal(inspect(project({ history: [{ display: 'prompt', pastedContents: { 1: { id: 1, type: 'text', content: 'x' } } }] })), true,
+    'legacy prompt history');
+  assert.equal(inspect({ oauthAccount: { accountUuid: 'a', emailAddress: 'e', organizationUuid: 'o', organizationRole: 'user',
+    workspaceRole: null, organizationName: 'n', displayName: 'd', fullName: 'f', hasExtraUsageEnabled: false, billingType: 'b',
+    subscriptionCreatedAt: 1, accountCreatedAt: 'c', ccOnboardingFlags: { flag: true }, claudeCodeTrialEndsAt: null,
+    claudeCodeTrialDurationDays: 7, seatTier: 's', planDisplayName: 'p', profileFetchedAt: 1 } }), true, 'account metadata');
   assert.equal(inspect('{"numStartups":1,"numStartups":2}'), false, 'duplicate keys');
   assert.equal(inspect('\ufeff{}'), false, 'byte-order mark');
   assert.equal(inspect('{"numStartups":'), false, 'truncated');
