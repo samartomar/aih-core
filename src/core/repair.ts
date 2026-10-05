@@ -25,13 +25,16 @@ export interface RepairRequest {
   resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
 }
 
+// Keep capture signatures structural so public repair declarations do not import
+// the host transaction module and its Node-only Buffer types.
+interface CapturedPathPin { path: string; identity: string }
 interface RepairState {
   policyHandle: PreparedHandle; policyReviewDigest: string; publicReviewDigest: string;
   id: string; variantRef: string;
-  sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
-  configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  sources: Record<string, { path: string; pins: CapturedPathPin[]; sha256: string; maxBytes: number }>;
+  configs: Record<string, { path: string; maxBytes: number; pins: CapturedPathPin[]; sha256: string | null }>;
   requiredAbsences: { path: string; reason: string; purpose: string }[];
-  executables: Record<string, { name: string; kind?: 'launcher'; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  executables: Record<string, { name: string; kind?: 'launcher'; path: string | null; launchPath: string | null; pins: CapturedPathPin[]; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
