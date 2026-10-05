@@ -253,10 +253,12 @@ internal static class Facility {
     }
     static object Terminate(int grace, int deadline) {
         Stopwatch watch = Stopwatch.StartNew(); CleanupWindow(deadline); Stopping = true; ClosePipes(); try { if (ChildInput != null) ChildInput.Dispose(); } catch { }
+        // Leave native queries and reply serialization inside the existing helper exit ceiling.
+        int stopBudget = Math.Max(0, deadline - Math.Min(250, deadline / 4));
         bool zero = false, activeKnown = false; uint active = 0;
         try {
-            while (watch.ElapsedMilliseconds < Math.Min(grace, deadline)) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); }
-            if (!zero) { Kill(); while (watch.ElapsedMilliseconds < deadline) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); } }
+            while (watch.ElapsedMilliseconds < Math.Min(grace, stopBudget)) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); }
+            if (!zero) { Kill(); while (watch.ElapsedMilliseconds < stopBudget) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); } }
             active = Active(); activeKnown = true; zero = active == 0 && !Live(Root);
         } catch { zero = false; }
         object[] survivors = new object[0];

@@ -18,13 +18,13 @@
   "resources": [
     {
       "name": "facility.cs",
-      "byteLength": 37043,
-      "sha256": "e74d11382d40f3154106d17079d9219bdb963dc16d94278930f5988a607d204c"
+      "byteLength": 37222,
+      "sha256": "db48c9caa3ae6b15b1216f6dc5f5912dcec3c4e49df0907252fb0df1fc810000"
     },
     {
       "name": "facility.exe",
       "byteLength": 43008,
-      "sha256": "bc262f7e8637f4a2a5849fd2004c7ea06e0aff195c875c7e0cc379dc5aaf2e0c"
+      "sha256": "fb2a46672baf1484ec7a0a1c540dad1a7f6f419dc5ab28091b9d8a1d025e235a"
     }
   ]
 }
