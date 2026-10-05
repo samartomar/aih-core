@@ -33,6 +33,8 @@ if (process.platform === 'win32') copyFileSync(process.execPath, pip);
 else writeFileSync(pip, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 process.env.PATH = bin + delimiter + process.env.PATH;
 process.env.APPDATA = join(process.env.USERPROFILE ?? process.env.HOME, 'AppData', 'Roaming');
+// Bind pip's canonical configuration to this fixture home, not the CI runner.
+process.env.XDG_CONFIG_HOME = join(process.env.HOME, '.config');
 for (const name of ['PIP_CERT', 'PIP_CONFIG_FILE', 'PIP_TRUSTED_HOST', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL',
   'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) delete process.env[name];
 const userRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair', route: 'file', sources: source,
