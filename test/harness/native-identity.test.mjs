@@ -110,3 +110,11 @@ test('group- or world-readable files are refused on POSIX', { skip: process.plat
   chmodSync(join(p.root, 'oauth.json'), 0o644);
   assert.deepEqual(await capture(p), { status: 'unavailable', reason: 'identity-binding-invalid' });
 });
+
+test('a protected identity owned by another Windows principal is refused', { skip: process.platform !== 'win32' && 'Windows only' }, async t => {
+  const p = provision(t);
+  try {
+    execFileSync(join(process.env.SystemRoot, 'System32', 'icacls.exe'), [p.root, '/setowner', '*S-1-5-32-544', '/t', '/q'], { windowsHide: true });
+  } catch { t.skip('setting the alternate owner is not permitted'); return; }
+  assert.deepEqual(await capture(p), { status: 'unavailable', reason: 'identity-binding-invalid' });
+});

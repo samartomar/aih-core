@@ -61,7 +61,8 @@ function ownerOnlyPosix(path) {
 
 function windowsOwnerSid(path) {
   try {
-    const script = "$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';[Console]::Write((Get-Acl -LiteralPath $env:AIHQ_NATIVE_OWNER_PATH).GetOwner([System.Security.Principal.SecurityIdentifier]).Value)";
+    // Read the security descriptor directly; Get-Acl module loading can stall in a minimal environment.
+    const script = "$ErrorActionPreference='Stop';$p=$env:AIHQ_NATIVE_OWNER_PATH;$s=[System.Security.AccessControl.AccessControlSections]::Owner;$acl=if([System.IO.Directory]::Exists($p)){[System.IO.Directory]::GetAccessControl($p,$s)}else{[System.IO.File]::GetAccessControl($p,$s)};[Console]::Write($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value)";
     const out = execFileSync(join(system32(), 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
       { windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'], env: { SystemRoot: process.env.SystemRoot, AIHQ_NATIVE_OWNER_PATH: path } }).toString().trim();
