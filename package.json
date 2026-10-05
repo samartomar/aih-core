@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.8",
+  "version": "1.0.0-dev.9",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": { "node": ">=24.15.0 <25" },
@@ -44,7 +44,7 @@
     "./harness/schemas/trust-capabilities/1.0.0.json": "./dist/harness/schemas/trust-capabilities/1.0.0.json"
   },
   "bin": { "aih": "./dist/core/cli.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "docs/reporting/CONTRACT.md", "docs/reporting/FIELDS.md", "docs/reporting/RENDERING.md", "docs/reporting/REPRODUCE.md", "examples/reporting"],
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "docs/native-windows-verification.md", "docs/reporting/CONTRACT.md", "docs/reporting/FIELDS.md", "docs/reporting/RENDERING.md", "docs/reporting/REPRODUCE.md", "examples/reporting"],
   "bundleDependencies": ["@sigstore/bundle", "@sigstore/protobuf-specs", "@sigstore/verify", "pkijs", "asn1js"],
   "scripts": {
     "build": "node scripts/build.mjs",

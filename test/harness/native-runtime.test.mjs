@@ -20,10 +20,10 @@ test('the runtime entry exports exactly the documented surface', () => {
     'fixtureServerName', 'lifecycleAvailability', 'matchClientVersion', 'nativeBounds', 'nativeClientIds',
     'nativeRunStageIds', 'nativeSessionStageIds', 'nativeStageReasons', 'nativeVerificationDefinitions',
     'observeCellConfiguration', 'observeClaudeManagedSettings', 'observeNativePlatform', 'parseClaudeVersionOutput',
-    'parseStrictJson', 'pinExecutable', 'removeOwnedCell', 'resolveBundledFixture', 'revalidateExecutable',
+    'parseStrictJson', 'pinExecutable', 'prepareLifecycleContext', 'protectWindowsCell', 'removeOwnedCell', 'resolveBundledFixture', 'revalidateExecutable',
     'selectNativeCell', 'serverEvidenceSpec', 'sha256', 'stageCellFiles', 'stageCredential', 'startEvidenceChannel',
     'recorderCommand', 'recorderId', 'recorderMaterial', 'recorderPlan',
-    'startLifecycle', 'validateClaudeOAuthFile', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition',
+    'startLifecycle', 'validateClaudeOAuthFile', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition', 'validateWindowsCell',
     'verifyFixtureMaterials'].sort());
 });
 
@@ -60,6 +60,14 @@ test('the public evidence channel can never authenticate a helper without an OS 
     assert.equal(result.peer, 'none');
     assert.equal(result.frames.length, 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the production evidence entry refuses caller-fabricated platform transports', async () => {
+  let opened = false;
+  const transport = { endpoint: 'fabricated', onConnection() { opened = true; }, async close() {} };
+  await assert.rejects(async () => runtime.startEvidenceChannel({ directory: tmpdir(), transport,
+    isOwnedServer: () => true }), /channel-protection-unavailable/);
+  assert.equal(opened, false);
 });
 
 test('derived options bind the fixture pins without leaking the answer into the prompt', () => {

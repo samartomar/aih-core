@@ -2,3 +2,8 @@
 # Installed trust admission binds helper and evidence bytes across checkouts.
 src/harness/*.mjs text eol=lf
 src/harness/acceptance/*.json text eol=lf
+# Native facility source/resource pins must survive Windows and POSIX checkouts.
+src/harness/native/*.mjs text eol=lf
+src/harness/native/windows/*.cs text eol=lf
+src/harness/native/windows/*.json text eol=lf
+src/harness/native/windows/*.exe -text

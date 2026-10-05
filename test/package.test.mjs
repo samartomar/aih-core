@@ -44,7 +44,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       // Bundled dependency sources are part of their reviewed package bytes.
       // Product sources and private instructions/scratch remain excluded.
       assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/[a-z0-9-]+\.(?:mjs|d\.mts|json)|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:native-windows-verification\.md|reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md)|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -116,6 +116,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, 'native-public.mjs'), `
       import assert from 'node:assert/strict';
       import {spawnSync} from 'node:child_process';
+      import {readFileSync} from 'node:fs';
+      import {createHash} from 'node:crypto';
       import {fileURLToPath} from 'node:url';
       import {verifyNativeClient} from '@aihq/core';
       import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
@@ -153,6 +155,20 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(cancelled.status,'cancelled'); assert.equal(cancelled.sessions.length,0);
       assert.equal(validateNativeVerificationResult(cancelled).valid,true);
       const binary = fileURLToPath(new URL('./cli.js',import.meta.resolve('@aihq/core')));
+      // These are the same helper resources used by the installed public verifier.
+      // Mechanism observations are distinct from native client/account acceptance.
+      const nativeRoot = new URL('../harness/native/',import.meta.resolve('@aihq/core'));
+      const record = JSON.parse(readFileSync(new URL('windows/build-record.json',nativeRoot),'utf8'));
+      assert.equal(record.protocol,1);
+      assert.deepEqual(record.resources.map(row=>row.name).sort(),['facility.cs','facility.exe']);
+      for (const row of record.resources) {
+        const bytes=readFileSync(new URL('windows/'+row.name,nativeRoot));
+        assert.equal(bytes.length,row.byteLength);
+        assert.equal(createHash('sha256').update(bytes).digest('hex'),row.sha256);
+      }
+      const nativeRuntime=await import(new URL('runtime.mjs',nativeRoot));
+      const facility=await nativeRuntime.lifecycleAvailability('windows-job.v1','win32',{deadline:performance.now()+5000});
+      assert.equal(facility.status,process.platform==='win32'&&process.arch==='x64'?'available':'unavailable');
       const child = spawnSync(process.execPath,[binary,'verify-client','claude','--json'],{encoding:'utf8',timeout:20000,windowsHide:true});
       assert.equal(child.status,1,child.stderr);
       const result = JSON.parse(child.stdout);

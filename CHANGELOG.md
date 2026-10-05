@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.9 adds bounded Windows Job lifecycle and OS-bound named-pipe
+facilities with packaged helper byte binding, partial-launch cleanup and protected
+dedicated OAuth staging. Runtime entry ownership is independent of a claimed PID
+or token. Actual facility probes and native session evidence remain separate.
+The bundled Claude Windows candidate remains unadmitted and has no whole-client
+isolation mechanism; hygiene evidence remains incomplete/unverified. This local
+development candidate has not been published to npm.
+
 Core 1.0.0-dev.8 adds explicit bounded native-client verification API/CLI and
 portable version 1.0.0 contracts. Admission, identity, loading, isolation,
 persistence and cleanup evidence remain separate. Native acceptance requires

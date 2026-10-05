@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { captureTestIdentity, stageCredential, validateClaudeOAuthFile } from '../../src/harness/native/identity.mjs';
-import { createOwnedCell, removeOwnedCell } from '../../src/harness/native/cell.mjs';
+import { createOwnedCell, isOwnerOnly, removeOwnedCell } from '../../src/harness/native/cell.mjs';
 import { nativeVerificationDefinitions } from '../../src/harness/native/contracts.mjs';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
@@ -39,6 +39,20 @@ function provision(t, { manifest = {}, credential = oauth, extra = false } = {})
 }
 const capture = (p, overrides = {}) => captureTestIdentity({ provisionedRoot: p.root, manifestSha256: p.manifestSha256, expected, ...overrides });
 
+function windowsCreationOwnership(path) {
+  // Independent OS observation: inherited permissions do not determine a new file's owner.
+  // Use only fixed .NET calls: cmdlet module autoload can stall in this minimal environment.
+  const script = "$ErrorActionPreference='Stop';$id=[System.Security.Principal.WindowsIdentity]::GetCurrent();$acl=[System.IO.File]::GetAccessControl($env:AIHQ_TEST_OWNER_PATH);$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]);$allowed=@($id.User.Value,'S-1-5-18','S-1-5-32-544');$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);$count=0;$allowedDacl=$true;foreach($rule in $rules){if($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow){$count++;if($rule.IdentityReference.Value -notin $allowed){$allowedDacl=$false}}};[Console]::Write([string]::Join('|',[string[]]@($owner.Equals($id.User),$owner.Equals($id.Owner),$id.Owner.Equals($id.User),($id.Owner.Value -eq 'S-1-5-32-544'),($count -gt 0 -and $allowedDacl))))";
+  const values = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'],
+      env: { SystemRoot: process.env.SystemRoot, AIHQ_TEST_OWNER_PATH: path } }).toString().trim().split('|');
+  assert.equal(values.length, 5, 'the OS ownership probe has a fixed response');
+  assert.ok(values.every(value => value === 'True' || value === 'False'), 'unknown OS observations fail');
+  return Object.fromEntries(['userOwnsFile', 'tokenOwnerOwnsFile', 'tokenOwnerIsUser', 'tokenOwnerIsAdministrators', 'allowedDacl']
+    .map((name, index) => [name, values[index] === 'True']));
+}
+
 test('Claude OAuth file format is closed and bounded', () => {
   assert.equal(validateClaudeOAuthFile(Buffer.from(oauth)).valid, true);
   for (const bad of ['{', '[]', '{}', JSON.stringify({ claudeAiOauth: {} }),
@@ -48,19 +62,64 @@ test('Claude OAuth file format is closed and bounded', () => {
     assert.equal(validateClaudeOAuthFile(Buffer.from(bad)).valid, false, bad);
 });
 
-test('a valid provisioned root is captured once and staged into the cell home only', async t => {
+test('Claude OAuth login metadata is accepted with bounded types and preserved exactly', async t => {
+  const value = JSON.parse(oauth);
+  Object.assign(value.claudeAiOauth, { refreshTokenExpiresAt: 1896048000000,
+    subscriptionType: 'pro', rateLimitTier: 'default_claude_max_5x' });
+  const credential = JSON.stringify(value);
+  assert.equal(validateClaudeOAuthFile(Buffer.from(credential)).valid, true);
+  for (const [key, invalid] of [
+    ['refreshTokenExpiresAt', 'soon'], ['refreshTokenExpiresAt', -1],
+    ['refreshTokenExpiresAt', null], ['rateLimitTier', {}], ['rateLimitTier', 'x'.repeat(257)],
+    ['subscriptionType', []], ['scopes', 'user:inference'], ['scopes', ['x'.repeat(257)]],
+    ['scopes', Array(65).fill('user:inference')], ['unknownLoginField', true]
+  ]) {
+    const changed = { claudeAiOauth: { ...value.claudeAiOauth, [key]: invalid } };
+    assert.equal(validateClaudeOAuthFile(Buffer.from(JSON.stringify(changed))).valid, false, key);
+  }
+  const p = provision(t, { credential });
+  const captured = await capture(p);
+  assert.equal(captured.status, 'captured');
+  assert.deepEqual(captured.credential, Buffer.from(credential));
+});
+
+test('a valid provisioned root is captured once; staging requires a user-owned destination', async t => {
   const p = provision(t);
   const captured = await capture(p);
   assert.equal(captured.status, 'captured');
   assert.equal(await captured.recheck(), true);
   const target = nativeVerificationDefinitions[0];
   const { cell } = createOwnedCell({ parent: p.parent });
-  assert.deepEqual(stageCredential(cell, target, captured), { status: 'staged' });
-  assert.deepEqual(readFileSync(join(cell.home, '.claude', '.credentials.json')), Buffer.from(oauth));
+  // Use a synthetic sibling created by this process to observe the destination's default owner.
+  // Elevated tokens can default to Administrators even inside a user-owned, hardened parent.
+  const directory = join(cell.home, '.claude');
+  mkdirSync(directory, { mode: 0o700 });
+  const probe = join(directory, 'owner-probe.tmp');
+  writeFileSync(probe, 'synthetic-owner-probe', { flag: 'wx', mode: 0o600 });
+  const ownerOnly = isOwnerOnly(probe);
+  let ownership;
+  if (process.platform === 'win32') {
+    ownership = windowsCreationOwnership(probe);
+    t.diagnostic(`Windows creation ownership: ${JSON.stringify(ownership)}`);
+    assert.equal(ownership.allowedDacl, true, 'the probe inherits the protected cell DACL');
+    assert.equal(ownership.tokenOwnerOwnsFile, true, 'the fresh file owner matches the creator token');
+    assert.equal(ownerOnly, ownership.userOwnsFile, 'strict ownership agrees with the independent OS observation');
+    if (!ownership.userOwnsFile) {
+      assert.equal(ownership.tokenOwnerIsUser, false);
+      assert.equal(ownership.tokenOwnerIsAdministrators, true, 'only the observed Administrator default-owner case is expected');
+    }
+  } else assert.equal(ownerOnly, true);
+  const staged = stageCredential(cell, target, captured);
+  assert.deepEqual(staged, ownerOnly === true ? { status: 'staged' } : { status: 'unavailable', reason: 'staging-unavailable' });
+  const destination = join(directory, '.credentials.json');
+  assert.equal(isOwnerOnly(destination), ownerOnly, 'staging does not change or forgive the destination owner');
+  if (process.platform === 'win32') assert.deepEqual(windowsCreationOwnership(destination), ownership,
+    'the actual credential has the observed owner and protected DACL');
+  assert.deepEqual(readFileSync(destination), Buffer.from(oauth));
   assert.equal(existsSync(join(p.root, 'oauth.json')), true, 'the provisioned source stays in place');
   assert.deepEqual(stageCredential(cell, target, captured), { status: 'unavailable', reason: 'staging-unavailable' }, 'never restaged');
   assert.ok(!JSON.stringify({ ...captured, credential: undefined }).includes('fake-access-token'));
-  removeOwnedCell(cell, { processesConfirmed: true });
+  assert.deepEqual(removeOwnedCell(cell, { processesConfirmed: true }), { files: 'removed', reason: null, retainedCell: null });
 });
 
 test('missing binding is authentication-unavailable', async t => {

@@ -8,17 +8,24 @@ import { createHash } from 'node:crypto';
 import { lifecycleAvailability, parseProcStat, parsePsTable, treeMembers, signalIfSame, pinExecutable,
   revalidateExecutable, startLifecycle } from '../../src/harness/native/lifecycle.mjs';
 
-test('windows-job.v1 fails closed because Node has no Job Object facility', async () => {
-  assert.deepEqual(lifecycleAvailability('windows-job.v1', 'win32'), { status: 'unavailable', reason: 'platform-unsupported', missing: 'windows-job.v1' });
+// Availability is now an async, bounded probe of the actual host facility rather than a static
+// refusal; the Windows Job mechanism itself is proven in native-windows.test.mjs.
+test('windows-job.v1 availability reflects the real host Job facility', async () => {
+  const observed = await lifecycleAvailability('windows-job.v1', 'win32', { deadline: performance.now() + 10_000 });
+  if (process.platform === 'win32') assert.equal(observed.status, 'available', JSON.stringify(observed));
+  else assert.equal(observed.status, 'unavailable', JSON.stringify(observed));
+});
+
+test('startLifecycle refuses windows-job.v1 off the Windows host', { skip: process.platform === 'win32' && 'the Windows Job facility is exercised by native-windows.test.mjs' }, async () => {
   assert.deepEqual(await startLifecycle({ lifecycleId: 'windows-job.v1', os: 'win32', file: process.execPath, argv: ['-e', '0'], cwd: tmpdir(), env: {} }),
     { status: 'unavailable', reason: 'platform-unsupported' });
 });
 
-test('posix-group.v1 is available only on linux and darwin', () => {
-  assert.deepEqual(lifecycleAvailability('posix-group.v1', 'linux'), { status: 'available' });
-  assert.deepEqual(lifecycleAvailability('posix-group.v1', 'darwin'), { status: 'available' });
-  assert.equal(lifecycleAvailability('posix-group.v1', 'win32').status, 'unavailable');
-  assert.equal(lifecycleAvailability('unknown.v1', 'linux').status, 'unavailable');
+test('posix-group.v1 is available only on linux and darwin', async () => {
+  assert.deepEqual(await lifecycleAvailability('posix-group.v1', 'linux'), { status: 'available' });
+  assert.deepEqual(await lifecycleAvailability('posix-group.v1', 'darwin'), { status: 'available' });
+  assert.equal((await lifecycleAvailability('posix-group.v1', 'win32')).status, 'unavailable');
+  assert.equal((await lifecycleAvailability('unknown.v1', 'linux')).status, 'unavailable');
 });
 
 test('/proc stat parsing survives spaces and parentheses in the command name', () => {

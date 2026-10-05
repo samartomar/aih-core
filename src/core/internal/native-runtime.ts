@@ -4,6 +4,6 @@ import { nativeReadPinned } from './native-material.js';
 import type { NativeRuntime } from './native-session.js';
 
 /** Bind generic orchestration to the fixed installed Harness adapter. */
-export function nativeRuntime(module: typeof Harness): NativeRuntime {
-  return module.createNativeRuntime(module, { readPinned: nativeReadPinned, Stop: NativeStop });
+export function nativeRuntime(module: typeof Harness, recordCleanup?: (receipt: import('./native-session.js').NativeSessionCleanup, startedAt?: number) => void): NativeRuntime {
+  return module.createNativeRuntime(module, { readPinned: nativeReadPinned, Stop: NativeStop, recordCleanup });
 }

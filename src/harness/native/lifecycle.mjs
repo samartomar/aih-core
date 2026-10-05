@@ -1,16 +1,16 @@
-// Process lifecycle helpers. windows-job.v1 needs a Job Object facility Node does not have, so it
-// fails closed before any launch. posix-group.v1 tracks PID+birth identities of the owned tree and
+// Process lifecycle helpers. windows-job.v1 delegates to the fixed shipped Windows facility.
+// posix-group.v1 tracks PID+birth identities of the owned tree and
 // only signals a PID whose birth identity still matches; it never signals a reused PID.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter as posixDelimiter, isAbsolute, join, posix, win32 } from 'node:path';
 import { nativeBounds } from './contracts.mjs';
+import { prepareWindowsContext, windowsAvailability } from './windows-facility.mjs';
 
-export function lifecycleAvailability(lifecycleId, os) {
+export async function lifecycleAvailability(lifecycleId, os, bounds = {}) {
   if (lifecycleId === 'posix-group.v1' && (os === 'linux' || os === 'darwin')) return { status: 'available' };
-  if (lifecycleId === 'windows-job.v1')
-    return { status: 'unavailable', reason: 'platform-unsupported', missing: 'windows-job.v1' };
+  if (lifecycleId === 'windows-job.v1' && os === 'win32') return windowsAvailability(bounds);
   return { status: 'unavailable', reason: 'platform-unsupported' };
 }
 
@@ -136,8 +136,22 @@ function createPosixHandle(child, os) {
 }
 
 // Start the owned process. No shell, own process group, nothing inherited beyond the supplied env.
-export async function startLifecycle({ lifecycleId, os, file, argv, cwd, env }) {
-  const available = lifecycleAvailability(lifecycleId, os);
+export async function startLifecycle({ lifecycleId, os, file, argv, cwd, env, deadline, signal, context }) {
+  if (context) return context.start({ file, argv, cwd, env });
+  if (lifecycleId === 'windows-job.v1' && os === 'win32' && process.platform === 'win32') {
+    let pin;
+    try { const path = realpathSync.native(file); pin = { path, sha256: await hashFile(path), byteLength: statSync(path).size }; }
+    catch { return { status: 'unavailable', reason: 'session-launch-failed' }; }
+    const prepared = await prepareWindowsContext({ deadline, signal, runtimePins: [pin] });
+    if (prepared.status !== 'ready') return prepared;
+    const started = await prepared.context.start({ file: pin.path, argv, cwd, env });
+    if (started.status !== 'started' && !started.partial) {
+      const cleanup = await prepared.context.terminate({ graceMs: 0 });
+      return { ...started, cleanup: { confirmed: cleanup.processes === 'confirmed', survivors: cleanup.survivors }, cleanupStartedAt: cleanup.cleanupStartedAt };
+    }
+    return started;
+  }
+  const available = await lifecycleAvailability(lifecycleId, os, { deadline, signal });
   if (available.status !== 'available') return { status: 'unavailable', reason: available.reason };
   if (os !== process.platform) return { status: 'unavailable', reason: 'platform-unsupported' };
   return new Promise(resolve => {
@@ -147,6 +161,11 @@ export async function startLifecycle({ lifecycleId, os, file, argv, cwd, env }) 
     child.once('error', () => resolve({ status: 'unavailable', reason: 'session-launch-failed' }));
     child.once('spawn', () => resolve({ status: 'started', handle: createPosixHandle(child, os) }));
   });
+}
+
+export async function prepareLifecycleContext(input) {
+  if (input.lifecycleId === 'windows-job.v1' && input.os === 'win32') return prepareWindowsContext(input);
+  return { status: 'unavailable', reason: 'platform-unsupported' };
 }
 
 const SHELL_SHIMS = /\.(cmd|bat|ps1|com)$/i;

@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readdirSync } from 'node:fs';
+import { lstatSync, readdirSync } from 'node:fs';
 import { readRegularFileWithStats } from './fsxn.js';
 import { pathPins, pinsMatch, sha256 } from './host-files.js';
 import { canonicalJson, codeUnitCompare } from './canonical.js';
@@ -133,11 +133,27 @@ const installedRoot = dirname(fileURLToPath(new URL('../../../package.json', imp
 export interface NativeHelperPin { paths: { path: string; sha256: string }[]; sha256: string }
 export function captureNativeHelpers(check: () => void): NativeHelperPin {
   const directory = fileURLToPath(new URL('../../harness/native/', import.meta.url));
-  let names: string[];
-  try { names = readdirSync(directory).filter(name => name.endsWith('.mjs')).sort(codeUnitCompare); }
-  catch { throw new NativeStop('configuration-unavailable'); }
-  if (!names.includes('runtime.mjs') || names.length > 32) throw new NativeStop('configuration-unavailable');
-  const paths = [join(installedRoot, 'package.json'), ...names.map(name => join(directory, name))].map(path => ({ path, sha256: sha256(nativeReadPinned(path, 8 * 1024 * 1024, check)) }));
+  const files: string[] = [];
+  const inventory = (root: string, depth: number): void => {
+    check();
+    if (depth > 4) throw new NativeStop('limit-exceeded');
+    for (const name of readdirSync(root).sort(codeUnitCompare)) {
+      check();
+      const path = join(root, name), stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new NativeStop('configuration-unavailable');
+      if (stat.isDirectory()) inventory(path, depth + 1);
+      else if (!stat.isFile()) throw new NativeStop('configuration-unavailable');
+      else if (!name.endsWith('.d.mts')) {
+        files.push(path);
+        if (files.length > 64) throw new NativeStop('limit-exceeded');
+      }
+    }
+  };
+  try { inventory(directory, 0); }
+  catch (error) { if (error instanceof NativeStop) throw error; throw new NativeStop('configuration-unavailable'); }
+  if (!files.includes(join(directory, 'runtime.mjs'))) throw new NativeStop('configuration-unavailable');
+  const paths = [join(installedRoot, 'package.json'), ...files]
+    .map(path => ({ path, sha256: sha256(nativeReadPinned(path, 8 * 1024 * 1024, check)) }));
   return { paths, sha256: sha256(canonicalJson(paths.map(({ path, sha256 }) => ({ name: path === join(installedRoot, 'package.json') ? 'package.json' : path.slice(directory.length), sha256 })))) };
 }
 export function revalidateNativeHelpers(pin: NativeHelperPin, check: () => void): boolean {

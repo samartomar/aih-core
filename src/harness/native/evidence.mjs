@@ -10,9 +10,14 @@ const FRAME_KEYS = ['version', 'sequence', 'method', 'tool', 'argumentsSha256', 
 const METHODS = ['initialize', 'tools/list', 'tools/call'];
 const HEX256 = /^[0-9a-f]{64}$/;
 
-// The OS peer-identity facility. Node exposes neither SO_PEERCRED nor GetNamedPipeClientProcessId,
-// so no honest implementation exists here: this returns unavailable and the stream is refused.
+// Node exposes neither SO_PEERCRED nor GetNamedPipeClientProcessId, so the plain-socket (POSIX) path has
+// no honest peer identity: it returns unavailable and the stream is refused. A Windows lifecycle context
+// instead emits Duplex streams whose own observePeer() reports the actual OS peer; nothing else can
+// supply an identity.
 export const osPeerIdentity = async () => ({ status: 'unavailable' });
+const transportPeerIdentity = socket => typeof socket?.observePeer === 'function' ? socket.observePeer() : { status: 'unavailable' };
+// Longest private Unix socket path accepted (sun_path is 104 bytes on darwin, 108 on linux, including NUL).
+const MAX_SOCKET_PATH_BYTES = 100;
 
 export function validateEvidenceFrame(frame, lastSequence, toolNames) {
   const nullableSha = value => value === null || (typeof value === 'string' && SHA256_RE.test(value));
@@ -26,18 +31,22 @@ export function validateEvidenceFrame(frame, lastSequence, toolNames) {
   return { valid };
 }
 
-export async function createEvidenceChannel({ directory, peerIdentity = osPeerIdentity, isOwnedServer = () => false,
-  toolNames = ['aihq_attest_instruction', 'aihq_graph_query'], plan = null }) {
+export async function createEvidenceChannel({ directory, transport = null, peerIdentity = transport ? transportPeerIdentity : osPeerIdentity,
+  isOwnedServer = () => false, toolNames = ['aihq_attest_instruction', 'aihq_graph_query'], plan = null }) {
   const token = randomBytes(32).toString('hex');
   const challenge = randomBytes(32).toString('hex');
-  const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\aihq-native-${randomBytes(16).toString('hex')}`
-    : join(directory, `ev-${randomBytes(8).toString('hex')}.sock`);
+  // A transport owns its endpoint (a lifecycle-created pipe). Without one, use a short private socket name
+  // inside the owned scoped directory; an overlong path is refused, never truncated.
+  const endpoint = transport ? transport.endpoint : process.platform === 'win32' ? `\\\\.\\pipe\\aihq-native-${randomBytes(16).toString('hex')}`
+    : join(directory, `e${randomBytes(4).toString('hex')}`);
+  if (typeof endpoint !== 'string' || endpoint.length === 0 || (!transport && process.platform !== 'win32' && Buffer.byteLength(endpoint) > MAX_SOCKET_PATH_BYTES))
+    throw new Error('channel-protection-unavailable');
   const state = { frames: [], bytes: 0, connections: 0, rejectedFrames: 0, peer: 'none', violation: null, authenticated: null };
   const sockets = new Set();
   const tokenBuffer = Buffer.from(token);
 
   const violate = reason => { state.violation ??= reason; for (const socket of sockets) socket.destroy(); };
-  const server = net.createServer(socket => {
+  const onSocket = socket => {
     state.connections += 1;
     if (state.connections > nativeBounds.channelTotal || sockets.size >= nativeBounds.channelConcurrent) {
       state.violation ??= 'limit-exceeded'; socket.destroy(); return;
@@ -63,7 +72,9 @@ export async function createEvidenceChannel({ directory, peerIdentity = osPeerId
         let identity;
         try { identity = await peerIdentity(socket, hello); } catch { identity = { status: 'unavailable' }; }
         if (identity?.status !== 'observed') return reject('unavailable');
-        if (identity.pid !== hello.pid || !isOwnedServer(identity)) return reject('rejected');
+        let owned = false;
+        try { owned = identity.pid === hello.pid && await isOwnedServer(identity) === true; } catch { owned = false; }
+        if (!owned || state.authenticated || state.violation) return reject('rejected');
         state.authenticated = identity; state.peer = 'authenticated'; phase = 'frames';
         socket.write(JSON.stringify(plan === null ? { type: 'challenge', challenge } : { type: 'challenge', challenge, plan }) + '\n');
         return;
@@ -97,11 +108,14 @@ export async function createEvidenceChannel({ directory, peerIdentity = osPeerId
       pump();
     });
     socket.on('end', () => { if (buffer.length) violate('frame-invalid'); });
-  });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(endpoint, resolve); });
-  if (process.platform !== 'win32') {
+  };
+  const server = transport ? null : net.createServer(onSocket);
+  if (transport) transport.onConnection(onSocket);
+  else await new Promise((resolve, reject) => { server.once('error', reject); server.listen(endpoint, resolve); });
+  const stopListening = () => transport ? transport.close() : new Promise(resolve => server.close(resolve));
+  if (!transport && process.platform !== 'win32') {
     try { chmodSync(endpoint, 0o600); }
-    catch { await new Promise(resolve => server.close(resolve)); rmSync(endpoint, { force: true }); throw new Error('channel-protection-unavailable'); }
+    catch { await stopListening(); rmSync(endpoint, { force: true }); throw new Error('channel-protection-unavailable'); }
   }
 
   return {
@@ -112,18 +126,29 @@ export async function createEvidenceChannel({ directory, peerIdentity = osPeerId
       for (const socket of sockets) socket.end();
       await new Promise(resolve => setTimeout(resolve, 20)); // drain already-received data only
       for (const socket of sockets) socket.destroy();
-      await new Promise(resolve => server.close(resolve));
-      if (process.platform !== 'win32') rmSync(endpoint, { force: true });
+      await stopListening();
+      if (!transport && process.platform !== 'win32') rmSync(endpoint, { force: true });
       return { frames: state.frames.slice(), bytes: state.bytes, connections: state.connections,
         rejectedFrames: state.rejectedFrames, peer: state.peer, violation: state.violation };
     }
   };
 }
 
-// Production entry: only the OS peer facility may authenticate the helper process.
-export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null }) => {
-  if (process.platform === 'win32') throw new Error('channel-protection-unavailable');
-  return createEvidenceChannel({ directory, peerIdentity: osPeerIdentity, isOwnedServer, plan });
+// Production entry without a lifecycle context: only the OS peer facility may authenticate the helper,
+// and plain sockets have none, so no stream is ever accepted.
+export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null, transport = null }) => {
+  if (transport === null) {
+    if (process.platform === 'win32') throw new Error('channel-protection-unavailable');
+    return createEvidenceChannel({ directory, peerIdentity: osPeerIdentity, isOwnedServer, plan });
+  }
+  // A lifecycle context's pipe: its emitted Duplex streams report the OS peer through observePeer(), and
+  // the channel closes the transport with itself. A transport that cannot do that is refused.
+  if (typeof transport.endpoint !== 'string' || typeof transport.onConnection !== 'function' || typeof transport.close !== 'function')
+    throw new Error('channel-protection-unavailable');
+  return createEvidenceChannel({ directory, transport, isOwnedServer, plan }).catch(async error => {
+    try { await transport.close(); } catch { /* best effort */ }
+    throw error;
+  });
 };
 
 // Evaluate server-side frames. Every missing or inconsistent record stays unproven.

@@ -66,6 +66,7 @@ import { readFileSync, writeFileSync, unlinkSync, lstatSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
+let recordCleanup;
 const hash = v => createHash('sha256').update(v).digest('hex');
 const canonical = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? '['+v.map(canonical).join(',')+']' : '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
 const fixture = Buffer.from('Initial controlled instruction.'); const guardrail = Buffer.from('Controlled deny rules.');
@@ -86,11 +87,12 @@ export async function resolveNativeClient(){if(scenario==='missing-client-and-se
 export function revalidateNativeClient(pin){return hash(readFileSync(pin.executable))===pin.sha256;}
 export async function captureNativeIdentity(binding){return {credential:Buffer.from('{}'),expected:binding.expected,sourceIdentity:null};}
 export function revalidateNativeIdentity(){return true;}
-export async function protectNativeCell(){return true;}
+export async function protectNativeCell(){if(scenario==='protect-helper-cleanup-unresolved'){recordCleanup({confirmed:false,survivors:[{pid:65001,role:'helper'}]},performance.now());return false;}return true;}
 export function nativeStatePaths(){return {home:[],project:[]};}
-export function createNativeRuntime(){return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
+export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
 const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
+  if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};
   if(scenario==='spawn-rejected')return {outcome:'unavailable',reason:'session-launch-failed'};
   const child=spawn(process.execPath,['-e',childScript],{cwd:input.cell.project,env:input.environment,stdio:['pipe','pipe','pipe'],windowsHide:true});
   const observations={sessionId:scenario==='reused'?'controlled-session':'controlled-session-'+input.index,resumed:false,loading:'observed',restrictions:scenario==='managed'?'managed':'observed',authentication:scenario==='identity-conflict'?'conflict':'matched',discovery:{complete:true,clientTools:['attest','query'],serverList:true},instructions:{nativeSha256:[],attestations:[{markerSha256:scenario==='bad-attestation'?hash('wrong'):marker,challengeMatched:true,clientReceipt:true}],rejected:false,alternateRead:scenario==='later-read'},query:{correlated:true,challengeMatched:!scenario.startsWith('bad-challenge'),resultSha256:scenario.startsWith('bad-query')?hash('wrong'):expectedResultSha256,answerSha256:hash('leaf'),rejectedCalls:scenario==='early-query'||scenario.endsWith('-refused')},isolation:scenario==='hygiene'?'unobservable':'observed',serverPeerBound:true,counts:{observedBytes:0,telemetryEvents:1,rpcMessages:3}};
@@ -203,7 +205,28 @@ async function controlled(t, scenario, controls = {}) {
   const cancellation = scenario.startsWith('cancel-snapshot-') ? new AbortController() : undefined;
   const pending = api.verifyNativeClient(selected, { admission: 'candidate-smoke', testIdentity: identity,
     ...(scenario === 'default-temp' ? {} : { sandboxRoot }), ...controls, ...(cancellation ? { signal: cancellation.signal } : {}) });
-  if (cancellation) { await Promise.race([api.snapshotReady, pending.then(() => { throw Error('controlled snapshot never arrived'); })]); cancellation.abort(); }
+  if (cancellation) {
+    // Cancellation tests need actual proof readiness, independently of deadline tests.
+    let watchdog;
+    const terminal = pending.then(result => ({ kind: 'terminal', result }), error => ({ kind: 'rejected', error }));
+    try {
+      const event = await Promise.race([
+        api.snapshotReady.then(() => ({ kind: 'ready' })), terminal,
+        new Promise(resolve => { watchdog = setTimeout(() => resolve({ kind: 'watchdog' }), 30_000); })
+      ]);
+      if (event.kind !== 'ready') {
+        cancellation.abort();
+        const { result } = await terminal;
+        assert.fail('controlled snapshot never arrived: ' + JSON.stringify({ event: event.kind, status: result?.status,
+          sessions: result?.sessions.length, stages: result?.stages.map(({ id, reason }) => ({ id, reason })) }));
+      }
+      cancellation.abort();
+    } finally {
+      clearTimeout(watchdog);
+      if (!cancellation.signal.aborted) cancellation.abort();
+      await terminal;
+    }
+  }
   const result = await pending;
   assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
   return result;
@@ -319,6 +342,7 @@ for (const [profile, stageId, outcome, reason] of [
   assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 for (const interruption of ['cancel', 'budget']) {
+  const interruptionControls = interruption === 'budget' ? { budgetMs: 4000 } : {};
   for (const [profile, verdict, queryOutcome] of [
     ['pending-receipt', 'unverified', 'unavailable'],
     ['bad-query-pending-receipt', 'failed', 'failed'],
@@ -326,7 +350,7 @@ for (const interruption of ['cancel', 'budget']) {
     ['bad-client-answer', 'failed', 'failed'],
     ['missing-result-bad-client-answer', 'failed', 'failed'],
   ]) test('controlled ' + interruption + ' distinguishes missing query proof from contradiction: ' + profile, async t => {
-    const result = await controlled(t, interruption + '-snapshot-' + profile, { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-' + profile, interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : verdict === 'failed' ? 'complete' : 'incomplete');
     assert.equal(result.verdict, verdict); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -337,7 +361,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a completed query contradiction and prior proof', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-bad-query', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -347,7 +371,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' preserves finished protocol rows while authentication is unfinished', async t => {
-    const result = await controlled(t, interruption + '-snapshot-unfinished-auth', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-unfinished-auth', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'incomplete');
     assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -357,7 +381,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a query failure after unfinished authentication', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -366,6 +390,25 @@ for (const interruption of ['cancel', 'budget']) {
     assert.equal(result.cleanup.files, 'removed');
   });
 }
+test('controlled failure before a client starts preserves unresolved helper cleanup', async t => {
+  const result = await controlled(t, 'pre-client-cleanup-unresolved');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.sessions.length, 0);
+  assert.equal(result.cleanup.processes, 'unresolved');
+  assert.equal(result.cleanup.files, 'retained');
+  assert.deepEqual(result.survivingProcesses, [{ pid: 65000, role: 'helper' }]);
+  assert.ok(result.stages.some(row => row.reason === 'termination-unresolved'));
+});
+
+test('controlled protection failure carries its helper receipt before session creation', async t => {
+  const result = await controlled(t, 'protect-helper-cleanup-unresolved');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.sessions.length, 0);
+  assert.equal(result.cleanup.processes, 'unresolved');
+  assert.equal(result.cleanup.files, 'retained');
+  assert.deepEqual(result.survivingProcesses, [{ pid: 65001, role: 'helper' }]);
+  assert.ok(result.stages.some(row => row.id === 'cleanup' && row.reason === 'termination-unresolved'));
+});
 test('controlled unconfirmed process cleanup retains the cell and reports opaque recovery', async t => {
   const result = await controlled(t, 'cleanup-unresolved');
   assert.equal(result.status, 'incomplete'); assert.equal(result.cleanup.processes, 'unresolved');

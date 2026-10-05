@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { recorderAttestTool, recorderId, recorderMemberPath, recorderRelativePath, recorderSource } from './recorder-data.mjs';
 
 export { recorderId };
-export const recorderPin = Object.freeze({ sha256: 'a4ba2e9832822e3756071e29fda986208923bef82c9bb7383f1974d5f38df5f8', byteLength: 18274 });
+export const recorderPin = Object.freeze({ sha256: '26165751456ceae966fce25d0b806892cc6c3858cfb5b12688d2a9b58a55dfe0', byteLength: 18986 });
 
 // Exact bytes the verifier stages (or the production configuration references), with recomputed digest.
 export function recorderMaterial() {

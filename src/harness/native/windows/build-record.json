@@ -1,0 +1,30 @@
+{
+  "protocol": 1,
+  "platform": "win32-x64",
+  "compiler": {
+    "path": "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "fileVersion": "4.8.9221.0 built by: NET481REL1LAST_25H2",
+    "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+    "flags": [
+      "/nologo",
+      "/target:exe",
+      "/platform:x64",
+      "/optimize+",
+      "/debug-",
+      "/reference:System.Web.Extensions.dll",
+      "/reference:System.Management.dll"
+    ]
+  },
+  "resources": [
+    {
+      "name": "facility.cs",
+      "byteLength": 37222,
+      "sha256": "db48c9caa3ae6b15b1216f6dc5f5912dcec3c4e49df0907252fb0df1fc810000"
+    },
+    {
+      "name": "facility.exe",
+      "byteLength": 43008,
+      "sha256": "fb2a46672baf1484ec7a0a1c540dad1a7f6f419dc5ab28091b9d8a1d025e235a"
+    }
+  ]
+}

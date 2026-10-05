@@ -11,13 +11,20 @@ const unavailable = reason => ({ status: 'unavailable', reason });
 const MISSING = unavailable('authentication-unavailable');
 const INVALID = unavailable('identity-binding-invalid');
 
-// Claude's file login channel (documentation-derived, unverified on a native run).
+// Closed login-file shape, including optional metadata emitted by Claude Code 2.1.285.
+// Recognizing the file does not prove that a native session used the dedicated identity.
 export function validateClaudeOAuthFile(bytes) {
   try {
     const value = parseStrictJson(Buffer.from(bytes).toString('utf8'));
     const oauth = isRecord(value) && Object.keys(value).length === 1 ? value.claudeAiOauth : undefined;
-    const ok = isRecord(oauth) && ['accessToken', 'refreshToken'].every(key => typeof oauth[key] === 'string' && oauth[key].length >= 1 && oauth[key].length <= 4096) &&
-      Number.isFinite(oauth.expiresAt) && Object.keys(oauth).every(key => ['accessToken', 'refreshToken', 'expiresAt', 'scopes', 'subscriptionType'].includes(key));
+    const boundedText = (value, limit) => typeof value === 'string' && value.length >= 1 && value.length <= limit;
+    const timestamp = value => Number.isSafeInteger(value) && value >= 0;
+    const ok = isRecord(oauth) && ['accessToken', 'refreshToken'].every(key => boundedText(oauth[key], 4096)) &&
+      timestamp(oauth.expiresAt) &&
+      (!Object.hasOwn(oauth, 'refreshTokenExpiresAt') || timestamp(oauth.refreshTokenExpiresAt)) &&
+      ['subscriptionType', 'rateLimitTier'].every(key => !Object.hasOwn(oauth, key) || boundedText(oauth[key], 256)) &&
+      (!Object.hasOwn(oauth, 'scopes') || (Array.isArray(oauth.scopes) && oauth.scopes.length <= 64 && oauth.scopes.every(value => boundedText(value, 256)))) &&
+      Object.keys(oauth).every(key => ['accessToken', 'refreshToken', 'expiresAt', 'refreshTokenExpiresAt', 'scopes', 'subscriptionType', 'rateLimitTier'].includes(key));
     return { valid: ok };
   } catch { return { valid: false }; }
 }
@@ -84,13 +91,20 @@ export async function captureTestIdentity({ provisionedRoot, manifestSha256, exp
 }
 
 // Write the dedicated snapshot to the definition's cell-local destination. Staged once, never again.
+// Only the exact selected destination is accepted, and the staged file must read back as the captured
+// bytes: the client then owns it as disposable state and nothing is ever copied back to the source.
+export const CREDENTIAL_DESTINATION = Object.freeze({ root: 'home', path: '.claude/.credentials.json' });
+
 export function stageCredential(cell, definition, captured) {
   const destination = definition.credentialDestination;
-  if (destination.root !== 'home' || !isSafeRelativePath(destination.path)) return unavailable('authentication-channel-unsupported');
+  if (destination.root !== CREDENTIAL_DESTINATION.root || destination.path !== CREDENTIAL_DESTINATION.path ||
+      !isSafeRelativePath(destination.path) || !Buffer.isBuffer(captured?.credential)) return unavailable('authentication-channel-unsupported');
   try {
     const target = join(cell.home, ...destination.path.split('/'));
     mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
     writeFileSync(target, captured.credential, { flag: 'wx', mode: 0o600 });
+    const staged = readFileOnce(target, nativeBounds.credentialBytes);
+    if (!staged || !staged.bytes.equals(captured.credential)) return unavailable('staging-unavailable');
     return { status: 'staged' };
   } catch { return unavailable('staging-unavailable'); }
 }
