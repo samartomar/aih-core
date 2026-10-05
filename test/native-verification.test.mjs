@@ -66,6 +66,7 @@ import { readFileSync, writeFileSync, unlinkSync, lstatSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
+let recordCleanup;
 const hash = v => createHash('sha256').update(v).digest('hex');
 const canonical = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? '['+v.map(canonical).join(',')+']' : '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
 const fixture = Buffer.from('Initial controlled instruction.'); const guardrail = Buffer.from('Controlled deny rules.');
@@ -86,9 +87,9 @@ export async function resolveNativeClient(){if(scenario==='missing-client-and-se
 export function revalidateNativeClient(pin){return hash(readFileSync(pin.executable))===pin.sha256;}
 export async function captureNativeIdentity(binding){return {credential:Buffer.from('{}'),expected:binding.expected,sourceIdentity:null};}
 export function revalidateNativeIdentity(){return true;}
-export async function protectNativeCell(){return true;}
+export async function protectNativeCell(){if(scenario==='protect-helper-cleanup-unresolved'){recordCleanup({confirmed:false,survivors:[{pid:65001,role:'helper'}]},performance.now());return false;}return true;}
 export function nativeStatePaths(){return {home:[],project:[]};}
-export function createNativeRuntime(){return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
+export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
 const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
   if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};
@@ -375,6 +376,16 @@ test('controlled failure before a client starts preserves unresolved helper clea
   assert.equal(result.cleanup.files, 'retained');
   assert.deepEqual(result.survivingProcesses, [{ pid: 65000, role: 'helper' }]);
   assert.ok(result.stages.some(row => row.reason === 'termination-unresolved'));
+});
+
+test('controlled protection failure carries its helper receipt before session creation', async t => {
+  const result = await controlled(t, 'protect-helper-cleanup-unresolved');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.sessions.length, 0);
+  assert.equal(result.cleanup.processes, 'unresolved');
+  assert.equal(result.cleanup.files, 'retained');
+  assert.deepEqual(result.survivingProcesses, [{ pid: 65001, role: 'helper' }]);
+  assert.ok(result.stages.some(row => row.id === 'cleanup' && row.reason === 'termination-unresolved'));
 });
 test('controlled unconfirmed process cleanup retains the cell and reports opaque recovery', async t => {
   const result = await controlled(t, 'cleanup-unresolved');

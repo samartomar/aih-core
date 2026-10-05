@@ -629,10 +629,50 @@ test('child output over the fixed facility bound faults and is never confirmed a
   started.handle.stdout.on('data', (chunk) => { bytes += chunk.length; });
   const exit = await respond(started.handle.exited, 20_000, 'the faulted child never settled');
   assert.equal(exit.signal, null);
+  assert.equal(exit.reason, 'limit-exceeded');
+  assert.equal(started.handle.failure.reason, 'limit-exceeded');
+  assert.equal(started.handle.failure.limitSource, 'output');
+  assert.ok(started.handle.failure.observedBytes > 2 * 1024 * 1024);
   assert.ok(bytes > 0 && bytes <= 2 * 1024 * 1024, `bounded child output, observed ${bytes} bytes`);
   const receipt = await context.terminate({ graceMs: 0, deadlineMs: 10_000 });
   assert.equal(receipt.processes, 'unresolved', JSON.stringify(receipt));
   assert.deepEqual(receipt.survivors, []);
+});
+
+test('an active operation deadline stops the Job and keeps the cleanup observer', WINDOWS_MECHANISM, async t => {
+  const directory = tempDirectory();
+  const nodePin = await pinExecutable(process.execPath);
+  const deadline = performance.now() + 5000;
+  const prepared = await prepareContext({ directory, deadline, runtimePins: [nodePin], selectedEntries: [] });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const context = prepared.context;
+  t.after(async () => {
+    await context.terminate({ graceMs: 0, deadlineMs: 10000 });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+  const started = await context.start({ file: nodePin.path, argv: ['-e', 'process.stdout.write("ready\\n");setInterval(()=>{},1000)'], cwd: directory, env: childEnv() });
+  assert.equal(started.status, 'started', JSON.stringify(started));
+  assert.equal(await firstLine(started.handle.stdout, 4000), 'ready');
+  assert.equal(alive(started.handle.pid), true);
+  assert.equal(await waitUntil(() => !alive(started.handle.pid), 8000), true);
+  assert.ok(performance.now() >= deadline);
+  const receipt = await context.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(receipt.activeProcesses, 0);
+  assert.deepEqual(receipt.survivors, []);
+});
+
+test('a rejected launch without a client PID still reports helper cleanup', WINDOWS_MECHANISM, async t => {
+  const directory = tempDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const result = await lifecycle.startLifecycle({ lifecycleId: 'windows-job.v1', os: 'win32',
+    file: process.execPath, argv: ['-e', 'throw Error("must not start")'], cwd: join(directory, 'missing'),
+    env: childEnv(), deadline: performance.now() + 5000 });
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.partial, undefined);
+  assert.equal(result.cleanup.confirmed, true);
+  assert.deepEqual(result.cleanup.survivors, []);
+  assert.ok(Number.isFinite(result.cleanupStartedAt));
 });
 
 test('cell protection refuses a hardlinked file before changing its outside-cell object', WINDOWS_MECHANISM, async (t) => {

@@ -102,7 +102,14 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     // This single path is fixed in the artifact. No caller module, callback or executable enters it.
     const helpers = captureNativeHelpers(check);
     const installedRuntime = await import('../harness/native/runtime.mjs');
-    const runtime = nativeRuntime(installedRuntime);
+    const runtime = nativeRuntime(installedRuntime, (receipt, startedAt) => {
+      helperProcessesCreated = true;
+      processesConfirmed = processesConfirmed && receipt.confirmed;
+      const survivors = [...result.survivingProcesses, ...receipt.survivors];
+      result.survivingProcesses = survivors.filter((value, index) => survivors.findIndex(other => other.pid === value.pid && other.role === value.role) === index).slice(0, 32);
+      if (survivors.length > 32) result.limits.evidenceTruncated = true;
+      if (startedAt !== undefined && !receipt.confirmed) cleanupDeadline = Math.min(cleanupDeadline ?? Infinity, startedAt + 10000);
+    });
     check();
     const clientDefinitions = runtime.nativeDefinitions.filter(definition => definition.client === selected.client);
     if (!clientDefinitions.length) throw new NativeStop('client-unsupported', 'unsupported');
@@ -134,8 +141,8 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     } });
     result.limits.observedBytes += pin.probeBytes ?? 0;
     if ('outcome' in pin) {
-      if (pin.cleanup) { helperProcessesCreated = true; processesConfirmed = pin.cleanup.confirmed; result.survivingProcesses = pin.cleanup.survivors.slice(0, 32); }
-      if (pin.cleanupStartedAt !== undefined) cleanupDeadline = pin.cleanupStartedAt + 10000;
+      if (pin.cleanup) { helperProcessesCreated = true; processesConfirmed = processesConfirmed && pin.cleanup.confirmed; result.survivingProcesses = [...result.survivingProcesses, ...pin.cleanup.survivors].slice(0, 32); }
+      if (pin.cleanupStartedAt !== undefined) cleanupDeadline = Math.min(cleanupDeadline ?? Infinity, pin.cleanupStartedAt + 10000);
       throw new NativeStop(pin.reason, pin.outcome);
     }
     helperProcessesCreated = pin.probeCreated === true;

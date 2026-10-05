@@ -11,7 +11,7 @@ export function observeNativePlatform({ platform = process.platform, arch = osAr
   return { os, arch, osRelease: release, execution };
 }
 
-export function selectNativeCell({ client, admission, platform, definitions = nativeVerificationDefinitions }) {
+export async function selectNativeCell({ client, admission, platform, definitions = nativeVerificationDefinitions, deadline, signal }) {
   const forClient = definitions.filter(definition => definition.client === client);
   if (!forClient.length) return { outcome: 'unsupported', reason: 'client-unsupported' };
   const onPlatform = forClient.filter(definition => definition.platform.os === platform.os &&
@@ -21,9 +21,10 @@ export function selectNativeCell({ client, admission, platform, definitions = na
   const eligible = admission === 'candidate-smoke' ? onPlatform : onPlatform.filter(definition => definition.state === 'admitted');
   if (!eligible.length) return { outcome: 'unsupported', reason: 'cell-not-admitted' };
   const definition = eligible[0];
-  const lifecycle = lifecycleAvailability(definition.lifecycleId, platform.os);
+  const lifecycle = await lifecycleAvailability(definition.lifecycleId, platform.os, { deadline, signal });
   if (lifecycle.status !== 'available') {
-    return { outcome: 'unsupported', reason: lifecycle.reason, ...(lifecycle.missing ? { missing: lifecycle.missing } : {}) };
+    return { outcome: lifecycle.reason === 'platform-unsupported' ? 'unsupported' : 'unavailable', reason: lifecycle.reason,
+      ...(lifecycle.missing ? { missing: lifecycle.missing } : {}), ...lifecycle.cleanup ? { cleanup: lifecycle.cleanup, cleanupStartedAt: lifecycle.cleanupStartedAt } : {} };
   }
   return { outcome: 'selected', definition, adapter: definitionIdentity(definition) };
 }

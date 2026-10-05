@@ -145,7 +145,10 @@ export async function startLifecycle({ lifecycleId, os, file, argv, cwd, env, de
     const prepared = await prepareWindowsContext({ deadline, signal, runtimePins: [pin] });
     if (prepared.status !== 'ready') return prepared;
     const started = await prepared.context.start({ file: pin.path, argv, cwd, env });
-    if (started.status !== 'started' && !started.partial) await prepared.context.terminate({ graceMs: 0 });
+    if (started.status !== 'started' && !started.partial) {
+      const cleanup = await prepared.context.terminate({ graceMs: 0 });
+      return { ...started, cleanup: { confirmed: cleanup.processes === 'confirmed', survivors: cleanup.survivors }, cleanupStartedAt: cleanup.cleanupStartedAt };
+    }
     return started;
   }
   const available = await lifecycleAvailability(lifecycleId, os, { deadline, signal });

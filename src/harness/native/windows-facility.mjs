@@ -54,8 +54,10 @@ async function launchBridge({ deadline, signal } = {}) {
   if (signal?.aborted || !remaining(deadline)) return unavailable(signal?.aborted ? 'cancelled' : 'deadline');
   let helper;
   try { helper = spawn(resource('facility.exe'), [], { shell: false, windowsHide: true, env: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }, stdio: ['pipe', 'pipe', 'pipe'] }); }
-  catch { return unavailable('windows-facility-failed'); }
+  catch { return { ...unavailable('windows-facility-failed'), cleanup: { confirmed: false, survivors: [] }, cleanupStartedAt: performance.now() }; }
   let next = 0, pending = Buffer.alloc(0), dead = false, failure = null, stopped = null, readyResolve, closeResolve;
+  let cleanupStartedAt, helperExited = false, closeObserved = false;
+  const markCleanup = () => cleanupStartedAt ??= performance.now();
   const requests = new Map(), listeners = new Set();
   const ready = new Promise(resolve => { readyResolve = resolve; });
   const closed = new Promise(resolve => { closeResolve = resolve; });
@@ -67,12 +69,12 @@ async function launchBridge({ deadline, signal } = {}) {
     requests.clear();
     for (const listener of listeners) listener({ type: 'bridge-closed', value: reason });
   };
-  const kill = reason => { fault(reason); try { helper.kill(); } catch { /* close observation remains required */ } };
+  const kill = reason => { markCleanup(); fault(reason); try { helper.kill(); } catch { /* close observation remains required */ } };
   // Cancellation stops the Job immediately but leaves the observer alive for active-zero cleanup.
   // A stuck/lost observer is killed after the one bounded cleanup allowance and remains unresolved.
   const stopOperation = reason => {
     if (dead || stopped) return;
-    stopped = reason; readyResolve(false); clearTimeout(timer);
+    stopped = reason; markCleanup(); readyResolve(false); clearTimeout(timer);
     timer = setTimeout(() => kill('cleanup-timeout'), 10000);
     const id = ++next, requestTimer = setTimeout(() => kill('cleanup-timeout'), 10000);
     requests.set(id, { resolve() {}, timer: requestTimer });
@@ -81,7 +83,8 @@ async function launchBridge({ deadline, signal } = {}) {
   let timer = setTimeout(() => stopOperation('deadline'), Math.max(1, remaining(deadline)));
   const aborted = () => stopOperation('cancelled'); signal?.addEventListener('abort', aborted, { once: true });
   helper.once('error', () => kill('windows-facility-failed'));
-  helper.once('close', () => { clearTimeout(timer); signal?.removeEventListener('abort', aborted); fault('windows-facility-failed'); closeResolve(); });
+  helper.once('exit', () => { helperExited = true; });
+  helper.once('close', () => { closeObserved = true; clearTimeout(timer); signal?.removeEventListener('abort', aborted); fault('windows-facility-failed'); closeResolve(); });
   helper.stdin.on('error', () => kill('windows-facility-failed'));
   // stderr is never surfaced; even unexpected diagnostics have a fixed byte bound.
   let stderrBytes = 0; helper.stderr.on('data', bytes => { stderrBytes += bytes.length; if (stderrBytes > 4096) kill('windows-facility-failed'); });
@@ -100,11 +103,28 @@ async function launchBridge({ deadline, signal } = {}) {
         const request = requests.get(message.id);
         if (!request) { kill('windows-facility-failed'); break; }
         requests.delete(message.id); clearTimeout(request.timer); request.resolve(message.result);
-      } else if (typeof message.type === 'string') { for (const listener of listeners) listener(message); }
+      } else if (typeof message.type === 'string') { if (message.type === 'fault') markCleanup(); for (const listener of listeners) listener(message); }
       else { kill('windows-facility-failed'); break; }
     }
   });
-  if (!await ready) { kill(stopped ?? failure ?? 'windows-facility-failed'); return unavailable(stopped ?? failure ?? 'windows-facility-failed'); }
+  const finish = async milliseconds => {
+    markCleanup();
+    const allowance = Math.min(bound(milliseconds, 1000, 10000), Math.max(0, 10000 - (performance.now() - cleanupStartedAt)));
+    if (!dead) helper.stdin.end();
+    const stop = setTimeout(() => kill('cleanup-timeout'), Math.max(1, allowance));
+    let waitTimer;
+    await Promise.race([closed, new Promise(resolve => { waitTimer = setTimeout(resolve, Math.max(1, allowance)); })]);
+    clearTimeout(waitTimer); clearTimeout(stop);
+    const survivors = [];
+    if (!closeObserved && !helperExited && Number.isSafeInteger(helper.pid) && helper.pid > 0) {
+      try { if (helper.kill(0)) survivors.push({ pid: helper.pid, role: 'helper' }); } catch { /* the observer cannot establish a survivor */ }
+    }
+    return { cleanup: { confirmed: closeObserved, survivors }, cleanupStartedAt };
+  };
+  if (!await ready) {
+    kill(stopped ?? failure ?? 'windows-facility-failed');
+    return { ...unavailable(stopped ?? failure ?? 'windows-facility-failed'), ...await finish(1000) };
+  }
   const rpc = (op, fields = {}, timeout = remaining(deadline)) => new Promise(resolve => {
     if (stopped && !['terminate', 'pipe-close', 'pipe-stop', 'input-end'].includes(op)) { resolve(unavailable(stopped)); return; }
     if (dead || timeout <= 0) { resolve(unavailable(failure ?? 'deadline')); return; }
@@ -117,24 +137,18 @@ async function launchBridge({ deadline, signal } = {}) {
   });
   return { status: 'ready', pins, rpc, onEvent: callback => { listeners.add(callback); return () => listeners.delete(callback); },
     get failed() { return failure; },
+    get cleanupStartedAt() { return cleanupStartedAt; },
     // Cleanup replaces the operation deadline/abort listener with its own bounded allowance.
-    beginCleanup(milliseconds) { clearTimeout(timer); signal?.removeEventListener('abort', aborted); return setTimeout(() => kill('cleanup-timeout'), Math.max(1, milliseconds)); },
-    async finish(milliseconds) {
-      if (!dead) helper.stdin.end();
-      const stop = setTimeout(() => kill('cleanup-timeout'), Math.max(1, milliseconds));
-      let waitTimer;
-      const gone = await Promise.race([closed.then(() => true), new Promise(resolve => { waitTimer = setTimeout(() => resolve(false), Math.max(1, milliseconds)); })]);
-      clearTimeout(waitTimer);
-      clearTimeout(stop); return gone;
-    }, kill };
+    beginCleanup(milliseconds) { markCleanup(); clearTimeout(timer); signal?.removeEventListener('abort', aborted); return setTimeout(() => kill('cleanup-timeout'), Math.max(1, milliseconds)); },
+    finish, kill };
 }
 
 export async function windowsAvailability(options = {}) {
   const bridge = await launchBridge({ ...options, deadline: Number.isFinite(options.deadline) ? options.deadline : performance.now() + 5000 });
   if (bridge.status !== 'ready') return { ...bridge, missing: 'windows-job.v1' };
   const result = await bridge.rpc('probe');
-  const closed = await bridge.finish(1000);
-  return result.status === 'available' && closed ? result : unavailable('windows-facility-failed');
+  const closure = await bridge.finish(1000);
+  return { ...(result.status === 'available' && closure.cleanup.confirmed ? result : unavailable('windows-facility-failed')), ...closure };
 }
 
 export async function prepareWindowsContext({ directory, deadline, signal, runtimePins = [], selectedEntries = [] } = {}) {
@@ -156,9 +170,9 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
   const allPins = [...pins];
   for (const pin of bridge.pins) if (!allPins.some(row => row.path.toLowerCase() === pin.path.toLowerCase())) allPins.push(pin);
   const initialized = await bridge.rpc('init', { deadlineMs: Math.max(1, remaining(deadline)), runtimePins: allPins, selectedEntries: entries });
-  if (initialized.status !== 'ready') { await bridge.finish(1000); return initialized; }
+  if (initialized.status !== 'ready') return { ...initialized, ...await bridge.finish(1000) };
   const stdout = new PassThrough(), stderr = new PassThrough(), peers = new Map(), connectionListeners = new Set();
-  let root = null, exitResolve, cleanup = null, transport = null;
+  let root = null, exitResolve, cleanup = null, transport = null, processFailure = null;
   const exited = new Promise(resolve => { exitResolve = resolve; });
   const writeChunks = async (op, bytes, fields = {}) => {
     for (let offset = 0; offset < bytes.length; offset += CHUNK) {
@@ -171,6 +185,7 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
   // Writes may race normal client exit; errors are represented in cleanup, never unhandled.
   stdin.on('error', () => {});
   const makeRoot = identity => ({ pid: identity.pid, birth: identity.birth ?? null, stdin, stdout, stderr, exited,
+    get failure() { return processFailure; },
     track: async () => { await bridge.rpc('track'); }, terminate: options => context.terminate(options) });
   bridge.onEvent(message => {
     const { type, value } = message;
@@ -178,7 +193,7 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
     else if (type === 'stdout' || type === 'stderr') (type === 'stdout' ? stdout : stderr).write(Buffer.from(value, 'base64'));
     else if (type === 'stdout-end') stdout.end();
     else if (type === 'stderr-end') stderr.end();
-    else if (type === 'exit') exitResolve(value);
+    else if (type === 'exit') exitResolve({ ...value, ...processFailure });
     else if (type === 'connect') {
       const id = value.id;
       const socket = new Duplex({ read() {}, write(bytes, encoding, callback) { writeChunks('pipe-write', bytes, { peer: id }).then(() => callback(), () => callback(new Error('windows-facility-failed'))); },
@@ -194,8 +209,13 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
     } else if (type === 'pipe-data') peers.get(value.id)?.push(Buffer.from(value.data, 'base64'));
     else if (type === 'pipe-end') { const socket = peers.get(value); peers.delete(value); socket?.push(null); }
     else if (type === 'fault' || type === 'bridge-closed') {
+      if (type === 'fault') {
+        const reason = typeof value === 'string' ? value : value?.reason;
+        if (reason === 'output-limit' || reason === 'pipe-limit') processFailure = Object.freeze({ reason: 'limit-exceeded', limitSource: reason === 'output-limit' ? 'output' : 'pipe',
+          ...(Number.isSafeInteger(value?.observedBytes) && value.observedBytes >= 0 ? { observedBytes: value.observedBytes } : {}) });
+      }
       if (transport) windowsTransports.delete(transport);
-      stdout.end(); stderr.end(); exitResolve({ code: null, signal: null }); for (const socket of peers.values()) socket.destroy(); peers.clear();
+      stdout.end(); stderr.end(); exitResolve({ code: null, signal: null, ...processFailure }); for (const socket of peers.values()) socket.destroy(); peers.clear();
     }
   });
   const context = {
@@ -227,13 +247,15 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
       if (cleanup) return cleanup;
       cleanup = (async () => {
         if (transport) windowsTransports.delete(transport);
-        const start = performance.now(), allowance = bound(deadlineMs, 10000, 10000);
+        const start = performance.now(), allowance = Math.min(bound(deadlineMs, 10000, 10000), Math.max(0, 10000 - (start - (bridge.cleanupStartedAt ?? start))));
         const cleanupTimer = bridge.beginCleanup(allowance);
         const receipt = await bridge.rpc('terminate', { graceMs: bound(graceMs, 1000, Math.min(1000, allowance)), deadlineMs: allowance }, allowance);
         clearTimeout(cleanupTimer);
-        const closed = await bridge.finish(Math.max(1, allowance - (performance.now() - start)));
+        const closure = await bridge.finish(Math.max(0, allowance - (performance.now() - start)));
         stdout.end(); stderr.end(); for (const socket of peers.values()) socket.destroy(); peers.clear();
-        return { processes: receipt.processes === 'confirmed' && closed ? 'confirmed' : 'unresolved', survivors: receipt.survivors ?? [], elapsedMs: Math.round(performance.now() - start), ...(receipt.activeProcesses === 0 ? { activeProcesses: 0 } : {}) };
+        return { processes: receipt.processes === 'confirmed' && closure.cleanup.confirmed ? 'confirmed' : 'unresolved',
+          survivors: [...(receipt.survivors ?? []), ...closure.cleanup.survivors], elapsedMs: Math.round(performance.now() - start), cleanupStartedAt: closure.cleanupStartedAt,
+          ...(Number.isSafeInteger(receipt.activeProcesses) && receipt.activeProcesses >= 0 ? { activeProcesses: receipt.activeProcesses } : {}) };
       })();
       return cleanup;
     }
@@ -244,10 +266,10 @@ export async function prepareWindowsContext({ directory, deadline, signal, runti
 export async function windowsCellProtection(options, protect) {
   if (!options || !isAbsolute(options.directory)) return unavailable('cell-protection-unavailable');
   const bridge = await launchBridge(options);
-  if (bridge.status !== 'ready') return unavailable('cell-protection-unavailable');
+  if (bridge.status !== 'ready') return { ...bridge, reason: 'cell-protection-unavailable' };
   const result = await bridge.rpc(protect ? 'protect' : 'validate', { directory: win32.resolve(options.directory) });
-  const closed = await bridge.finish(1000);
-  return result.status === 'protected' && closed ? result : unavailable('cell-protection-unavailable');
+  const closure = await bridge.finish(1000);
+  return { ...(result.status === 'protected' && closure.cleanup.confirmed ? result : unavailable('cell-protection-unavailable')), ...closure };
 }
 
 export const protectWindowsCell = options => windowsCellProtection(options, true);

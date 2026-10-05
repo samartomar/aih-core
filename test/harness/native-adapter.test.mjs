@@ -20,12 +20,14 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const stdout = new PassThrough();
   let exit;
   const exited = new Promise(resolve => { exit = resolve; });
+  let nativeFailure = null;
   const stream = { status: 'complete', sessionId: 'controlled-session', sessionIdConsistent: true,
     serverStatus: 'connected', toolsListed: true, visibleSelectedTools: ['attest', 'query'],
     builtinTools: [], unselectedTools: 0, unselectedToolUses: [], attestationReturned: true,
     answerReturned: receipt, answerSha256: receipt ? installed.sha256('leaf') : null };
   const evidence = { peer: 'authenticated', violation: null, frames: [], bytes: 0 };
   const processHandle = { pid: 1234, stdin: new PassThrough(), stdout, stderr: new PassThrough(),
+    get failure() { return nativeFailure; },
     exited, terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; } };
   // The adapter now creates the lifecycle context before any client and starts the client through it.
   const lifecycleContext = {
@@ -74,7 +76,8 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   assert.equal(typeof handle.snapshot, 'function');
   t.after(async () => { controller.abort(); await handle.observations;
     await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 }); });
-  return { handle, telemetry, stream, stdout, exit, controller, terminationCount: () => terminationCount };
+  return { handle, telemetry, stream, stdout, exit, controller, terminationCount: () => terminationCount,
+    setNativeFailure(value) { nativeFailure = value; } };
 }
 
 test('partial adapter leaves a correct query response unfinished until the client receipt', async t => {
@@ -171,4 +174,26 @@ test('wrong-session-only telemetry remains provisional while a matching event ca
   const final = await handle.observations;
   assert.equal(final.authentication, 'matched');
   assert.equal(final.failure, undefined);
+});
+
+test('a native helper limit survives withheld output and a root exit', async t => {
+  const { handle, setNativeFailure, exit } = await session(t);
+  setNativeFailure({ reason: 'limit-exceeded', observedBytes: 2097152 + 4096, limitSource: 'output' });
+  assert.equal(handle.snapshot().failure.reason, 'limit-exceeded');
+  exit({ code: null, signal: null, reason: 'limit-exceeded' });
+  const final = await handle.observations;
+  assert.equal(final.failure.reason, 'limit-exceeded');
+  assert.equal(final.counts.observedBytes, 2097152 + 4096);
+});
+
+test('the trusted adapter records an unresolved pre-client facility receipt', async () => {
+  const receipt = { confirmed: false, survivors: [{ pid: 65001, role: 'helper' }] };
+  const recorded = [];
+  const runtime = installed.createNativeRuntime({ ...installed,
+    lifecycleAvailability: async () => ({ status: 'unavailable', reason: 'windows-facility-failed', cleanup: receipt, cleanupStartedAt: 123 }) },
+    { readPinned() { throw Error('no pinned file is read'); }, Stop: Error,
+      recordCleanup(cleanup, startedAt) { recorded.push({ cleanup, startedAt }); } });
+  const capabilities = await runtime.nativeCapabilities(installed.nativeVerificationDefinitions[0]);
+  assert.equal(capabilities.lifecycle, false);
+  assert.deepEqual(recorded, [{ cleanup: receipt, startedAt: 123 }]);
 });

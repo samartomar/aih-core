@@ -17,7 +17,10 @@ using Microsoft.Win32.SafeHandles;
 
 internal static class Facility {
     const int FrameLimit = 1048576, Chunk = 16384;
-    const uint WAIT_OBJECT_0 = 0, STILL_ACTIVE = 259;
+    const uint KillOnJobClose = 0x2000, CreateSuspended = 0x4, UnicodeEnvironment = 0x400;
+    const uint ExtendedStartupInfoPresent = 0x80000, CreateNoWindow = 0x8000000;
+    const uint PipeAccessDuplex = 3, FileFlagOverlapped = 0x40000000, FirstPipeInstance = 0x80000, RejectRemoteClients = 8;
+    const uint WAIT_OBJECT_0 = 0, WAIT_TIMEOUT = 258, STILL_ACTIVE = 259;
     static readonly object OutputLock = new object(), StateLock = new object();
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = FrameLimit, RecursionLimit = 16 };
     static readonly List<FileStream> Pins = new List<FileStream>();
@@ -32,6 +35,7 @@ internal static class Facility {
     static volatile bool Stopping, Faulted, PipeClosed;
     static readonly Stopwatch Clock = Stopwatch.StartNew();
     static long Until = 30000;
+    static long CleanupUntil = Int64.MaxValue;
     static Timer DeadlineTimer;
 
     static Dictionary<string, object> Obj(object x) { return (Dictionary<string, object>)x; }
@@ -57,6 +61,7 @@ internal static class Facility {
     static void LoadPins(object[] records) {
         Check(records.Length <= 128);
         foreach (object record in records) {
+            Check(!Stopping);
             Dictionary<string, object> p = Obj(record); string path = Str(p, "path"), digest = Str(p, "sha256");
             Check(Absolute(path) && digest.Length == 64 && !PinRecords.ContainsKey(path));
             Check((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0);
@@ -79,16 +84,21 @@ internal static class Facility {
     static IntPtr NewJob() {
         IntPtr j = CreateJobObject(IntPtr.Zero, null); Check(j != IntPtr.Zero);
         try {
-            ExtendedLimits limits = new ExtendedLimits(); limits.Basic.LimitFlags = 0x2000; // KILL_ON_JOB_CLOSE only
+            ExtendedLimits limits = new ExtendedLimits(); limits.Basic.LimitFlags = KillOnJobClose;
             Check(SetInformationJobObject(j, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits)))); return j;
         } catch { CloseHandle(j); throw; }
     }
     static uint Active() { BasicAccounting a; Check(QueryInformationJobObject(Job, 1, out a, (uint)Marshal.SizeOf(typeof(BasicAccounting)), IntPtr.Zero)); return a.ActiveProcesses; }
-    static bool Live(IntPtr process) { return process != IntPtr.Zero && WaitForSingleObject(process, 0) != WAIT_OBJECT_0; }
+    static bool Live(IntPtr process) { if (process == IntPtr.Zero) return false; uint wait = WaitForSingleObject(process, 0); Check(wait == WAIT_OBJECT_0 || wait == WAIT_TIMEOUT); return wait == WAIT_TIMEOUT; }
     static string Birth(IntPtr process) { long created, exited, kernel, user; Check(GetProcessTimes(process, out created, out exited, out kernel, out user)); return created.ToString(System.Globalization.CultureInfo.InvariantCulture); }
     static string Image(IntPtr process) { StringBuilder path = new StringBuilder(32768); int size = path.Capacity; Check(QueryFullProcessImageName(process, 0, path, ref size)); return Path.GetFullPath(path.ToString()); }
     static void Kill() { try { if (Job != IntPtr.Zero) TerminateJobObject(Job, 137); } catch { } try { if (Live(Root)) TerminateProcess(Root, 137); } catch { } }
-    static void Fail() { Faulted = true; Stopping = true; Kill(); }
+    static void CleanupWindow(int milliseconds) {
+        long end = Clock.ElapsedMilliseconds + Math.Max(0, Math.Min(10000, milliseconds));
+        lock (StateLock) { if (end < CleanupUntil) CleanupUntil = end; }
+    }
+    static void StopOperation() { CleanupWindow(10000); Stopping = true; ClosePipes(); Kill(); }
+    static void Fail() { Faulted = true; CleanupWindow(10000); Stopping = true; Kill(); }
 
     static string Quote(string arg) {
         if (arg.Length > 0 && arg.IndexOfAny(new char[] { ' ', '\t', '"' }) < 0) return arg;
@@ -104,7 +114,8 @@ internal static class Facility {
             try {
                 byte[] bytes = new byte[Chunk]; int n;
                 while ((n = stream.Read(bytes, 0, bytes.Length)) > 0) {
-                    if (Interlocked.Add(ref ChildBytes, n) > 2097152) { Fail(); Event("fault", "output-limit"); break; }
+                    int observed = Interlocked.Add(ref ChildBytes, n);
+                    if (observed > 2097152) { Event("fault", new { reason = "output-limit", observedBytes = observed }); Fail(); break; }
                     Event(type, Convert.ToBase64String(bytes, 0, n));
                 }
             } catch { if (!Stopping) { Fail(); Event("fault", "stream-failed"); } }
@@ -131,7 +142,8 @@ internal static class Facility {
             Check(UpdateProcThreadAttribute(attr, 0, (IntPtr)0x20002, inherited, (IntPtr)(3 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
             StartupInfoEx startup = new StartupInfoEx(); startup.Info.Size = Marshal.SizeOf(typeof(StartupInfoEx)); startup.Info.Flags = 0x100; startup.Info.StdInput = inRead; startup.Info.StdOutput = outWrite; startup.Info.StdError = errWrite; startup.Attributes = attr;
             environmentBlock = Marshal.StringToHGlobalUni(env.ToString());
-            Check(CreateProcess(file, command, IntPtr.Zero, IntPtr.Zero, true, 0x4 | 0x400 | 0x80000 | 0x8000000, environmentBlock, cwd, ref startup, out pi));
+            Check(!Stopping);
+            Check(CreateProcess(file, command, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended | UnicodeEnvironment | ExtendedStartupInfoPresent | CreateNoWindow, environmentBlock, cwd, ref startup, out pi));
             Root = pi.Process; // retain ownership before any subsequent operation can fail
             Event("created", new { pid = pi.ProcessId, birth = Birth(Root) });
             Check(AssignProcessToJobObject(Job, Root)); bool member; Check(IsProcessInJob(Root, Job, out member) && member);
@@ -139,10 +151,10 @@ internal static class Facility {
             ChildInput = new FileStream(new SafeFileHandle(inWrite, true), FileAccess.Write); inWrite = IntPtr.Zero;
             FileStream output = new FileStream(new SafeFileHandle(outRead, true), FileAccess.Read); outRead = IntPtr.Zero;
             FileStream error = new FileStream(new SafeFileHandle(errRead, true), FileAccess.Read); errRead = IntPtr.Zero;
-            Check(ResumeThread(pi.Thread) != 0xffffffff); Pump(output, "stdout"); Pump(error, "stderr");
+            Check(!Stopping && ResumeThread(pi.Thread) != 0xffffffff); Pump(output, "stdout"); Pump(error, "stderr");
             IntPtr held = Root; new Thread(delegate() { WaitForSingleObject(held, 0xffffffff); uint code; if (GetExitCodeProcess(held, out code)) Event("exit", new { code = (long)code, signal = (string)null }); }) { IsBackground = true }.Start();
             return new { status = "started", pid = pi.ProcessId, birth = birth };
-        } catch { Stopping = true; Kill(); if (Root != IntPtr.Zero) { IntPtr held = Root; new Thread(delegate() { WaitForSingleObject(held, 0xffffffff); uint code; if (GetExitCodeProcess(held, out code)) Event("exit", new { code = (long)code, signal = (string)null }); }) { IsBackground = true }.Start(); } throw; }
+        } catch { StopOperation(); if (Root != IntPtr.Zero) { IntPtr held = Root; new Thread(delegate() { WaitForSingleObject(held, 0xffffffff); uint code; if (GetExitCodeProcess(held, out code)) Event("exit", new { code = (long)code, signal = (string)null }); }) { IsBackground = true }.Start(); } throw; }
         finally {
             foreach (IntPtr h in new IntPtr[] { inRead, inWrite, outRead, outWrite, errRead, errWrite, pi.Thread }) if (h != IntPtr.Zero) CloseHandle(h);
             if (attr != IntPtr.Zero) { DeleteProcThreadAttributeList(attr); Marshal.FreeHGlobal(attr); } if (inherited != IntPtr.Zero) Marshal.FreeHGlobal(inherited); if (environmentBlock != IntPtr.Zero) Marshal.FreeHGlobal(environmentBlock);
@@ -191,7 +203,7 @@ internal static class Facility {
         byte[] descriptor = PipeAcl().GetSecurityDescriptorBinaryForm(); GCHandle pinned = GCHandle.Alloc(descriptor, GCHandleType.Pinned);
         try {
             SecurityAttributes sa = new SecurityAttributes { Length = Marshal.SizeOf(typeof(SecurityAttributes)), Descriptor = pinned.AddrOfPinnedObject(), Inherit = 0 };
-            IntPtr handle = CreateNamedPipe("\\\\.\\pipe\\" + PipeName, 3u | 0x40000000u | (first ? 0x80000u : 0u), 8, 4, Chunk, Chunk, 0, ref sa); Check(handle != new IntPtr(-1));
+            IntPtr handle = CreateNamedPipe("\\\\.\\pipe\\" + PipeName, PipeAccessDuplex | FileFlagOverlapped | (first ? FirstPipeInstance : 0u), RejectRemoteClients, 4, Chunk, Chunk, 0, ref sa); Check(handle != new IntPtr(-1));
             return new NamedPipeServerStream(PipeDirection.InOut, true, false, new SafePipeHandle(handle, true));
         } finally { pinned.Free(); }
     }
@@ -207,7 +219,8 @@ internal static class Facility {
                 Event("connect", new { id = peer.Id });
                 EnsureListener();
                 byte[] bytes = new byte[Chunk]; int n; while (!Stopping && (n = pipe.Read(bytes, 0, bytes.Length)) > 0) {
-                    if (Interlocked.Add(ref PipeBytes, n) > 4194304) { Fail(); Event("fault", "pipe-limit"); break; }
+                    int observed = Interlocked.Add(ref PipeBytes, n);
+                    if (observed > 4194304) { Event("fault", new { reason = "pipe-limit", observedBytes = observed }); Fail(); break; }
                     Event("pipe-data", new { id = peer.Id, data = Convert.ToBase64String(bytes, 0, n) });
                 }
             } catch { if (!Stopping && peer == null) Event("pipe-rejected", null); }
@@ -224,7 +237,7 @@ internal static class Facility {
         return new { status = "ready", endpoint = "\\\\.\\pipe\\" + PipeName };
     }
     static object Probe() {
-        Job = NewJob(); Check(Active() == 0); PipeName = "aih-probe-" + Guid.NewGuid().ToString("N");
+        Check(!Stopping); Job = NewJob(); Check(Active() == 0); PipeName = "aih-probe-" + Guid.NewGuid().ToString("N");
         using (NamedPipeServerStream server = NewPipe(true)) {
             bool observed = false;
             Thread connected = new Thread(delegate() {
@@ -239,14 +252,16 @@ internal static class Facility {
         PipeClosed = true; lock (StateLock) { foreach (NamedPipeServerStream pipe in Listeners) try { pipe.Dispose(); } catch { } foreach (Peer peer in Peers.Values) peer.Close(); Peers.Clear(); }
     }
     static object Terminate(int grace, int deadline) {
-        Stopwatch watch = Stopwatch.StartNew(); Stopping = true; Until = Clock.ElapsedMilliseconds + Math.Max(1, deadline); ClosePipes(); try { if (ChildInput != null) ChildInput.Dispose(); } catch { }
-        bool zero = false; uint active = 1;
+        Stopwatch watch = Stopwatch.StartNew(); CleanupWindow(deadline); Stopping = true; ClosePipes(); try { if (ChildInput != null) ChildInput.Dispose(); } catch { }
+        bool zero = false, activeKnown = false; uint active = 0;
         try {
-            while (watch.ElapsedMilliseconds < Math.Min(grace, deadline)) { active = Active(); if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); }
-            if (!zero) { Kill(); while (watch.ElapsedMilliseconds < deadline) { active = Active(); if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); } }
-            active = Active(); zero = active == 0 && !Live(Root);
+            while (watch.ElapsedMilliseconds < Math.Min(grace, deadline)) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); }
+            if (!zero) { Kill(); while (watch.ElapsedMilliseconds < deadline) { active = Active(); activeKnown = true; if (active == 0 && !Live(Root)) { zero = true; break; } Thread.Sleep(10); } }
+            active = Active(); activeKnown = true; zero = active == 0 && !Live(Root);
         } catch { zero = false; }
-        return new { processes = zero && !Faulted ? "confirmed" : "unresolved", survivors = new object[0], elapsedMs = watch.ElapsedMilliseconds, activeProcesses = zero ? 0 : (long)active };
+        object[] survivors = new object[0];
+        try { if (!zero && Live(Root)) survivors = new object[] { new { pid = GetProcessId(Root), role = "client" } }; } catch { zero = false; }
+        return new { processes = zero && !Faulted ? "confirmed" : "unresolved", survivors = survivors, elapsedMs = watch.ElapsedMilliseconds, activeProcesses = activeKnown ? (long?)active : null };
     }
 
     static void PathSafe(string path) {
@@ -280,12 +295,13 @@ internal static class Facility {
         try { uint length = GetSecurityDescriptorLength(descriptor); Check(length > 0 && length <= 65536); byte[] bytes = new byte[length]; Marshal.Copy(descriptor, bytes, 0, bytes.Length); return new RawSecurityDescriptor(bytes, 0); } finally { LocalFree(descriptor); }
     }
     static object Cell(Dictionary<string, object> c, bool protect) {
-        List<string> paths = CellPaths(Str(c, "directory")); SecurityIdentifier user = WindowsIdentity.GetCurrent().User, system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), admin = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        Check(!Stopping); List<string> paths = CellPaths(Str(c, "directory")); SecurityIdentifier user = WindowsIdentity.GetCurrent().User, system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), admin = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
         List<CellHandle> held = new List<CellHandle>();
         try {
         string ancestor = Path.GetDirectoryName(paths[0]); while (!String.IsNullOrEmpty(ancestor)) { held.Add(HoldPath(ancestor, false)); ancestor = Path.GetDirectoryName(ancestor); }
         List<CellHandle> cell = new List<CellHandle>(); foreach (string path in paths) { CellHandle h = HoldPath(path, protect); held.Add(h); cell.Add(h); Check(Descriptor(h.Handle).Owner.Equals(user)); }
         if (protect) foreach (CellHandle path in cell) {
+            Check(!Stopping);
             bool directory = path.Directory; FileSystemSecurity acl = directory ? (FileSystemSecurity)new DirectorySecurity() : new FileSecurity(); acl.SetOwner(user); acl.SetAccessRuleProtection(true, false);
             foreach (SecurityIdentifier sid in new SecurityIdentifier[] { user, system, admin }) acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, directory ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit : InheritanceFlags.None, PropagationFlags.None, AccessControlType.Allow));
             byte[] descriptor = acl.GetSecurityDescriptorBinaryForm(); Check(SetKernelObjectSecurity(path.Handle, 4u | 0x80000000u, descriptor));
@@ -299,13 +315,16 @@ internal static class Facility {
     static int Main() {
         Console.InputEncoding = new UTF8Encoding(false); Console.OutputEncoding = new UTF8Encoding(false);
         try {
-            DeadlineTimer = new Timer(delegate(object state) { if (Clock.ElapsedMilliseconds >= Interlocked.Read(ref Until)) { Fail(); Environment.Exit(124); } }, null, 25, 25);
+            DeadlineTimer = new Timer(delegate(object state) {
+                if (!Stopping && Clock.ElapsedMilliseconds >= Interlocked.Read(ref Until)) StopOperation();
+                if (Stopping && Clock.ElapsedMilliseconds >= Interlocked.Read(ref CleanupUntil)) { Kill(); Environment.Exit(124); }
+            }, null, 25, 25);
             Event("ready", new { protocol = 1 }); string line;
             while ((line = ReadFrame()) != null) {
                 Dictionary<string, object> c = Obj(Json.DeserializeObject(line)); int id = Num(c, "id"); object result;
                 try {
                     string op = Str(c, "op");
-                    if (op == "init") { Check(Job == IntPtr.Zero && !Stopping); Until = Clock.ElapsedMilliseconds + Num(c, "deadlineMs"); LoadPins(Arr(c, "runtimePins")); LoadEntries(Arr(c, "selectedEntries")); Job = NewJob(); Check(Active() == 0); result = new { status = "ready" }; }
+                    if (op == "init") { Check(Job == IntPtr.Zero && !Stopping); Until = Clock.ElapsedMilliseconds + Num(c, "deadlineMs"); LoadPins(Arr(c, "runtimePins")); LoadEntries(Arr(c, "selectedEntries")); Check(!Stopping); Job = NewJob(); Check(Active() == 0); result = new { status = "ready" }; }
                     else if (op == "probe") result = Probe();
                     else if (op == "protect" || op == "validate") result = Cell(c, op == "protect");
                     else if (op == "start") result = Launch(c);
@@ -317,7 +336,7 @@ internal static class Facility {
                     else if (op == "input") { byte[] bytes = Convert.FromBase64String(Str(c, "data")); Check(bytes.Length <= Chunk && ChildInput != null && !Stopping); ChildInput.Write(bytes, 0, bytes.Length); ChildInput.Flush(); result = new { ok = true }; }
                     else if (op == "input-end") { if (ChildInput != null) ChildInput.Dispose(); result = new { ok = true }; }
                     else if (op == "track") result = new { activeProcesses = Active() };
-                    else if (op == "cancel") { Stopping = true; Until = Clock.ElapsedMilliseconds + 10000; ClosePipes(); Kill(); result = new { ok = true }; }
+                    else if (op == "cancel") { StopOperation(); result = new { ok = true }; }
                     else if (op == "terminate") result = Terminate(Num(c, "graceMs"), Num(c, "deadlineMs"));
                     else throw new InvalidDataException();
                     Send(new { id = id, result = result });

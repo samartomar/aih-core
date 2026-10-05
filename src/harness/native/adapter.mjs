@@ -25,6 +25,10 @@ async function terminateBounded(handle, deadline, graceMs) {
 }
 function createNativeRuntime(module, dependencies) {
   const { readPinned: nativeReadPinned, Stop: NativeStop } = dependencies;
+  const observeFacility = result => {
+    if (result?.cleanup) dependencies.recordCleanup?.(result.cleanup, result.cleanupStartedAt);
+    return result;
+  };
   const definitions = module.nativeVerificationDefinitions;
   const adapters = new Set(["claude-stream-json.v1"]);
   const identitiesSupported = new Set(["claude-oauth-otel.v1"]);
@@ -131,7 +135,8 @@ function createNativeRuntime(module, dependencies) {
   };
   // Authenticate an observed OS peer. The facility already checked Job membership and the held process
   // identity; here the reported id, image and exact argv must name exactly one selected entry, and every
-  // flat runtime pin is re-read now. Anything missing, relative or ambiguous is refused.
+  // runtime pin is held by the facility with write/delete sharing denied. Anything missing,
+  // relative or ambiguous is refused; command-line matching is not execution attestation.
   const ownedPeer = async (identity, selection, input) => {
     try {
       if (identity?.status !== "observed" || !Number.isSafeInteger(identity.pid) || typeof identity.birth !== "string" || !/^[0-9]+$/.test(identity.birth)) return false;
@@ -140,11 +145,7 @@ function createNativeRuntime(module, dependencies) {
       const [entry] = matches;
       if (!sameWindowsPath(identity.executablePath, entry.executablePath) || identity.executableSha256 !== entry.executableSha256) return false;
       if (!Array.isArray(identity.argv) || identity.argv.length !== entry.argv.length || !identity.argv.every((value, index) => index === 0 ? sameWindowsPath(value, entry.argv[0]) : value === entry.argv[index])) return false;
-      const check = () => checkTime(input);
-      for (const pin of selection.runtimePins) {
-        const bytes = nativeReadPinned(pin.path, MAX_PINNED_BYTES, check);
-        if (bytes.length !== pin.byteLength || sha256(bytes) !== pin.sha256) return false;
-      }
+      checkTime(input);
       return true;
     } catch {
       return false;
@@ -154,7 +155,7 @@ function createNativeRuntime(module, dependencies) {
   const observeCapabilities = async (definition, input) => {
     let lifecycle;
     try {
-      lifecycle = await module.lifecycleAvailability(definition.lifecycleId, definition.platform.os, input ? { deadline: input.deadline, signal: input.signal } : {});
+      lifecycle = observeFacility(await module.lifecycleAvailability(definition.lifecycleId, definition.platform.os, input ? { deadline: input.deadline, signal: input.signal } : {}));
     } catch {
       lifecycle = { status: "unavailable", reason: "termination-unresolved" };
     }
@@ -231,10 +232,10 @@ function createNativeRuntime(module, dependencies) {
         LC_ALL: "C.UTF-8"
       };
       if (process.platform === "win32" && process.env.SystemRoot) env.SystemRoot = process.env.SystemRoot;
-      const launched = await module.startLifecycle({ lifecycleId: definition.lifecycleId, os: definition.platform.os, file: client.path, argv: definition.versionArgv, cwd: cell.project, env, deadline: input.deadline, signal: input.signal });
+      const launched = observeFacility(await module.startLifecycle({ lifecycleId: definition.lifecycleId, os: definition.platform.os, file: client.path, argv: definition.versionArgv, cwd: cell.project, env, deadline: input.deadline, signal: input.signal }));
       if (launched.status !== "started") {
         const reason = facilityReason(launched.reason, "session-launch-failed");
-        if (!launched.partial) return { outcome: "unavailable", reason };
+        if (!launched.partial) return { outcome: "unavailable", reason, ...launched.cleanup ? { cleanup: launched.cleanup, cleanupStartedAt: launched.cleanupStartedAt } : {} };
         // A root created before the failure is still owned: stop it with the standard cleanup allowance.
         const startedAt = performance.now();
         const receipt = await terminateBounded(launched.partial, startedAt + 10_000, 1000);
@@ -277,9 +278,12 @@ function createNativeRuntime(module, dependencies) {
         processHandle.stdin.end();
         const exit = await Promise.race([processHandle.exited, stoppedPromise.then(() => null)]);
         const receipt = await terminate();
-        if (!receipt.confirmed) return { outcome: "unavailable", reason: "termination-unresolved", cleanup: receipt, cleanupStartedAt, probeBytes: bytes };
+        const nativeFailure = processHandle.failure ?? exit;
+        if (Number.isSafeInteger(nativeFailure?.observedBytes)) bytes = Math.max(bytes, nativeFailure.observedBytes);
+        const limited = overflow || nativeFailure?.reason === "limit-exceeded";
+        if (!receipt.confirmed) return { outcome: "unavailable", reason: stopped ?? (limited ? "limit-exceeded" : "termination-unresolved"), cleanup: receipt, cleanupStartedAt, probeBytes: bytes };
         if (stopped) return { outcome: "unavailable", reason: stopped, cleanup: { confirmed: true, survivors: [] }, cleanupStartedAt, probeBytes: bytes };
-        if (overflow) return { outcome: "unavailable", reason: "limit-exceeded", cleanup: { confirmed: true, survivors: [] }, probeBytes: bytes };
+        if (limited) return { outcome: "unavailable", reason: "limit-exceeded", cleanup: { confirmed: true, survivors: [] }, probeBytes: bytes };
         const version = exit?.code === 0 ? module.parseClaudeVersionOutput(output) : null;
         if (!version) return { outcome: "unavailable", reason: "version-unreadable", cleanup: { confirmed: true, survivors: [] }, probeBytes: bytes };
         return {
@@ -330,7 +334,7 @@ function createNativeRuntime(module, dependencies) {
         // Only the already-owned exact cell directory: current user, System and Administrators DACL.
         try {
           if (typeof module.protectWindowsCell !== "function") return false;
-          const protectedCell = await module.protectWindowsCell({ directory: cell.path, deadline: input.deadline, signal: input.signal });
+          const protectedCell = observeFacility(await module.protectWindowsCell({ directory: cell.path, deadline: input.deadline, signal: input.signal }));
           return protectedCell?.status === "protected" && !input.signal?.aborted && performance.now() < input.deadline;
         } catch {
           return false;
@@ -365,6 +369,10 @@ function createNativeRuntime(module, dependencies) {
       let timer;
       let abort;
       let outputBytes = 0;
+      const countedBytes = (source, baseline) => {
+        const failure = lifecycle?.failure;
+        return failure?.limitSource === source && Number.isSafeInteger(failure.observedBytes) && failure.observedBytes >= 0 ? Math.max(baseline, failure.observedBytes) : baseline;
+      };
       let stopped;
       let watchdog;
       let snapshot = () => ({ ...incomplete(stopped ?? "native-internal"), completed: [] });
@@ -413,7 +421,7 @@ function createNativeRuntime(module, dependencies) {
         isolation: "unobservable",
         serverPeerBound: false,
         failure: { reason, outcome: "unavailable" },
-        counts: { observedBytes: outputBytes, telemetryEvents: 0, rpcMessages: 0 }
+        counts: { observedBytes: countedBytes("output", outputBytes) + countedBytes("pipe", 0), telemetryEvents: 0, rpcMessages: 0 }
       });
       const ownedHandle = (observations) => ({
         pid: lifecycle.pid,
@@ -430,7 +438,7 @@ function createNativeRuntime(module, dependencies) {
         // A fresh context (non-inheritable Job) exists before any evidence channel or client; every
         // failure below reaches cleanup(), which terminates it even when no client ever started.
         const selection = launchPlan(input);
-        const prepared = await module.prepareLifecycleContext({
+        const prepared = observeFacility(await module.prepareLifecycleContext({
           lifecycleId: input.definition.lifecycleId,
           os: input.definition.platform.os,
           directory: input.cell.observations,
@@ -438,7 +446,7 @@ function createNativeRuntime(module, dependencies) {
           signal: input.signal,
           runtimePins: selection.runtimePins,
           selectedEntries: selection.entries
-        });
+        }));
         if (prepared?.status !== "ready" || !prepared.context) return { outcome: "unavailable", reason: facilityReason(prepared?.reason, "termination-unresolved") };
         context = prepared.context;
         checkTime(input);
@@ -481,7 +489,7 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const failure = stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
+            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
@@ -513,7 +521,7 @@ function createNativeRuntime(module, dependencies) {
               isolation: "unobservable",
               serverPeerBound: evidence?.peer === "authenticated" && !evidence.violation,
               ...failure ? { failure: { reason: failure, outcome: "unavailable" } } : {},
-              counts: { observedBytes: outputBytes + telemetryResult.bytes + (evidence?.bytes ?? 0), telemetryEvents: telemetryResult.counts.events, rpcMessages: evidence?.frames.length ?? 0 }
+              counts: { observedBytes: countedBytes("output", outputBytes) + telemetryResult.bytes + countedBytes("pipe", evidence?.bytes ?? 0), telemetryEvents: telemetryResult.counts.events, rpcMessages: evidence?.frames.length ?? 0 }
             };
             if (!finalized) observation.completed = [
               ...(stream.sessionId !== null ? ['session-freshness'] : []),
@@ -604,7 +612,11 @@ function createNativeRuntime(module, dependencies) {
         lifecycle.stdin.end(input.prompt.replaceAll(input.challenge, challenge));
         const observations = (async () => {
           try {
-            await Promise.race([lifecycle.exited, stoppedPromise]);
+            const exit = await Promise.race([lifecycle.exited, stoppedPromise]);
+            if (exit?.reason === "limit-exceeded" && !["cancelled", "budget-exhausted"].includes(stopped)) {
+              await stop("limit-exceeded");
+              stopped = "limit-exceeded";
+            }
             if (stopped) return { ...snapshot(), failure: { reason: stopped, outcome: "unavailable" } };
             const streams = parsers.map((parser) => parser.finish());
             const stream = streams[0];

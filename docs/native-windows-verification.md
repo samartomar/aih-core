@@ -16,7 +16,11 @@ Job membership and the selected exact absolute runtime entry. The selected
 executable and runtime files are pinned separately. The relative MCP launch
 configuration stays unchanged: the fixture and recorder relaunch their exact
 absolute entry once on Windows, and only that child opens evidence. A claimed PID,
-token, arbitrary Node descendant or relative entry is insufficient.
+token or an unmatched image/entry is insufficient. The WMI command line is
+process-controlled metadata: matching it does not independently attest loaded
+JavaScript bytes or launch provenance. Another process in the owned Job can
+attempt to reproduce the selected launch. These hygiene checks assume a trusted
+host account and do not isolate hostile code running as that account.
 [Named-pipe peer identity](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeclientprocessid)
 
 The package contains the reviewed helper source, executable and build record.

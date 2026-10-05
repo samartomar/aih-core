@@ -14,35 +14,36 @@ test('platform observation names OS, arch, release and WSL2 execution', () => {
     { os: 'unsupported', arch: 'x64', osRelease: '14', execution: 'native' });
 });
 
-test('every roster client except Claude is client-unsupported, retaining all eleven ids', () => {
+test('every roster client except Claude is client-unsupported, retaining all eleven ids', async () => {
   assert.equal(nativeClientIds.length, 11);
   for (const client of nativeClientIds.filter(id => id !== 'claude'))
-    assert.deepEqual(selectNativeCell({ client, admission: 'candidate-smoke', platform: win }), { outcome: 'unsupported', reason: 'client-unsupported' });
+    assert.deepEqual(await selectNativeCell({ client, admission: 'candidate-smoke', platform: win }), { outcome: 'unsupported', reason: 'client-unsupported' });
 });
 
-test('a normal admitted call never selects a candidate', () => {
-  assert.deepEqual(selectNativeCell({ client: 'claude', admission: 'admitted', platform: win }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
+test('a normal admitted call never selects a candidate', async () => {
+  assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'admitted', platform: win }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
 });
 
-test('a platform that does not match the descriptor is platform-unsupported', () => {
-  assert.deepEqual(selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: linux }), { outcome: 'unsupported', reason: 'platform-unsupported' });
-  assert.deepEqual(selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: { ...win, osRelease: '10.0.1' } }), { outcome: 'unsupported', reason: 'platform-unsupported' });
-  assert.deepEqual(selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: { ...win, arch: 'arm64' } }), { outcome: 'unsupported', reason: 'platform-unsupported' });
+test('a platform that does not match the descriptor is platform-unsupported', async () => {
+  assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: linux }), { outcome: 'unsupported', reason: 'platform-unsupported' });
+  assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: { ...win, osRelease: '10.0.1' } }), { outcome: 'unsupported', reason: 'platform-unsupported' });
+  assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: { ...win, arch: 'arm64' } }), { outcome: 'unsupported', reason: 'platform-unsupported' });
 });
 
-test('the Windows candidate fails closed while no Job Object helper exists', () => {
-  const result = selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: win });
-  assert.deepEqual(result, { outcome: 'unsupported', reason: 'platform-unsupported', missing: 'windows-job.v1' });
+test('the Windows candidate awaits the actual bounded platform probe', async () => {
+  const result = await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: win });
+  if (process.platform === 'win32' && process.arch === 'x64') assert.equal(result.outcome, 'selected');
+  else assert.deepEqual(result, { outcome: 'unsupported', reason: 'platform-unsupported', missing: 'windows-job.v1' });
 });
 
-test('a matching platform with an available lifecycle selects the descriptor and its identity', () => {
+test('a matching platform with an available lifecycle selects the descriptor and its identity', async () => {
   const definition = { ...nativeVerificationDefinitions[0], platform: linux, lifecycleId: 'posix-group.v1' };
-  const result = selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: linux, definitions: [definition] });
+  const result = await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: linux, definitions: [definition] });
   assert.equal(result.outcome, 'selected');
   assert.equal(result.definition.id, definition.id);
   assert.match(result.adapter.sha256, /^[0-9a-f]{64}$/);
   const admitted = { ...definition, state: 'admitted', evidenceSha256: 'e'.repeat(64) };
-  assert.equal(selectNativeCell({ client: 'claude', admission: 'admitted', platform: linux, definitions: [admitted] }).outcome, 'selected');
+  assert.equal((await selectNativeCell({ client: 'claude', admission: 'admitted', platform: linux, definitions: [admitted] })).outcome, 'selected');
 });
 
 test('client versions match exactly: no ranges, no inherited upgrades', () => {
