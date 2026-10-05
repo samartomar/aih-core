@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:native-verification-definition:1.1.0",
+  "title": "Harness native verification definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "client", "state", "platform", "clientVersions", "executableNames",
+    "runtimeMembers", "versionArgv", "sessionArgv", "parserId", "identityAdapterId", "credentialDestination",
+    "guardrails", "guardrailsSha256", "lifecycleId", "isolation", "evidenceSha256"],
+  "properties": {
+    "schema": { "const": "urn:aihq:harness:native-verification-definition:1.1.0" },
+    "id": { "$ref": "#/$defs/nativeId" },
+    "client": { "$ref": "#/$defs/clientId" },
+    "state": { "enum": ["candidate", "admitted"] },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "execution", "osRelease"],
+      "properties": {
+        "os": { "enum": ["win32", "linux", "darwin"] },
+        "arch": { "enum": ["x64", "arm64"] },
+        "execution": { "enum": ["native", "wsl2"] },
+        "osRelease": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "clientVersions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]{1,64})?$" }
+    },
+    "executableNames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\\\/]+$" }
+    },
+    "runtimeMembers": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/member" } },
+    "versionArgv": { "$ref": "#/$defs/boundedArgv" },
+    "sessionArgv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "type": "string", "maxLength": 1024, "pattern": "^(?![\\s\\S]*\\{\\{)[^$\\u0000]{0,1024}$" },
+      "not": {
+        "type": "array",
+        "contains": {
+          "type": "string",
+          "pattern": "^(--bare|--resume|-r|--continue|-c|--session-id|--fork-session|--mcp-config|--strict-mcp-config|--settings|--setting-sources|--system-prompt|--system-prompt-file|--append-system-prompt|--append-system-prompt-file|--add-dir|--plugin-dir|--agents|--permission-prompt-tool|--dangerously-skip-permissions|--allow-dangerously-skip-permissions|--debug-file)(?:=|$)"
+        }
+      }
+    },
+    "parserId": { "enum": ["claude-stream-json.v1"] },
+    "identityAdapterId": { "const": "claude-oauth-otel.v1" },
+    "credentialDestination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "path"],
+      "properties": {
+        "root": { "const": "home" },
+        "path": { "$ref": "#/$defs/treePath" }
+      }
+    },
+    "guardrails": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/treeFile" } },
+    "guardrailsSha256": { "$ref": "#/$defs/sha256" },
+    "lifecycleId": { "enum": ["windows-job.v1", "posix-group.v1", "linux-srt.v1"] },
+    "isolation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mechanism", "observerId", "documentation"],
+          "properties": {
+            "mechanism": { "const": "none" },
+            "observerId": { "type": "null" },
+            "documentation": { "type": "array", "maxItems": 0, "items": { "type": "string" } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mechanism", "observerId", "documentation"],
+          "properties": {
+            "mechanism": { "const": "client-native" },
+            "observerId": { "$ref": "#/$defs/nativeId" },
+            "documentation": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^https://[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:/[^\\u0000-\\u0020\\u007f]*)?$" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mechanism", "observerId", "documentation"],
+          "properties": {
+            "mechanism": { "const": "vendor-runtime" },
+            "observerId": { "const": "anthropic-srt-linux.v1" },
+            "documentation": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^https://[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:/[^\\u0000-\\u0020\\u007f]*)?$" }
+            }
+          }
+        }
+      ]
+    },
+    "evidenceSha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "platform": { "type": "object", "properties": { "execution": { "const": "wsl2" } }, "required": ["execution"] } },
+        "required": ["platform"]
+      },
+      "then": { "properties": { "platform": { "type": "object", "properties": { "os": { "const": "linux" } } } } }
+    },
+    {
+      "if": { "properties": { "lifecycleId": { "const": "windows-job.v1" } }, "required": ["lifecycleId"] },
+      "then": { "properties": { "platform": { "type": "object", "properties": { "os": { "const": "win32" } } } } },
+      "else": { "properties": { "platform": { "type": "object", "properties": { "os": { "enum": ["linux", "darwin"] } } } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "candidate" } }, "required": ["state"] },
+      "then": { "properties": { "evidenceSha256": { "type": "null" } } },
+      "else": { "properties": { "evidenceSha256": { "$ref": "#/$defs/sha256" } } }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": { "isolation": { "type": "object", "properties": { "mechanism": { "const": "vendor-runtime" } }, "required": ["mechanism"] } },
+        "required": ["isolation"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "lifecycleId": { "const": "linux-srt.v1" },
+          "platform": { "type": "object", "properties": { "os": { "const": "linux" }, "arch": { "const": "x64" } } },
+          "sessionArgv": {
+            "type": "array",
+            "allOf": [
+              { "contains": { "const": "--tools" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "" }, "minContains": 1, "maxContains": 1 },
+              { "not": { "contains": { "type": "string", "pattern": "^--tools=" } } },
+              {
+                "anyOf": [
+                  { "minItems": 2, "prefixItems": [{ "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 3, "prefixItems": [true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 4, "prefixItems": [true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 5, "prefixItems": [true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 6, "prefixItems": [true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 7, "prefixItems": [true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 8, "prefixItems": [true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 9, "prefixItems": [true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 10, "prefixItems": [true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 11, "prefixItems": [true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 12, "prefixItems": [true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 13, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 14, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 15, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 16, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 17, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 18, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 19, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 20, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 21, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 22, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 23, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 24, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 25, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 26, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 27, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 28, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 29, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 30, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 31, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] },
+                  { "minItems": 32, "prefixItems": [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, { "const": "--tools" }, { "const": "" }] }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": { "sessionArgv": { "type": "array", "items": { "type": "string", "minLength": 1 } } }
+      }
+    },
+    {
+      "if": { "type": "object", "properties": { "lifecycleId": { "const": "linux-srt.v1" } }, "required": ["lifecycleId"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "isolation": { "type": "object", "properties": { "mechanism": { "const": "vendor-runtime" } }, "required": ["mechanism"] },
+          "platform": { "type": "object", "properties": { "os": { "const": "linux" }, "arch": { "const": "x64" } } }
+        },
+        "required": ["isolation"]
+      }
+    }
+  ],
+  "$defs": {
+    "nativeId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "clientId": {
+      "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"]
+    },
+    "memberPath": {
+      "type": "string",
+      "minLength": 9,
+      "maxLength": 512,
+      "pattern": "^(?!package/.*[. ](?:/|$))(?!package/(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])(?:\\.[^/]*)?(?:/|$))package/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+(?:/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+)*$"
+    },
+    "treePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*[. ](?:/|$))(?!.*(?:/|^)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])(?:\\.[^/]*)?(?:/|$))[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+(?:/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+)*$"
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byteLength"],
+      "properties": {
+        "path": { "$ref": "#/$defs/memberPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 1, "maximum": 8388608 }
+      }
+    },
+    "treeFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "path", "member"],
+      "properties": {
+        "root": { "enum": ["home", "project"] },
+        "path": { "$ref": "#/$defs/treePath" },
+        "member": { "$ref": "#/$defs/member" }
+      }
+    },
+    "boundedArgv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?![\\s\\S]*\\{\\{)[^$\\u0000]{1,1024}$" }
+    }
+  }
+}

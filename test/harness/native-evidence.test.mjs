@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import net from 'node:net';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -31,10 +31,11 @@ const peerFor = child => ({
 });
 
 async function session({ dir, channel, token, env = {} }) {
-  // Controlled peers retain their directly held PID. The real Job tests exercise
-  // the unchanged relative configuration and its absolute-entry child separately.
+  // Controlled peers retain their directly held PID, so they pass the fixed absolute-entry
+  // marker explicitly on every trampoline platform. The real Job tests exercise the unchanged
+  // relative configuration and its absolute-entry child separately.
   const child = spawn(process.execPath, [join(dir, 'server.mjs'),
-    ...(process.platform === 'win32' ? ['--aihq-native-absolute-entry'] : [])], {
+    ...(process.platform === 'win32' || process.platform === 'linux' ? ['--aihq-native-absolute-entry'] : [])], {
     stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
     env: { ...process.env, AIHQ_NATIVE_EVIDENCE_CHANNEL: channel.endpoint,
       AIHQ_NATIVE_EVIDENCE_TOKEN: token ?? channel.token, ...env } });
@@ -230,4 +231,79 @@ test('evaluation treats missing or incomplete records as unproven', () => {
     { version: 1, sequence: 1, method: 'tools/call', tool: 'aihq_attest_instruction', argumentsSha256: 'a'.repeat(64), resultSha256: 'b'.repeat(64), challengeMatched: true, markerSha256: fixtureMarkerSha256 },
     { version: 1, sequence: 2, method: 'tools/call', tool: 'aihq_graph_query', argumentsSha256: 'a'.repeat(64), resultSha256: 'c'.repeat(64), challengeMatched: true, markerSha256: null }], spec);
   assert.equal(wrongResult.query, 'result-mismatch');
+});
+
+// Linux-only: /proc resolution stands in for the fixed kernel peer facility. The claimed hello
+// PID is resolved to the process's actual argv, parent and start time; the claim alone never
+// establishes ownership. The fixed ELF facility keeps its own kernel-side checks.
+const LINUX_TRAMPOLINE = { skip: process.platform === 'linux' ? false : 'Linux /proc peer observation only', timeout: 30_000 };
+const procIdentity = pid => {
+  const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  return { argv, ppid: Number(fields[1]), birth: fields[19] };
+};
+
+test('the nested Linux trampoline is the exact absolute entry and a claimed parent PID is not ownership', LINUX_TRAMPOLINE, async () => {
+  const dir = realpathSync.native(workdir());
+  const module = join(dir, 'server.mjs');
+  const expectedArgv = [process.execPath, module, '--aihq-native-absolute-entry'];
+  const identities = [];
+  const channel = await createEvidenceChannel({ directory: dir,
+    peerIdentity: async (_socket, hello) => {
+      try {
+        const observed = procIdentity(hello.pid);
+        return { status: 'observed', pid: hello.pid, birth: observed.birth, argv: observed.argv, ppid: observed.ppid };
+      } catch { return { status: 'unavailable' }; }
+    },
+    isOwnedServer: identity => {
+      identities.push(identity);
+      return Array.isArray(identity.argv) && identity.argv.length === expectedArgv.length &&
+        identity.argv.every((value, index) => value === expectedArgv[index]);
+    } });
+  // The plain configured launch carries no marker; the fixture must re-exec once to the absolute entry.
+  const child = spawn(process.execPath, [module], {
+    stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+    env: { ...process.env, AIHQ_NATIVE_EVIDENCE_CHANNEL: channel.endpoint, AIHQ_NATIVE_EVIDENCE_TOKEN: channel.token } });
+  try {
+    // A forged stream claiming the held launcher PID: the launcher's actual argv lacks the
+    // absolute-entry marker, so the claim is refused ownership and closed before any frame.
+    await new Promise((resolve, reject) => {
+      const socket = net.connect(channel.endpoint, () =>
+        socket.write(JSON.stringify({ version: 1, token: channel.token, pid: child.pid }) + '\n'));
+      socket.on('error', () => {});
+      socket.resume();
+      socket.on('close', resolve);
+      setTimeout(() => reject(new Error('the forged stream was not closed')), 10_000).unref();
+    });
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    const rpc = async (id, method, params) => {
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+      return JSON.parse((await lines.next()).value);
+    };
+    // Had the forged claim taken ownership, the real child would be refused, never receive the
+    // challenge and never answer; completing this session proves the claim did not authenticate.
+    assert.equal((await rpc(1, 'initialize', { protocolVersion: '2025-06-18' })).result.serverInfo.name, 'aihq-native-fixture');
+    await rpc(2, 'tools/list');
+    await rpc(3, 'tools/call', { name: 'aihq_attest_instruction', arguments: { marker: fixtureMarker, challenge: channel.challenge } });
+    const query = await rpc(4, 'tools/call', { name: 'aihq_graph_query', arguments: { node: 'entry', challenge: channel.challenge } });
+    assert.deepEqual(query.result, { content: [{ type: 'text', text: 'leaf' }], isError: false });
+    child.stdin.end();
+    await once(child, 'exit');
+    const result = await channel.close();
+    assert.equal(result.peer, 'authenticated', JSON.stringify({ peer: result.peer, violation: result.violation }));
+    assert.equal(result.violation, null);
+    assert.equal(result.connections, 2, 'the forged stream and the one real stream');
+    const owned = identities.filter(identity => Array.isArray(identity.argv) &&
+      identity.argv.length === expectedArgv.length && identity.argv.every((value, index) => value === expectedArgv[index]));
+    assert.equal(owned.length, 1);
+    assert.notEqual(owned[0].pid, child.pid, 'the observed peer is the nested absolute-entry child, not the held launcher');
+    assert.equal(owned[0].ppid, child.pid, 'the absolute-entry child is the immediate child of the launcher');
+    assert.match(String(owned[0].birth), /^\d+$/, 'the birth identity comes from /proc, not from the claim');
+    assert.ok(identities.some(identity => identity.pid === child.pid && !identity.argv.includes('--aihq-native-absolute-entry')),
+      'the forged claim was observed and refused: the held launcher PID is not the exact entry');
+    const evaluation = evaluateServerEvidence(result.frames, spec);
+    assert.equal(evaluation.attestation, 'attested');
+    assert.equal(evaluation.query, 'answered');
+  } finally { child.kill(); await channel.close().catch(() => {}); rmSync(dir, { recursive: true, force: true }); }
 });

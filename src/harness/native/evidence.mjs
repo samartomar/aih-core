@@ -5,6 +5,7 @@ import net from 'node:net';
 import { join } from 'node:path';
 import { SHA256_RE, hasExactKeys, isSafeInteger, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
+import { isLinuxTransport } from './linux-facility.mjs';
 
 const FRAME_KEYS = ['version', 'sequence', 'method', 'tool', 'argumentsSha256', 'resultSha256', 'challengeMatched', 'markerSha256'];
 const METHODS = ['initialize', 'tools/list', 'tools/call'];
@@ -73,7 +74,12 @@ export async function createEvidenceChannel({ directory, transport = null, peerI
         try { identity = await peerIdentity(socket, hello); } catch { identity = { status: 'unavailable' }; }
         if (identity?.status !== 'observed') return reject('unavailable');
         let owned = false;
-        try { owned = identity.pid === hello.pid && await isOwnedServer(identity) === true; } catch { owned = false; }
+        try {
+          // A namespace PID is meaningful only after the fixed kernel transport authenticated its
+          // host PID/birth identity. A claimed hello PID is never used to find or own a process.
+          const peerPid = isLinuxTransport(transport) ? identity.namespacePid : identity.pid;
+          owned = peerPid === hello.pid && await isOwnedServer(identity) === true;
+        } catch { owned = false; }
         if (!owned || state.authenticated || state.violation) return reject('rejected');
         state.authenticated = identity; state.peer = 'authenticated'; phase = 'frames';
         socket.write(JSON.stringify(plan === null ? { type: 'challenge', challenge } : { type: 'challenge', challenge, plan }) + '\n');

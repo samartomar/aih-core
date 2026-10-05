@@ -2,15 +2,15 @@ export type NativeClientId = 'claude' | 'codex' | 'cursor' | 'gemini' | 'copilot
 export type NativeMember = { path: string; sha256: string; byteLength: number };
 export type NativeTreeFile = { root: 'home' | 'project'; path: string; member: NativeMember };
 export type NativeVerificationDefinition = {
-  schema: 'urn:aihq:harness:native-verification-definition:1.0.0';
+  schema: 'urn:aihq:harness:native-verification-definition:1.0.0' | 'urn:aihq:harness:native-verification-definition:1.1.0';
   id: string; client: NativeClientId; state: 'candidate' | 'admitted';
   platform: { os: 'win32' | 'linux' | 'darwin'; arch: 'x64' | 'arm64'; execution: 'native' | 'wsl2'; osRelease: string };
   clientVersions: string[]; executableNames: string[]; runtimeMembers: NativeMember[];
   versionArgv: string[]; sessionArgv: string[]; parserId: string; identityAdapterId: 'claude-oauth-otel.v1';
   credentialDestination: { root: 'home'; path: string };
   guardrails: NativeTreeFile[]; guardrailsSha256: string;
-  lifecycleId: 'windows-job.v1' | 'posix-group.v1';
-  isolation: { mechanism: 'none' | 'client-native'; observerId: string | null; documentation: string[] };
+  lifecycleId: 'windows-job.v1' | 'posix-group.v1' | 'linux-srt.v1';
+  isolation: { mechanism: 'none' | 'client-native' | 'vendor-runtime'; observerId: string | null; documentation: string[] };
   evidenceSha256: string | null;
 };
 export type NativeTestIdentity = {

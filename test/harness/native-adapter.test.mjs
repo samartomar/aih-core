@@ -1,4 +1,21 @@
 import test from 'node:test';
+// The Linux definition must never fall through to an unsandboxed version launch.
+test('registered Linux client resolution delegates its version execution to the fixed sandbox', async () => {
+  let delegated = 0, direct = 0;
+  const pin = { executable: process.execPath, sha256: 'a'.repeat(64), observedVersion: '2.1.285', argv: [], runtime: [] };
+  const module = { ...installed, pinExecutable: async () => ({ status: 'pinned', path: process.execPath, sha256: pin.sha256, byteLength: 1 }),
+    lifecycleAvailability: async () => ({ status: 'available' }),
+    resolveLinuxNativeClient: async () => { delegated++; return { status: 'resolved', pin, platform: {}, vendor: {}, runtime: {} }; },
+    startLifecycle: async () => { direct++; return { status: 'unavailable', reason: 'session-launch-failed' }; } };
+  const runtime = installed.createNativeRuntime(module, { readPinned: () => Buffer.from('synthetic'), Stop: class extends Error {} });
+  const result = await runtime.resolveNativeClient({ client: 'claude', parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
+    platform: { os: 'linux', execution: 'wsl2' }, lifecycleId: 'linux-srt.v1', executableNames: ['claude'],
+    versionArgv: ['--version'], sessionArgv: ['-p'], isolation: { mechanism: 'vendor-runtime' } },
+    { deadline: performance.now() + 5000, acquireCell: async () => ({ home: '/tmp/owned/home', scratch: '/tmp/owned/scratch', project: '/tmp/owned/project' }) });
+  assert.equal(direct, 0);
+  assert.equal(delegated, 1);
+  assert.equal(result, pin);
+});
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,7 +25,7 @@ import * as installed from '../../src/harness/native/runtime.mjs';
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
-async function session(t, { query = 'answered', receipt = false, realParser = false } = {}) {
+async function session(t, { query = 'answered', receipt = false, realParser = false, track } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
   const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
   for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
@@ -27,6 +44,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     answerReturned: receipt, answerSha256: receipt ? installed.sha256('leaf') : null };
   const evidence = { peer: 'authenticated', violation: null, frames: [], bytes: 0 };
   const processHandle = { pid: 1234, stdin: new PassThrough(), stdout, stderr: new PassThrough(),
+    ...(track ? { track } : {}),
     get failure() { return nativeFailure; },
     exited, terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; } };
   // The adapter now creates the lifecycle context before any client and starts the client through it.
@@ -86,6 +104,17 @@ test('partial adapter leaves a correct query response unfinished until the clien
   assert.equal(observation.query.resultSha256, 'c'.repeat(64));
   assert.equal(observation.query.answerSha256, null);
   assert.equal(observation.completed.includes('read-only-query'), false);
+});
+
+test('adapter refreshes owned processes without overlapping native observations', async t => {
+  let active = 0, maximum = 0, calls = 0;
+  await session(t, { track: async () => {
+    calls++; active++; maximum = Math.max(maximum, active);
+    await new Promise(resolve => setTimeout(resolve, 35)); active--;
+  } });
+  await new Promise(resolve => setTimeout(resolve, 140));
+  assert.ok(calls >= 2);
+  assert.equal(maximum, 1);
 });
 
 test('partial adapter preserves an actual server-result contradiction before the client receipt', async t => {

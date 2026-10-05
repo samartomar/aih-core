@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "1.0.0",
+  "platform": "linux-x64",
+  "roles": {
+    "bash": {
+      "version": "5.3-2ubuntu1",
+      "sha256": "3efccc187bafa75ff1e37d246270ab3e7aa559f242c7a52bf3ec2a1b5450bdbd",
+      "byteLength": 1540520
+    },
+    "env": {
+      "version": "0.8.0-0ubuntu3",
+      "sha256": "48893b0fb21436b54619db80486e83ef39dfccaf1aefe83dfa00c02d6146e8c0",
+      "byteLength": 11352352
+    },
+    "bwrap": {
+      "version": "0.11.1-1ubuntu0.3",
+      "sha256": "523da3e7399044be5163aee6f57a77a6bef7454376e28f0a0627920bae1b76b6",
+      "byteLength": 80424
+    },
+    "socat": {
+      "version": "1.8.1.1-1ubuntu0.1",
+      "sha256": "04a9246f5c027f6f127acb9caf1ad960a640682e7ee2fdb8d05d95b56f927a1b",
+      "byteLength": 503584
+    },
+    "rg": {
+      "version": "15.1.0-1ubuntu1",
+      "sha256": "5659967081c0bc37cc062837541b7a65abb646575cb0d921fe32c9552215c58d",
+      "byteLength": 5216360
+    },
+    "which": {
+      "version": "5.23.2build1",
+      "sha256": "59e7cf8b9bd8711ae1aa6f7bbbd4132b61492409c3afe8e1505225efda1cb8f6",
+      "byteLength": 1080
+    },
+    "node": {
+      "version": "24.19.0",
+      "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
+      "byteLength": 125989464
+    },
+    "client": {
+      "version": "2.1.285",
+      "sha256": "33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29",
+      "byteLength": 240327864
+    },
+    "wslinfo": {
+      "version": "2.7.14.0",
+      "sha256": "421768dd3357a95f4967481f61ef055612db534af02ddca7fbb3e35b4a8ac55c",
+      "byteLength": 2837280
+    }
+  },
+  "libraries": [
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+      "sha256": "a3947513a02831ec692ebf13053c07614882ab54a2101fb91a1b15724062ed0c",
+      "byteLength": 2186512
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+      "sha256": "7d293f8361fcead4f9691561adc0413f724f3607b959abe0d4fb243072956079",
+      "byteLength": 14408
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+      "sha256": "f93acb6e78dcf0213c8a85f922d21916249148e24de426079c40b6304c42085d",
+      "byteLength": 14408
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libm.so.6",
+      "sha256": "beea4eeacfcfa2cd96011b959a826c97cf4a774017e214f6a34d7eea3d49cd88",
+      "byteLength": 1198376
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/librt.so.1",
+      "sha256": "5df2508a1ef33bd8024d77271e2a4a2607cb63e59dd753dd46f8e7a2ed44962d",
+      "byteLength": 14624
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+      "sha256": "c5e80a563850d6ab5c2f2482e4202d9c1b71fbf44854b8c399e63527202c64e1",
+      "byteLength": 254864,
+      "aliases": [
+        "/lib64/ld-linux-x86-64.so.2",
+        "/usr/lib64/ld-linux-x86-64.so.2"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.35",
+      "sha256": "5bb0d21308f123b6ad46c6f35b42cedfcb8d6d439a53aa3dae04d880aaffdde3",
+      "byteLength": 2735712,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libstdc++.so.6"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+      "sha256": "9d339ecb409578d6a5d587e6c537a8f9589b8a13fefba30d167433a4b5758bee",
+      "byteLength": 187120
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libtinfo.so.6.6",
+      "sha256": "085dbbe5dc38619276bdd0af37ae588969b1308baded09a2990ce8824a602912",
+      "byteLength": 212504,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libtinfo.so.6"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libselinux.so.1",
+      "sha256": "7538ee77765a27966563c0d22437a3080dcdb346ff76cc16d71a3ce3379a716a",
+      "byteLength": 199120
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libcap.so.2.75",
+      "sha256": "c5b463a8136dabb152bad8b04e89bf67bd2049ef49777ed0b96bdbc6cb5b9565",
+      "byteLength": 51616,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libcap.so.2"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.14.0",
+      "sha256": "4a6b6b2078685b074869d75cb068664d7da6b3036df7bca0442b1bbbd4ac7e65",
+      "byteLength": 699056,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libpcre2-8.so.0"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libssl.so.3",
+      "sha256": "ff0b0a6978bd1d9289d31e008af29214993cfa9ae1d927e9bb1cd6a7de21d571",
+      "byteLength": 1106088
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+      "sha256": "23265e4027cb6439687be04311a0f37e27f29a23bfa4c750c49725da14f986bb",
+      "byteLength": 6386528
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1",
+      "sha256": "fbf56b0e59287033b6579bbbeae2f9de2fe86ad5bf2bd44d44aad67a15109318",
+      "byteLength": 121272,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libz.so.1"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.7",
+      "sha256": "060eeb79531d435306665fd78329d8a9dd579f95876c5960bb67937825362a80",
+      "byteLength": 796824,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libzstd.so.1"
+      ]
+    },
+    {
+      "role": "socat",
+      "relative": "../lib/x86_64-linux-gnu/libwrap.so.0.7.6",
+      "aliases": [
+        "../lib/x86_64-linux-gnu/libwrap.so.0"
+      ],
+      "sha256": "959804509a16ed54797dc263ed3e0fe7caaf3d416f5197641db32956a056192c",
+      "byteLength": 44144
+    }
+  ],
+  "readFiles": [
+    {
+      "path": "/usr/bin/dash",
+      "aliases": [
+        "/bin/sh",
+        "/usr/bin/sh"
+      ],
+      "sha256": "c626229526bb58ec2d0f585f3c3ae1412e6f973b4353385042d11c38d8426917",
+      "byteLength": 129856
+    }
+  ],
+  "libraryAliasDirectories": [
+    {
+      "path": "/usr/lib64",
+      "entries": [
+        {
+          "name": "ld-linux-x86-64.so.2",
+          "target": "../lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        }
+      ]
+    }
+  ],
+  "wsl": {
+    "networkingMode": "nat"
+  }
+}

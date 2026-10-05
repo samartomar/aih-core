@@ -18,6 +18,6 @@ export const fixtureFiles = Object.freeze({
 export const fixturePins = Object.freeze({
   instruction: Object.freeze({ sha256: '1ab14794f8b120e2de192904c1be613bd0b63bc88e0b2bc7daf0f81f724c95de', byteLength: 568 }),
   mcpConfig: Object.freeze({ sha256: 'b368043ba4c7a890d573468d54054f8e19e38a9cbbc6c419efe0100a85e1c8bd', byteLength: 167 }),
-  server: Object.freeze({ sha256: 'bd006eccd85cc8a94526c763c96b9fc65001123cdf3fa5c04e47fd9fa1912dd9', byteLength: 6908 }),
+  server: Object.freeze({ sha256: 'fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59', byteLength: 6952 }),
   guardrails: Object.freeze({ sha256: '99b9edf183055d58b80b0ff4215a4bcc481e5fc27bf652f90cd3147d38ef39b4', byteLength: 523 })
 });

@@ -5,6 +5,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 execFileSync(process.execPath, ['scripts/generate-report-template.mjs','--check'], {windowsHide:true,stdio:'inherit'});
+for (const script of ['generate-linux-runtime-lock.mjs', 'generate-linux-observer-lock.mjs'])
+  execFileSync(process.execPath, [`scripts/${script}`, '--check'], { windowsHide: true, stdio: 'inherit' });
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const compilerManifest = require.resolve('typescript/package.json');

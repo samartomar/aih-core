@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.10 adds a Linux x64 WSL2 native-verification candidate using a
+fixed Anthropic Sandbox Runtime 0.0.78 profile, a packaged Linux process/IPC
+observer and independently pinned runtime bytes. Definition schema 1.1.0 adds
+the vendor-runtime mechanism; legacy definitions and public verifier request and
+result contracts remain supported. The client and selected MCP helpers require
+kernel identity binding, synthetic isolation proof and bounded tree cleanup.
+The candidate remains unadmitted; synthetic checks do not establish provider or
+account acceptance. This local development artifact has not been published to npm.
+
 Core 1.0.0-dev.9 adds bounded Windows Job lifecycle and OS-bound named-pipe
 facilities with packaged helper byte binding, partial-launch cleanup and protected
 dedicated OAuth staging. Runtime entry ownership is independent of a claimed PID

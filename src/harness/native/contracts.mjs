@@ -52,7 +52,7 @@ export const nativeStageReasons = Object.freeze([
 // Fixed registry IDs. Definitions can only name these; there are no dynamic imports.
 export const nativeParserIds = Object.freeze(['claude-stream-json.v1']);
 export const nativeIdentityAdapterIds = Object.freeze(['claude-oauth-otel.v1']);
-export const nativeLifecycleIds = Object.freeze(['windows-job.v1', 'posix-group.v1']);
+export const nativeLifecycleIds = Object.freeze(['windows-job.v1', 'posix-group.v1', 'linux-srt.v1']);
 export const nativeEvidenceAdapterIds = Object.freeze(['aihq.fixture.v1', 'aihq.stdio-recorder.v1']);
 
 const member = (path, pin) => ({ path, sha256: pin.sha256, byteLength: pin.byteLength });
@@ -102,7 +102,16 @@ function buildClaudeCandidate() {
   };
 }
 
-export const nativeVerificationDefinitions = deepFreeze([buildClaudeCandidate()]);
+function buildLinuxClaudeCandidate() {
+  return { ...buildClaudeCandidate(), schema: 'urn:aihq:harness:native-verification-definition:1.1.0',
+    id: 'claude-linux-x64-wsl2-srt-2.1.285',
+    platform: { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' },
+    executableNames: ['claude'], sessionArgv: ['-p', '--verbose', '--output-format', 'stream-json', '--tools', ''],
+    lifecycleId: 'linux-srt.v1', isolation: { mechanism: 'vendor-runtime', observerId: 'anthropic-srt-linux.v1',
+      documentation: ['https://github.com/anthropic-experimental/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/README.md'] } };
+}
+
+export const nativeVerificationDefinitions = deepFreeze([buildClaudeCandidate(), buildLinuxClaudeCandidate()]);
 
 const diagnostic = (reason, path) => ({ code: 'INPUT_INVALID', reason, message: 'Invalid native verification field.', path });
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,64})?$/;
@@ -112,14 +121,22 @@ const FORBIDDEN_FLAGS = new Set(['--bare', '--resume', '-r', '--continue', '-c',
   '--append-system-prompt', '--append-system-prompt-file', '--add-dir', '--plugin-dir', '--agents',
   '--permission-prompt-tool', '--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--debug-file']);
 const OS_VALUES = ['win32', 'linux', 'darwin'];
+const LEGACY_LIFECYCLE_IDS = ['windows-job.v1', 'posix-group.v1'];
+const DEFINITION_V10 = 'urn:aihq:harness:native-verification-definition:1.0.0';
+const DEFINITION_V11 = 'urn:aihq:harness:native-verification-definition:1.1.0';
+const VENDOR_OBSERVER_ID = 'anthropic-srt-linux.v1';
 
 const validMember = (value, prefix) => hasExactKeys(value, ['path', 'sha256', 'byteLength']) &&
   (prefix ? isMemberPath(value.path) : isSafeRelativePath(value.path)) && SHA256_RE.test(value.sha256) &&
   isSafeInteger(value.byteLength, 1, 8 * 1024 * 1024);
 const validTreeFile = value => hasExactKeys(value, ['root', 'path', 'member']) &&
   (value.root === 'home' || value.root === 'project') && isSafeRelativePath(value.path) && validMember(value.member, true);
-const boundedStrings = (value, min, max, length) => Array.isArray(value) && value.length >= min && value.length <= max &&
-  value.every(item => typeof item === 'string' && item.length >= 1 && item.length <= length && !item.includes('\0'));
+const boundedStrings = (value, min, max, length, minLength = 1) => Array.isArray(value) && value.length >= min && value.length <= max &&
+  value.every(item => typeof item === 'string' && item.length >= minLength && item.length <= length && !item.includes('\0'));
+const httpsDocumentation = list => boundedStrings(list, 1, 8, 2048) &&
+  list.every(url => { try { return new URL(url).protocol === 'https:'; } catch { return false; } });
+const httpsDocumentationV11 = list => boundedStrings(list, 1, 8, 2048) &&
+  list.every(url => /^https:\/\/[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:\/[^\u0000-\u0020\u007f]*)?$/.test(url));
 
 export function validateNativeVerificationDefinition(value) {
   try { return validateDefinition(snapshotNativeData(value)); }
@@ -133,7 +150,10 @@ function validateDefinition(value) {
     'versionArgv', 'sessionArgv', 'parserId', 'identityAdapterId', 'credentialDestination', 'guardrails',
     'guardrailsSha256', 'lifecycleId', 'isolation', 'evidenceSha256'];
   if (!hasExactKeys(value, keys)) return { valid: false, diagnostics: [diagnostic('definition-shape', '')] };
-  if (value.schema !== 'urn:aihq:harness:native-verification-definition:1.0.0') bad('schema', '/schema');
+  const v11 = value.schema === DEFINITION_V11;
+  const documentation = v11 ? httpsDocumentationV11 : httpsDocumentation;
+  if (!v11 && value.schema !== DEFINITION_V10) bad('schema', '/schema');
+  const vendor = v11 && isRecord(value.isolation) && value.isolation.mechanism === 'vendor-runtime';
   if (typeof value.id !== 'string' || !ID_RE.test(value.id)) bad('id', '/id');
   if (!nativeClientIds.includes(value.client)) bad('client', '/client');
   if (value.state !== 'candidate' && value.state !== 'admitted') bad('state', '/state');
@@ -148,11 +168,18 @@ function validateDefinition(value) {
     bad('executable-names', '/executableNames');
   if (!Array.isArray(value.runtimeMembers) || value.runtimeMembers.length < 1 || value.runtimeMembers.length > 256 ||
       !value.runtimeMembers.every(m => validMember(m, true))) bad('runtime-members', '/runtimeMembers');
-  const argv = (list, path) => {
-    if (!boundedStrings(list, 1, 32, 1024) || list.some(item => /\$|\{\{/.test(item))) bad('argv', path);
+  const argv = (list, path, emptyAllowed = false) => {
+    if (boundedStrings(list, 1, 32, 1024, emptyAllowed ? 0 : 1) && !list.some(item => /\$|\{\{/.test(item))) return true;
+    bad('argv', path);
+    return false;
   };
   argv(value.versionArgv, '/versionArgv');
-  argv(value.sessionArgv, '/sessionArgv');
+  if (argv(value.sessionArgv, '/sessionArgv', vendor) && vendor) {
+    const tools = value.sessionArgv.reduce((at, item, i) => item === '--tools' ? [...at, i] : at, []);
+    const empties = value.sessionArgv.reduce((at, item, i) => item === '' ? [...at, i] : at, []);
+    if (tools.length !== 1 || empties.length !== 1 || empties[0] !== tools[0] + 1 ||
+        value.sessionArgv.some(item => item.startsWith('--tools='))) bad('argv-tools', '/sessionArgv');
+  }
   if (Array.isArray(value.sessionArgv) && value.sessionArgv.some(item =>
     typeof item === 'string' && FORBIDDEN_FLAGS.has(item.split('=')[0]))) bad('argv-override', '/sessionArgv');
   if (!nativeParserIds.includes(value.parserId)) bad('parser', '/parserId');
@@ -169,9 +196,12 @@ function validateDefinition(value) {
     if (destination && value.guardrails.some(g => g.root === destination.root && g.path === destination.path))
       bad('guardrail-credential-collision', '/guardrails');
   }
-  if (!nativeLifecycleIds.includes(value.lifecycleId) ||
+  const srt = value.lifecycleId === 'linux-srt.v1';
+  const vendorPlatform = platform?.os === 'linux' && platform?.arch === 'x64';
+  if (!(v11 ? nativeLifecycleIds : LEGACY_LIFECYCLE_IDS).includes(value.lifecycleId) ||
       (value.lifecycleId === 'windows-job.v1' && platform?.os !== 'win32') ||
-      (value.lifecycleId === 'posix-group.v1' && platform?.os === 'win32')) bad('lifecycle', '/lifecycleId');
+      (value.lifecycleId === 'posix-group.v1' && platform?.os === 'win32') ||
+      ((srt || vendor) && !(srt && vendor && vendorPlatform))) bad('lifecycle', '/lifecycleId');
   const isolation = value.isolation;
   if (!hasExactKeys(isolation, ['mechanism', 'observerId', 'documentation'])) bad('isolation', '/isolation');
   else if (isolation.mechanism === 'none') {
@@ -179,8 +209,9 @@ function validateDefinition(value) {
       bad('isolation', '/isolation');
   } else if (isolation.mechanism === 'client-native') {
     if (typeof isolation.observerId !== 'string' || !ID_RE.test(isolation.observerId) ||
-        !boundedStrings(isolation.documentation, 1, 8, 2048) ||
-        isolation.documentation.some(url => { try { return new URL(url).protocol !== 'https:'; } catch { return true; } }))
+        !documentation(isolation.documentation)) bad('isolation', '/isolation');
+  } else if (vendor) {
+    if (isolation.observerId !== VENDOR_OBSERVER_ID || !documentation(isolation.documentation))
       bad('isolation', '/isolation');
   } else bad('isolation', '/isolation');
   if (value.state === 'candidate' ? value.evidenceSha256 !== null

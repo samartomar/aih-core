@@ -1,0 +1,106 @@
+# Linux native verification candidate
+
+The bundled Claude Code 2.1.285 Linux x64 WSL2 candidate remains unadmitted.
+It selects kernel `6.18.33.2-microsoft-standard-WSL2`, Node 24.19.0 and the exact
+runtime bytes in `dist/harness/native/linux/runtime-platform.json`. Other Linux,
+Windows and macOS environments need their own definitions and evidence. An
+ordinary `verify-client` call cannot promote a candidate or select a custom policy.
+
+## Fixed workload boundary
+
+Harness wraps the version probe and each complete client session in a fresh
+instance of Anthropic Sandbox Runtime 0.0.78. The unmodified dependency and its
+transitive JavaScript closure are bundled and checked against `runtime-lock.json`.
+The wrapper imports the SDK entry, never the vendor CLI. The implementation uses
+the [released vendor source](https://github.com/anthropic-experimental/sandbox-runtime/tree/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b).
+
+The fixed profile denies filesystem reads outside enumerated runtime files,
+selected cell roots and authenticated IPC paths. Only cell home, project and
+scratch are writable; selected configuration and guardrails stay read-only.
+Library aliases are materialized from independently pinned bytes. The sole loader
+directory grant requires an exact root-owned, single-symlink inventory. Missing,
+changed or unexpected files refuse the candidate; verification never installs,
+downloads, compiles or repairs prerequisites.
+
+The vendor also supplies its pinned seccomp support and Java proxy agent. Its
+implicit mounts and environment changes are part of the reviewed vendor closure.
+Pre-existing vendor convenience write roots are refused. The fixed configuration
+has no TLS interception, credential injection, ask callback or live policy update.
+Only the exact local telemetry collector and fixed provider destinations can pass
+the proxy allowlist. `NO_PROXY` and `no_proxy` are removed after vendor setup so
+the collector must traverse that proxy.
+
+Per-launch derivation adds only the exact collector IP/port and enumerated IPC
+socket paths. Both the host and runner compare the full derived profile and its
+serialized bytes with the fixed base. Public requests accept no wrapper,
+environment, proxy endpoint, hostname list or sandbox configuration.
+
+## Evidence and cleanup
+
+The bundled static PIE helper pins executable/runtime bytes, holds kernel process
+identities, observes Unix-socket credentials and adopts descendants as a Linux
+subreaper. The workload, client and selected MCP peer must have matching PID,
+mount, user and network namespaces, each distinct from the host. A namespace PID
+claimed in a protocol message is only a cross-check after kernel authentication.
+The real client pauses while the observer binds its executable, argv and namespaces.
+
+Before the client continues, synthetic probes check host-home, sibling,
+provisioner and outside temporary files; pathname and abstract agent sockets;
+inherited environment and descriptors; host process access; wrong loopback ports;
+unapproved egress; the allowed collector; writable roots; and selected read-only
+files. They never probe real host secrets. Missing proof stays unavailable, and
+proven access fails isolation. Uncorrelated traffic to a host canary prevents
+admission but cannot itself prove that the workload escaped.
+
+WSL2 additionally checks mounted Windows volumes, interop entry points and a
+known executable synthetic Windows canary. A native helper calls `execve`
+directly, avoiding shell fallback. It recognizes a missing interpreter, or an
+access refusal with the executable canary intact and `/init` independently
+observed as the vendor's non-executable `/dev/null` mask. The current candidate
+requires independently observed NAT networking. Mirrored networking remains
+unavailable pending a separate Windows-side loopback denial proof.
+
+One ten-second cleanup allowance covers the owned tree, including outer proxy
+helpers and detached descendants. An empty process group alone is insufficient.
+The helper must reap all owned children, close authenticated transports and
+confirm cleanup. Synthetic files and exact vendor leftovers are removed only
+after process cleanup; unexpected material is preserved and cleanup stays unresolved.
+
+## Identity and acknowledged limits
+
+Dedicated OAuth provisioning remains an operator step separate from verification;
+the normal login profile is never a credential source. A protected credential
+file alone is not authentication proof. Both fresh sessions require successful
+same-session API telemetry bound to the independently selected account and
+organization. File-based Linux managed policy and verified Windows host managed
+policy are checked outside the sandbox. Restricting policy wins; unreadable or
+unknown policy gives unavailable. Registry, MDM and server-managed policy retain
+their explicitly unobserved limitations.
+
+The vendor places a fresh local proxy capability in its bubblewrap environment
+arguments and shell command. This is an acknowledged argv exposure: local readers
+permitted by host process visibility may reuse the capability for the same
+allowlisted egress or denial of service while the proxy lives. It is not an OAuth,
+identity, telemetry or evidence credential. The latter values must never appear
+in argv. No raw capability or argv is retained in admission records. The fixed
+integration does not claim protection from a hostile host account or kernel.
+
+Optional process-local subscribers to `aih.native.admission.v1` through Node's
+`diagnostics_channel` receive profile/argv digests, closed proof booleans, fixed
+restriction counts and cleanup status. There is no default file or network sink.
+These records accompany acceptance evidence; they do not authorize or admit a cell.
+
+## Build records and development checks
+
+The package carries helper source, executable and build record. Linux CI compiles
+the helper twice with fixed hardening flags, compares both outputs, and verifies
+the committed binary. `scripts/build-linux-facility.mjs --check` is a developer/CI
+operation; consumers use the supplied binary. The harmless Windows canary has a
+separate source/compiler/binary record without a reproducible-build claim.
+
+Explicit developer commands maintain the vendor and observer locks. Ordinary
+builds check those locks and never regenerate them. Package acceptance validates
+the installed resource bytes, schema 1.1, portable contracts and public API/CLI
+failure behavior. Kernel facility tests and controlled synthetic sessions remain
+distinct from real native account/configuration acceptance. Admission requires
+the latter evidence for the exact packed distribution.

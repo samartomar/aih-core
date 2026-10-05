@@ -26,8 +26,8 @@ host account and do not isolate hostile code running as that account.
 The package contains the reviewed helper source, executable and build record.
 Its helper identity includes all three resources. No compiler, download or install
 runs on a consumer machine. The build record binds source, compiler and executable
-bytes; it makes no reproducible-build claim. Other platforms retain their separate
-unsupported or unavailable outcomes.
+bytes; it makes no reproducible-build claim. Other platforms retain separate
+definitions and evidence; see the [Linux candidate](native-linux-verification.md).
 
 Cell protection requires the current user to own every object. Windows derives
 the owner of a newly created file or directory from the creator token, separately
@@ -85,6 +85,6 @@ whole-client coverage. HOME redirection, a Job or an isolated test runner theref
 provides hygiene evidence only. [Claude sandboxing](https://code.claude.com/docs/en/sandboxing)
 
 Hygiene evidence stays `incomplete/unverified` with CLI exit 1. Full acceptance
-requires an observed client-native boundary covering the client and helpers,
+requires an observed admitted boundary covering the client and helpers,
 including synthetic denied-access canaries. Candidate execution never changes
 admission automatically, and no cell is admitted by this development artifact.

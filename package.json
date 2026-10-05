@@ -1,21 +1,45 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.9",
+  "version": "1.0.0-dev.10",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
-  "engines": { "node": ">=24.15.0 <25" },
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
   "exports": {
-    ".": { "types": "./dist/core/index.d.ts", "import": "./dist/core/index.js" },
-    "./contracts": { "types": "./dist/core/contracts.d.ts", "import": "./dist/core/contracts.js" },
-    "./support": { "types": "./dist/core/support.d.ts", "import": "./dist/core/support.js" },
-    "./report": { "types": "./dist/harness/report/data.d.mts", "import": "./dist/harness/report/data.mjs" },
-    "./report/render": { "types": "./dist/harness/report/render.d.mts", "import": "./dist/harness/report/render.mjs" },
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/core/contracts.d.ts",
+      "import": "./dist/core/contracts.js"
+    },
+    "./support": {
+      "types": "./dist/core/support.d.ts",
+      "import": "./dist/core/support.js"
+    },
+    "./report": {
+      "types": "./dist/harness/report/data.d.mts",
+      "import": "./dist/harness/report/data.mjs"
+    },
+    "./report/render": {
+      "types": "./dist/harness/report/render.d.mts",
+      "import": "./dist/harness/report/render.mjs"
+    },
     "./report/schema": "./dist/harness/report/schema.json",
-    "./harness": { "types": "./dist/harness/contracts.d.mts", "import": "./dist/harness/contracts.mjs" },
-    "./harness/runtime": { "types": "./dist/harness/runtime.d.mts", "import": "./dist/harness/runtime.mjs" },
+    "./harness": {
+      "types": "./dist/harness/contracts.d.mts",
+      "import": "./dist/harness/contracts.mjs"
+    },
+    "./harness/runtime": {
+      "types": "./dist/harness/runtime.d.mts",
+      "import": "./dist/harness/runtime.mjs"
+    },
     "./harness/schemas/repair/1.0.0.json": "./dist/harness/schemas/repair/1.0.0.json",
     "./harness/schemas/diagnostic/1.0.0.json": "./dist/harness/schemas/diagnostic/1.0.0.json",
     "./harness/schemas/native-verification-definition/1.0.0.json": "./dist/harness/schemas/native-verification-definition/1.0.0.json",
+    "./harness/schemas/native-verification-definition/1.1.0.json": "./dist/harness/schemas/native-verification-definition/1.1.0.json",
     "./harness/schemas/native-test-identity/1.0.0.json": "./dist/harness/schemas/native-test-identity/1.0.0.json",
     "./schemas/native-verification-request/1.0.0.json": "./dist/core/schemas/native-verification-request/1.0.0.json",
     "./schemas/native-verification-result/1.0.0.json": "./dist/core/schemas/native-verification-result/1.0.0.json",
@@ -43,9 +67,31 @@
     "./harness/schemas/repair/1.1.0.json": "./dist/harness/schemas/repair/1.1.0.json",
     "./harness/schemas/trust-capabilities/1.0.0.json": "./dist/harness/schemas/trust-capabilities/1.0.0.json"
   },
-  "bin": { "aih": "./dist/core/cli.js" },
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "docs/native-windows-verification.md", "docs/reporting/CONTRACT.md", "docs/reporting/FIELDS.md", "docs/reporting/RENDERING.md", "docs/reporting/REPRODUCE.md", "examples/reporting"],
-  "bundleDependencies": ["@sigstore/bundle", "@sigstore/protobuf-specs", "@sigstore/verify", "pkijs", "asn1js"],
+  "bin": {
+    "aih": "./dist/core/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+    "docs/native-windows-verification.md",
+    "docs/native-linux-verification.md",
+    "docs/reporting/CONTRACT.md",
+    "docs/reporting/FIELDS.md",
+    "docs/reporting/RENDERING.md",
+    "docs/reporting/REPRODUCE.md",
+    "examples/reporting"
+  ],
+  "bundleDependencies": [
+    "@sigstore/bundle",
+    "@sigstore/protobuf-specs",
+    "@sigstore/verify",
+    "pkijs",
+    "asn1js",
+    "@anthropic-ai/sandbox-runtime"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
@@ -54,7 +100,22 @@
     "test": "node --test --test-concurrency=4 test/*.test.mjs test/harness/*.test.mjs",
     "prepack": "npm run build"
   },
-  "dependencies": { "@sigstore/bundle": "5.0.0", "@sigstore/protobuf-specs": "0.5.0", "@sigstore/verify": "4.1.2", "ajv": "8.20.0", "asn1js": "3.0.10", "jsonc-parser": "3.3.1", "pkijs": "3.4.1" },
-  "devDependencies": { "@types/node": "24.10.1", "typescript": "7.0.2", "esbuild": "0.28.2", "happy-dom": "20.14.5", "playwright": "1.58.2" },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.78",
+    "@sigstore/bundle": "5.0.0",
+    "@sigstore/protobuf-specs": "0.5.0",
+    "@sigstore/verify": "4.1.2",
+    "ajv": "8.20.0",
+    "asn1js": "3.0.10",
+    "jsonc-parser": "3.3.1",
+    "pkijs": "3.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "esbuild": "0.28.2",
+    "happy-dom": "20.14.5",
+    "playwright": "1.58.2",
+    "typescript": "7.0.2"
+  },
   "license": "Apache-2.0"
 }

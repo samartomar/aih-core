@@ -38,6 +38,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
+| `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate definitions; 1.1 adds the Linux vendor-runtime mechanism |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
 
@@ -139,7 +140,7 @@ and cleanup remain distinct; hygiene evidence cannot become full native proof.
 Unavailable process/peer-identity facilities fail closed. Native platform acceptance
 requires actual observations and separate maintained evidence.
 
-The current bundled candidate names Claude Code 2.1.285 on Windows x64
+The Windows candidate names Claude Code 2.1.285 on Windows x64
 (`10.0.26200`). The package includes a bounded Windows Job launcher, OS-bound
 named-pipe peer observation and an explicit protected cell-local OAuth file path.
 Facility availability requires actual probes; missing or changed helper/runtime
@@ -147,8 +148,13 @@ bytes fail closed. Dedicated identity still requires operator provisioning and
 same-session authentication evidence. The candidate has no whole-client isolation
 mechanism, so useful hygiene evidence remains incomplete/unverified. See
 [Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
-POSIX lifecycle helpers and controlled session fixtures do not admit a POSIX
-client or establish a passing native cell.
+The separate Linux x64 WSL2 candidate wraps the entire workload in pinned
+Anthropic Sandbox Runtime 0.0.78 and uses a bundled Linux kernel observer for
+process ownership, authenticated IPC and cleanup. It requires the exact client,
+kernel and runtime byte closure recorded by its candidate metadata. It remains
+unadmitted until packed API/CLI acceptance and dedicated identity evidence pass.
+See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
+Controlled facility and synthetic session checks do not establish native acceptance.
 
 Portable validators `validateNativeVerificationRequest`,
 `validateNativeVerificationResult` and `validateNativeVerificationBundle` are

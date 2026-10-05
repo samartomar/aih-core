@@ -9,16 +9,14 @@
     },
     {
       "name": "facility",
-      "sha256": "4407726c0f553fae77afcfa0488820b0386a4f62259e918f6eba142934dbdee7",
-      "byteLength": 1062536
+      "sha256": "c5007e33ff8d46bfbc297b866bb125824149eb18bd17da1ea3383e31a33489a4",
+      "byteLength": 1012240
     }
   ],
   "compiler": {
-    "identity": "x86_64-linux-gnu-gcc-15 (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
-    "sha256": "b5f1b773a7c733738352000c92a077dc5852a1a2fc6d836b1e411be1e9ec5f88",
+    "identity": "x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "sha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26",
     "flags": [
-      "--sysroot=<toolchain>",
-      "-B<toolchain>/usr/lib/x86_64-linux-gnu/",
       "-std=c11",
       "-O2",
       "-D_FORTIFY_SOURCE=3",
@@ -32,18 +30,17 @@
     ]
   },
   "build": {
-    "status": "local-preliminary",
-    "independentBuildVerified": false,
-    "libcHeaders": "2.43-2ubuntu2.4",
-    "kernelHeaders": "7.0.0-34.34",
+    "status": "ci-reproduced",
+    "independentBuildVerified": true,
     "elf": "ELF64 x86-64 static PIE; no PT_INTERP; GNU_RELRO; non-executable GNU_STACK",
-    "assembler": {
-      "identity": "GNU Binutils for Ubuntu 2.46",
-      "sha256": "4e5fcaa3cdc160173cb5cfe7aa35dc39d7aa1f06ba8d75b8d923bbae5473991b"
-    },
+    "libcHeaders": "glibc 2.39",
     "linker": {
-      "identity": "GNU Binutils for Ubuntu 2.46",
-      "sha256": "97f48d93b8b076a92d2809ec29dcb17f0f37c8827358f832255e2ed22fef6075"
+      "identity": "GNU ld (GNU Binutils for Ubuntu) 2.42",
+      "sha256": "e9ceb054c12207970f2726dfc07e9a66b411602748628baf27399f02a9bbb31b"
+    },
+    "assembler": {
+      "identity": "GNU assembler (GNU Binutils for Ubuntu) 2.42",
+      "sha256": "21aff249b692b5c31a44007491f922dcb49f41323e362c57d2ada3f52eddb7f0"
     }
   }
 }

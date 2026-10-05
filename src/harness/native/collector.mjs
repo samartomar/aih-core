@@ -29,6 +29,7 @@ function eventMs(record) {
 
 export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutMs = nativeBounds.collectorBodyTimeoutMs }) {
   const token = randomBytes(32).toString('hex');
+  const probeToken = randomBytes(32).toString('hex');
   let boundSession = sessionId;
   const state = { requests: 0, events: 0, bytes: 0, violation: false, cancelled: false, candidates: [], ignored: 0 };
   let startedMono = 0;
@@ -48,6 +49,15 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       });
     };
     if (state.cancelled) { req.destroy(); return; }
+    // A separate, non-telemetry challenge proves the sandbox's exact allowed route. It cannot
+    // submit identity evidence and is never included in snapshots or final collector results.
+    if (req.method === 'GET' && req.url === '/aih-native-probe') {
+      const provided = Buffer.from(String(req.headers.authorization ?? ''));
+      const wanted = Buffer.from(`Bearer ${probeToken}`);
+      if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) return reply(401);
+      res.setHeader('x-aih-native-probe', probeToken);
+      return reply(200);
+    }
     if (req.method !== 'POST') return reply(405);
     if (req.url !== '/v1/logs') return reply(404);
     const provided = Buffer.from(String(req.headers.authorization ?? ''));
@@ -139,7 +149,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       startedMono = performance.now();
       this.endpoint = `http://127.0.0.1:${server.address().port}`;
-      return { endpoint: this.endpoint, token };
+      return { endpoint: this.endpoint, token, probeToken };
     },
     // Bind the observed native structured session ID before drain. Events for any other ID never count.
     bindSession(id) { boundSession = typeof id === 'string' ? id : null; },

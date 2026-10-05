@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "name": "canonical.mjs",
+      "byteLength": 9341,
+      "sha256": "5c2ea3ee2f8c0ef8a0b85450bc3de8a06670a88a572c159353bcf0d7c6c9a2ad"
+    },
+    {
+      "name": "contracts.mjs",
+      "byteLength": 16954,
+      "sha256": "23ebf40be8a23eaaae722607261a03abf8b50496c2b0d26e28aabf8ec55de872"
+    },
+    {
+      "name": "fixture-data.mjs",
+      "byteLength": 9311,
+      "sha256": "41146143bd66c4687adbd39423318f1b76f58dd9e42d9fa0cfe90834d1db724d"
+    },
+    {
+      "name": "fixture-metadata.mjs",
+      "byteLength": 1848,
+      "sha256": "0f294242525d594a4079689f2593262ce1873edb59f05c7972ab85dca2ed21ca"
+    },
+    {
+      "name": "linux-runner.mjs",
+      "byteLength": 6102,
+      "sha256": "4c9c03c26c86f13d14c29029c13221be72e534806aa6645b7e1d0651564f6906"
+    },
+    {
+      "name": "linux-workload.mjs",
+      "byteLength": 11442,
+      "sha256": "6c07f0f32697288478f53b4beb546489db3ddb383bc13f3f295a5b8d5eb42a31"
+    },
+    {
+      "name": "linux-profile.mjs",
+      "byteLength": 5228,
+      "sha256": "421172723f7f2088bb3dc19592056f5e3b7a8a6d2e09434fdcd7ca91c8311633"
+    },
+    {
+      "name": "linux-runtime.mjs",
+      "byteLength": 23061,
+      "sha256": "6dd80185e86d2c4f3b5e30c716e7b150237b588b5bc527d15796e5b831633f19"
+    },
+    {
+      "name": "linux/runtime-lock.json",
+      "byteLength": 157063,
+      "sha256": "c17c6768a6cc88fecf83fd6597b8969285f6eb0cbfe46b6c3fc4f4e9775a6c82"
+    },
+    {
+      "name": "linux/interop-canary.cs",
+      "byteLength": 237,
+      "sha256": "24f64bb320d335590e06aa8bacff1605da1adbc51cf3282ff60aff095580d7e4"
+    },
+    {
+      "name": "linux/interop-canary.exe",
+      "byteLength": 3072,
+      "sha256": "d2266b4189dd6ad59c3ff68ec9efea4add664ddcacd450fd6461b979d8b7c4f7"
+    },
+    {
+      "name": "linux/interop-build-record.json",
+      "byteLength": 784,
+      "sha256": "799ade6e53b3e9b05acbedf8e51bf3ac9b4370db57b50443d36ca6912f641470"
+    },
+    {
+      "name": "linux/facility",
+      "byteLength": 1012240,
+      "sha256": "c5007e33ff8d46bfbc297b866bb125824149eb18bd17da1ea3383e31a33489a4"
+    },
+    {
+      "name": "linux/build-record.json",
+      "byteLength": 1347,
+      "sha256": "fccb6dd21872985fb9eab2792b1d4c208c8d0b22563736ff6b01dac606f9dd2e"
+    }
+  ]
+}

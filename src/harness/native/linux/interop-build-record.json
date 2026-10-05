@@ -1,0 +1,29 @@
+{
+  "protocol": 1,
+  "platform": "win32-x64",
+  "purpose": "synthetic-wsl-execution-canary",
+  "compiler": {
+    "path": "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "fileVersion": "4.8.9221.0 built by: NET481REL1LAST_25H2",
+    "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00",
+    "flags": [
+      "/nologo",
+      "/target:exe",
+      "/platform:x64",
+      "/optimize+",
+      "/debug-"
+    ]
+  },
+  "resources": [
+    {
+      "name": "interop-canary.cs",
+      "byteLength": 237,
+      "sha256": "24f64bb320d335590e06aa8bacff1605da1adbc51cf3282ff60aff095580d7e4"
+    },
+    {
+      "name": "interop-canary.exe",
+      "byteLength": 3072,
+      "sha256": "d2266b4189dd6ad59c3ff68ec9efea4add664ddcacd450fd6461b979d8b7c4f7"
+    }
+  ]
+}

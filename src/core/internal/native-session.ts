@@ -13,7 +13,7 @@ export interface NativeDefinition {
   clientVersions: string[]; executableNames: string[]; runtimeMembers: NativeTreeFile['member'][];
   versionArgv: string[]; sessionArgv: string[]; parserId: string; identityAdapterId: string;
   credentialDestination: { root: 'home'; path: string }; guardrails: NativeTreeFile[]; guardrailsSha256: string;
-  lifecycleId: string; isolation: { mechanism: 'none' | 'client-native'; observerId: string | null; documentation: string[] };
+  lifecycleId: string; isolation: { mechanism: 'none' | 'client-native' | 'vendor-runtime'; observerId: string | null; documentation: string[] };
   evidenceSha256: string | null;
 }
 export interface NativeClientPin {

@@ -39,3 +39,11 @@ Their copyright notices and licenses are retained under the respective bundled
 node_modules directories. PKI.js is BSD-3-Clause; ASN1.js is BSD-3-Clause.
 These libraries encode certificates-only DER PKCS#7; they grant no OS trust
 or native-client admission.
+
+## Bundled sandbox runtime
+
+The package includes the unmodified Anthropic Sandbox Runtime 0.0.78 and its
+locked JavaScript dependencies. Their original license and copyright files remain
+in their bundled node_modules directories. The runtime is Apache-2.0-licensed. The fixed
+Harness integration does not grant native-client admission or general sandbox
+configuration authority.
