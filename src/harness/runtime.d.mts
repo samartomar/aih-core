@@ -23,6 +23,8 @@ export declare function composeExistingTrust(existing: Uint8Array | undefined, a
   options?: { includeNodeDefaults?: boolean }): string | undefined;
 export declare function validateBaselineStore(bytes: Uint8Array):
   { valid: true; fingerprints: string[] } | { valid: false; reason: string; message: string };
+export declare function parseJvmTrustStore(bytes: Uint8Array):
+  { status: 'parsed'; certificates: import('./trust.mjs').ParsedCertificate[] } | { status: 'invalid'; reason: string };
 export declare function getRepairRecipe(recipeRef: string): object | undefined;
 export declare function assessRepairCandidate(request: { id: string; inputs: Record<string, string | boolean | number> },
   controls?: { signal?: AbortSignal; budgetMs?: number }): Promise<

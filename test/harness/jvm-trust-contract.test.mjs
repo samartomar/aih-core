@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -263,6 +263,20 @@ test('renderer keeps the legacy environment and configuration guardrails', () =>
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+});
+
+test('renderer blocks a complete distinct JVM set above the portable process argument bound', () => {
+  // Structural CA fixtures with distinct serials; this is no signature or native TLS proof.
+  const serial = Buffer.from(new X509Certificate(rootB).serialNumber, 'hex');
+  const offset = derB.indexOf(serial); assert.ok(offset > 0);
+  const entries = Array.from({ length: 400 }, (_, index) => {
+    const der = Buffer.from(derB); der.writeUInt16BE(index, offset + serial.length - 2);
+    return [`fixture-${index}`, der, baselineTimestamp];
+  });
+  const result = renderJvmTrustFileRepair(request({ baselineStore: writeJks(entries) }));
+  assert.equal(result.status, 'blocked', JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.diagnostics.map(d => [d.code, d.reason]), [['SOURCE_LIMIT', 'source-limit']]);
+  assert.equal(result.recipe, undefined); assert.equal(result.outputs, undefined);
 });
 
 // Independent native encoding evidence only: keytool reading the produced store.

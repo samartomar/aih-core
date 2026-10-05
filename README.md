@@ -300,12 +300,16 @@ Omitted supplied IDs retain their original source partitions and are revalidated
 Use `sources.removeSupplied` to review their removal, or supply the same ID with a
 new file to review replacement. The complete managed PEM is rebuilt from those
 sources; previous output bytes do not become a source. A lost or edited custody
-record requires the explicit replacement offered in the review.
+record can require explicit replacement offered in the review. Conflicting halves
+of known output custody block until the reported custody conflict is reconciled.
 
 Native routes and OS-sourced file routes require proven client and policy cells.
 They currently report unavailable for these clients. `sources.os: false` selects
 the explicit supplied-file fallback. Full prepared-work and run-result 1.2.0
 contracts report source changes, client verification and output custody.
+Declared Python verification accepts at most 400 reviewed fingerprints, including
+bundled roots, to keep its process argument within portable OS limits. A larger
+complete set blocks Prepare with `SOURCE_LIMIT`; offline Python checks are skipped.
 
 The bundled `user-tools-ca` repair accepts a complete supplied CA file and any selected combination of `python`, `pip`, `git`, `cargo` and `conda`. Save `{"user-tools-ca":{"caFile":"/absolute/path/company-ca.pem"}}` as `repair-inputs.json`:
 
@@ -357,6 +361,10 @@ revalidates retained original sources and rebuilds the store, so removed supplie
 certificates are removed unless another reviewed source still owns them. Native
 and OS-sourced routes currently report unavailable. No JDK or baseline discovery
 is implied. The schema-less form below retains its existing behavior.
+JVM verification accepts at most 400 distinct reviewed store fingerprints across
+the baseline and supplied sources. A larger complete set blocks Prepare with
+`SOURCE_LIMIT` before output or configuration effects. Bound path lengths also
+count toward the portable verification command limit.
 
 The bundled `jvm-ca` repair selects `gradle`, `maven`, or both at user scope. Supply a complete CA-only PEM and explicitly select a trust-only **JKS** baseline containing the default roots from the JDK used by those managers. The baseline uses the conventional public-container password `changeit` and must contain only CA certificate entries. Some JDKs ship PKCS12 `cacerts`; those files are unsupported directly. Export or convert the selected baseline with an approved local tool, preserve its default CA identities, and review that JKS file explicitly. Core binds both source files to the review; selecting a CA does not authorize discovery or installation of another JDK.
 

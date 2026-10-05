@@ -112,10 +112,10 @@ function userConfigurationPath(target: NonNullable<VariantMetadata['configFiles'
       target.segments.some((slot: { literal: string }) => !slot || typeof slot !== 'object' ||
         Reflect.ownKeys(slot).length !== 1 || typeof slot.literal !== 'string' || !validSegment(slot.literal)))
     throw new Error('repair-definition');
-  return join(homedir(), ...target.segments.map(slot => slot.literal));
+  return join(projectRoot(homedir()), ...target.segments.map(slot => slot.literal));
 }
 
-export class ConfigurationPrerequisiteUnavailable extends Error {
+class ConfigurationPrerequisiteUnavailable extends Error {
   constructor(readonly prerequisite: RepairState['requiredAbsences'][number]) { super(prerequisite.reason); }
 }
 
