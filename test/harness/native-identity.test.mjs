@@ -41,11 +41,16 @@ const capture = (p, overrides = {}) => captureTestIdentity({ provisionedRoot: p.
 
 function windowsCreationOwnership(path) {
   // Independent OS observation: inherited permissions do not determine a new file's owner.
-  const script = "$ErrorActionPreference='Stop';$id=[System.Security.Principal.WindowsIdentity]::GetCurrent();$acl=[System.IO.File]::GetAccessControl($env:AIHQ_TEST_OWNER_PATH);$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]);$allowed=@($id.User.Value,'S-1-5-18','S-1-5-32-544');$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);$allow=@($rules|Where-Object{$_.AccessControlType -eq 'Allow'});@{userOwnsFile=$owner.Equals($id.User);tokenOwnerOwnsFile=$owner.Equals($id.Owner);tokenOwnerIsUser=$id.Owner.Equals($id.User);tokenOwnerIsAdministrators=($id.Owner.Value -eq 'S-1-5-32-544');allowedDacl=($allow.Count -gt 0 -and @($allow|Where-Object{$_.IdentityReference.Value -notin $allowed}).Count -eq 0)}|ConvertTo-Json -Compress";
-  return JSON.parse(execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+  // Use only fixed .NET calls: cmdlet module autoload can stall in this minimal environment.
+  const script = "$ErrorActionPreference='Stop';$id=[System.Security.Principal.WindowsIdentity]::GetCurrent();$acl=[System.IO.File]::GetAccessControl($env:AIHQ_TEST_OWNER_PATH);$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]);$allowed=@($id.User.Value,'S-1-5-18','S-1-5-32-544');$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);$count=0;$allowedDacl=$true;foreach($rule in $rules){if($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow){$count++;if($rule.IdentityReference.Value -notin $allowed){$allowedDacl=$false}}};[Console]::Write([string]::Join('|',[string[]]@($owner.Equals($id.User),$owner.Equals($id.Owner),$id.Owner.Equals($id.User),($id.Owner.Value -eq 'S-1-5-32-544'),($count -gt 0 -and $allowedDacl))))";
+  const values = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
     { windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'],
-      env: { SystemRoot: process.env.SystemRoot, AIHQ_TEST_OWNER_PATH: path } }).toString());
+      env: { SystemRoot: process.env.SystemRoot, AIHQ_TEST_OWNER_PATH: path } }).toString().trim().split('|');
+  assert.equal(values.length, 5, 'the OS ownership probe has a fixed response');
+  assert.ok(values.every(value => value === 'True' || value === 'False'), 'unknown OS observations fail');
+  return Object.fromEntries(['userOwnsFile', 'tokenOwnerOwnsFile', 'tokenOwnerIsUser', 'tokenOwnerIsAdministrators', 'allowedDacl']
+    .map((name, index) => [name, values[index] === 'True']));
 }
 
 test('Claude OAuth file format is closed and bounded', () => {
@@ -92,8 +97,9 @@ test('a valid provisioned root is captured once; staging requires a user-owned d
   const probe = join(directory, 'owner-probe.tmp');
   writeFileSync(probe, 'synthetic-owner-probe', { flag: 'wx', mode: 0o600 });
   const ownerOnly = isOwnerOnly(probe);
+  let ownership;
   if (process.platform === 'win32') {
-    const ownership = windowsCreationOwnership(probe);
+    ownership = windowsCreationOwnership(probe);
     t.diagnostic(`Windows creation ownership: ${JSON.stringify(ownership)}`);
     assert.equal(ownership.allowedDacl, true, 'the probe inherits the protected cell DACL');
     assert.equal(ownership.tokenOwnerOwnsFile, true, 'the fresh file owner matches the creator token');
@@ -107,11 +113,13 @@ test('a valid provisioned root is captured once; staging requires a user-owned d
   assert.deepEqual(staged, ownerOnly === true ? { status: 'staged' } : { status: 'unavailable', reason: 'staging-unavailable' });
   const destination = join(directory, '.credentials.json');
   assert.equal(isOwnerOnly(destination), ownerOnly, 'staging does not change or forgive the destination owner');
+  if (process.platform === 'win32') assert.deepEqual(windowsCreationOwnership(destination), ownership,
+    'the actual credential has the observed owner and protected DACL');
   assert.deepEqual(readFileSync(destination), Buffer.from(oauth));
   assert.equal(existsSync(join(p.root, 'oauth.json')), true, 'the provisioned source stays in place');
   assert.deepEqual(stageCredential(cell, target, captured), { status: 'unavailable', reason: 'staging-unavailable' }, 'never restaged');
   assert.ok(!JSON.stringify({ ...captured, credential: undefined }).includes('fake-access-token'));
-  removeOwnedCell(cell, { processesConfirmed: true });
+  assert.deepEqual(removeOwnedCell(cell, { processesConfirmed: true }), { files: 'removed', reason: null, retainedCell: null });
 });
 
 test('missing binding is authentication-unavailable', async t => {

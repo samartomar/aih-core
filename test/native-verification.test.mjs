@@ -205,7 +205,28 @@ async function controlled(t, scenario, controls = {}) {
   const cancellation = scenario.startsWith('cancel-snapshot-') ? new AbortController() : undefined;
   const pending = api.verifyNativeClient(selected, { admission: 'candidate-smoke', testIdentity: identity,
     ...(scenario === 'default-temp' ? {} : { sandboxRoot }), ...controls, ...(cancellation ? { signal: cancellation.signal } : {}) });
-  if (cancellation) { await Promise.race([api.snapshotReady, pending.then(() => { throw Error('controlled snapshot never arrived'); })]); cancellation.abort(); }
+  if (cancellation) {
+    // Cancellation tests need actual proof readiness, independently of deadline tests.
+    let watchdog;
+    const terminal = pending.then(result => ({ kind: 'terminal', result }), error => ({ kind: 'rejected', error }));
+    try {
+      const event = await Promise.race([
+        api.snapshotReady.then(() => ({ kind: 'ready' })), terminal,
+        new Promise(resolve => { watchdog = setTimeout(() => resolve({ kind: 'watchdog' }), 30_000); })
+      ]);
+      if (event.kind !== 'ready') {
+        cancellation.abort();
+        const { result } = await terminal;
+        assert.fail('controlled snapshot never arrived: ' + JSON.stringify({ event: event.kind, status: result?.status,
+          sessions: result?.sessions.length, stages: result?.stages.map(({ id, reason }) => ({ id, reason })) }));
+      }
+      cancellation.abort();
+    } finally {
+      clearTimeout(watchdog);
+      if (!cancellation.signal.aborted) cancellation.abort();
+      await terminal;
+    }
+  }
   const result = await pending;
   assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
   return result;
@@ -321,6 +342,7 @@ for (const [profile, stageId, outcome, reason] of [
   assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 for (const interruption of ['cancel', 'budget']) {
+  const interruptionControls = interruption === 'budget' ? { budgetMs: 4000 } : {};
   for (const [profile, verdict, queryOutcome] of [
     ['pending-receipt', 'unverified', 'unavailable'],
     ['bad-query-pending-receipt', 'failed', 'failed'],
@@ -328,7 +350,7 @@ for (const interruption of ['cancel', 'budget']) {
     ['bad-client-answer', 'failed', 'failed'],
     ['missing-result-bad-client-answer', 'failed', 'failed'],
   ]) test('controlled ' + interruption + ' distinguishes missing query proof from contradiction: ' + profile, async t => {
-    const result = await controlled(t, interruption + '-snapshot-' + profile, { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-' + profile, interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : verdict === 'failed' ? 'complete' : 'incomplete');
     assert.equal(result.verdict, verdict); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -339,7 +361,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a completed query contradiction and prior proof', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-bad-query', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -349,7 +371,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' preserves finished protocol rows while authentication is unfinished', async t => {
-    const result = await controlled(t, interruption + '-snapshot-unfinished-auth', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-unfinished-auth', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'incomplete');
     assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -359,7 +381,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a query failure after unfinished authentication', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth', { budgetMs: 4000 });
+    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth', interruptionControls);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
