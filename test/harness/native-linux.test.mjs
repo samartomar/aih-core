@@ -1,7 +1,7 @@
 // Real Linux OS facility tests. Off-Linux behavior is unavailable; no simulated peers.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -235,4 +235,102 @@ test('own-tree inspection bounds observed argv separately from the fixed launch 
   const inspected = await c.inspect(child); assert.equal(inspected.status, 'observed'); assert.equal(inspected.argv.length, 103);
   assert.equal(inspected.argv.at(-1), 'fixed-99');
   assert.equal((await c.terminate({ graceMs: 0 })).processes, 'confirmed'); assert.equal(alive(pid), false);
+});
+
+test('more than 256 sequential descendant lifetimes reclaim pidfd-confirmed dead slots', { ...native, timeout: 60_000 }, async t => {
+  try { accessSync('/bin/sleep', constants.X_OK); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+    t.skip('controlled churn fixture requires executable /bin/sleep'); return;
+  }
+  const f = fixture(t, 'import {spawn} from "node:child_process";const wave=()=>Promise.all(Array.from({length:8},()=>new Promise(done=>spawn("/bin/sleep",["0.12"],{stdio:"ignore",env:{}}).on("exit",done))));for(let i=0;i<40;i++)await wave();console.log("churn-done");setInterval(()=>{},1000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  assert.equal(await bounded(line(started.handle.stdout), 30000), 'churn-done');
+  const inventory = await c.observe();
+  assert.equal(inventory.status, 'observed', JSON.stringify(inventory));
+  assert.deepEqual(inventory.processes.map(p => p.pid), [started.handle.pid]);
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(alive(started.handle.pid), false);
+});
+
+test('ownership overflow starts bounded cleanup without a host request and preserves an outsider', native, async t => {
+  try { accessSync('/bin/sleep', constants.X_OK); }
+  catch (error) {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES'].includes(error.code)) throw error;
+    t.skip('controlled overflow fixture requires executable /bin/sleep'); return;
+  }
+  const outsider = spawn('/bin/sleep', ['30'], { stdio: 'ignore', env: {} });
+  t.after(() => outsider.kill('SIGKILL'));
+  const f = fixture(t, 'import {spawn} from "node:child_process";import {appendFileSync,writeFileSync} from "node:fs";writeFileSync(process.env.REPORT,"");for(let i=0;i<300;i++){const child=spawn("/bin/sleep",["30"],{stdio:"ignore",env:{}});if(child.pid)appendFileSync(process.env.REPORT,child.pid+"\\n");}setInterval(()=>{},1000);');
+  const report = join(f.directory, 'owned-pids.txt');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env({ REPORT: report }) });
+  assert.equal(started.status, 'started');
+  // No observe/inspect/terminate RPC may be needed to trigger the observer's fail-closed cleanup.
+  await bounded(started.handle.exited, 6000);
+  const bytes = readFileSync(report, 'utf8'); assert.ok(bytes.length <= 4096);
+  const pids = bytes.trim().split('\n').map(Number);
+  assert.ok(pids.length >= 256 && pids.length <= 300); assert.ok(pids.every(pid => Number.isSafeInteger(pid) && pid > 0));
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
+  assert.equal(receipt.processes, 'unresolved', JSON.stringify(receipt));
+  assert.ok(receipt.elapsedMs <= 10000, JSON.stringify(receipt));
+  assert.equal(alive(started.handle.pid), false);
+  for (const pid of pids) assert.equal(alive(pid), false, `proven-owned descendant ${pid} survived overflow cleanup`);
+  assert.equal(alive(outsider.pid), true, 'unrelated same-user process must not be signalled');
+});
+
+test('inspect distinguishes pidfd-confirmed exit from live membership and non-membership', native, async t => {
+  const f = fixture(t, 'import {spawn} from "node:child_process";const child=spawn(process.execPath,["-e","setTimeout(()=>{},1500)"],{stdio:"ignore",env:{}});console.log(child.pid);setInterval(()=>{},1000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  const pid = Number(await bounded(line(started.handle.stdout)));
+  let row;
+  await bounded((async () => { for (;;) { const inventory = await c.observe(); assert.equal(inventory.status, 'observed'); row = inventory.processes.find(p => p.pid === pid); if (row) return; await new Promise(resolve => setTimeout(resolve, 20)); } })());
+  const live = await c.inspect(row);
+  assert.equal(live.status, 'observed', JSON.stringify(live));
+  assert.equal((await c.inspect({ pid, birth: '1' })).reason, 'ipc-peer-membership');
+  await bounded((async () => { while (alive(pid)) await new Promise(resolve => setTimeout(resolve, 20)); })());
+  const exited = await c.inspect(row);
+  assert.equal(exited.status, 'unavailable', JSON.stringify(exited));
+  assert.equal(exited.reason, 'process-exited');
+  const root = await c.inspect({ pid: started.handle.pid, birth: started.handle.birth });
+  assert.equal(root.status, 'observed', JSON.stringify(root));
+  assert.equal((await c.terminate({ graceMs: 0 })).processes, 'confirmed');
+});
+
+test('a live image observation failure never reports kernel-confirmed exit', native, async t => {
+  const f = fixture(t, 'import {spawn} from "node:child_process";const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)",...Array(510).fill("fixed")],{stdio:"ignore",env:{}});console.log(child.pid);setInterval(()=>{},1000);');
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started'); const pid = Number(await bounded(line(started.handle.stdout)));
+  const inventory = await c.observe(); assert.equal(inventory.status, 'observed');
+  const row = inventory.processes.find(p => p.pid === pid); assert.ok(row);
+  const refused = await c.inspect(row);
+  assert.equal(refused.status, 'unavailable'); assert.equal(refused.reason, 'ipc-peer-image');
+  assert.equal(alive(pid), true);
+  assert.equal((await c.terminate({ graceMs: 0 })).processes, 'confirmed'); assert.equal(alive(pid), false);
+});
+
+test('a raw NUL escape byte on the wire is rejected as malformed input', native, async t => {
+  const run = bytes => new Promise((resolve, reject) => {
+    const helper = spawn(facility, [], { env: { LANG: 'C', LC_ALL: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    helper.stdout.on('data', chunk => { out += chunk.toString('utf8'); });
+    helper.once('error', reject);
+    helper.once('close', code => resolve({ code, replies: out.split('\n').filter(Boolean)
+      .map(text => { try { return JSON.parse(text); } catch { return null; } })
+      .filter(message => message && Number.isSafeInteger(message.id)) }));
+    helper.stdin.write(bytes); helper.stdin.end();
+  });
+  const valid = await bounded(run(Buffer.from('{"id":1,"op":"probe"}\n')));
+  assert.equal(valid.code, 0);
+  assert.equal(valid.replies.length, 1);
+  assert.equal(valid.replies[0].result.status, 'available');
+  const malformed = await bounded(run(Buffer.concat([Buffer.from('{"id":1,"op":"probe\\'), Buffer.from([0]), Buffer.from('"}\n')])));
+  assert.equal(malformed.code, 125);
+  assert.equal(malformed.replies.length, 0);
 });

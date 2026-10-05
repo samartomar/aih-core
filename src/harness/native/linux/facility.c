@@ -85,7 +85,7 @@ static void space(void) { while(pos<jlen&&(json[pos]==' '||json[pos]=='\r'||json
 static int hex(unsigned char c) { if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1; }
 static int value(unsigned depth) {
   space();if(depth>16||pos>=jlen||nt>=MAX_TOKEN)return -1;int t=nt++;tok[t]=(Token){0,pos,0,0,0};char c=json[pos++];
-  if(c=='"') {tok[t].type='s';tok[t].start=pos;while(pos<jlen&&json[pos]!='"'){unsigned char x=(unsigned char)json[pos++];if(x<32)return -1;if(x=='\\'){if(pos>=jlen)return -1;char e=json[pos++];if(e=='u'){for(int k=0;k<4;k++)if(pos>=jlen||hex((unsigned char)json[pos++])<0)return -1;}else if(!strchr("\"\\/bfnrt",e))return -1;}}if(pos>=jlen)return -1;tok[t].end=pos++;}
+  if(c=='"') {tok[t].type='s';tok[t].start=pos;while(pos<jlen&&json[pos]!='"'){unsigned char x=(unsigned char)json[pos++];if(x<32)return -1;if(x=='\\'){if(pos>=jlen)return -1;char e=json[pos++];if(e=='u'){for(int k=0;k<4;k++)if(pos>=jlen||hex((unsigned char)json[pos++])<0)return -1;}else if(e==0||!strchr("\"\\/bfnrt",e))return -1;}}if(pos>=jlen)return -1;tok[t].end=pos++;}
   else if(c=='{'||c=='[') {tok[t].type=c;space();char end=c=='{'?'}':']';if(pos<jlen&&json[pos]==end){pos++;}else for(;;){if(c=='{'){space();if(pos>=jlen||json[pos]!='"'||value(depth+1)<0)return -1;space();if(pos>=jlen||json[pos++]!=':')return -1;}if(value(depth+1)<0)return -1;tok[t].size++;space();if(pos>=jlen)return -1;if(json[pos]==end){pos++;break;}if(json[pos++]!=',')return -1;}tok[t].end=pos;}
   else {tok[t].type='n';while(pos<jlen&&!strchr(",]} \r\t",json[pos]))pos++;tok[t].end=pos;int n=pos-tok[t].start;const char *p=json+tok[t].start;if(!((n==4&&!memcmp(p,"true",4))||(n==5&&!memcmp(p,"false",5))||(n==4&&!memcmp(p,"null",4)))){int k=0;if(k<n&&p[k]=='-')k++;if(k>=n)return -1;if(p[k]=='0')k++;else{if(p[k]<'1'||p[k]>'9')return -1;while(k<n&&p[k]>='0'&&p[k]<='9')k++;}if(k<n&&p[k]=='.'){k++;int q=k;while(k<n&&p[k]>='0'&&p[k]<='9')k++;if(k==q)return -1;}if(k<n&&(p[k]=='e'||p[k]=='E')){k++;if(k<n&&(p[k]=='+'||p[k]=='-'))k++;int q=k;while(k<n&&p[k]>='0'&&p[k]<='9')k++;if(k==q)return -1;}if(k!=n)return -1;}}
   tok[t].next=nt;return t;
@@ -143,10 +143,43 @@ static int process(pid_t pid,Proc *p) {
 static int same_namespaces(const Proc *a,const Proc *b) {for(int i=0;i<4;i++)if(a->nsdevs[i]!=b->nsdevs[i]||a->nsinos[i]!=b->nsinos[i])return 0;return 1;}
 static int held(pid_t pid,uint64_t birth) {for(int i=0;i<nowned;i++)if(owned[i].pid==pid&&owned[i].birth==birth)return i;return -1;}
 static int belongs(pid_t pid) {for(int i=0;i<nowned;i++)if(owned[i].pid==pid&&owned[i].live)return 1;return 0;}
+/* Numeric ancestry is only a discovery hint. After opening the child's pidfd,
+ * confirm that its current parent is this subreaper or the same held live birth.
+ * A reused parent PID never grants authority to adopt or signal an outsider. */
+static int parent_owned(const Proc *child) {
+  if(child->ppid==getpid())return 1;
+  for(int i=0;i<nowned;i++)if(owned[i].pid==child->ppid&&owned[i].live){
+    Proc parent;int missing=process(child->ppid,&parent);
+    struct pollfd status={owned[i].fd,POLLIN,0};int rc;do{rc=poll(&status,1,0);}while(rc<0&&errno==EINTR);
+    if(rc>0&&(status.revents&POLLIN)){owned[i].live=0;return 0;}
+    if(rc){faulted=1;return 0;}
+    if(missing)return 0;
+    if(parent.birth!=owned[i].birth){faulted=1;return 0;}
+    return 1;
+  }
+  return 0;
+}
+/* Exited identities keep their slots until adoption pressure needs them, so an
+ * exited member stays distinguishable from a missing one. Reclaim closes the
+ * pidfd of pidfd-confirmed dead entries only; root reap bookkeeping is waitpid's. */
+static void reclaim(void) {int w=0;for(int i=0;i<nowned;i++){if(owned[i].live){if(w!=i)owned[w]=owned[i];w++;}else close_fd(&owned[i].fd);}nowned=w;}
+/* Returns 1 when the identity is proven owned but owned[] is full. */
 static int adopt(Proc *p) {
   int i=held(p->pid,p->birth);if(i>=0){int fd=owned[i].fd;owned[i]=*p;owned[i].fd=fd;return 0;}
-  if(nowned>=MAX_PROC){faulted=1;return -1;}int fd=pid_open(p->pid);if(fd<0){if(errno==ESRCH)return 0;faulted=1;return -1;}
-  Proc again;if(process(p->pid,&again)||again.birth!=p->birth){close(fd);return 0;}again.fd=fd;owned[nowned++]=again;return 0;
+  if(nowned>=MAX_PROC){reclaim();if(nowned>=MAX_PROC)return 1;}int fd=pid_open(p->pid);if(fd<0){if(errno==ESRCH)return 0;faulted=1;return -1;}
+  Proc again;if(process(p->pid,&again)||again.birth!=p->birth||!parent_owned(&again)){close(fd);return 0;}again.fd=fd;owned[nowned++]=again;return 0;
+}
+/* Overflow adoptees never enter owned[]: a temporary pidfd binds the verified
+ * birth and current parent authority; kill immediately and close it. No dynamic
+ * overflow lifetime collection is allowed. Further adoptees are rescanned while
+ * the fixed owned table and waitpid(ECHILD) drive bounded fail-closed cleanup. */
+static void overflow_adopt(const Proc *p) {
+  faulted=1;
+  int fd=pid_open(p->pid);if(fd<0){if(errno!=ESRCH)faulted=1;return;}
+  Proc again;if(!process(p->pid,&again)&&again.birth==p->birth&&parent_owned(&again)){
+    if(pid_signal(fd,SIGKILL)&&errno!=ESRCH)faulted=1;
+  }
+  close(fd);
 }
 /* A whole-host table is used only to discover ancestry; unrelated processes are never signalled. */
 static int scan(void) {
@@ -154,7 +187,7 @@ static int scan(void) {
     struct pollfd status={owned[i].fd,POLLIN,0};
     int rc=poll(&status,1,0);
     if(rc>0&&(status.revents&POLLIN)){owned[i].live=0;continue;}
-    if(rc<0){faulted=1;continue;}
+    if(rc){faulted=1;continue;}
     Proc p;
     int missing=process(owned[i].pid,&p);
     if(missing||p.birth!=owned[i].birth){
@@ -172,7 +205,7 @@ static int scan(void) {
   }
   DIR *d=opendir("/proc");if(!d){faulted=1;return -1;}Proc *table=calloc(65536,sizeof(Proc));if(!table){closedir(d);faulted=1;return -1;}int count=0;struct dirent *e;
   while((e=readdir(d))){char *end;long pid=strtol(e->d_name,&end,10);if(*end||pid<=0||pid>INT_MAX)continue;if(count==65536){faulted=1;break;}Proc p;if(!process((pid_t)pid,&p))table[count++]=p;}
-  closedir(d);for(int pass=0;pass<MAX_PROC;pass++){int changed=0;for(int i=0;i<count;i++){Proc *p=&table[i];if(p->pid==getpid()||held(p->pid,p->birth)>=0)continue;if(p->ppid==getpid()||belongs(p->ppid)){if(adopt(p)){free(table);return -1;}changed=1;}}if(!changed)break;}
+  closedir(d);for(int pass=0;pass<MAX_PROC;pass++){int changed=0;for(int i=0;i<count;i++){Proc *p=&table[i];if(p->pid==getpid()||held(p->pid,p->birth)>=0)continue;if(p->ppid==getpid()||belongs(p->ppid)){int r=adopt(p);if(r<0)continue;if(r>0){overflow_adopt(p);continue;}if(held(p->pid,p->birth)>=0)changed=1;}}if(!changed)break;}
   free(table);return faulted?-1:0;
 }
 static int reap(void) {int status;pid_t p;for(;;){p=waitpid(-1,&status,WNOHANG);if(p>0){if(p==rootpid){root_reaped=1;root_status=status;}continue;}if(p==0)return 0;if(errno==EINTR)continue;if(errno==ECHILD)return 1;faulted=1;return 0;}}
@@ -311,12 +344,35 @@ static void inspect(long id,int t) {
   long pid=number(field(t,"pid"),INT_MAX);
   char *birth=string(field(t,"birth"));uint64_t n=0;
   if(birth){char *end;errno=0;n=strtoull(birth,&end,10);if(errno||*end)n=0;}free(birth);
-  scan();int h=held((pid_t)pid,n);
-  if(faulted||h<0||!owned[h].live||!owned[h].fresh){refusal(id,"ipc-peer-membership");return;}
+  scan();
+  if(faulted){refusal(id,"linux-facility-failed");return;}
+  int h=held((pid_t)pid,n);
+  if(h<0){refusal(id,"ipc-peer-membership");return;}
+  struct pollfd status={owned[h].fd,POLLIN,0};int rc;
+  if(!owned[h].live){
+    /* Only pidfd-confirmed death is process-exited. A reclaimed slot leaves
+     * membership unknowable; a missing entry never proves death. */
+    rc=poll(&status,1,0);
+    if(rc>0&&(status.revents&POLLIN)){refusal(id,"process-exited");return;}
+    if(rc){faulted=1;refusal(id,"linux-facility-failed");return;}
+    refusal(id,"ipc-peer-unavailable");return;
+  }
+  status.revents=0;do{rc=poll(&status,1,0);}while(rc<0&&errno==EINTR);
+  if(rc>0&&(status.revents&POLLIN)){owned[h].live=0;refusal(id,"process-exited");return;}
+  if(rc){faulted=1;refusal(id,"linux-facility-failed");return;}
+  if(!owned[h].fresh){refusal(id,"ipc-peer-unfresh");return;}
   Proc before=owned[h],after;char image[PATH_MAX],hash[65],buf[65536],*args[MAX_OBS_ARG];int argc;
-  if(!process_image(&before,image,hash,buf,args,&argc)){refusal(id,"ipc-peer-image");return;}
-  struct pollfd status={before.fd,POLLIN,0};
-  if(poll(&status,1,0)!=0||process(before.pid,&after)||after.birth!=before.birth||!same_namespaces(&after,&before)){refusal(id,"ipc-peer-birth");return;}
+  if(!process_image(&before,image,hash,buf,args,&argc)){
+    status.revents=0;do{rc=poll(&status,1,0);}while(rc<0&&errno==EINTR);
+    if(rc>0&&(status.revents&POLLIN)){refusal(id,"process-exited");return;}
+    if(rc){faulted=1;refusal(id,"linux-facility-failed");return;}
+    refusal(id,"ipc-peer-image");return;
+  }
+  status.revents=0;rc=poll(&status,1,0);
+  if(rc<0||(rc>0&&!(status.revents&POLLIN))){faulted=1;refusal(id,"linux-facility-failed");return;}
+  if(rc>0){refusal(id,"process-exited");return;}
+  if(process(before.pid,&after)){refusal(id,"ipc-peer-unfresh");return;}
+  if(after.birth!=before.birth||!same_namespaces(&after,&before)){refusal(id,"ipc-peer-birth");return;}
   char *response=malloc(FRAME);if(!response){refusal(id,"linux-facility-failed");return;}
   Build b={response,0,0,FRAME};add(&b,"{\"status\":\"observed\",");identity_fields(&b,&before);
   add(&b,",\"executablePath\":");quote(&b,image);add(&b,",\"executableSha256\":");quote(&b,hash);add(&b,",\"argv\":[");
@@ -387,7 +443,7 @@ int main(int argc,char **argv) {
   if(prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0)||prctl(PR_SET_CHILD_SUBREAPER,1)||prctl(PR_GET_CHILD_SUBREAPER,&sub)||sub!=1){return 125;}int self=pid_open(getpid());if(self<0)return 125;close(self);
   for(int i=0;i<MAX_PEER;i++){peers[i].fd=-1;peers[i].processfd=-1;}signal(SIGPIPE,SIG_IGN);struct sigaction sa;memset(&sa,0,sizeof(sa));sa.sa_handler=interrupted_handler;sigemptyset(&sa.sa_mask);sigaction(SIGTERM,&sa,NULL);sigaction(SIGINT,&sa,NULL);pid_t parent=getppid();if(parent==1||prctl(PR_SET_PDEATHSIG,SIGTERM)||getppid()!=parent)return 125;
   if(nonblock(0)||nonblock(1)){return 125;}operation=now_ms()+30000;event("ready","{\"protocol\":1}");char *input=malloc(FRAME+1);if(!input)return 125;size_t used=0;uint64_t last_scan=0;
-  while(!closing||outn){uint64_t now=now_ms();if(interrupted||(now>=operation&&!stopped)){enter_cleanup();signal_owned(SIGKILL);}if(stopped&&!cleanup_at)enter_cleanup();if(stopped&&now>=cleanup_end){cleanup(0,0);outn=0;break;}if(now-last_scan>=25){if(stopped)signal_owned(SIGKILL);else scan();reap();last_scan=now;}io_step(2);
+  while(!closing||outn){uint64_t now=now_ms();if(interrupted||(now>=operation&&!stopped)){enter_cleanup();signal_owned(SIGKILL);}if(stopped&&!cleanup_at)enter_cleanup();if(stopped&&now>=cleanup_end){cleanup(0,0);outn=0;break;}if(now-last_scan>=25){if(stopped)signal_owned(SIGKILL);else scan();if(faulted&&!stopped){enter_cleanup();signal_owned(SIGKILL);}reap();last_scan=now;}io_step(2);
     if(closing){if(!outn)break;continue;}ssize_t n=read(0,input+used,FRAME-used);if(n>0){used+=(size_t)n;for(;;){char *newline=memchr(input,'\n',used);if(!newline)break;size_t len=(size_t)(newline-input);input[len]=0;request(input,(int)len);used-=len+1;memmove(input,newline+1,used);}if(used==FRAME){faulted=1;enter_cleanup();used=0;}}
     else if(!n||(errno!=EAGAIN&&errno!=EINTR)){cleanup(0,cleanup_at?(unsigned)(cleanup_end>now_ms()?cleanup_end-now_ms():0):10000);closing=1;}
   }
