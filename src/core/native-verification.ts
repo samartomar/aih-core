@@ -147,7 +147,8 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     result.adapter.sha256 = sha256(canonicalJson({ definition, helpersSha256: helpers.sha256, executableSha256: pin.sha256, runtimes: pin.runtime.map(value => value.sha256) }));
     result.client.observedVersion = safeHostValue(pin.observedVersion);
     if (!definition.clientVersions.includes(pin.observedVersion)) throw new NativeStop('version-unsupported', 'unsupported');
-    const capabilities = runtime.nativeCapabilities(definition);
+    const capabilities = await runtime.nativeCapabilities(definition, { deadline, signal: host.signal });
+    check();
     if (!capabilities.credentialChannel) throw new NativeStop('authentication-channel-unsupported', 'unsupported');
     if (!capabilities.lifecycle) throw new NativeStop(capabilities.reason ?? 'termination-unresolved');
     if (!capabilities.peerIdentity) throw new NativeStop('server-evidence-unavailable');
@@ -186,7 +187,17 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       const launched = await runtime.startNativeSession({ definition, pin, identity, cell, material, index, challenge, deadline: sessionDeadline,
         signal: host.signal, environment: environment(cell, pin.executable, pin.runtime.map(value => value.path)),
         prompt: `Perform explicit native verification. Attest the initially loaded instructions with the session challenge ${challenge}. Discover the configured server tools and call ${material.server.queryTool} with ${canonicalJson(queryArguments)}. Return the exact server answer.` });
-      if ('outcome' in launched && !launched.partial) throw new NativeStop(launched.reason, launched.outcome);
+      if ('outcome' in launched && !launched.partial) {
+        // A platform context can own helper/IPC resources before any client PID
+        // exists. Keep its cleanup receipt so an unresolved helper retains the cell.
+        if (launched.cleanup) {
+          helperProcessesCreated = true;
+          processesConfirmed = processesConfirmed && launched.cleanup.confirmed;
+          result.survivingProcesses = launched.cleanup.survivors.slice(0, 32);
+        }
+        if (launched.cleanupStartedAt !== undefined) cleanupDeadline ??= launched.cleanupStartedAt + 10000;
+        throw new NativeStop(launched.reason, launched.outcome);
+      }
       // A helper must return ownership of every actual spawn, including initialization failures.
       handle = 'outcome' in launched ? launched.partial! : launched;
       if (!Number.isSafeInteger(handle.pid) || handle.pid <= 0) throw new NativeStop('native-internal');

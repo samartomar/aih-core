@@ -140,11 +140,15 @@ Unavailable process/peer-identity facilities fail closed. Native platform accept
 requires actual observations and separate maintained evidence.
 
 The current bundled candidate names Claude Code 2.1.285 on Windows x64
-(`10.0.26200`). This artifact has no Windows Job Object launcher or OS IPC
-peer-identity helper, and no observed cell-local OAuth or whole-client isolation
-channel. Candidate verification therefore stops before a native session. POSIX
-lifecycle helpers and controlled session fixtures exercise the protocol; they
-do not admit a POSIX client or establish a passing native cell.
+(`10.0.26200`). The package includes a bounded Windows Job launcher, OS-bound
+named-pipe peer observation and an explicit protected cell-local OAuth file path.
+Facility availability requires actual probes; missing or changed helper/runtime
+bytes fail closed. Dedicated identity still requires operator provisioning and
+same-session authentication evidence. The candidate has no whole-client isolation
+mechanism, so useful hygiene evidence remains incomplete/unverified. See
+[Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
+POSIX lifecycle helpers and controlled session fixtures do not admit a POSIX
+client or establish a passing native cell.
 
 Portable validators `validateNativeVerificationRequest`,
 `validateNativeVerificationResult` and `validateNativeVerificationBundle` are

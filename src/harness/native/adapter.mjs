@@ -1,10 +1,17 @@
-import { lstatSync } from "node:fs";
-import { dirname } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
+import { claudeConfigDirectory } from "./claude.mjs";
 import { sha256 } from "./digest.mjs";
+import { CREDENTIAL_DESTINATION } from "./identity.mjs";
+const sameWindowsPath = (a, b) => typeof a === "string" && typeof b === "string" && win32.isAbsolute(a) && win32.isAbsolute(b) && win32.normalize(a).toLowerCase() === win32.normalize(b).toLowerCase();
+const ENTRY_MARKER = "--aihq-native-absolute-entry";
+const MAX_PINNED_BYTES = 256 * 1024 * 1024;
+// `handle` is a started lifecycle handle or, when no client was started, the prepared context. The race
+// only bounds the wait: the actual cleanup resource is bounded by the deadlineMs the facility enforces.
 async function terminateBounded(handle, deadline, graceMs) {
   let timer;
-  const unresolved = { confirmed: false, survivors: [{ pid: handle.pid, role: "client" }], reason: "termination-unresolved" };
+  const unresolved = { confirmed: false, survivors: handle.pid ? [{ pid: handle.pid, role: "client" }] : [], reason: "termination-unresolved" };
   try {
     return await Promise.race([
       handle.terminate({ graceMs, deadlineMs: Math.max(0, deadline - performance.now()) }).then((receipt) => ({ confirmed: receipt.processes === "confirmed", survivors: receipt.survivors }), () => unresolved),
@@ -41,6 +48,128 @@ function createNativeRuntime(module, dependencies) {
     check();
     return { ...metadata, scope: "bundled-mechanism", bytes };
   };
+  // Real, bounded observation of the platform facilities; nothing is inferred from a boolean or a file.
+  // Peer identity exists only where a lifecycle context emits OS-bound streams (Windows Job + pipe).
+  // The credential channel check is a static declaration only: the exact destination and the CLAUDE_CONFIG_DIR
+  // redirect that reaches it. The scoped protection is validated separately on the actual cell, and the
+  // account identity is never claimed until same-session telemetry matches.
+  const credentialChannelSupported = (definition) => {
+    try {
+      const destination = definition.credentialDestination;
+      const redirect = claudeConfigDirectory("win32", "C:\\aihq-probe", posix.dirname(destination.path));
+      return definition.client === "claude" && identitiesSupported.has(definition.identityAdapterId) && destination.root === CREDENTIAL_DESTINATION.root && destination.path === CREDENTIAL_DESTINATION.path && redirect === win32.join("C:\\aihq-probe", posix.dirname(destination.path)) && typeof module.protectWindowsCell === "function";
+    } catch {
+      return false;
+    }
+  };
+  const stageReason = (reason, fallback) => typeof reason === "string" && module.nativeStageReasons?.includes(reason) ? reason : fallback;
+  // Facility reasons outside the stage vocabulary are mapped, never forwarded raw.
+  const facilityReason = (reason, fallback) => reason === "deadline" ? "budget-exhausted" : stageReason(reason, fallback);
+  // The exact launch selection, as {runtimePins, entries} in the facility's agreed shapes. Every pinned file
+  // is read now and must match its declared digest/length. The one selected entry is derived from the pinned
+  // .mcp.json declaration itself: Claude runs `node <relative module> <rest>`; the absolute-entry child the
+  // facility observes therefore has argv [absolute module, marker, ...rest]. A declaration that cannot
+  // determine that argv exactly (not a plain `node` stdio command, module differs, recorder without
+  // `-- <upstream command>`) is refused rather than guessed.
+  const launchPlan = (input) => {
+    const { material, cell, pin } = input;
+    const check = () => checkTime(input);
+    const refused = () => new NativeStop("server-evidence-unavailable");
+    try {
+      const cellRoot = `${realpathSync.native(cell.path).toLowerCase()}${sep}`;
+      const pins = new Map();
+      const addPin = (path, expected, reason) => {
+        const canonical = realpathSync.native(path);
+        const bytes = nativeReadPinned(canonical, MAX_PINNED_BYTES, check);
+        const digest = sha256(bytes);
+        if (digest !== expected.sha256 || expected.byteLength !== undefined && bytes.length !== expected.byteLength) throw new NativeStop(reason, "failed");
+        const value = { path: canonical, sha256: digest, byteLength: bytes.length };
+        pins.set(canonical.toLowerCase(), value);
+        return value;
+      };
+      addPin(pin.executable, pin, "executable-changed");
+      for (const value of pin.runtime) addPin(value.path, value, "executable-changed");
+      const nodeCanonical = realpathSync.native(process.execPath).toLowerCase();
+      const nodePin = pins.get(nodeCanonical);
+      if (!nodePin) throw new NativeStop("executable-changed", "failed");
+      const locate = (member) => {
+        const file = material.outputTree.find((value) => value.member.path === member.path && value.member.sha256 === member.sha256 && value.member.byteLength === member.byteLength);
+        if (!file || file.root !== "home" && file.root !== "project") throw refused();
+        const canonical = realpathSync.native(join(cell[file.root], ...file.path.split("/")));
+        if (!canonical.toLowerCase().startsWith(cellRoot)) throw new NativeStop("material-path-unsafe", "failed");
+        return { file, pin: addPin(canonical, member, "fixture-bytes-mismatch") };
+      };
+      const recorded = material.server.evidenceAdapterId === module.recorderId;
+      const closure = material.server.runtime.map(locate);
+      let selected = closure[0];
+      if (recorded) {
+        const fixed = module.recorderMaterial();
+        if (!material.server.recorder) throw refused();
+        selected = locate({ path: material.server.recorder.path, sha256: fixed.sha256, byteLength: fixed.byteLength });
+      }
+      if (!selected) throw refused();
+      const configuration = material.outputTree.find((value) => value.root === "project" && value.path === ".mcp.json");
+      const configurationBytes = configuration && material.bytes.get(configuration.member.path);
+      if (!configurationBytes || sha256(configurationBytes) !== configuration.member.sha256) throw refused();
+      let declared;
+      try {
+        const servers = module.parseStrictJson(Buffer.from(configurationBytes).toString("utf8")).mcpServers;
+        declared = servers && Object.hasOwn(servers, material.server.name) ? servers[material.server.name] : undefined;
+      } catch {
+        throw refused();
+      }
+      if (!declared || declared.command !== "node" || !Array.isArray(declared.args) || declared.args.length === 0 || declared.args.some((value) => typeof value !== "string" || value.includes("\0"))) throw refused();
+      const [relative, ...remainder] = declared.args;
+      if (relative.includes("\\") || posix.isAbsolute(relative) || posix.normalize(relative) !== selected.file.path) throw refused();
+      if (recorded ? remainder[0] !== "--" || remainder.length < 2 : remainder.length !== 0) throw refused();
+      const entries = [{ id: recorded ? "aihq-recorder" : "aihq-fixture", executablePath: nodePin.path, executableSha256: nodePin.sha256, argv: [selected.pin.path, ENTRY_MARKER, ...remainder] }];
+      return { runtimePins: [...pins.values()], entries };
+    } catch (error) {
+      if (error instanceof NativeStop) throw error;
+      throw refused();
+    }
+  };
+  // Authenticate an observed OS peer. The facility already checked Job membership and the held process
+  // identity; here the reported id, image and exact argv must name exactly one selected entry, and every
+  // flat runtime pin is re-read now. Anything missing, relative or ambiguous is refused.
+  const ownedPeer = async (identity, selection, input) => {
+    try {
+      if (identity?.status !== "observed" || !Number.isSafeInteger(identity.pid) || typeof identity.birth !== "string" || !/^[0-9]+$/.test(identity.birth)) return false;
+      const matches = selection.entries.filter((value) => value.id === identity.selectedEntryId);
+      if (matches.length !== 1) return false;
+      const [entry] = matches;
+      if (!sameWindowsPath(identity.executablePath, entry.executablePath) || identity.executableSha256 !== entry.executableSha256) return false;
+      if (!Array.isArray(identity.argv) || identity.argv.length !== entry.argv.length || !identity.argv.every((value, index) => index === 0 ? sameWindowsPath(value, entry.argv[0]) : value === entry.argv[index])) return false;
+      const check = () => checkTime(input);
+      for (const pin of selection.runtimePins) {
+        const bytes = nativeReadPinned(pin.path, MAX_PINNED_BYTES, check);
+        if (bytes.length !== pin.byteLength || sha256(bytes) !== pin.sha256) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // Probes the platform facility within the caller's own deadline/signal; no allowance is renewed here.
+  const observeCapabilities = async (definition, input) => {
+    let lifecycle;
+    try {
+      lifecycle = await module.lifecycleAvailability(definition.lifecycleId, definition.platform.os, input ? { deadline: input.deadline, signal: input.signal } : {});
+    } catch {
+      lifecycle = { status: "unavailable", reason: "termination-unresolved" };
+    }
+    const available = lifecycle?.status === "available";
+    const windows = definition.platform.os === "win32" && process.platform === "win32" && definition.lifecycleId === "windows-job.v1";
+    return {
+      lifecycle,
+      capabilities: {
+        lifecycle: available,
+        peerIdentity: available && windows && !lifecycle.missing && typeof module.prepareLifecycleContext === "function",
+        credentialChannel: available && windows && credentialChannelSupported(definition),
+        ...!available ? { reason: lifecycle?.reason ?? "termination-unresolved" } : {}
+      }
+    };
+  };
   const runtime = {
     nativeDefinitions: definitions,
     nativeBundledFixture(definition, input) {
@@ -66,16 +195,8 @@ function createNativeRuntime(module, dependencies) {
     nativeManagedRestriction(definition) {
       return definition.client === "claude" && adapters.has(definition.parserId) && module.observeClaudeManagedSettings().outcome === "restricted";
     },
-    nativeCapabilities(definition) {
-      const lifecycle = module.lifecycleAvailability(definition.lifecycleId, definition.platform.os);
-      // The installed runtime cannot observe OS peer credentials or an effective dedicated
-      // credential channel. These capabilities stay false, so native sessions are refused.
-      return {
-        lifecycle: lifecycle.status === "available",
-        peerIdentity: false,
-        credentialChannel: false,
-        ...lifecycle.status !== "available" ? { reason: lifecycle.reason } : {}
-      };
+    async nativeCapabilities(definition, input) {
+      return (await observeCapabilities(definition, input)).capabilities;
     },
     async resolveNativeClient(definition, input) {
       checkTime(input);
@@ -84,9 +205,9 @@ function createNativeRuntime(module, dependencies) {
       checkTime(input);
       if (client.status !== "pinned") return { outcome: "unavailable", reason: client.reason };
       if (client.byteLength > 256 * 1024 * 1024) return { outcome: "unavailable", reason: "limit-exceeded" };
-      const lifecycle = module.lifecycleAvailability(definition.lifecycleId, definition.platform.os);
-      if (lifecycle.status !== "available") return { outcome: "unsupported", reason: lifecycle.reason };
-      const capabilities = runtime.nativeCapabilities(definition);
+      const { lifecycle, capabilities } = await observeCapabilities(definition, input);
+      checkTime(input);
+      if (lifecycle?.status !== "available") return lifecycle?.reason === "platform-unsupported" || !lifecycle?.reason ? { outcome: "unsupported", reason: "platform-unsupported" } : { outcome: "unavailable", reason: facilityReason(lifecycle.reason, "termination-unresolved") };
       if (!capabilities.lifecycle) return { outcome: "unavailable", reason: "termination-unresolved" };
       if (!input.acquireCell) return { outcome: "unavailable", reason: "sandbox-root-unavailable" };
       const cell = await input.acquireCell();
@@ -96,6 +217,7 @@ function createNativeRuntime(module, dependencies) {
         PATH: [dirname(client.path), dirname(process.execPath)].join(process.platform === "win32" ? ";" : ":"),
         HOME: cell.home,
         USERPROFILE: cell.home,
+        ...definition.platform.os === "win32" && credentialChannelSupported(definition) ? { CLAUDE_CONFIG_DIR: claudeConfigDirectory("win32", cell.home, posix.dirname(definition.credentialDestination.path)) } : {},
         APPDATA: cell.home,
         LOCALAPPDATA: cell.home,
         XDG_CONFIG_HOME: cell.home,
@@ -109,8 +231,15 @@ function createNativeRuntime(module, dependencies) {
         LC_ALL: "C.UTF-8"
       };
       if (process.platform === "win32" && process.env.SystemRoot) env.SystemRoot = process.env.SystemRoot;
-      const launched = await module.startLifecycle({ lifecycleId: definition.lifecycleId, os: definition.platform.os, file: client.path, argv: definition.versionArgv, cwd: cell.project, env });
-      if (launched.status !== "started") return { outcome: "unavailable", reason: launched.reason };
+      const launched = await module.startLifecycle({ lifecycleId: definition.lifecycleId, os: definition.platform.os, file: client.path, argv: definition.versionArgv, cwd: cell.project, env, deadline: input.deadline, signal: input.signal });
+      if (launched.status !== "started") {
+        const reason = facilityReason(launched.reason, "session-launch-failed");
+        if (!launched.partial) return { outcome: "unavailable", reason };
+        // A root created before the failure is still owned: stop it with the standard cleanup allowance.
+        const startedAt = performance.now();
+        const receipt = await terminateBounded(launched.partial, startedAt + 10_000, 1000);
+        return { outcome: "unavailable", reason: receipt.confirmed ? reason : "termination-unresolved", cleanup: receipt, cleanupStartedAt: startedAt };
+      }
       const processHandle = launched.handle;
       let output = "";
       let bytes = 0;
@@ -180,7 +309,7 @@ function createNativeRuntime(module, dependencies) {
     },
     async captureNativeIdentity(binding, definition, input) {
       checkTime(input);
-      if (!runtime.nativeCapabilities(definition).credentialChannel) return { outcome: "unsupported", reason: "authentication-channel-unsupported" };
+      if (!(await runtime.nativeCapabilities(definition, input)).credentialChannel) return { outcome: "unsupported", reason: "authentication-channel-unsupported" };
       const captured = await module.captureTestIdentity(binding);
       checkTime(input);
       if (captured.status !== "captured") return { outcome: "unavailable", reason: captured.reason };
@@ -196,7 +325,17 @@ function createNativeRuntime(module, dependencies) {
       return same;
     },
     async protectNativeCell(cell, input) {
-      if (input.signal?.aborted || performance.now() >= input.deadline || process.platform === "win32") return false;
+      if (input.signal?.aborted || performance.now() >= input.deadline) return false;
+      if (process.platform === "win32") {
+        // Only the already-owned exact cell directory: current user, System and Administrators DACL.
+        try {
+          if (typeof module.protectWindowsCell !== "function") return false;
+          const protectedCell = await module.protectWindowsCell({ directory: cell.path, deadline: input.deadline, signal: input.signal });
+          return protectedCell?.status === "protected" && !input.signal?.aborted && performance.now() < input.deadline;
+        } catch {
+          return false;
+        }
+      }
       try {
         const stats = lstatSync(cell.path);
         return stats.isDirectory() && !stats.isSymbolicLink() && stats.uid === process.getuid?.() && (stats.mode & 0o077) === 0;
@@ -208,7 +347,8 @@ function createNativeRuntime(module, dependencies) {
       checkTime(input);
       if (!adapters.has(input.definition.parserId) || !identitiesSupported.has(input.definition.identityAdapterId) || input.definition.client !== "claude") return { outcome: "unsupported", reason: "client-unsupported" };
       if (runtime.nativeManagedRestriction?.(input.definition)) return { outcome: "restricted", reason: "managed-restriction" };
-      const capabilities = runtime.nativeCapabilities(input.definition);
+      const capabilities = await runtime.nativeCapabilities(input.definition, input);
+      checkTime(input);
       if (!capabilities.lifecycle) return { outcome: "unavailable", reason: "termination-unresolved" };
       if (!capabilities.credentialChannel) return { outcome: "unsupported", reason: "authentication-channel-unsupported" };
       if (!capabilities.peerIdentity || !runtime.nativeServerEvidenceAvailable(input.material)) return { outcome: "unavailable", reason: "server-evidence-unavailable" };
@@ -216,6 +356,7 @@ function createNativeRuntime(module, dependencies) {
       const resolved = { server: input.material.server, instructions: input.material.instructions };
       const collector = module.createClaudeCollector({ expected: input.identity.expected });
       let channel;
+      let context;
       let lifecycle;
       let channelResult;
       let channelClose;
@@ -235,16 +376,30 @@ function createNativeRuntime(module, dependencies) {
       const closeChannel = () => channelClose ??= channel ? channel.close().then((result) => channelResult = result) : Promise.resolve(undefined);
       const cleanup = async (deadline, graceMs) => {
         detach();
-        if (!lifecycle) {
+        const owner = lifecycle ?? context;
+        if (!owner) {
           await collector.cancel();
           await closeChannel();
           return { confirmed: true, survivors: [] };
         }
-        termination ??= terminateBounded(lifecycle, deadline, graceMs);
+        // The started handle and its context share one aggregate cleanup; with no client only the context exists.
+        termination ??= terminateBounded(owner, deadline, graceMs);
         const receipt = await termination;
         await collector.cancel();
         await closeChannel();
         return receipt;
+      };
+      // Pre-client failure: stop whatever was created (context, channel, collector) and always report the
+      // explicit cleanup outcome when a context existed, so Core can carry unconfirmed survivors.
+      const failed = async (reason) => {
+        cleanupStartedAt ??= performance.now();
+        let receipt;
+        try {
+          receipt = await cleanup(cleanupStartedAt + 10_000, 1000);
+        } catch {
+          receipt = { confirmed: false, survivors: [], reason: "termination-unresolved" };
+        }
+        return { outcome: "unavailable", reason: receipt.confirmed ? reason : "termination-unresolved", ...context ? { cleanup: receipt } : {}, cleanupStartedAt };
       };
       const incomplete = (reason) => ({
         sessionId: null,
@@ -272,10 +427,39 @@ function createNativeRuntime(module, dependencies) {
         cleanup: (value) => cleanup(value.deadline, value.graceMs)
       });
       try {
+        // A fresh context (non-inheritable Job) exists before any evidence channel or client; every
+        // failure below reaches cleanup(), which terminates it even when no client ever started.
+        const selection = launchPlan(input);
+        const prepared = await module.prepareLifecycleContext({
+          lifecycleId: input.definition.lifecycleId,
+          os: input.definition.platform.os,
+          directory: input.cell.observations,
+          deadline: input.deadline,
+          signal: input.signal,
+          runtimePins: selection.runtimePins,
+          selectedEntries: selection.entries
+        });
+        if (prepared?.status !== "ready" || !prepared.context) return { outcome: "unavailable", reason: facilityReason(prepared?.reason, "termination-unresolved") };
+        context = prepared.context;
+        checkTime(input);
         const telemetry = await collector.start();
         checkTime(input);
         const plan = input.material.server.evidenceAdapterId === module.recorderId ? module.recorderPlan(resolved) : null;
-        channel = await module.startEvidenceChannel({ directory: input.cell.observations, isOwnedServer: () => false, plan });
+        let transport;
+        let handedOver = false;
+        try {
+          const created = await context.createPipe();
+          if (created?.status !== "ready" || !created.transport) throw new Error("pipe-unavailable");
+          transport = created.transport;
+          handedOver = true;
+          channel = await module.startEvidenceChannel({ directory: input.cell.observations, isOwnedServer: (identity) => ownedPeer(identity, selection, input), plan, transport });
+        } catch (error) {
+          // The channel closes a transport it was given; a pipe it never handed over is closed here.
+          if (transport && !handedOver) await Promise.resolve(transport.close?.()).catch(() => {
+          });
+          // Cancellation and budget stops keep their own reason; only a real channel failure is evidence-unavailable.
+          throw error instanceof NativeStop ? error : new NativeStop("server-evidence-unavailable");
+        }
         checkTime(input);
         const challenge = channel.challenge;
         const options = module.claudeStreamOptions(resolved, challenge);
@@ -354,20 +538,24 @@ function createNativeRuntime(module, dependencies) {
           scratchDir: input.cell.scratch,
           runtimeDirs: [dirname(input.pin.executable), ...input.pin.runtime.map((value) => dirname(value.path))],
           telemetry,
-          evidence: { endpoint: channel.endpoint, token: channel.token }
+          evidence: { endpoint: channel.endpoint, token: channel.token },
+          configDir: posix.dirname(input.definition.credentialDestination.path)
         });
-        const launched = await module.startLifecycle({
-          lifecycleId: input.definition.lifecycleId,
-          os: input.definition.platform.os,
+        const launched = await context.start({
           file: input.pin.executable,
           argv: input.definition.sessionArgv,
           cwd: input.cell.project,
           env
         });
-        if (launched.status !== "started") {
-          await collector.cancel();
-          await closeChannel();
-          return { outcome: "unavailable", reason: launched.reason };
+        if (launched?.status !== "started" || !launched.handle) {
+          const reason = facilityReason(launched?.reason, "session-launch-failed");
+          // A partial spawn is still owned: hand it back so Core can account for it.
+          if (launched?.partial) {
+            lifecycle = launched.partial;
+            cleanupStartedAt ??= performance.now();
+            return { outcome: "unavailable", reason, partial: ownedHandle(Promise.resolve({ ...snapshot(), failure: { reason, outcome: "unavailable" } })) };
+          }
+          return await failed(reason);
         }
         lifecycle = launched.handle;
         let overflow = false;
@@ -435,8 +623,7 @@ function createNativeRuntime(module, dependencies) {
           cleanupStartedAt ??= performance.now();
           return { outcome: "unavailable", reason, partial: ownedHandle(Promise.resolve({ ...snapshot(), failure: { reason, outcome: "unavailable" } })) };
         }
-        await cleanup(input.deadline, 1000);
-        return { outcome: "unavailable", reason };
+        return await failed(reason);
       }
     },
     nativeStatePaths() {

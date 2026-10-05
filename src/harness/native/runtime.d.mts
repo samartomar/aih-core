@@ -59,18 +59,38 @@ export function validateClaudeOAuthFile(bytes: Uint8Array): { valid: boolean };
 export type PinnedExecutable = { status: 'pinned'; path: string; sha256: string; byteLength: number };
 export function pinExecutable(input: { names: string[]; pathEnv: string; platform: string }): Promise<PinnedExecutable | { status: 'unavailable'; reason: 'client-absent' }>;
 export function revalidateExecutable(pin: PinnedExecutable): Promise<{ ok: true } | { ok: false; reason: 'executable-changed' }>;
-export function lifecycleAvailability(lifecycleId: string, os: string): { status: 'available' } | { status: 'unavailable'; reason: 'platform-unsupported'; missing?: string };
+export type LifecycleInputBounds = { deadline?: number; signal?: AbortSignal };
+export type LifecycleUnavailable = { status: 'unavailable'; reason: string; missing?: string; partial?: LifecycleHandle };
+export function lifecycleAvailability(lifecycleId: string, os: string, bounds?: LifecycleInputBounds):
+  Promise<{ status: 'available' } | LifecycleUnavailable>;
 export type LifecycleHandle = { pid: number; birth: string | null; stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream; stderr: NodeJS.ReadableStream;
   exited: Promise<{ code: number | null; signal: string | null }>; track(): Promise<void>;
   terminate(options?: { graceMs?: number; deadlineMs?: number }): Promise<{ processes: 'confirmed' | 'unresolved';
     survivors: { pid: number; role: 'client' | 'server' | 'recorder' | 'helper' }[]; elapsedMs: number }> };
-export function startLifecycle(input: { lifecycleId: string; os: string; file: string; argv: string[]; cwd: string; env: Record<string, string> }):
-  Promise<{ status: 'started'; handle: LifecycleHandle } | { status: 'unavailable'; reason: 'platform-unsupported' | 'session-launch-failed' }>;
+export function startLifecycle(input: { lifecycleId: string; os: string; file: string; argv: string[]; cwd: string; env: Record<string, string> } & LifecycleInputBounds):
+  Promise<{ status: 'started'; handle: LifecycleHandle } | LifecycleUnavailable>;
+export type NativeRuntimeFilePin = { path: string; sha256: string; byteLength: number };
+export type NativeSelectedEntry = { id: string; executablePath: string; executableSha256: string; argv: readonly string[] };
+export type NativePeerIdentity = { status: 'observed'; pid: number; birth: string; executablePath: string;
+  executableSha256: string; argv: readonly string[]; selectedEntryId: string } | { status: 'unavailable' };
+export type NativePeerConnection = import('node:stream').Duplex & { observePeer(): Promise<NativePeerIdentity> };
+export type NativePipeTransport = { endpoint: string; onConnection(callback: (connection: NativePeerConnection) => void): void; close(): Promise<void> };
+export type NativeLifecycleContext = {
+  createPipe(): Promise<{ status: 'ready'; transport: NativePipeTransport } | LifecycleUnavailable>;
+  start(input: { file: string; argv: string[]; cwd: string; env: Record<string, string> }): Promise<{ status: 'started'; handle: LifecycleHandle } | LifecycleUnavailable>;
+  terminate(input?: { graceMs?: number; deadlineMs?: number }): ReturnType<LifecycleHandle['terminate']>;
+};
+export function prepareLifecycleContext(input: { lifecycleId: string; os: string; directory: string;
+  runtimePins: readonly NativeRuntimeFilePin[]; selectedEntries: readonly NativeSelectedEntry[] } & LifecycleInputBounds):
+  Promise<{ status: 'ready'; context: NativeLifecycleContext } | LifecycleUnavailable>;
+export function protectWindowsCell(input: { directory: string } & LifecycleInputBounds): Promise<{ status: 'protected' } | LifecycleUnavailable>;
+export function validateWindowsCell(input: { directory: string } & LifecycleInputBounds): Promise<{ status: 'protected' } | LifecycleUnavailable>;
 
 export type EvidenceChannel = { endpoint: string; token: string; challenge: string; close(): Promise<{ frames: unknown[]; bytes: number;
   connections: number; rejectedFrames: number; peer: 'none' | 'authenticated' | 'unavailable' | 'rejected'; violation: null | 'limit-exceeded' | 'frame-invalid' }>;
   snapshot(): Awaited<ReturnType<EvidenceChannel['close']>> };
-export function startEvidenceChannel(input: { directory: string; isOwnedServer: (identity: { pid: number; birth: string }) => boolean; plan?: RecorderPlan | null }): Promise<EvidenceChannel>;
+export function startEvidenceChannel(input: { directory: string; isOwnedServer: (identity: NativePeerIdentity) => boolean | Promise<boolean>;
+  plan?: RecorderPlan | null; transport?: NativePipeTransport }): Promise<EvidenceChannel>;
 
 export type RecorderPlan = { attestTool: string | null; markers: string[]; queryTool: string; queryArguments: Record<string, unknown>; challengeField: string | null; toolNames: string[] };
 export type RecorderMaterial = { root: 'project'; path: string; memberPath: string; bytes: Buffer; sha256: string; byteLength: number };

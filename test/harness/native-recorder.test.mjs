@@ -78,7 +78,11 @@ async function run(ctx, { verify = null, env = {} } = {}) {
     childEnv.AIHQ_NATIVE_EVIDENCE_CHANNEL = channel.endpoint;
     childEnv.AIHQ_NATIVE_EVIDENCE_TOKEN = verify.token ?? channel.token;
   }
-  const child = spawn(process.execPath, [join(ctx.dir, 'recorder.mjs'), '--', process.execPath, join(ctx.dir, 'mock.mjs')],
+  // This controlled peer fixture launches the absolute entry directly so its held
+  // process remains the observed peer; native Job tests cover the relative wrapper.
+  const child = spawn(process.execPath, [join(ctx.dir, 'recorder.mjs'),
+    ...(channel && process.platform === 'win32' ? ['--aihq-native-absolute-entry'] : []),
+    '--', process.execPath, join(ctx.dir, 'mock.mjs')],
     { stdio: ['pipe', 'pipe', 'ignore'], env: childEnv, windowsHide: true });
   holder.child = child;
   child.stdin.on('error', () => {});
@@ -317,7 +321,7 @@ test('plan derivation, material integrity and the standalone Node-builtins-only 
   assert.equal(recorderId, 'aihq.stdio-recorder.v1');
   const text = material.bytes.toString('utf8');
   const specifiers = [...text.matchAll(/from '([^']+)'/g)].map(match => match[1]);
-  assert.deepEqual(specifiers.sort(), ['node:child_process', 'node:crypto', 'node:net']);
+  assert.deepEqual(specifiers.sort(), ['node:child_process', 'node:crypto', 'node:net', 'node:url']);
   assert.deepEqual(recorderCommand({ command: 'node', args: ['server.mjs'] }),
     { command: 'node', args: ['.aihq-native/recorder.mjs', '--', 'node', 'server.mjs'] });
 });

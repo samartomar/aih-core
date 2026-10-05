@@ -91,6 +91,7 @@ export function nativeStatePaths(){return {home:[],project:[]};}
 export function createNativeRuntime(){return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
 const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
+  if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};
   if(scenario==='spawn-rejected')return {outcome:'unavailable',reason:'session-launch-failed'};
   const child=spawn(process.execPath,['-e',childScript],{cwd:input.cell.project,env:input.environment,stdio:['pipe','pipe','pipe'],windowsHide:true});
   const observations={sessionId:scenario==='reused'?'controlled-session':'controlled-session-'+input.index,resumed:false,loading:'observed',restrictions:scenario==='managed'?'managed':'observed',authentication:scenario==='identity-conflict'?'conflict':'matched',discovery:{complete:true,clientTools:['attest','query'],serverList:true},instructions:{nativeSha256:[],attestations:[{markerSha256:scenario==='bad-attestation'?hash('wrong'):marker,challengeMatched:true,clientReceipt:true}],rejected:false,alternateRead:scenario==='later-read'},query:{correlated:true,challengeMatched:!scenario.startsWith('bad-challenge'),resultSha256:scenario.startsWith('bad-query')?hash('wrong'):expectedResultSha256,answerSha256:hash('leaf'),rejectedCalls:scenario==='early-query'||scenario.endsWith('-refused')},isolation:scenario==='hygiene'?'unobservable':'observed',serverPeerBound:true,counts:{observedBytes:0,telemetryEvents:1,rpcMessages:3}};
@@ -366,6 +367,15 @@ for (const interruption of ['cancel', 'budget']) {
     assert.equal(result.cleanup.files, 'removed');
   });
 }
+test('controlled failure before a client starts preserves unresolved helper cleanup', async t => {
+  const result = await controlled(t, 'pre-client-cleanup-unresolved');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.sessions.length, 0);
+  assert.equal(result.cleanup.processes, 'unresolved');
+  assert.equal(result.cleanup.files, 'retained');
+  assert.deepEqual(result.survivingProcesses, [{ pid: 65000, role: 'helper' }]);
+  assert.ok(result.stages.some(row => row.reason === 'termination-unresolved'));
+});
 test('controlled unconfirmed process cleanup retains the cell and reports opaque recovery', async t => {
   const result = await controlled(t, 'cleanup-unresolved');
   assert.equal(result.status, 'incomplete'); assert.equal(result.cleanup.processes, 'unresolved');

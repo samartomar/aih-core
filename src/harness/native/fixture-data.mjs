@@ -5,6 +5,19 @@ export { fixtureId, fixtureServerName, fixtureAttestTool, fixtureQueryTool, fixt
 const server = String.raw`import net from 'node:net';
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// Only the exact absolute-entry child opens the verification channel on Windows.
+// The configuration's relative command remains unchanged between fresh sessions.
+if (process.platform === 'win32' && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
+    process.argv[2] !== '--aihq-native-absolute-entry') {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--aihq-native-absolute-entry'],
+    { shell: false, windowsHide: true, stdio: 'inherit', env: process.env });
+  child.once('error', () => process.exit(3));
+  child.once('exit', code => process.exit(code ?? 3));
+  await new Promise(() => {});
+}
 
 const MARKER_SHA256 = 'b72afeee5e166888b49f9144f12d6ed80e11a6f835064874527c23b35da2c233';
 const ATTEST = 'aihq_attest_instruction';

@@ -57,7 +57,9 @@ export type NativeHelperFailure = { outcome: 'unsupported' | 'unavailable' | 'fa
 export interface NativeRuntime {
   nativeDefinitions: readonly NativeDefinition[];
   nativeBundledFixture(definition: NativeDefinition, input: { check: () => void }): Promise<NativeMaterial> | NativeMaterial;
-  nativeCapabilities(definition: NativeDefinition): { lifecycle: boolean; peerIdentity: boolean; credentialChannel: boolean; reason?: string };
+  nativeCapabilities(definition: NativeDefinition, input?: { deadline: number; signal?: AbortSignal }):
+    { lifecycle: boolean; peerIdentity: boolean; credentialChannel: boolean; reason?: string } |
+    Promise<{ lifecycle: boolean; peerIdentity: boolean; credentialChannel: boolean; reason?: string }>;
   nativeServerEvidenceAvailable(material: NativeMaterial): boolean;
   nativeManagedRestriction?(definition: NativeDefinition): boolean;
   resolveNativeClient(definition: NativeDefinition, input: { deadline: number; signal?: AbortSignal; acquireCell?: () => Promise<NativeCell> }): Promise<NativeClientPin | NativeHelperFailure>;

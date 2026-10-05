@@ -131,7 +131,7 @@ const ESSENTIALS = {
 };
 
 // Build the child environment from nothing. Only OS essentials and locale come from the host.
-export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir, runtimeDirs, telemetry, evidence }) {
+export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir, runtimeDirs, telemetry, evidence, configDir }) {
   const path = platform === 'win32' ? win32 : posix;
   const env = {};
   for (const name of ESSENTIALS[platform === 'win32' ? 'win32' : 'posix'])
@@ -153,7 +153,17 @@ export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir,
     OTEL_LOG_TOOL_CONTENT: '0', OTEL_LOG_RAW_API_BODIES: '0',
     AIHQ_NATIVE_EVIDENCE_CHANNEL: evidence.endpoint, AIHQ_NATIVE_EVIDENCE_TOKEN: evidence.token
   });
+  // Dedicated credential channel: Claude reads and refreshes its file credential only under this exact
+  // owned directory. The caller names it relative to HOME; nothing ambient or global is consulted.
+  if (configDir !== undefined) env.CLAUDE_CONFIG_DIR = claudeConfigDirectory(platform, homeDir, configDir);
   return env;
+}
+
+// The one accepted redirect: <home>/.claude, i.e. the parent of the definition's credential file.
+export function claudeConfigDirectory(platform, homeDir, relative) {
+  const path = platform === 'win32' ? win32 : posix;
+  if (relative !== '.claude' || !path.isAbsolute(homeDir)) throw new Error('credential-channel-unsupported');
+  return path.join(homeDir, '.claude');
 }
 
 const MANAGED_DIRECTORY = { win32: 'C:\\Program Files\\ClaudeCode', darwin: '/Library/Application Support/ClaudeCode', linux: '/etc/claude-code' };

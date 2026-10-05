@@ -84,13 +84,20 @@ export async function captureTestIdentity({ provisionedRoot, manifestSha256, exp
 }
 
 // Write the dedicated snapshot to the definition's cell-local destination. Staged once, never again.
+// Only the exact selected destination is accepted, and the staged file must read back as the captured
+// bytes: the client then owns it as disposable state and nothing is ever copied back to the source.
+export const CREDENTIAL_DESTINATION = Object.freeze({ root: 'home', path: '.claude/.credentials.json' });
+
 export function stageCredential(cell, definition, captured) {
   const destination = definition.credentialDestination;
-  if (destination.root !== 'home' || !isSafeRelativePath(destination.path)) return unavailable('authentication-channel-unsupported');
+  if (destination.root !== CREDENTIAL_DESTINATION.root || destination.path !== CREDENTIAL_DESTINATION.path ||
+      !isSafeRelativePath(destination.path) || !Buffer.isBuffer(captured?.credential)) return unavailable('authentication-channel-unsupported');
   try {
     const target = join(cell.home, ...destination.path.split('/'));
     mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
     writeFileSync(target, captured.credential, { flag: 'wx', mode: 0o600 });
+    const staged = readFileOnce(target, nativeBounds.credentialBytes);
+    if (!staged || !staged.bytes.equals(captured.credential)) return unavailable('staging-unavailable');
     return { status: 'staged' };
   } catch { return unavailable('staging-unavailable'); }
 }

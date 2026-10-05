@@ -3,6 +3,7 @@
 // is an explicit outcome and every missing observation stays unavailable.
 import { fixtureAttestTool, fixtureFiles, fixtureQueryTool, fixtureServerName } from './fixture-data.mjs';
 import { startEvidenceChannel as internalEvidenceChannel } from './evidence.mjs';
+import { isWindowsTransport } from './windows-facility.mjs';
 export { createNativeRuntime } from './adapter.mjs';
 
 export { nativeClientIds, nativeBounds, nativeStageReasons, nativeRunStageIds, nativeSessionStageIds,
@@ -13,7 +14,8 @@ export { sha256, configurationDigest, definitionIdentity, resolveBundledFixture,
 export { observeNativePlatform, selectNativeCell, matchClientVersion, parseClaudeVersionOutput } from './select.mjs';
 export { createOwnedCell, stageCellFiles, observeCellConfiguration, removeOwnedCell } from './cell.mjs';
 export { captureTestIdentity, stageCredential, validateClaudeOAuthFile } from './identity.mjs';
-export { lifecycleAvailability, startLifecycle, pinExecutable, revalidateExecutable } from './lifecycle.mjs';
+export { lifecycleAvailability, prepareLifecycleContext, startLifecycle, pinExecutable, revalidateExecutable } from './lifecycle.mjs';
+export { protectWindowsCell, validateWindowsCell } from './windows-facility.mjs';
 export { createClaudeCollector } from './collector.mjs';
 export { createClaudeStreamParser, buildClaudeEnvironment, claudePrompt, claudeSessionsAreFresh,
   observeClaudeManagedSettings } from './claude.mjs';
@@ -21,9 +23,11 @@ export { evaluateServerEvidence } from './evidence.mjs';
 export { evaluateClaudeSession } from './session.mjs';
 export { recorderId, recorderMaterial, recorderPlan, recorderCommand } from './recorder.mjs';
 
-// The public channel always uses the OS peer-identity facility. Node has none, so an authenticated
-// stream is never accepted here and server evidence stays unavailable: no caller can substitute one.
-export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null }) => internalEvidenceChannel({ directory, isOwnedServer, plan });
+// Transport ownership stays inside the fixed installed adapter and platform facility.
+export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null, transport }) => {
+  if (transport !== undefined && !isWindowsTransport(transport)) throw new Error('channel-protection-unavailable');
+  return internalEvidenceChannel({ directory, isOwnedServer, plan, transport });
+};
 
 export const claudeDeniedBuiltins = Object.freeze([...JSON.parse(fixtureFiles.guardrails.text).permissions.deny]);
 

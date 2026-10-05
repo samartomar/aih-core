@@ -137,7 +137,14 @@ export function captureNativeHelpers(check: () => void): NativeHelperPin {
   try { names = readdirSync(directory).filter(name => name.endsWith('.mjs')).sort(codeUnitCompare); }
   catch { throw new NativeStop('configuration-unavailable'); }
   if (!names.includes('runtime.mjs') || names.length > 32) throw new NativeStop('configuration-unavailable');
-  const paths = [join(installedRoot, 'package.json'), ...names.map(name => join(directory, name))].map(path => ({ path, sha256: sha256(nativeReadPinned(path, 8 * 1024 * 1024, check)) }));
+  const windowsNames = ['build-record.json', 'facility.cs', 'facility.exe'];
+  try {
+    const observed = readdirSync(join(directory, 'windows')).sort(codeUnitCompare);
+    if (canonicalJson(observed) !== canonicalJson(windowsNames)) throw new NativeStop('configuration-unavailable');
+  } catch { throw new NativeStop('configuration-unavailable'); }
+  const paths = [join(installedRoot, 'package.json'), ...names.map(name => join(directory, name)),
+    ...windowsNames.map(name => join(directory, 'windows', name))]
+    .map(path => ({ path, sha256: sha256(nativeReadPinned(path, 8 * 1024 * 1024, check)) }));
   return { paths, sha256: sha256(canonicalJson(paths.map(({ path, sha256 }) => ({ name: path === join(installedRoot, 'package.json') ? 'package.json' : path.slice(directory.length), sha256 })))) };
 }
 export function revalidateNativeHelpers(pin: NativeHelperPin, check: () => void): boolean {

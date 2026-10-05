@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
 async function session(t, { query = 'answered', receipt = false, realParser = false } = {}) {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
+  const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
+  for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const controller = new AbortController();
   const telemetry = { outcome: 'unavailable', reason: 'authentication-unavailable',
     counts: { events: 0, matched: 0 }, bytes: 0 };
@@ -18,7 +25,25 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     builtinTools: [], unselectedTools: 0, unselectedToolUses: [], attestationReturned: true,
     answerReturned: receipt, answerSha256: receipt ? installed.sha256('leaf') : null };
   const evidence = { peer: 'authenticated', violation: null, frames: [], bytes: 0 };
+  const processHandle = { pid: 1234, stdin: new PassThrough(), stdout, stderr: new PassThrough(),
+    exited, terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; } };
+  // The adapter now creates the lifecycle context before any client and starts the client through it.
+  const lifecycleContext = {
+    createPipe: async () => ({ status: 'ready', transport: { endpoint: 'controlled-pipe', close: async () => {} } }),
+    start: async () => ({ status: 'started', handle: processHandle }),
+    terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; }
+  };
+  // A selected entry whose exact absolute module path is the running Node image, so the adapter's
+  // selected-entry resolution accepts this controlled context.
+  const serverBytes = Buffer.from('x');
+  const member = { path: 'server.mjs', sha256: installed.sha256(serverBytes), byteLength: 1 };
+  writeFileSync(join(cell.project, 'server.mjs'), serverBytes);
+  const configurationBytes = Buffer.from(JSON.stringify({ mcpServers: { controlled: { command: 'node', args: ['server.mjs'] } } }));
+  const configurationMember = { path: 'mcp.json', sha256: installed.sha256(configurationBytes), byteLength: configurationBytes.length };
+  writeFileSync(join(cell.project, '.mcp.json'), configurationBytes);
+  const nodeSha256 = installed.sha256(readFileSync(process.execPath));
   const module = { ...installed,
+    lifecycleAvailability: async () => ({ status: 'available' }),
     observeClaudeManagedSettings: () => ({ outcome: 'clear' }),
     createClaudeCollector: () => ({ start: async () => ({ endpoint: 'controlled', token: 'controlled' }),
       bindSession() {}, snapshot: () => telemetry, drain: async () => telemetry, cancel: async () => {} }),
@@ -29,22 +54,22 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     evaluateServerEvidence: () => ({ initialize: true, discovery: 'complete', attestation: 'missing',
       ambiguousBeforeAttestation: false, query, queryResultSha256: query === 'result-mismatch' ? 'b'.repeat(64) : 'c'.repeat(64),
       rejectedQueryCalls: 0, unrequestedCalls: 0 }),
-    startLifecycle: async () => ({ status: 'started', handle: { pid: 1234,
-      stdin: new PassThrough(), stdout, stderr: new PassThrough(),
-      exited, terminate: async () => { terminationCount++;
-        return { processes: 'confirmed', survivors: [] }; } } }) };
-  const runtime = installed.createNativeRuntime(module, { readPinned() { throw Error('unused'); },
+    prepareLifecycleContext: async () => ({ status: 'ready', context: lifecycleContext }) };
+  const runtime = installed.createNativeRuntime(module, { readPinned(path) { return readFileSync(path); },
     Stop: class extends Error { constructor(reason) { super(reason); this.reason = reason; } } });
   runtime.nativeCapabilities = () => ({ lifecycle: true, peerIdentity: true, credentialChannel: true });
   runtime.nativeServerEvidenceAvailable = () => true;
   const definition = { client: 'claude', parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
-    platform: { os: 'linux' }, lifecycleId: 'controlled', sessionArgv: [] };
+    platform: { os: 'win32' }, lifecycleId: 'windows-job.v1', sessionArgv: [],
+    credentialDestination: { root: 'home', path: '.claude/.credentials.json' } };
   const handle = await runtime.startNativeSession({ definition, index: 1, signal: controller.signal,
     deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {},
-    pin: { executable: process.execPath, runtime: [] }, identity: { expected: {} },
-    cell: { observations: 'controlled', home: 'controlled', scratch: 'controlled', project: 'controlled' },
+    pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] }, identity: { expected: {} },
+    cell,
     material: { server: { name: 'controlled', evidenceAdapterId: 'controlled', toolNames: ['attest', 'query'],
-      queryTool: 'query', expectedAnswer: 'leaf', expectedResultSha256: 'c'.repeat(64) },
+      queryTool: 'query', expectedAnswer: 'leaf', expectedResultSha256: 'c'.repeat(64), runtime: [member] },
+      outputTree: [{ root: 'project', path: 'server.mjs', member }, { root: 'project', path: '.mcp.json', member: configurationMember }],
+      bytes: new Map([['mcp.json', configurationBytes]]),
       instructions: [{ evidence: 'marker', markerSha256: 'd'.repeat(64) }] } });
   assert.equal(typeof handle.snapshot, 'function');
   t.after(async () => { controller.abort(); await handle.observations;

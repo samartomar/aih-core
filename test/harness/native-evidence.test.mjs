@@ -31,7 +31,10 @@ const peerFor = child => ({
 });
 
 async function session({ dir, channel, token, env = {} }) {
-  const child = spawn(process.execPath, [join(dir, 'server.mjs')], {
+  // Controlled peers retain their directly held PID. The real Job tests exercise
+  // the unchanged relative configuration and its absolute-entry child separately.
+  const child = spawn(process.execPath, [join(dir, 'server.mjs'),
+    ...(process.platform === 'win32' ? ['--aihq-native-absolute-entry'] : [])], {
     stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
     env: { ...process.env, AIHQ_NATIVE_EVIDENCE_CHANNEL: channel.endpoint,
       AIHQ_NATIVE_EVIDENCE_TOKEN: token ?? channel.token, ...env } });

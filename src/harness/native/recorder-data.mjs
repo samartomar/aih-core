@@ -11,6 +11,18 @@ export const recorderMemberPath = 'package/harness/native/recorder/recorder.mjs'
 export const recorderSource = String.raw`import net from 'node:net';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+if (process.platform === 'win32' && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
+    process.argv[2] !== '--aihq-native-absolute-entry') {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--aihq-native-absolute-entry', ...process.argv.slice(2)],
+    { shell: false, windowsHide: true, stdio: 'inherit', env: process.env });
+  child.once('error', () => process.exit(6));
+  child.once('exit', code => process.exit(code ?? 6));
+  await new Promise(() => {});
+}
+// The fixed private launch marker is not an upstream command argument.
+if (process.platform === 'win32' && process.argv[2] === '--aihq-native-absolute-entry') process.argv.splice(2, 1);
 
 const CHANNEL_ENV = 'AIHQ_NATIVE_EVIDENCE_CHANNEL';
 const TOKEN_ENV = 'AIHQ_NATIVE_EVIDENCE_TOKEN';
