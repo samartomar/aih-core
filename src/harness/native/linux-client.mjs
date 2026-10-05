@@ -87,11 +87,11 @@ export async function resolveLinuxNativeClient({ definition, input, client, cell
     }, 50);
     handle.stdin.end();
     const exit = await Promise.race([handle.exited, stopPromise]);
-    const proof = context.versionProbeReady();
     const receipt = await terminate();
+    const proof = context.versionProbeReady();
     if (!receipt.confirmed) return { ...fail('termination-unresolved'), cleanup: receipt, cleanupStartedAt: startedAt, probeBytes: bytes };
     if (stopped) return failed(stopped);
-    if (!proof) return failed('isolation-unobserved');
+    if (!proof) return failed(context.failureReason ?? 'isolation-unobserved');
     const version = exit?.code === 0 ? parseClaudeVersionOutput(output) : null;
     if (!version) return failed('version-unreadable');
     return { status: 'resolved', platform, vendor, runtime, pin: {

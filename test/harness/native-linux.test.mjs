@@ -10,6 +10,8 @@ import { createInterface } from 'node:readline';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { linuxAvailability, prepareLinuxContext, isLinuxTransport } from '../../src/harness/native/linux-facility.mjs';
+import { evaluateLinuxIsolation, inspectLinuxArguments, isolationProbeNames } from '../../src/harness/native/linux-isolation.mjs';
+import { createLinuxProbeSession } from '../../src/harness/native/linux-sandbox.mjs';
 
 const LINUX = process.platform === 'linux' && process.arch === 'x64';
 const native = { skip: LINUX ? false : 'Linux x64 OS mechanism only', timeout: 40_000 };
@@ -215,6 +217,68 @@ test('generic inspection cannot erase a known unaudited lifetime at finalization
   assert.equal((await c.inspect(row)).status, 'observed'); await bounded(started.handle.exited);
   const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000 });
   assert.equal(receipt.processes, 'confirmed'); assert.equal(receipt.auditCoverage, false);
+});
+
+test('post-client drain retains a detached helper exec and audits it before final coverage', native, async t => {
+  const bash = realpathSync.native('/bin/bash');
+  for (const leak of [true, false]) {
+    const token = createHash('sha256').update(`controlled-post-client-${leak}`).digest('hex');
+    const f = fixture(t, `import {spawn} from 'node:child_process';
+      import {createInterface} from 'node:readline';
+      const child=spawn(process.env.BASH,['-c',
+        'end=$((SECONDS+20)); while [[ ! -e "$RELEASE" ]] && ((SECONDS<end)); do :; done; exec "$BASH" -c "end=$((SECONDS+20)); while ((SECONDS<end)); do :; done" "$LATE_ARG"'],
+        {detached:true,stdio:'ignore',env:process.env});
+      child.unref();console.log(child.pid);
+      const lines=createInterface({input:process.stdin});
+      for await(const text of lines){if(text==='exit')process.exit(0);}`);
+    const release = join(f.directory, 'release');
+    const c = await context(t, f, [], { runtimePins: [f.nodePin, f.modulePin, pin(bash)] });
+    const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory,
+      env: env({ BASH: bash, RELEASE: release, LATE_ARG: leak ? token : 'controlled-clean' }) });
+    assert.equal(started.status, 'started');
+    const helper = Number(await bounded(line(started.handle.stdout))); assert.ok(helper > 0);
+    // ACK every initial generation, then let the client/root exit. The helper is owned
+    // by the subreaper and has not yet exec'd its late argv; no watchdog runs in drain.
+    const initial = await c.auditInventory(); assert.equal(initial.status, 'observed');
+    for (const row of initial.snapshots) {
+      const observed = await c.inspectAudit(row); assert.equal(observed.status, 'observed');
+      assert.equal(inspectLinuxArguments(observed.argv, [token]).clean, true);
+      assert.equal((await c.acknowledgeAudit(row)).ok, true);
+    }
+    started.handle.stdin.write('exit\n'); await bounded(started.handle.exited);
+    assert.equal(alive(helper), true);
+    writeFileSync(release, 'release', { mode: 0o600 });
+    await new Promise(resolve => setTimeout(resolve, 200));
+    let lateArg, finalClean = true, audited = false;
+    const session = createLinuxProbeSession({ inspectArguments: async () => {
+      audited = true;
+      const final = await c.auditInventory(); assert.equal(final.status, 'observed');
+      assert.equal(final.coverageGap, false); assert.equal(final.fresh, true);
+      for (const row of final.snapshots) {
+        const observed = await c.inspectAudit(row); assert.equal(observed.status, 'observed');
+        if (row.pid === helper && observed.argv.at(-1) === (leak ? token : 'controlled-clean')) lateArg = observed.argv.at(-1);
+        if (inspectLinuxArguments(observed.argv, [token]).clean !== true) finalClean = false;
+        assert.equal((await c.acknowledgeAudit(row)).ok, true);
+      }
+      return finalClean;
+    } });
+    // Controlled prior transcript proof, not a claim of real peer or client admission.
+    // The final classifier above uses actual kernel-retained helper argv and ACKs.
+    Object.assign(session.proof, { authenticated: true, clientBound: true, serverBound: true,
+      profileCompared: true, namespaceSeparated: true, argumentsClean: true,
+      probes: Object.fromEntries(isolationProbeNames.map(name => [name, true])) });
+    session.state.ended = true;
+    const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000,
+      audit: () => session.auditArguments({ final: true }) });
+    assert.equal(audited, true, 'termination must run the final classifier');
+    assert.equal(lateArg, leak ? token : 'controlled-clean');
+    assert.equal(finalClean, !leak);
+    assert.equal(evaluateLinuxIsolation(session.proof), leak ? 'violated' : 'observed');
+    assert.equal(session.versionProbeReady(receipt.auditCoverage), !leak);
+    assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+    assert.equal(receipt.auditCoverage, true, JSON.stringify(receipt));
+    assert.ok(receipt.elapsedMs <= 10000); assert.equal(alive(helper), false);
+  }
 });
 
 test('immediate same-image forks from an owned descendant retain actual argv generations', native, async t => {
@@ -696,4 +760,19 @@ test('a raw NUL escape byte on the wire is rejected as malformed input', native,
   const malformed = await bounded(run(Buffer.concat([Buffer.from('{"id":1,"op":"probe\\'), Buffer.from([0]), Buffer.from('"}\n')])));
   assert.equal(malformed.code, 125);
   assert.equal(malformed.replies.length, 0);
+});
+
+test('a faulted facility never reports complete argv coverage even without owned processes', native, async () => {
+  const result = await bounded(new Promise((resolve, reject) => {
+    const helper = spawn(facility, [], { env: { LANG: 'C', LC_ALL: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = '';
+    helper.stdout.on('data', chunk => { output += chunk.toString(); });
+    helper.once('error', reject);
+    helper.once('close', code => resolve({ code, messages: output.split('\n').filter(Boolean).map(JSON.parse) }));
+    helper.stdin.end('{"id":1,"op":"probe","unexpected":true}\n{"id":2,"op":"terminate","graceMs":0,"deadlineMs":1000}\n');
+  }));
+  assert.equal(result.code, 125);
+  const receipt = result.messages.find(message => message.id === 2)?.result;
+  assert.equal(receipt?.processes, 'unresolved');
+  assert.equal(receipt.auditCoverage, false);
 });

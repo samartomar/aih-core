@@ -144,7 +144,7 @@ static char directory[PATH_MAX];static uint64_t output_bytes,ipc_bytes;static in
  * transient. Capture precedes hashing; a generation requires explicit audit ACK.
  * Kernel child/exec stops precede userspace execution; arbitrary in-place argv
  * mutations between samples remain outside this observation contract. */
-typedef struct { struct stat image; char digest[65]; dev_t nsdev[4]; ino_t nsino[4]; int captured,acknowledged,unobservable; } AuditState;
+typedef struct { struct stat image,retry_image; char digest[65]; dev_t nsdev[4]; ino_t nsino[4]; int captured,acknowledged,unobservable,retry_pending,exiting; } AuditState;
 typedef struct { Proc identity; struct stat image; int fd,generation,argc,inspected; size_t bytes; char path[PATH_MAX],argv[65536]; } Audit;
 typedef struct { int fd; struct stat image; char hash[65]; } ImageCache;
 static Audit *audits[MAX_AUDIT];static int audit_generation,coverage_gap;
@@ -168,14 +168,16 @@ static int image_hash(int fd,char hash[65]) {
   if(image_cache_count<MAX_IMAGE_CACHE){int copy=fcntl(fd,F_DUPFD_CLOEXEC,3);if(copy>=0){ImageCache *c=&image_cache[image_cache_count++];c->fd=copy;c->image=after;strcpy(c->hash,hash);}}
   return 1;
 }
-static int read_small(const char *path,char *s,size_t max) {int fd=open(path,O_RDONLY|O_CLOEXEC);if(fd<0)return -1;ssize_t n=read(fd,s,max);close(fd);if(n<0||(size_t)n>=max)return -1;s[n]=0;return (int)n;}
+static int read_small(const char *path,char *s,size_t max) {int fd=open(path,O_RDONLY|O_CLOEXEC);if(fd<0)return -1;ssize_t n;do{n=read(fd,s,max);}while(n<0&&errno==EINTR);int error=errno;close(fd);if(n<0){errno=error;return -1;}if((size_t)n>=max){errno=E2BIG;return -1;}s[n]=0;return (int)n;}
+/* -1 preserves a failed syscall's errno; -2 identifies incomplete/malformed
+ * records, so no real errno (including EPROTO) is mistaken for an exit race. */
 static int process(pid_t pid,Proc *p) {
   char name[80],buf[65536];int ignored=snprintf(name,sizeof(name),"/proc/%d/stat",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
-  char *q=strrchr(buf,')');if(!q||q[1]!=' ')return -1;q+=2;char *save,*v=strtok_r(q," ",&save);uint64_t birth=0;pid_t pp=0;char state=0;
-  for(int fieldno=3;v;fieldno++,v=strtok_r(NULL," ",&save)){if(fieldno==3)state=*v;else if(fieldno==4)pp=(pid_t)strtol(v,NULL,10);else if(fieldno==22){char *end;errno=0;birth=strtoull(v,&end,10);if(errno||*end)return -1;break;}}
-  if(!birth){return -1;}ignored=snprintf(name,sizeof(name),"/proc/%d/status",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
-  char *u=strstr(buf,"\nUid:");if(!u)return -1;unsigned uid;if(sscanf(u,"\nUid:\t%u",&uid)!=1)return -1;
-  pid_t ns=pid;char *n=strstr(buf,"\nNSpid:");if(!n)return -1;n+=7;while(*n&&*n!='\n'){while(*n==' '||*n=='\t')n++;if(*n=='\n'||!*n)break;char *end;long id=strtol(n,&end,10);if(end==n||id<=0||id>INT_MAX)return -1;ns=(pid_t)id;n=end;}
+  char *q=strrchr(buf,')');if(!q||q[1]!=' '){errno=0;return -2;}q+=2;char *save,*v=strtok_r(q," ",&save);uint64_t birth=0;pid_t pp=0;char state=0;
+  for(int fieldno=3;v;fieldno++,v=strtok_r(NULL," ",&save)){if(fieldno==3)state=*v;else if(fieldno==4)pp=(pid_t)strtol(v,NULL,10);else if(fieldno==22){char *end;errno=0;birth=strtoull(v,&end,10);if(errno||*end){errno=0;return -2;}break;}}
+  if(!birth){errno=0;return -2;}ignored=snprintf(name,sizeof(name),"/proc/%d/status",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
+  char *u=strstr(buf,"\nUid:");if(!u){errno=0;return -2;}unsigned uid;if(sscanf(u,"\nUid:\t%u",&uid)!=1){errno=0;return -2;}
+  pid_t ns=pid;char *n=strstr(buf,"\nNSpid:");if(!n){errno=0;return -2;}n+=7;while(*n&&*n!='\n'){while(*n==' '||*n=='\t')n++;if(*n=='\n'||!*n)break;char *end;long id=strtol(n,&end,10);if(end==n||id<=0||id>INT_MAX){errno=0;return -2;}ns=(pid_t)id;n=end;}
   struct stat st[4];
   for(int i=0;i<4;i++){ignored=snprintf(name,sizeof(name),"/proc/%d/ns/%s",pid,namespace_files[i]);(void)ignored;if(stat(name,&st[i]))return -1;}
   *p=(Proc){.pid=pid,.ppid=pp,.birth=birth,.uid=(uid_t)uid,.nsdev=st[0].st_dev,.nsino=st[0].st_ino,.nspid=ns,.fd=-1,.live=1,.fresh=1,.state=state};
@@ -235,16 +237,20 @@ static int scan(void) {
     if(rc>0&&(status.revents&POLLIN)){owned[i].live=0;continue;}
     if(rc){faulted=1;continue;}
     Proc p;
-    int missing=process(owned[i].pid,&p);
+    int missing=process(owned[i].pid,&p),error=errno;
     if(missing||p.birth!=owned[i].birth){
+      /* Denials and non-race errors are gaps even if death follows. Only
+       * missing /proc records may await the held pidfd's death receipt. */
+      if(!missing||(missing!=-2&&error!=ESRCH&&error!=ENOENT))coverage_gap=1;
+      AuditState *state=owned[i].audit_state;
+      if(state){state->unobservable=1;if(state->retry_pending<2)state->retry_pending=1;}
       status.revents=0;
-      rc=poll(&status,1,0);
+      do{rc=poll(&status,1,0);}while(rc<0&&errno==EINTR);
       if(rc>0&&(status.revents&POLLIN))owned[i].live=0;
-      else if(rc<0||rc>0||!missing)faulted=1;
-      else owned[i].fresh=0;
-      /* Namespace files disappear before pidfd death notification during exit.
-       * Keep the kernel-held identity signalable, but never report stale namespaces.
-       * Final success still requires waitpid(ECHILD), never a missing /proc entry. */
+      else if(rc<0||rc>0||!missing){coverage_gap=1;faulted=1;}
+      else {owned[i].fresh=0;if(missing==-2)coverage_gap=1;}
+      /* Namespace files may vanish before pidfd notification. A later live
+       * retry needs a confirmed exec receipt; success alone cannot erase loss. */
       continue;
     }
     int fd=owned[i].fd;void *audit=owned[i].audit_state;owned[i]=p;owned[i].fd=fd;owned[i].audit_state=audit;capture_audit(&owned[i],0);
@@ -262,8 +268,18 @@ static int trace_slot(pid_t tid) {
 static int trace_leader(pid_t tid,pid_t *leader) {
   char path[80],buf[65536];int ignored=snprintf(path,sizeof(path),"/proc/%d/status",tid);(void)ignored;
   if(read_small(path,buf,sizeof(buf)-1)<0)return 0;
-  char *line=strstr(buf,"\nTgid:");long id=0;if(!line||sscanf(line,"\nTgid:\t%ld",&id)!=1||id<1||id>INT_MAX)return 0;
+  char *line=strstr(buf,"\nTgid:");long id=0;if(!line||sscanf(line,"\nTgid:\t%ld",&id)!=1||id<1||id>INT_MAX){errno=0;return 0;}
   *leader=(pid_t)id;return 1;
+}
+/* An authorized EXIT stop explains teardown reads, but does not prove death.
+ * Only an already captured live birth can defer them to its terminal wait/pidfd.
+ * A known uncaptured replacement must never inherit that captured generation. */
+static int exit_capture_pending(pid_t tid) {
+  for(int i=0;i<nowned;i++)if(owned[i].pid==tid&&owned[i].live){
+    AuditState *s=owned[i].audit_state;
+    return s&&s->captured&&s->exiting&&s->retry_pending<2;
+  }
+  return 0;
 }
 static void trace_resume(int slot);
 static void trace_kill(pid_t tid) {
@@ -320,22 +336,30 @@ static void trace_resume(int slot) {
     }
   }
   if(!faulted&&(t->initial||eventno==PTRACE_EVENT_EXEC||eventno==PTRACE_EVENT_EXIT)){
+    if(eventno==PTRACE_EVENT_EXIT&&!t->initial)for(int i=0;i<nowned;i++)if(owned[i].pid==tid&&owned[i].live){
+      AuditState *s=owned[i].audit_state;if(s&&s->captured)s->exiting=1;
+    }
     pid_t leader=0;
-    if(!trace_leader(tid,&leader)){coverage_gap=1;if(!stopped)faulted=1;goto resume;}
+    if(!trace_leader(tid,&leader)){
+      int error=errno;
+      if((error==ESRCH||error==ENOENT)&&exit_capture_pending(tid))goto resume;
+      coverage_gap=1;if(!stopped)faulted=1;goto resume;
+    }
     if(leader==tid){
       Proc p;
-      int missing=process(tid,&p),adopted=missing?0:adopt(&p,1);
+      int missing=process(tid,&p),error=errno,adopted=missing?0:adopt(&p,1);
       if(missing||adopted){
+        if(missing==-1&&!adopted&&(error==ESRCH||error==ENOENT)&&exit_capture_pending(tid))goto resume;
         /* Capture may fail while termination tears down /proc identities.
          * Do not strand the exit stop or equate missing reads with failed
          * closure. Resource/ownership faults from adopt() remain faults. */
         coverage_gap=1;if(adopted||!stopped){faulted=1;trace_kill(tid);}goto resume;
       }
       int h=held(p.pid,p.birth);AuditState *s=h<0?NULL:owned[h].audit_state;
-      /* adopt() reads argv twice and retains the actual held-image generation.
-       * A failed read permanently denies a clean proof, including at capacity;
-       * release permits lifecycle cleanup, never an inferred argv receipt. */
-      if(!s||!s->captured||s->unobservable){coverage_gap=1;}
+      /* Missing first captures and genuine read/capacity failures deny coverage.
+       * Teardown of an already captured birth may await terminal death; release
+       * permits cleanup, never an inferred or replacement argv receipt. */
+      if(!s||!s->captured||(s->unobservable&&!exit_capture_pending(tid))){coverage_gap=1;}
     }
   }
 resume:;
@@ -439,7 +463,10 @@ static void accept_peer(Pipe *pipe) {
     Proc proc;if(process(p->cred.pid,&proc)){close(fd);continue;}p->processfd=pid_open(p->cred.pid);Proc again;if(p->processfd<0||process(p->cred.pid,&again)||again.birth!=proc.birth){close(fd);close_fd(&p->processfd);continue;}p->fd=fd;p->id=++next_peer;p->pipe_id=pipe->id;p->birth=proc.birth;p->bytes=0;char buf[80];int ignored=snprintf(buf,sizeof(buf),"{\"id\":%d,\"pipeId\":%d}",p->id,pipe->id);(void)ignored;event("connect",buf);
   }
 }
-static int cmdline(pid_t pid,char *buf,size_t max,char **args,int *argc) {char name[80];int ignored=snprintf(name,sizeof(name),"/proc/%d/cmdline",pid);(void)ignored;int n=read_small(name,buf,max);if(n<1||buf[n-1]!=0)return 0;int k=0;for(int i=0;i<n;){if(k>=MAX_OBS_ARG)return 0;args[k++]=buf+i;i+=(int)strlen(buf+i)+1;}*argc=k;return 1;}
+/* argc=-1 distinguishes actual EOF from a nonempty malformed/truncated read.
+ * Both fail inspection; only EOF at an authenticated EXIT stop may await death. */
+static int cmdline(pid_t pid,char *buf,size_t max,char **args,int *argc) {char name[80];int ignored=snprintf(name,sizeof(name),"/proc/%d/cmdline",pid);(void)ignored;int n=read_small(name,buf,max);if(n<0)return 0;if(n<1||buf[n-1]!=0){*argc=n?0:-1;errno=0;return 0;}int k=0;for(int i=0;i<n;){if(k>=MAX_OBS_ARG){errno=E2BIG;return 0;}args[k++]=buf+i;i+=(int)strlen(buf+i)+1;}*argc=k;return 1;}
+
 static void namespace_fields(Build *b,const Proc *p) {
   add(b,"{");for(int i=0;i<4;i++){if(i)add(b,",");quote(b,namespace_names[i]);add(b,":\"");integer(b,(uint64_t)p->nsdevs[i]);add(b,":");integer(b,(uint64_t)p->nsinos[i]);add(b,"\"");}add(b,"}");
 }
@@ -453,49 +480,166 @@ static void host_result(long id,const char *status) {
 static void audit_free(int slot) {if(audits[slot]){close_fd(&audits[slot]->fd);memset(audits[slot]->argv,0,sizeof(audits[slot]->argv));free(audits[slot]);audits[slot]=NULL;}}
 static int audit_pending(const Proc *p) {for(int i=0;i<MAX_AUDIT;i++)if(audits[i]&&audits[i]->identity.pid==p->pid&&audits[i]->identity.birth==p->birth)return 1;return 0;}
 static void discard_audits(Proc *p) {
-  AuditState *state=p->audit_state;if(!state||!state->acknowledged||audit_pending(p))coverage_gap=1;
+  AuditState *state=p->audit_state;if(!state||!state->acknowledged||state->retry_pending>=2||audit_pending(p))coverage_gap=1;
   for(int i=0;i<MAX_AUDIT;i++)if(audits[i]&&audits[i]->identity.pid==p->pid&&audits[i]->identity.birth==p->birth)audit_free(i);
   free(state);p->audit_state=NULL;
+}
+/* Only POLLIN on the held pidfd proves exit. EINTR is retried, never confused
+ * with a process race; malformed/error readiness is a permanent coverage loss. */
+static int audit_dead(const Proc *p) {
+  struct pollfd status={p->fd,POLLIN,0};int rc;
+  do{rc=poll(&status,1,0);}while(rc<0&&errno==EINTR);
+  if(rc>0&&(status.revents&POLLIN))return 1;
+  if(rc){coverage_gap=1;return -1;}
+  return 0;
+}
+/* /proc stat reports start/end code 0 only without an mm or before a new exec
+ * image publishes them; a denied view reports 1. Read errors never qualify. */
+static int exec_mm_unpublished(pid_t pid) {
+  char name[80],buf[65536];int ignored=snprintf(name,sizeof(name),"/proc/%d/stat",pid);(void)ignored;
+  if(read_small(name,buf,sizeof(buf)-1)<0)return 0;
+  char *q=strrchr(buf,')');if(!q||q[1]!=' ')return 0;q+=2;char *save,*v=strtok_r(q," ",&save);int zero=0;
+  for(int fieldno=3;v;fieldno++,v=strtok_r(NULL," ",&save))if(fieldno==26||fieldno==27){
+    if(strcmp(v,"0"))return 0;
+    if(++zero==2)return 1;
+  }
+  return 0;
+}
+static int audit_exec_stop(pid_t pid) {
+  for(int i=0;i<MAX_TRACE;i++)if(traces[i].tid==pid&&traces[i].authorized&&traces[i].waiting&&
+    ((unsigned)traces[i].status>>16)==PTRACE_EVENT_EXEC)return 1;
+  return 0;
 }
 static int capture_audit(Proc *p,int force) {
   if(!p->live||!p->fresh)return 0;
   AuditState *state=p->audit_state;
   if(!state){state=calloc(1,sizeof(*state));if(!state){coverage_gap=1;return 0;}p->audit_state=state;}
-  if(operation&&now_ms()>=operation){state->unobservable=1;return 0;}
+  if(operation&&now_ms()>=operation){state->unobservable=1;coverage_gap=1;return 0;}
   int slot=-1;for(int i=0;i<MAX_AUDIT;i++)if(!audits[i]){slot=i;break;}
   if(slot<0){state->unobservable=1;coverage_gap=1;return 0;}
   Audit *a=calloc(1,sizeof(*a));if(!a){state->unobservable=1;coverage_gap=1;return 0;}a->fd=-1;
-  Proc before,after;struct stat current;struct pollfd status={p->fd,POLLIN,0};char name[80],verify[65536],*args[MAX_OBS_ARG];int argc=0;
-  if(poll(&status,1,0)||process(p->pid,&before)||before.birth!=p->birth||!same_namespaces(&before,p))goto unavailable;
+  Proc before,after;struct stat current;char name[80],verify[65536],*args[MAX_OBS_ARG];int argc=0,teardown=0,exec_window=0,dead=audit_dead(p);
+  if(dead)goto unavailable;
+  int result=process(p->pid,&before);if(result==-2)goto inconsistent;if(result)goto read_failed;
+  if(before.birth!=p->birth)goto permanent;
+  /* A live namespace transition (e.g. unshare) only discards this sample: no
+   * argv was lost, and positive coverage needs a consistent later capture. */
+  if(!same_namespaces(&before,p))goto unavailable;
   int ignored=snprintf(name,sizeof(name),"/proc/%d/exe",p->pid);(void)ignored;
-  ssize_t length=readlink(name,a->path,sizeof(a->path)-1);if(length<1||length>=(ssize_t)sizeof(a->path)-1)goto unavailable;a->path[length]=0;
-  a->fd=open(name,O_RDONLY|O_CLOEXEC);if(a->fd<0||fstat(a->fd,&a->image)||!S_ISREG(a->image.st_mode)||a->image.st_size>268435456)goto unavailable;
-  if(!cmdline(p->pid,a->argv,65535,args,&a->argc))goto unavailable;
+  ssize_t length=readlink(name,a->path,sizeof(a->path)-1);if(length<0)goto read_failed;
+  if(length<1)goto inconsistent;
+  if(length>=(ssize_t)sizeof(a->path)-1){goto permanent;}a->path[length]=0;
+  a->fd=open(name,O_RDONLY|O_CLOEXEC);if(a->fd<0||fstat(a->fd,&a->image))goto read_failed;
+  if(!S_ISREG(a->image.st_mode)||a->image.st_size<0||a->image.st_size>268435456)goto permanent;
+  if(state->captured&&state->image.st_dev==a->image.st_dev&&state->image.st_ino==a->image.st_ino&&
+    !image_same(&state->image,&a->image))goto permanent;
+  if(state->captured&&state->retry_pending!=2&&
+    (state->image.st_dev!=a->image.st_dev||state->image.st_ino!=a->image.st_ino)){
+    state->retry_image=a->image;state->retry_pending=2;
+  }
+  if(!cmdline(p->pid,a->argv,65535,args,&a->argc)){if(!errno){teardown=a->argc<0;exec_window=teardown;goto inconsistent;}goto read_failed;}
   a->bytes=0;for(int i=0;i<a->argc;i++)a->bytes+=strlen(args[i])+1;
-  if(!cmdline(p->pid,verify,65535,args,&argc)||argc!=a->argc||memcmp(verify,a->argv,a->bytes))goto unavailable;
-  if(stat(name,&current)||!image_same(&current,&a->image)||fstat(a->fd,&current)||!image_same(&current,&a->image)||
-    process(p->pid,&after)||after.birth!=before.birth||!same_namespaces(&before,&after))goto unavailable;
-  status.revents=0;if(poll(&status,1,0))goto unavailable;
-  if(operation&&now_ms()>=operation)goto unavailable;
+  if(!cmdline(p->pid,verify,65535,args,&argc)){
+    int error=errno;
+    Sha partial;char digest[65];sha_init(&partial);sha_add(&partial,(unsigned char *)a->argv,a->bytes);
+    sha_add(&partial,(unsigned char *)a->path,strlen(a->path));sha_finish(&partial,digest);
+    /* A complete first read of new argv cannot borrow an older ACK when the
+     * second read disappears, even if this same birth then confirms exit. */
+    if(state->captured&&strcmp(state->digest,digest))goto permanent;
+    errno=error;
+    if(!error){teardown=argc<0;goto inconsistent;}
+    goto read_failed;
+  }
+  if(argc!=a->argc||memcmp(verify,a->argv,a->bytes))goto inconsistent;
+  if(fstat(a->fd,&current))goto read_failed;
+  /* A changed held inode is never an exec race. */
+  if(!image_same(&current,&a->image))goto permanent;
+  if(stat(name,&current))goto read_failed;
+  if(!image_same(&current,&a->image)){
+    if(current.st_dev!=a->image.st_dev||current.st_ino!=a->image.st_ino){
+      state->retry_image=current;
+      if(fstat(a->fd,&current))goto read_failed;
+      if(!image_same(&current,&a->image))goto permanent;
+      goto exec_changed;
+    }
+    goto permanent;
+  }
+  result=process(p->pid,&after);if(result==-2)goto inconsistent;if(result)goto read_failed;
+  if(after.birth!=before.birth)goto permanent;
+  if(!same_namespaces(&before,&after))goto unavailable;
+  dead=audit_dead(p);if(dead)goto unavailable;
+  if(operation&&now_ms()>=operation)goto permanent;
   Sha fingerprint;char digest[65];sha_init(&fingerprint);sha_add(&fingerprint,(unsigned char *)a->argv,a->bytes);sha_add(&fingerprint,(unsigned char *)a->path,strlen(a->path));sha_finish(&fingerprint,digest);
   int same=state->captured&&image_same(&state->image,&a->image)&&!strcmp(state->digest,digest);
+  if(state->captured&&state->image.st_dev==a->image.st_dev&&state->image.st_ino==a->image.st_ino&&
+    !image_same(&state->image,&a->image))coverage_gap=1;
   for(int i=0;i<4;i++)if(state->nsdev[i]!=before.nsdevs[i]||state->nsino[i]!=before.nsinos[i])same=0;
-  state->unobservable=0;
-  if(same&&(!force||audit_pending(p)))goto unchanged;
-  if(audit_generation==INT_MAX){coverage_gap=1;goto unavailable;}
+  /* An unexplained live retry is not exit proof. Exec/image changes require a
+   * captured replacement; an authorized EXIT still awaits terminal death. */
+  int exec_stop=audit_exec_stop(p->pid);
+  if(state->retry_pending==1&&!exec_stop&&!state->exiting)coverage_gap=1;
+  if(state->retry_pending==2&&!image_same(&state->retry_image,&a->image))coverage_gap=1;
+  /* An exec-window EOF recovers only through the kernel EXEC receipt; until
+   * then even complete live reads are retained but stay unavailable. */
+  int awaiting_exec=state->retry_pending==3&&!exec_stop;
+  state->retry_pending=awaiting_exec?3:0;state->unobservable=awaiting_exec;
+  if(same&&!exec_stop&&(!force||audit_pending(p)))goto unchanged;
+  if(audit_generation==INT_MAX)goto permanent;
   state->captured=1;state->image=a->image;strcpy(state->digest,digest);
   for(int i=0;i<4;i++){state->nsdev[i]=before.nsdevs[i];state->nsino[i]=before.nsinos[i];}
   a->identity=before;a->generation=++audit_generation;audits[slot]=a;return 1;
+read_failed:
+  /* Read denials and unexpected errno cannot be pardoned by a racing death. */
+  if(errno!=ESRCH&&errno!=ENOENT)goto permanent;
+  goto missing;
+inconsistent:
+  /* Nonempty short/inconsistent reads need present death or exec evidence.
+   * Only EOF at an already captured EXIT stop can await that terminal death;
+   * an unrelated later death cannot pardon an unexplained live observation. */
+  dead=audit_dead(p);if(dead)goto unavailable;
+  if(a->fd>=0){
+    if(stat(name,&current)){if(errno==ESRCH||errno==ENOENT)goto missing;goto permanent;}
+    if(current.st_dev!=a->image.st_dev||current.st_ino!=a->image.st_ino){
+      state->retry_image=current;
+      if(fstat(a->fd,&current))goto read_failed;
+      if(!image_same(&current,&a->image))goto permanent;
+      goto exec_changed;
+    }
+    if(!image_same(&current,&a->image))goto permanent;
+    if(fstat(a->fd,&current))goto read_failed;
+    if(!image_same(&current,&a->image))goto permanent;
+  }
+  if(teardown&&state->exiting&&state->captured&&state->retry_pending<2)goto missing;
+  /* A live exec publishes its new executable before the new argv exists, so
+   * the first read can be empty. Only that EOF, with the held descriptor still
+   * the confirmed pending replacement of a captured different inode, awaits the
+   * replacement's own capture; death or another image first remains a gap. */
+  if(exec_window&&!state->exiting&&state->captured&&state->retry_pending==2&&a->fd>=0&&
+    image_same(&state->retry_image,&a->image)&&
+    (state->image.st_dev!=a->image.st_dev||state->image.st_ino!=a->image.st_ino))goto exec_changed;
+  /* A same-image exec has no inode evidence. Accept only kernel evidence that
+   * the task's mm has not yet published its code range (an unmapped argv area
+   * leaves it published); recovery then still needs the EXEC receipt. */
+  if(exec_window&&!state->exiting&&state->captured&&state->retry_pending<2&&a->fd>=0&&
+    state->image.st_dev==a->image.st_dev&&state->image.st_ino==a->image.st_ino&&
+    image_same(&state->image,&a->image)&&exec_mm_unpublished(p->pid)){state->retry_pending=3;goto unavailable;}
+  goto permanent;
+missing:
+  dead=audit_dead(p);if(dead)goto unavailable;
+  if(state->retry_pending<2){state->retry_pending=1;}goto unavailable;
+exec_changed:
+  state->retry_pending=2;goto unavailable;
+permanent:
+  coverage_gap=1;
 unavailable:
   state->unobservable=1;
-  /* A racing exit is not a clean observation. A missing lifetime or pending
-   * generation becomes a permanent gap at reclaim/finalization. */
 unchanged:
   close_fd(&a->fd);memset(a->argv,0,sizeof(a->argv));free(a);return 0;
 }
+
 static int audit_coverage(void) {
-  if(coverage_gap)return 0;
-  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(!state||!state->acknowledged||(owned[i].live&&(!owned[i].fresh||state->unobservable))||audit_pending(&owned[i]))return 0;}
+  if(faulted||coverage_gap)return 0;
+  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(!state||!state->acknowledged||state->retry_pending>=2||(owned[i].live&&(!owned[i].fresh||state->unobservable||state->exiting))||audit_pending(&owned[i]))return 0;}
   return 1;
 }
 static void audit_inventory(long id) {
@@ -503,7 +647,7 @@ static void audit_inventory(long id) {
   char *buf=malloc(FRAME);if(!buf){refusal(id,"linux-facility-failed");return;}Build b={buf,0,0,FRAME};
   add(&b,"{\"status\":\"observed\",\"coverageGap\":");int gap=coverage_gap;
   int fresh=1;
-  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(owned[i].live&&(!owned[i].fresh||!state||state->unobservable))fresh=0;if(!owned[i].live&&(!state||!state->acknowledged)&&!audit_pending(&owned[i]))gap=1;}
+  for(int i=0;i<nowned;i++){AuditState *state=owned[i].audit_state;if(owned[i].live&&(!owned[i].fresh||!state||state->unobservable||state->exiting))fresh=0;if(!owned[i].live&&(!state||!state->acknowledged||state->retry_pending>=2)&&!audit_pending(&owned[i]))gap=1;}
   if(gap){coverage_gap=1;}add(&b,gap?"true":"false");add(&b,",\"fresh\":");add(&b,fresh?"true":"false");add(&b,",\"snapshots\":[");int count=0;
   for(int i=0;i<MAX_AUDIT;i++)if(audits[i]){if(count++)add(&b,",");add(&b,"{");identity_fields(&b,&audits[i]->identity);add(&b,",\"generation\":");integer(&b,(uint64_t)audits[i]->generation);add(&b,"}");}
   add(&b,"]}");if(faulted||b.bad)refusal(id,"linux-facility-failed");else reply(id,b.s);free(buf);

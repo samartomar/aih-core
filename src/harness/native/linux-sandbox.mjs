@@ -117,6 +117,16 @@ const removeOwnedSocket = path => {
   try { const stat = lstatSync(path); if (stat.isSocket() && stat.uid === ownUid()) unlinkSync(path); } catch { /* already gone */ }
 };
 
+// Internal classifier seam: image identity failure supplies no argv violation.
+export function classifyLinuxAuditSnapshot(observed, { runtime, runtimePins, protectedValues, proxyCapabilitySha256 }) {
+  const argumentsResult = inspectLinuxArguments(observed.argv, protectedValues);
+  if ([runtime.bwrap, runtime.bash].includes(observed.executablePath) &&
+      !runtimePins.some(pin => pin.path === observed.executablePath && pin.sha256 === observed.executableSha256))
+    return { argumentsResult, proxy: null, reason: 'executable-changed' };
+  return { argumentsResult, proxy: inspectLinuxProxyCapability(observed,
+    { sha256: proxyCapabilitySha256, bwrap: runtime.bwrap, bash: runtime.bash }) };
+}
+
 // Private probe transcript. Each phase is reached only after the previous one was authenticated by the
 // kernel peer identity; nothing the workload claims is trusted alone. Proven access is a violation;
 // anything malformed or missing closes the transcript and stays unobservable.
@@ -131,11 +141,15 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
   let auditing;
   // A detected leak is permanent. Live observations must finish before resume; watchdog and
   // transcript observations share one in-flight audit so an older clean result cannot erase a leak.
-  const auditArguments = () => {
-    if (state.closed || state.ended || !proof.authenticated) return Promise.resolve(proof.argumentsClean);
+  const auditArguments = ({ final = false } = {}) => {
+    if ((!final && (state.closed || state.ended)) || !proof.authenticated) return Promise.resolve(proof.argumentsClean);
+    // Finalization follows the transcript and any in-flight watchdog audit. It must inspect
+    // generations retained during collector drain, even after the workload sent its end frame.
+    if (final && auditing) return auditing.then(() => auditArguments({ final: true }));
+    const unavailableBefore = state.closed && proof.argumentsClean !== false;
     return auditing ??= Promise.resolve().then(inspectArguments).catch(() => null).then(result => {
       if (proof.argumentsClean === false) return false;
-      proof.argumentsClean = result === true ? true : result === false ? false : null;
+      proof.argumentsClean = result === false ? false : result === true && !unavailableBefore && !state.closed ? true : null;
       if (result === false) violate();
       else if (result !== true) close();
       return proof.argumentsClean;
@@ -212,7 +226,10 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
     });
     socket.on('end', () => { chain = chain.then(() => { if (!state.ended) close(); }); });
   };
-  return { proof, state, accept, close, violate, interfere, auditArguments };
+  const versionProbeReady = auditFinalized => auditFinalized === true && proof.authenticated && proof.clientBound &&
+    proof.profileCompared && proof.namespaceSeparated === true && proof.argumentsClean === true && validIsolationProbes(proof.probes) &&
+    isolationProbeNames.every(key => proof.probes[key] === true) && state.ended && !state.violation && !state.interference;
+  return { proof, state, accept, close, violate, interfere, auditArguments, versionProbeReady };
 }
 
 export function prepareLinuxSandboxContext(input) { return composeLinuxSandbox(input, linuxObserverPins); }
@@ -241,7 +258,7 @@ export async function composeLinuxSandbox(input, observerPins) {
   const servers = [], sockets = new Set(), ownedFiles = [];
   let context, probeTransport, evidenceTransport, base, receipt, client = null, binding = null, bridge, bridgeCreated = false;
   let absentMounts = null, protectedValues = [], argumentsInspected = 0, started = false, cleanup, clientPin, session;
-  let cellProfile, outsideCanaries, runnerPid, preparedResources = false;
+  let cellProfile, outsideCanaries, runnerPid, preparedResources = false, auditFinalized = false, auditFailure;
   const proxyArguments = { bwrapArguments: 0, shellArguments: 0, unexpectedArguments: 0 };
 
   const verifyProfile = () => {
@@ -262,7 +279,7 @@ export async function composeLinuxSandbox(input, observerPins) {
     } catch { return false; }
   };
   const inspectArguments = async () => {
-    try { cellProfile.validate(); } catch { return false; }
+    try { cellProfile.validate(); } catch { auditFailure = 'executable-changed'; return null; }
     let inventory = await context.auditInventory();
     // Retry only a still-live capture race. A reclaimed/missing acknowledged lifetime is
     // sticky in the native owner and cannot be erased by reobserving another process.
@@ -270,29 +287,36 @@ export async function composeLinuxSandbox(input, observerPins) {
       await new Promise(resolve => setTimeout(resolve, 25)); inventory = await context.auditInventory();
     }
     if (inventory?.status !== 'observed' || !Array.isArray(inventory.snapshots) || inventory.snapshots.length > 512) return null;
-    let inspected = 0, complete = inventory.coverageGap === false && inventory.fresh === true;
+    let inspected = 0, leaked = false, complete = inventory.coverageGap === false && inventory.fresh === true;
     for (const row of inventory.snapshots) {
       const observed = await context.inspectAudit(row);
       if (observed?.status !== 'observed') {
         complete = false;
         continue;
       }
-      const result = inspectLinuxArguments(observed.argv, protectedValues);
-      if (result.clean === false) return false;
+      const classified = classifyLinuxAuditSnapshot(observed, { runtime, runtimePins: input.runtimePins,
+        protectedValues, proxyCapabilitySha256: receipt?.proxyCapabilitySha256 });
+      const result = classified.argumentsResult;
+      if (result.clean === false) leaked = true;
       if (result.clean !== true) complete = false;
-      if ([runtime.bwrap, runtime.bash].includes(observed.executablePath) &&
-          !input.runtimePins.some(pin => pin.path === observed.executablePath && pin.sha256 === observed.executableSha256)) return false;
-      const proxy = inspectLinuxProxyCapability(observed, { sha256: receipt?.proxyCapabilitySha256, bwrap: runtime.bwrap, bash: runtime.bash });
+      if (classified.reason) {
+        auditFailure = classified.reason; complete = false; continue;
+      }
+      const proxy = classified.proxy;
       for (const key of Object.keys(proxyArguments)) proxyArguments[key] += proxy[key];
-      if (proxy.clean === false) return false;
+      if (proxy.clean === false) leaked = true;
       if (proxy.clean !== true) complete = false;
       // Generic process/peer inspection never acknowledges a secret audit. The kernel-held
       // snapshot generation is acknowledged only after both private classifiers finish.
-      if (result.clean === true && proxy.clean === true && (await context.acknowledgeAudit(row)).ok !== true) complete = false;
+      if (typeof result.clean === 'boolean' && typeof proxy.clean === 'boolean' && (await context.acknowledgeAudit(row)).ok !== true) complete = false;
       inspected += result.inspected;
     }
     argumentsInspected += inspected;
-    return complete && inspected > 0 ? true : null;
+    // ACK frees the retained snapshot. An empty, fresh, gap-free inventory therefore
+    // preserves an already classified clean proof; it cannot establish the first one.
+    // Final readiness still requires the terminal receipt to cover later generations.
+    const clean = inspected > 0 || inventory.snapshots.length === 0 && session.proof.argumentsClean === true;
+    return leaked ? false : complete && clean ? true : null;
   };
   const bindClient = () => {
     if (session.proof.clientBound) return Promise.resolve(true);
@@ -335,18 +359,22 @@ export async function composeLinuxSandbox(input, observerPins) {
   const terminate = (options = {}) => cleanup ??= (async () => {
     const begun = performance.now();
     const budget = Math.min(10000, Math.max(0, Number.isFinite(options.deadlineMs) ? options.deadlineMs : 10000));
-    session?.close();
-    const closed = closeResources();
     const result = context ? await context.terminate({ graceMs: Number.isFinite(options.graceMs) ? options.graceMs : 1000,
-      deadlineMs: Math.max(0, budget - (performance.now() - begun)) }) : { processes: 'confirmed', survivors: [], elapsedMs: 0 };
+      deadlineMs: Math.max(0, budget - (performance.now() - begun)),
+      audit: async () => { await session?.auditArguments({ final: true }); }
+    }) : { processes: 'confirmed', survivors: [], elapsedMs: 0 };
     if (session && result.auditCoverage !== true && session.proof.argumentsClean !== false) session.proof.argumentsClean = null;
-    await closed;
+    session?.close();
+    await closeResources();
     const confirmed = result.processes === 'confirmed' && removeOwned();
     const released = cellProfile ? cellProfile.release(confirmed, preparedResources, {
       check: () => { if (performance.now() - begun >= budget) throw Error(); }
     }) : confirmed;
-    return { ...result, processes: released && performance.now() - begun < budget ? result.processes : 'unresolved',
-      elapsedMs: Math.round(performance.now() - begun) };
+    const processes = released && performance.now() - begun < budget ? result.processes : 'unresolved';
+    // Native tree closure alone is insufficient: bridge/canary removal and profile
+    // release must also finish inside this same allowance before proof is final.
+    auditFinalized = result.auditCoverage === true && processes === 'confirmed';
+    return { ...result, processes, elapsedMs: Math.round(performance.now() - begun) };
   })();
   const wrapHandle = handle => {
     runnerPid = handle.pid;
@@ -367,7 +395,10 @@ export async function composeLinuxSandbox(input, observerPins) {
     if (accepted) session.proof.serverBound = true;
     return accepted;
   };
-  const isolation = () => session.state.violation && session.proof.authenticated ? 'violated' : evaluateLinuxIsolation(session.proof);
+  const isolation = () => {
+    const result = session.state.violation && session.proof.authenticated ? 'violated' : evaluateLinuxIsolation(session.proof);
+    return result === 'observed' && (!auditFinalized || auditFailure) ? 'unobservable' : result;
+  };
   const bind = async target => {
     const server = net.createServer(socket => {
       sockets.add(socket); socket.on('error', () => {}); socket.on('close', () => sockets.delete(socket));
@@ -471,6 +502,7 @@ export async function composeLinuxSandbox(input, observerPins) {
       },
       acceptServer,
       isolation,
+      get failureReason() { return auditFailure; },
       isolationRecord() {
         const { proof, state } = session;
         return { version: 1, baseSha256: receipt?.baseSha256, profileSha256: receipt?.profileSha256, proxyArguments: { ...proxyArguments }, compared: proof.profileCompared, probes: proof.probes ? { ...proof.probes } : null,
@@ -478,9 +510,7 @@ export async function composeLinuxSandbox(input, observerPins) {
           serverBound: proof.serverBound, argumentsClean: proof.argumentsClean, argumentsInspected, ended: state.ended, outcome: isolation() };
       },
       versionProbeReady() {
-        const { proof, state } = session;
-        return proof.authenticated && proof.clientBound && proof.profileCompared && proof.namespaceSeparated === true && proof.argumentsClean === true &&
-          validIsolationProbes(proof.probes) && isolationProbeNames.every(key => proof.probes[key] === true) && state.ended && !state.violation && !state.interference;
+        return !auditFailure && session.versionProbeReady(auditFinalized);
       },
       terminate
     } };

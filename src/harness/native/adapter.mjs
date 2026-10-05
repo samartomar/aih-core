@@ -533,7 +533,7 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
+            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (linux ? context.failureReason : undefined) ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
@@ -676,6 +676,12 @@ function createNativeRuntime(module, dependencies) {
             collector.bindSession(stream.sessionId);
             const telemetryResult = await collector.drain({ launchedAtMs, closedAtMs: Date.now(), timeoutMs: Math.min(2000, Math.max(0, input.deadline - performance.now())) });
             const evidence = await closeChannel();
+            if (linux) {
+              // Core consumes observations before invoking handle cleanup. Final coverage must
+              // therefore reach this observation through the same memoized cleanup receipt.
+              cleanupStartedAt ??= performance.now();
+              await cleanup(Math.min(input.deadline, cleanupStartedAt + 10_000), 1000);
+            }
             return capture(streams, telemetryResult, evidence, true);
           } finally {
             detach();

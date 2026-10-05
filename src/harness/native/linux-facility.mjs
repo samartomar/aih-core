@@ -127,8 +127,10 @@ async function launchBridge({ deadline, signal } = {}) {
     kill(stopped ?? failure ?? 'linux-facility-failed');
     return { ...unavailable(stopped ?? failure ?? 'linux-facility-failed'), ...await finish(1000) };
   }
-  const rpc = (op, fields = {}, timeout = remaining(deadline)) => new Promise(resolve => {
-    if (stopped && !['terminate', 'pipe-close', 'pipe-stop', 'input-end'].includes(op)) { resolve(unavailable(stopped)); return; }
+  let cleanupDeadline;
+  const rpc = (op, fields = {}, timeout = remaining(cleanupDeadline ?? deadline)) => new Promise(resolve => {
+    if (stopped && !['terminate', 'pipe-close', 'pipe-stop', 'input-end',
+      ...(cleanupDeadline === undefined ? [] : ['audit-inventory', 'audit-inspect', 'audit-ack'])].includes(op)) { resolve(unavailable(stopped)); return; }
     if (dead || timeout <= 0) { resolve(unavailable(failure ?? 'deadline')); return; }
     const id = ++next, text = JSON.stringify({ ...fields, op, id });
     if (Buffer.byteLength(text) > FRAME) { resolve(unavailable('input-limit')); return; }
@@ -141,7 +143,7 @@ async function launchBridge({ deadline, signal } = {}) {
     get failed() { return failure; },
     get cleanupStartedAt() { return cleanupStartedAt; },
     // Cleanup replaces the operation deadline/abort listener with its own bounded allowance.
-    beginCleanup(milliseconds) { markCleanup(); clearTimeout(timer); signal?.removeEventListener('abort', aborted); return setTimeout(() => kill('cleanup-timeout'), Math.max(1, milliseconds)); },
+    beginCleanup(milliseconds) { markCleanup(); cleanupDeadline = Math.min(performance.now() + milliseconds, cleanupStartedAt + 10000); clearTimeout(timer); signal?.removeEventListener('abort', aborted); return setTimeout(() => kill('cleanup-timeout'), Math.max(1, milliseconds)); },
     finish, kill };
 }
 
@@ -267,20 +269,31 @@ export async function prepareLinuxContext({ directory, deadline, signal, runtime
       root ??= makeRoot(result);
       return { status: 'started', handle: root };
     },
-    terminate({ graceMs = 1000, deadlineMs = 10000 } = {}) {
+    terminate({ graceMs = 1000, deadlineMs = 10000, audit } = {}) {
       if (cleanup) return cleanup;
       cleanup = (async () => {
         for (const { transport } of transports.values()) linuxTransports.delete(transport);
         const start = performance.now(), allowance = Math.min(bound(deadlineMs, 10000, 10000), Math.max(0, 10000 - (start - (bridge.cleanupStartedAt ?? start))));
-        // Native stopping must leave time for its receipt and helper closure inside this allowance.
-        const nativeBudget = Math.max(0, Math.floor(allowance - Math.min(250, allowance / 4)));
         const cleanupTimer = bridge.beginCleanup(allowance);
-        const receipt = await bridge.rpc('terminate', { graceMs: Math.min(nativeBudget, bound(graceMs, 1000, 1000)), deadlineMs: nativeBudget }, allowance);
+        // The internal Harness classifier drains retained generations before native stopping.
+        // Both the drain and closure share this single allowance; a late generation remains
+        // unacknowledged and makes the native final coverage receipt false.
+        let auditTimer, auditCompleted = typeof audit !== 'function';
+        if (typeof audit === 'function') {
+          try { await Promise.race([Promise.resolve().then(audit).then(() => { auditCompleted = true; }), new Promise(resolve => {
+            auditTimer = setTimeout(resolve, Math.max(1, allowance));
+          })]); } catch { /* coverage receipt still fails closed for pending generations */ }
+          finally { clearTimeout(auditTimer); }
+        }
+        const left = Math.max(0, allowance - (performance.now() - start));
+        // Native stopping must leave time for its receipt and helper closure inside this allowance.
+        const nativeBudget = Math.max(0, Math.floor(left - Math.min(250, left / 4)));
+        const receipt = await bridge.rpc('terminate', { graceMs: Math.min(nativeBudget, bound(graceMs, 1000, 1000)), deadlineMs: nativeBudget }, left);
         clearTimeout(cleanupTimer);
         const closure = await bridge.finish(Math.max(0, allowance - (performance.now() - start)));
         stdout.end(); stderr.end(); for (const socket of peers.values()) socket.destroy(); peers.clear();
         return { processes: receipt.processes === 'confirmed' && closure.cleanup.confirmed ? 'confirmed' : 'unresolved',
-          auditCoverage: receipt.auditCoverage === true,
+          auditCoverage: auditCompleted && receipt.auditCoverage === true,
           survivors: [...(receipt.survivors ?? []), ...closure.cleanup.survivors], elapsedMs: Math.round(performance.now() - start), cleanupStartedAt: closure.cleanupStartedAt,
           ...(Number.isSafeInteger(receipt.activeProcesses) && receipt.activeProcesses >= 0 ? { activeProcesses: receipt.activeProcesses } : {}) };
       })();

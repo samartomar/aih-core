@@ -2,6 +2,7 @@
 // isolation claims come solely from the gated real C facility + pinned SRT tests at the end.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -12,6 +13,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { absentVendorMountPoints, composeLinuxSandbox, createLinuxProbeSession, linuxObserverSources,
   sweepLinuxBridge, sweepVendorMountPoints } from '../../src/harness/native/linux-sandbox.mjs';
+import * as sandbox from '../../src/harness/native/linux-sandbox.mjs';
 import { evaluateLinuxIsolation, isolationProbeNames } from '../../src/harness/native/linux-isolation.mjs';
 import { verifyLinuxVendorClosure } from '../../src/harness/native/linux-runtime.mjs';
 
@@ -119,6 +121,246 @@ test('a known argv coverage gap at end stays unavailable even if a later audit w
   assert.equal(session.state.violation, false); assert.equal(socket.sent.length, 3);
   const before = calls.inspect; assert.equal(await session.auditArguments(), null);
   assert.equal(calls.inspect, before); assert.equal(session.proof.argumentsClean, null);
+});
+
+test('post-client drain audits retained generations after end instead of reusing the clean transcript', async () => {
+  for (const late of [false, null, true]) {
+    const { session, socket, calls } = await authenticated({ inspect: [true, true, true, late] });
+    socket.send(probes()); await waitFor(() => socket.sent.length === 2, 'start');
+    socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3, 'resume');
+    socket.send({ type: 'end', code: 0 }); await waitFor(() => socket.sent.length === 4, 'finish');
+    session.proof.serverBound = true;
+    assert.equal(evaluateLinuxIsolation(session.proof), 'observed');
+    assert.equal(await session.auditArguments({ final: true }), late);
+    assert.equal(calls.inspect, 4);
+    assert.equal(session.versionProbeReady(false), false);
+    assert.equal(evaluateLinuxIsolation(session.proof), late === false ? 'violated' : late === null ? 'unobservable' : 'observed');
+    assert.equal(session.versionProbeReady(true), late === true);
+  }
+});
+
+test('a clean empty final audit preserves acknowledged proof only after confirmed complete cleanup', t => {
+  // Controlled OS/profile facilities let the actual composition, classifiers, transcript,
+  // final receipt and session-observation gate run on every host. This is no OS admission claim.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-clean-final-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const fixture = join(root, 'final-clean.mjs');
+  writeFileSync(fixture, String.raw`import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { Duplex, PassThrough } from 'node:stream';
+const target = process.argv[2], root = process.argv[3];
+const hash = value => createHash('sha256').update(value).digest('hex');
+const inner = { pid: '4:11', mount: '4:12', network: '4:13', user: '4:14' };
+const host = { pid: '4:1', mount: '4:2', network: '4:3', user: '4:4' };
+const mocks = {
+  './linux-facility.mjs': 'export const prepareLinuxContext=async input=>globalThis.fixture.prepare(input);',
+  './linux-cell-profile.mjs': 'export const acquireLinuxCellProfile=()=>globalThis.fixture.profile;',
+  './linux-canaries.mjs': 'export const createLinuxCanaries=()=>globalThis.fixture.canaries;',
+  './linux-profile.mjs': 'export const deriveLinuxSessionProfile=()=>({});',
+  './linux-platform.mjs': 'export const revalidateLinuxLibraryAliases=async()=>({status:"ready"});',
+  'node:fs': "export * from 'node:fs'; import {lstatSync as real} from 'node:fs';" +
+    "export const lstatSync=path=>path==='/run/user/1000'?{isDirectory:()=>true,isSymbolicLink:()=>false,uid:1000,mode:0o700}:" +
+    "/fixture-(?:http|socks)$/.test(path)?{isSocket:()=>true,uid:1000}:real(path);",
+  'node:net': 'export default {createServer:()=>({listening:false,maxConnections:0,once(){},' +
+    'listen(target,done){this.listening=true;done();},address:()=>({port:32123}),close(done){this.listening=false;done();}})};'
+};
+registerHooks({ resolve(specifier, context, next) {
+  if (context.parentURL === target && mocks[specifier]) return {
+    url: 'data:text/javascript,' + encodeURIComponent(mocks[specifier]), shortCircuit: true
+  };
+  return next(specifier, context);
+} });
+// Only this disposable process substitutes the unavailable OS prerequisites.
+Object.defineProperty(process, 'platform', { value: 'linux' });
+Object.defineProperty(process, 'getuid', { value: () => 1000 });
+const { composeLinuxSandbox } = await import(target);
+class Peer extends Duplex {
+  constructor(observed) { super(); this.observed = observed; this.sent = []; }
+  _read() {}
+  _write(bytes, encoding, done) { this.sent.push(...bytes.toString().trim().split('\n').map(JSON.parse)); done(); }
+  observePeer() { return Promise.resolve(this.observed); }
+  send(value) { this.push(JSON.stringify(value) + '\n'); }
+}
+const waitFor = async predicate => {
+  for (let i = 0; i < 500; i++) { if (predicate()) return; await new Promise(resolve => setImmediate(resolve)); }
+  assert.fail('controlled transcript did not reach its next phase');
+};
+const executable = realpathSync.native(process.execPath), pin = { path: executable,
+  sha256: hash(readFileSync(executable)), byteLength: readFileSync(executable).length };
+for (const mode of ['clean-graceful', 'clean-forced', 'live-empty', 'late-clean', 'initial-empty', 'end-gap', 'zero-argv',
+  'leak', 'gap', 'unfresh', 'inspect', 'ack', 'changed', 'late-unacknowledged', 'missing-coverage', 'unresolved', 'release', 'remove', 'deadline']) {
+  const path = join(root, mode); mkdirSync(path);
+  const cell = { path, ...Object.fromEntries(['home', 'project', 'scratch', 'observations'].map(name => [name, join(path, name)])) };
+  for (const name of ['home', 'project', 'scratch', 'observations']) mkdirSync(cell[name]);
+  const runtime = { node: executable, client: executable, bash: '/runtime/bash', bwrap: '/runtime/bwrap', which: '/runtime/which',
+    libraryAliasDirectories: ['/usr/lib64'], libraryClosure: [] };
+  let transportCount = 0, probe, plan, ending = false, audits = 0, inspections = 0, acks = 0, terminal = 0;
+  const row = generation => ({ pid: 4101, birth: '778', generation });
+  const client = { status: 'observed', pid: 4101, birth: '778', namespacePid: 9, namespaces: inner,
+    executablePath: executable, executableSha256: pin.sha256, argv: [executable, '--version'] };
+  const native = { hostNamespaces: host,
+    createPipe: async () => ({ status: 'ready', transport: { endpoint: ++transportCount === 1 ? 'fixture-probe' : 'fixture-evidence',
+      onConnection(callback) { probe = callback; } } }),
+    auditInventory: async () => {
+      audits++;
+      return { status: 'observed', coverageGap: ending && mode === 'gap' || mode === 'end-gap' && audits === 3,
+        fresh: !(ending && mode === 'unfresh'),
+        snapshots: mode === 'initial-empty' || mode === 'live-empty' && audits > 1 ? [] :
+          !ending ? [row(audits)] : ['late-clean', 'zero-argv', 'leak', 'inspect', 'ack', 'changed'].includes(mode) ? [row(audits)] : [] };
+    },
+    inspectAudit: async observed => {
+      inspections++;
+      if (ending && mode === 'inspect') return { status: 'unavailable' };
+      return { ...client, ...observed, ...(ending && mode === 'zero-argv' ? { argv: [] } : {}),
+        ...(ending && mode === 'leak' ? { argv: [executable, 'secret-value'] } : {}),
+        ...(ending && mode === 'changed' ? { executablePath: runtime.bash, executableSha256: 'f'.repeat(64) } : {}) };
+    },
+    acknowledgeAudit: async () => { acks++; return { ok: !(ending && mode === 'ack') }; },
+    observe: async () => ({ status: 'observed', processes: [client] }), inspect: async () => client,
+    async start() {
+      const slots = { collector: 'http://fixture/v1/logs', evidence: 'fixture-evidence', probe: 'fixture-probe',
+        http: join(plan.bridge, 'fixture-http'), socks: join(plan.bridge, 'fixture-socks') };
+      writeFileSync(plan.profileFile, '{}');
+      writeFileSync(plan.receiptFile, JSON.stringify({ slots, baseSha256: hash('{}'), profileSha256: hash('{}'), proxyCapabilitySha256: hash('proxy') }));
+      const entry = globalThis.fixture.entry;
+      const socket = new Peer({ status: 'observed', pid: 4100, birth: '777', namespacePid: 3, namespaces: inner,
+        executablePath: entry.executablePath, executableSha256: entry.executableSha256, selectedEntryId: entry.id, argv: [...entry.argv] });
+      probe(socket);
+      socket.send({ version: 1, token: globalThis.fixture.token, pid: 3 });
+      await waitFor(() => socket.sent.length === 1);
+      const { isolationProbeNames } = await import(new URL('linux-isolation.mjs', target));
+      socket.send({ type: 'probes', challenge: socket.sent[0].challenge,
+        probes: Object.fromEntries(isolationProbeNames.map(name => [name, true])) });
+      await waitFor(() => socket.sent.length === 2 || socket.destroyed);
+      if (!socket.destroyed) {
+        socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3);
+        socket.send({ type: 'end', code: 0 }); await waitFor(() => socket.sent.length === 4 || socket.destroyed);
+      }
+      socket.push(null);
+      return { status: 'started', handle: { ...client, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+        exited: Promise.resolve({ code: 0 }), track: async () => {} } };
+    },
+    async terminate({ audit }) {
+      ending = true; await audit(); terminal++;
+      return { processes: mode === 'unresolved' ? 'unresolved' : 'confirmed', survivors: [],
+        ...(mode === 'missing-coverage' ? {} : { auditCoverage: mode !== 'late-unacknowledged' }) };
+    }
+  };
+  globalThis.fixture = {
+    prepare: async input => { globalThis.fixture.entry = input.selectedEntries.at(-1); return { status: 'ready', context: native }; },
+    profile: { planFile: join(cell.observations, 'plan.json'), baseFile: join(cell.observations, 'base.json'),
+      windowsCanary: join(cell.observations, 'canary.exe'), base: {}, staged: { directory: '' }, pins: [],
+      profileInput: { cell, runtime, selectedPaths: [] }, validate() {}, writePlan(bytes) { plan = JSON.parse(bytes); },
+      release(confirmed) {
+        assert.equal(context.versionProbeReady(), false, 'no readiness before resource release');
+        assert.equal(context.isolation(), mode === 'leak' ? 'violated' : 'unobservable', 'no observed isolation before resource release');
+        return confirmed && mode !== 'release';
+      } },
+    canaries: { files: [], writes: [], pathname: join(cell.observations, 'outside.sock'),
+      snapshot: () => ({ readIntact: true, writeAbsent: true }), remove: () => mode !== 'remove' }
+  };
+  // The production start supplies this private token only to the controlled launch facility.
+  const originalStart = native.start;
+  native.start = async input => { globalThis.fixture.token = input.env.AIHQ_NATIVE_ISOLATION_TOKEN; return originalStart(); };
+  const prepared = await composeLinuxSandbox({ cell, runtime, vendor: { status: 'ready', entry: executable, treeSha256: 'a'.repeat(64), pins: [] },
+    deadline: performance.now() + 10000, execution: 'native', collector: { endpoint: 'http://fixture', probeToken: 'a'.repeat(64), token: 'secret-value' },
+    runtimePins: [pin], selectedEntries: [], selectedPaths: [], expectedArgv: ['--version'] }, () => []);
+  assert.equal(prepared.status, 'ready', mode);
+  const context = prepared.context;
+  assert.equal((await context.createPipe()).status, 'ready');
+  const started = await context.start({ file: executable, argv: ['--version'], cwd: cell.project, env: {} });
+  assert.equal(started.status, 'started', JSON.stringify(started));
+  assert.equal(await context.acceptServer({ status: 'observed', pid: 4102, birth: '779', namespaces: inner, selectedEntryId: 'controlled-server' }), mode !== 'initial-empty');
+  assert.equal(context.isolationRecord().ended, !['initial-empty', 'end-gap'].includes(mode));
+  assert.equal(context.isolationRecord().argumentsClean, ['initial-empty', 'end-gap'].includes(mode) ? null : true);
+  assert.equal(context.versionProbeReady(), false); assert.equal(context.isolation(), 'unobservable');
+  const beforeCount = mode === 'initial-empty' ? 0 : mode === 'live-empty' ? 1 : 3;
+  assert.equal(inspections, beforeCount); assert.equal(acks, beforeCount);
+  const receipt = await context.terminate({ graceMs: mode === 'clean-graceful' ? 1000 : 0, deadlineMs: mode === 'deadline' ? 0 : 10000 });
+  const clean = ['clean-graceful', 'clean-forced', 'live-empty', 'late-clean'].includes(mode);
+  assert.equal(context.versionProbeReady(), clean, mode + ': successful final receipt must preserve clean ACKed proof');
+  assert.equal(context.isolation(), mode === 'leak' ? 'violated' : clean ? 'observed' : 'unobservable', mode + ': session observation');
+  assert.equal(context.isolationRecord().outcome, context.isolation());
+  assert.equal(context.isolationRecord().argumentsClean,
+    ['initial-empty', 'end-gap', 'zero-argv', 'gap', 'unfresh', 'inspect', 'ack', 'changed', 'late-unacknowledged', 'missing-coverage'].includes(mode)
+      ? null : mode === 'leak' ? false : true, mode);
+  assert.equal(receipt.processes, ['unresolved', 'release', 'remove', 'deadline'].includes(mode) ? 'unresolved' : 'confirmed', mode);
+  assert.equal(terminal, 1); assert.equal(await context.terminate(), receipt, 'idempotent finalization');
+  assert.equal(audits, mode === 'initial-empty' ? 2 : mode === 'unfresh' ? 6 : 4, 'final audit always runs, including closed transcripts');
+  if (mode.startsWith('clean-')) assert.equal(inspections, 3, 'empty drain does not fabricate a new inspection');
+  if (mode === 'late-clean') { assert.equal(inspections, 4); assert.equal(acks, 4); }
+}
+console.log('FINAL_CLEAN_RECEIPT_PASS');
+`, { mode: 0o600 });
+  const result = spawnSync(process.execPath, [fixture, new URL('../../src/harness/native/linux-sandbox.mjs', import.meta.url).href, root],
+    { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /FINAL_CLEAN_RECEIPT_PASS/);
+});
+
+test('changed proxy executable bytes are unavailable rather than an argv leak', () => {
+  const runtime = { bwrap: '/runtime/bwrap', bash: '/runtime/bash' };
+  const expected = { runtime, runtimePins: Object.values(runtime).map(path => ({ path, sha256: 'c'.repeat(64) })),
+    protectedValues: [TOKEN], proxyCapabilitySha256: 'd'.repeat(64) };
+  for (const executablePath of Object.values(runtime)) {
+    const observed = { executablePath, executableSha256: 'e'.repeat(64), argv: [executablePath, 'controlled'] };
+    const changed = sandbox.classifyLinuxAuditSnapshot(observed, expected);
+    assert.equal(changed.argumentsResult.clean, true); assert.equal(changed.proxy, null);
+    assert.equal(changed.reason, 'executable-changed');
+    const clean = sandbox.classifyLinuxAuditSnapshot({ ...observed, executableSha256: 'c'.repeat(64) }, expected);
+    assert.equal(clean.reason, undefined); assert.equal(clean.argumentsResult.clean, true); assert.equal(clean.proxy.clean, true);
+    const leaked = sandbox.classifyLinuxAuditSnapshot({ ...observed, executableSha256: 'c'.repeat(64), argv: [executablePath, TOKEN] }, expected);
+    assert.equal(leaked.argumentsResult.clean, false);
+  }
+});
+
+test('the deciding Linux version result reads proof after the final coverage receipt', t => {
+  // A separate process replaces only platform facilities. The actual version-probe
+  // orchestration runs unchanged; this proves ordering, not OS/client admission.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-version-final-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const fixture = join(root, 'version-final.mjs');
+  writeFileSync(fixture, `import assert from 'node:assert/strict';
+    import {registerHooks} from 'node:module';import {PassThrough} from 'node:stream';
+    import {mkdirSync} from 'node:fs';import {join} from 'node:path';
+    const target=process.argv[2],root=process.argv[3];
+    const mocks={
+      './collector.mjs':'export const createClaudeCollector=()=>globalThis.fixture.collector;',
+      './linux-platform.mjs':'export const resolveLinuxPlatform=async()=>({status:"ready",pins:[],runtime:{node:process.execPath,client:process.execPath},libraryClosure:[]});export const windowsPolicyDirectoryFromMounts=()=>null;',
+      './managed-policy.mjs':'export const observeLinuxManagedPolicy=()=>({outcome:"file-sources-clear"});',
+      './linux-runtime.mjs':'export const verifyLinuxVendorClosure=()=>({status:"ready",pins:[],treeSha256:"a".repeat(64)});',
+      './linux-sandbox.mjs':'export const linuxObserverPins=()=>[];export const prepareLinuxSandboxContext=async()=>({status:"ready",context:globalThis.fixture.context});'
+    };
+    registerHooks({resolve(specifier,context,next){
+      if(context.parentURL===target && mocks[specifier])return {url:'data:text/javascript,'+encodeURIComponent(mocks[specifier]),shortCircuit:true};
+      return next(specifier,context);
+    }});
+    const {resolveLinuxNativeClient}=await import(target);
+    for(const mode of ['leak','gap','changed','clean']){
+      const path=join(root,mode);mkdirSync(path);const cell={path,home:path,scratch:path,project:path};
+      let clean=true,terminated=0,exit;const exited=new Promise(resolve=>{exit=resolve});
+      const handle={pid:1234,argv:[],stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),exited,track:async()=>{}};
+      globalThis.fixture={collector:{start:async()=>({endpoint:'controlled'}),cancel:async()=>{}},context:{
+        createPipe:async()=>({status:'ready'}),start:async()=>{setImmediate(()=>{handle.stdout.end('2.1.285 (Claude Code)\\n');exit({code:0});});return {status:'started',handle};},
+        versionProbeReady:()=>clean,isolationRecord:()=>({argumentsClean:clean}),
+        get failureReason(){return mode==='changed' && terminated ? 'executable-changed':undefined;},
+        terminate:async()=>{terminated++;clean=mode==='clean';return {processes:'confirmed',survivors:[],auditCoverage:clean};}
+      }};
+      const result=await resolveLinuxNativeClient({definition:{id:'controlled',platform:{execution:'native'},versionArgv:['--version'],sessionArgv:[]},
+        input:{deadline:performance.now()+5000},client:{path:process.execPath,sha256:'a'.repeat(64)},cell,check:()=>{}});
+      assert.equal(terminated,1,'one aggregate cleanup');
+      if(mode==='clean')assert.equal(result.status,'resolved');
+      else {assert.equal(result.outcome,'unavailable',mode+' must not use the pre-cleanup proof');
+        assert.equal(result.reason,mode==='changed'?'executable-changed':'isolation-unobserved');}
+    }
+    console.log('VERSION_FINAL_RECEIPT_PASS');`, { mode: 0o600 });
+  const result = spawnSync(process.execPath, [fixture, new URL('../../src/harness/native/linux-client.mjs', import.meta.url).href, root],
+    { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /VERSION_FINAL_RECEIPT_PASS/);
 });
 
 test('the bound client is audited before resume and overlapping live audits share one observation', async () => {
@@ -369,7 +611,7 @@ test('pinned SRT session proves every denial, binds the client and leaves no bri
   assert.deepEqual(record.probes, Object.fromEntries(isolationProbeNames.map(name => [name, true])));
   assert.equal(record.argumentsClean, true); assert.equal(record.clientBound, true); assert.equal(record.ended, true);
   assert.equal(context.isolation(), 'unobservable'); // no selected server in this synthetic session
-  assert.equal(context.versionProbeReady(), true);
+  assert.equal(context.versionProbeReady(), false); // final coverage is still pending
   for (const secret of secrets) assert.equal(JSON.stringify(record).includes(secret), false);
   const receipt = await context.terminate({ graceMs: 1000, deadlineMs: 10_000 });
   assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
@@ -398,7 +640,7 @@ test('sequential sessions retain one immutable base and reject changed or concur
   const firstProfileFile = readdirSync(first.cell.observations).find(name => /^d[0-9a-f]+\.json$/.test(name));
   const firstProfile = JSON.parse(readFileSync(join(first.cell.observations, firstProfileFile), 'utf8'));
   const firstResources = readdirSync(first.cell.observations).filter(name => /^[bpw][0-9a-f]+\.(?:json|exe)$/.test(name) || /^l[0-9a-zA-Z]+$/.test(name)).sort();
-  assert.equal(first.context.versionProbeReady(), true);
+  assert.equal(first.context.versionProbeReady(), false);
   assert.equal((await first.context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
   assert.equal(first.context.versionProbeReady(), true);
   for (const changed of [
@@ -412,7 +654,7 @@ test('sequential sessions retain one immutable base and reject changed or concur
   const secondRecord = second.context.isolationRecord();
   const secondProfileFile = readdirSync(first.cell.observations).find(name => /^d[0-9a-f]+\.json$/.test(name));
   const secondProfile = JSON.parse(readFileSync(join(first.cell.observations, secondProfileFile), 'utf8'));
-  assert.equal(second.context.versionProbeReady(), true);
+  assert.equal(second.context.versionProbeReady(), false);
   assert.equal(secondRecord.baseSha256, firstRecord.baseSha256);
   assert.notEqual(secondRecord.profileSha256, firstRecord.profileSha256);
   const withoutSlots = profile => ({ ...profile,
@@ -421,6 +663,7 @@ test('sequential sessions retain one immutable base and reject changed or concur
       firstResources.some(name => value === join(first.cell.observations, name) || value.startsWith(join(first.cell.observations, name) + '/'))) } });
   assert.deepEqual(withoutSlots(secondProfile), withoutSlots(firstProfile));
   assert.equal((await second.context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
+  assert.equal(second.context.versionProbeReady(), true);
   assertNoLeftovers(first.cell);
   assert.deepEqual(readdirSync(first.cell.observations).filter(name => /^[bpw][0-9a-f]+\.(?:json|exe)$/.test(name) || /^l[0-9a-zA-Z]+$/.test(name)).sort(), firstResources);
   const baseFile = join(first.cell.observations, firstResources.find(name => /^b/.test(name)));
@@ -439,7 +682,7 @@ test('a short descendant token leak can never leave a clean argv sub-proof', com
   assert.equal(context.isolationRecord().clientBound, true, JSON.stringify(context.isolationRecord()));
   await handle.exited;
   assert.notEqual(context.isolationRecord().argumentsClean, true, JSON.stringify(context.isolationRecord()));
-  assert.ok(['violated', 'unobservable'].includes(context.isolation()));
+  assert.equal(context.isolation(), 'violated', JSON.stringify(context.isolationRecord()));
   assert.equal(context.versionProbeReady(), false);
   for (const value of secrets) assert.equal(JSON.stringify(context.isolationRecord()).includes(value), false);
   assert.equal((await context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
