@@ -11,7 +11,7 @@ import { sha256 } from './internal/host-files.js';
 import { NativeStop, nativeSnapshot, nativeDiagnostic, validateNativeControls } from './internal/native-input.js';
 import { emptyNativeResult, invalidNativeResult, appendNativeStage, finishNativeResult, addNativeDiagnostic, type NativeStage } from './internal/native-result.js';
 import { acquireNativeSupplied, captureNativeInstalledMembers, captureNativeHelpers, revalidateNativeHelpers, nativeReadPinned, validateMaterialTrees, type NativeMaterial } from './internal/native-material.js';
-import { createNativeCell, stageNativeCell, checkNativePersistence, removeNativeCell, type NativeCell } from './internal/native-cell.js';
+import { createNativeCell, stageNativeCell, checkNativePersistence, nativeStatePlan, removeNativeCell, type NativeCell } from './internal/native-cell.js';
 import { evaluateNativeSession, type NativeRuntime, type NativeSessionHandle, type NativeSessionObservations } from './internal/native-session.js';
 import { nativeRuntime } from './internal/native-runtime.js';
 
@@ -171,18 +171,20 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     if (!await runtime.protectNativeCell(cell, { deadline, signal: host.signal })) throw new NativeStop('staging-unavailable');
     check();
     if (!await runtime.revalidateNativeIdentity(identity, { check })) throw new NativeStop('identity-binding-invalid');
+    // Fixed client-owned state, validated before any write; inspection stays in the installed adapter.
+    const inspector = runtime.inspectNativeState?.bind(runtime);
+    const statePlan = nativeStatePlan(runtime.nativeStatePaths(definition), [...material.outputTree, ...definition.guardrails],
+      definition.credentialDestination.path, inspector ? (root, path, bytes) => inspector(definition, { root, path, bytes }) : undefined);
     const stagedConfigurationDigest = stageNativeCell(cell, material, definition.guardrails, guardrailBytes, definition.guardrailsSha256,
       { destination: definition.credentialDestination.path, bytes: identity.credential }, check);
     result.content = { bundleId: material.id, manifestSha256: material.manifestSha256, archiveSha256: material.archiveSha256,
       outputTreeSha256: material.outputTreeSha256, guardrailsSha256: definition.guardrailsSha256, stagedConfigurationDigest };
     row('cell-staging', 'passed', 'observed', null, { kind: 'digest', sha256: stagedConfigurationDigest });
-    const statePaths = runtime.nativeStatePaths(definition);
-    statePaths.home = [...statePaths.home, definition.credentialDestination.path];
     for (const index of [1, 2] as const) {
       check();
       if (index === 2) {
         activeStage = 'configuration-unchanged';
-        if (!checkNativePersistence(cell, statePaths.home, statePaths.project, check)) throw new NativeStop('configuration-changed', 'failed');
+        if (!checkNativePersistence(cell, statePlan, check)) throw new NativeStop('configuration-changed', 'failed');
         row('configuration-unchanged', 'passed', 'before-session-2', 2, { kind: 'digest', sha256: stagedConfigurationDigest });
       }
       activeStage = 'session-start';
@@ -250,7 +252,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       if (!confirmed) break;
       if (index === 2) {
         activeStage = 'configuration-unchanged';
-        if (!checkNativePersistence(cell, statePaths.home, statePaths.project, check)) throw new NativeStop('configuration-changed', 'failed');
+        if (!checkNativePersistence(cell, statePlan, check)) throw new NativeStop('configuration-changed', 'failed');
         row('configuration-unchanged', 'passed', 'after-session-2', 2, { kind: 'digest', sha256: stagedConfigurationDigest });
       }
       if (sessionDecisive) break;

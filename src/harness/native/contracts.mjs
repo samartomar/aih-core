@@ -50,7 +50,8 @@ export const nativeStageReasons = Object.freeze([
 ]);
 
 // Fixed registry IDs. Definitions can only name these; there are no dynamic imports.
-export const nativeParserIds = Object.freeze(['claude-stream-json.v1']);
+const CLAUDE_PARSER_ID = 'claude-stream-json.v1';
+export const nativeParserIds = Object.freeze([CLAUDE_PARSER_ID]);
 export const nativeIdentityAdapterIds = Object.freeze(['claude-oauth-otel.v1']);
 export const nativeLifecycleIds = Object.freeze(['windows-job.v1', 'posix-group.v1', 'linux-srt.v1']);
 export const nativeEvidenceAdapterIds = Object.freeze(['aihq.fixture.v1', 'aihq.stdio-recorder.v1']);
@@ -62,8 +63,9 @@ const fixtureTreeFile = key => treeFile({ file: fixtureFiles[key], pin: fixtureP
 function buildClaudeFixture() {
   const outputTree = ['instruction', 'mcpConfig', 'server'].map(fixtureTreeFile);
   const guardrails = [fixtureTreeFile('guardrails')];
+  // One shared fixture binds the fixed Claude parser, so every platform definition using that parser selects it.
   const descriptor = {
-    id: fixtureId, client: 'claude', adapterId: 'claude-win32-x64-2.1.285',
+    id: fixtureId, client: 'claude', adapterId: CLAUDE_PARSER_ID,
     outputTree, outputTreeSha256: sha256Hex(canonicalJson(treeEntries(outputTree))),
     instructions: [{ root: 'project', path: fixtureFiles.instruction.path, sha256: fixturePins.instruction.sha256,
       evidence: 'marker', markerSha256: fixtureMarkerSha256 }],
@@ -94,7 +96,7 @@ function buildClaudeCandidate() {
     clientVersions: ['2.1.285'], executableNames: ['claude.exe'],
     runtimeMembers: fixture.server.runtime.map(m => ({ ...m })),
     versionArgv: ['--version'], sessionArgv: ['-p', '--verbose', '--output-format', 'stream-json'],
-    parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
+    parserId: CLAUDE_PARSER_ID, identityAdapterId: 'claude-oauth-otel.v1',
     credentialDestination: { root: 'home', path: '.claude/.credentials.json' },
     guardrails: fixture.guardrails.map(g => ({ root: g.root, path: g.path, member: { ...g.member } })),
     guardrailsSha256: fixture.guardrailsSha256, lifecycleId: 'windows-job.v1',

@@ -22,6 +22,7 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
+import { nativeParserIds } from '../../src/harness/native/contracts.mjs';
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
@@ -225,4 +226,146 @@ test('the trusted adapter records an unresolved pre-client facility receipt', as
   const capabilities = await runtime.nativeCapabilities(installed.nativeVerificationDefinitions[0]);
   assert.equal(capabilities.lifecycle, false);
   assert.deepEqual(recorded, [{ cleanup: receipt, startedAt: 123 }]);
+});
+
+test('the shared bundled fixture binds every registered definition through its fixed parser', () => {
+  const runtime = installed.createNativeRuntime(installed, { readPinned(path) { return readFileSync(path); },
+    Stop: class extends Error { constructor(reason) { super(reason); this.reason = reason; } } });
+  const materials = installed.nativeVerificationDefinitions.map(definition => {
+    const material = runtime.nativeBundledFixture(definition, { check() {} });
+    assert.equal(material.scope, 'bundled-mechanism');
+    // The shared fixture names the fixed parser, never one platform definition.
+    assert.equal(material.adapterId, definition.parserId, definition.id);
+    assert.ok(nativeParserIds.includes(material.adapterId));
+    assert.ok(runtime.nativeServerEvidenceAvailable(material), definition.id);
+    return material;
+  });
+  assert.equal(materials.length, 2);
+  assert.equal(materials[0].manifestSha256, materials[1].manifestSha256, 'one shared fixture serves both platform definitions');
+  // Binding changes only the descriptor identity: the staged bytes and their tree pins are unchanged.
+  const resolved = installed.resolveBundledFixture('claude');
+  assert.equal(installed.verifyFixtureMaterials(resolved).ok, true);
+  for (const material of materials) {
+    assert.equal(material.outputTreeSha256, '4b87d67679e653aa31fc5144da156646b9214160b2e060c9650ecc19cc75d525');
+    assert.equal(material.guardrailsSha256, '9feae5a2be034510e024166d57d202823a1f60c89c208ad717341a941aee5590');
+    for (const file of resolved.files) assert.deepEqual(material.bytes.get([...material.outputTree, ...material.guardrails]
+      .find(entry => entry.root === file.root && entry.path === file.path).member.path), file.bytes);
+  }
+});
+
+test('native state paths enumerate only fixed client-owned state, never loading surfaces', () => {
+  const runtime = installed.createNativeRuntime(installed, { readPinned() { throw Error('no pinned read'); }, Stop: Error });
+  // Initially loaded configuration/instruction/permission/MCP surfaces under each cell root. `*` is one client-named
+  // segment: per-project auto-memory under the transcript tree is a loaded instruction source, not ordinary state.
+  const loading = {
+    project: ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.mcp.json', '.claude/settings.json', '.claude/settings.local.json',
+      '.claude/rules', '.claude/commands', '.claude/agents', '.claude/skills', '.claude/hooks', '.claude/output-styles'],
+    home: ['.claude.json', '.claude/.claude.json', '.claude/.config.json', '.claude/CLAUDE.md', '.claude/settings.json',
+      '.claude/settings.local.json', '.claude/rules', '.claude/commands', '.claude/agents', '.claude/skills', '.claude/hooks',
+      '.claude/output-styles', '.claude/plugins', '.claude/memory', '.claude/sessions', '.claude/session-env',
+      '.claude/shell-snapshots', '.claude/policy-limits.json', '.claude/remote-settings.json', '.claude/mcp-needs-auth-cache.json',
+      // Names the client reserves inside a project folder for memory and other non-transcript content.
+      '.claude/projects/*/memory', '.claude/projects/*/tiny_memory', '.claude/projects/*/bagel', '.claude/projects/*/cloud-snapshots',
+      '.claude/projects/*/bridge-pointer.json', '.claude/projects/*/.session-aliases']
+  };
+  const segments = value => value.toLowerCase().split('/');
+  const prefixMatch = (pattern, path) => pattern.length <= path.length && pattern.every((part, i) => part === '*' || part === path[i]);
+  const seen = [];
+  for (const definition of installed.nativeVerificationDefinitions) {
+    const state = runtime.nativeStatePaths(definition);
+    assert.deepEqual(Object.keys(state).sort(), ['home', 'project']);
+    assert.ok(state.home.length + state.project.length > 0, 'ordinary client-owned state must be allowed to change');
+    for (const root of ['home', 'project']) for (const entry of state[root]) {
+      assert.deepEqual(Object.keys(entry).sort(), ['exclusions', 'inspected', 'path']);
+      assert.ok(/^\.?[0-9A-Za-z._-]+(\/[0-9A-Za-z._-]+)*$/.test(entry.path), entry.path);
+      const at = segments(entry.path);
+      for (const source of loading[root]) {
+        const surface = segments(source);
+        if (prefixMatch(surface, at)) {
+          // Only an exact, separately inspected file may coincide with a loading surface.
+          assert.ok(entry.inspected && surface.length === at.length && !surface.includes('*'), `${root}/${entry.path} is loading source ${source}`);
+          assert.equal(typeof runtime.inspectNativeState, 'function');
+        } else if (prefixMatch(at, surface)) {
+          // A state tree containing a loading surface must exclude exactly that surface.
+          const rest = surface.slice(at.length).join('/');
+          assert.ok(!entry.inspected && entry.exclusions.some(value => value.toLowerCase() === rest), `${root}/${entry.path} contains ${source}`);
+        }
+      }
+      assert.ok(!(root === 'home' && (prefixMatch(at, segments(definition.credentialDestination.path)) ||
+        prefixMatch(segments(definition.credentialDestination.path), at))), 'the staged credential keeps its dedicated check');
+      for (const guard of definition.guardrails)
+        assert.ok(!(guard.root === root && (prefixMatch(at, segments(guard.path)) || prefixMatch(segments(guard.path), at))), `${entry.path} overlaps a guardrail`);
+    }
+    seen.push(state);
+  }
+  assert.deepEqual(seen[0], seen[1], 'both platform definitions share the same fixed state enumeration');
+  assert.deepEqual(seen[0].home.map(entry => entry.path), ['.claude/projects', '.claude/.claude.json', '.claude/.claude.json.lock',
+    '.claude/backups', '.claude/history.jsonl', '.claude/history.jsonl.lock', '.claude/telemetry']);
+  assert.deepEqual(seen[0].project, []);
+  assert.deepEqual(runtime.nativeStatePaths({ client: 'codex', parserId: 'other.v1' }), { home: [], project: [] });
+});
+
+test('the global client state inspector accepts bookkeeping and refuses loading or permission grants', () => {
+  const runtime = installed.createNativeRuntime(installed, { readPinned() { throw Error('no pinned read'); }, Stop: Error });
+  const definition = installed.nativeVerificationDefinitions[0];
+  const inspect = (value, path = '.claude/.claude.json', root = 'home') =>
+    runtime.inspectNativeState(definition, { root, path, bytes: Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)) });
+  const project = extra => ({ numStartups: 3, installMethod: 'native', autoUpdates: false, firstStartTime: '2026-10-05T00:00:00.000Z',
+    firstStartVersion: { VERSION: '2.1.285' }, userID: 'a'.repeat(64), machineID: 'b'.repeat(64), summonSidKey: 'c'.repeat(64),
+    hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.285', tipsHistory: { 'new-user-warmup': 1 }, seenNotifications: {},
+    cachedGrowthBookFeatures: { flag: true }, cachedGrowthBookFeaturesAt: 1, cachedDynamicConfigs: {}, cachedExperimentFeatures: [],
+    cachedExperimentData: {}, startupPrefetchedAt: 1, claudeCodeFirstTokenDate: null, cachedExtraUsageDisabledReason: null,
+    cachedUsageUtilization: { fetchedAtMs: 1, utilization: {} }, groveConfigCache: {}, passesEligibilityCache: {},
+    oauthAccount: { accountUuid: '11111111-1111-4111-8111-111111111111' }, opusProMigrationComplete: true,
+    sonnet1m45MigrationComplete: true, sonnet45To46MigrationTimestamp: 1, hasResetAutoModeOptInForDefaultOffer: true,
+    projects: { '/cell/project': { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [],
+      hasTrustDialogAccepted: false, projectOnboardingSeenCount: 1, hasClaudeMdExternalIncludesApproved: false,
+      hasClaudeMdExternalIncludesWarningShown: false, lastSessionId: '00000000-0000-4000-8000-000000000000', lastCost: 0,
+      lastModelUsage: { model: { inputTokens: 1 } }, lastGracefulShutdown: true, lastVersionBase: '2.1.285', lastSessionMetrics: {},
+      exampleFiles: [], ...extra } } });
+  assert.equal(inspect(project()), true);
+  assert.equal(inspect({}), true);
+  const refused = {
+    'user MCP server': { mcpServers: { extra: { type: 'stdio', command: 'node' } } },
+    'project MCP server': project({ mcpServers: { extra: { type: 'stdio', command: 'node' } } }),
+    'allowed tool grant': project({ allowedTools: ['Bash'] }),
+    'project MCP approval': project({ enabledMcpjsonServers: ['other'] }),
+    'project MCP disable': project({ disabledMcpjsonServers: ['aihq-native-fixture'] }),
+    'trust acceptance': project({ hasTrustDialogAccepted: true }),
+    'external include approval': project({ hasClaudeMdExternalIncludesApproved: true }),
+    'context URI': project({ mcpContextUris: ['file:///x'] }),
+    'ignore patterns': project({ ignorePatterns: ['*'] }),
+    'unknown project key': project({ futureLoader: {} }),
+    'unknown top-level key': { futureLoader: { path: 'x' } },
+    'API key': { primaryApiKey: 'not-a-real-key' },
+    'API key approval': { customApiKeyResponses: { approved: ['x'], rejected: [] } },
+    'environment': { env: { NODE_OPTIONS: '--require x' } },
+    'bypass acceptance': { bypassPermissionsModeAccepted: true },
+    'non-boolean migration marker': { opusProMigrationComplete: { load: 'x' } },
+    'non-numeric migration time': { sonnet45To46MigrationTimestamp: 'x' },
+    'malformed identifier': { machineID: '../x' },
+    'user preference': { theme: 'dark' },
+    'verbose preference': { verbose: true },
+    'auto-compact preference': { autoCompactEnabled: false },
+    'API key helper': { apiKeyHelper: 'x' },
+    'remote control at startup': { remoteControlAtStartup: true },
+    'browser integration cache': { cachedChromeExtensionInstalled: true },
+    'model access cache': { s1mAccessCache: {} },
+    'billing consent': { fableOverageConsentV2: true },
+    'marketplace auto-install': { officialMarketplaceAutoInstallAttempted: true },
+    'worktree session': project({ activeWorktreeSession: { path: '/x' } }),
+    'projects not an object': { projects: [] },
+    'top-level array': [],
+  };
+  for (const [name, value] of Object.entries(refused)) assert.equal(inspect(value), false, name);
+  assert.equal(inspect('{"numStartups":1,"numStartups":2}'), false, 'duplicate keys');
+  assert.equal(inspect('\ufeff{}'), false, 'byte-order mark');
+  assert.equal(inspect('{"numStartups":'), false, 'truncated');
+  assert.equal(runtime.inspectNativeState(definition, { root: 'home', path: '.claude/.claude.json', bytes: Buffer.from([0x7b, 0xff, 0x7d]) }), false, 'invalid UTF-8');
+  let deep = '1'; for (let i = 0; i < 40; i++) deep = `{"cachedDeep":${deep}}`;
+  assert.equal(inspect(deep), false, 'depth bound');
+  assert.equal(inspect('{"tipsHistory":"' + 'x'.repeat(1024 * 1024) + '"}'), false, 'size bound');
+  assert.equal(inspect(project(), '.claude.json'), false, 'only the redirected configuration location is state');
+  assert.equal(inspect(project(), '.claude/.claude.json', 'project'), false, 'never a project file');
+  assert.equal(runtime.inspectNativeState({ client: 'codex', parserId: 'other.v1' }, { root: 'home', path: '.claude/.claude.json', bytes: Buffer.from('{}') }), false);
 });

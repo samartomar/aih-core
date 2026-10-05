@@ -2,6 +2,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
 import { claudeConfigDirectory } from "./claude.mjs";
+import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
 import { publishNativeAdmission } from './admission.mjs';
@@ -690,8 +691,15 @@ function createNativeRuntime(module, dependencies) {
         return await failed(reason);
       }
     },
-    nativeStatePaths() {
-      return { home: [], project: [] };
+    // Only the fixed ordinary state of a supported Claude definition; never configuration or instruction surfaces.
+    nativeStatePaths(definition) {
+      const supported = definition?.client === "claude" && adapters.has(definition.parserId);
+      const copy = (entries) => supported ? entries.map((entry) => ({ path: entry.path, exclusions: [...entry.exclusions], inspected: entry.inspected })) : [];
+      return { home: copy(claudeStatePaths.home), project: copy(claudeStatePaths.project) };
+    },
+    // Separate precedence check for the one inspected state file.
+    inspectNativeState(definition, input) {
+      return definition?.client === "claude" && adapters.has(definition.parserId) && input?.root === "home" && input.path === claudeGlobalStatePath && inspectClaudeGlobalState(input.bytes);
     }
   };
   return runtime;
