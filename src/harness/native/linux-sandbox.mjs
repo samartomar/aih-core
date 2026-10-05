@@ -1,8 +1,8 @@
 // Fixed composition of the Linux observer, a fresh SRT instance and one owned verification cell.
 // This module is internal to the installed adapter; public requests cannot supply this plan.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readSync, readdirSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync,
+  readSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -10,9 +10,9 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson, hasExactKeys, parseStrictJson } from './canonical.mjs';
 import { prepareLinuxContext } from './linux-facility.mjs';
-import { stageLinuxLibraryClosure } from './linux-libraries.mjs';
+import { acquireLinuxCellProfile } from './linux-cell-profile.mjs';
 import { createLinuxCanaries } from './linux-canaries.mjs';
-import { createLinuxBaseProfile, deriveLinuxSessionProfile } from './linux-profile.mjs';
+import { deriveLinuxSessionProfile } from './linux-profile.mjs';
 import { evaluateLinuxIsolation, inspectLinuxArguments, inspectLinuxProxyCapability, isolationProbeNames, validIsolationProbes } from './linux-isolation.mjs';
 
 const resource = name => fileURLToPath(new URL(name, import.meta.url));
@@ -22,7 +22,6 @@ const unavailable = (reason = 'isolation-unobserved') => ({ status: 'unavailable
 const HEX = /^[a-f0-9]{64}$/;
 const ISOLATION_ENTRY = 'aih-native-isolation';
 const NAMESPACES = Object.freeze(['pid', 'mount', 'network', 'user']);
-const RUNTIME_KEYS = Object.freeze(['node', 'client', 'bash', 'env', 'bwrap', 'socat', 'rg', 'libraries', 'readFiles']);
 const CELL_KEYS = Object.freeze(['path', 'home', 'project', 'scratch', 'observations']);
 const WSL_MOUNT_FILES = Object.freeze(['/mnt/c/Windows/System32/cmd.exe', '/mnt/d/Windows/System32/cmd.exe']);
 const WSL_INTEROP_FILES = Object.freeze(['/init', '/run/WSL', '/proc/sys/fs/binfmt_misc/WSLInterop']);
@@ -129,6 +128,19 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
   const close = () => { state.closed = true; current?.destroy(); };
   const violate = () => { state.violation = true; close(); };
   const interfere = () => { state.interference = true; proof.interference = true; };
+  let auditing;
+  // A detected leak is permanent. Live observations must finish before resume; watchdog and
+  // transcript observations share one in-flight audit so an older clean result cannot erase a leak.
+  const auditArguments = () => {
+    if (state.closed || state.ended || !proof.authenticated) return Promise.resolve(proof.argumentsClean);
+    return auditing ??= Promise.resolve().then(inspectArguments).catch(() => null).then(result => {
+      if (proof.argumentsClean === false) return false;
+      proof.argumentsClean = result === true ? true : result === false ? false : null;
+      if (result === false) violate();
+      else if (result !== true) close();
+      return proof.argumentsClean;
+    }).finally(() => { auditing = undefined; });
+  };
   const accept = socket => {
     state.connections += 1;
     socket.on('error', () => {});
@@ -166,7 +178,7 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
         probes.outsideWriteDenied = readIntact === false || writeAbsent === false ? false
           : readIntact === true && writeAbsent === true ? true : null;
         proof.probes = Object.freeze(probes);
-        proof.argumentsClean = await inspectArguments();
+        await auditArguments();
         if (evaluateLinuxIsolation(proof) === 'violated') return violate();
         if (state.interference) return close();
         if (!isolationProbeNames.every(key => probes[key] === true) || proof.argumentsClean !== true) return close();
@@ -175,6 +187,7 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
         if (!hasExactKeys(message, ['type', 'pid']) || message.type !== 'client' || !Number.isSafeInteger(message.pid) || message.pid < 1) return close();
         state.clientPid = message.pid; phase = 'end';
         if (await bindClient() !== true) return close();
+        if (await auditArguments() !== true || state.closed) return close();
         socket.write('{"type":"resume"}\n');
       } else if (phase === 'end') {
         if (!hasExactKeys(message, ['type', 'code']) || message.type !== 'end' || !Number.isSafeInteger(message.code) ||
@@ -199,7 +212,7 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
     });
     socket.on('end', () => { chain = chain.then(() => { if (!state.ended) close(); }); });
   };
-  return { proof, state, accept, close, violate, interfere };
+  return { proof, state, accept, close, violate, interfere, auditArguments };
 }
 
 export function prepareLinuxSandboxContext(input) { return composeLinuxSandbox(input, linuxObserverPins); }
@@ -218,9 +231,9 @@ export async function composeLinuxSandbox(input, observerPins) {
       (ldLibraryPath && !ldLibraryPath.split(':').every(value => value.startsWith('/')))) return unavailable();
   const token = hex(32), challenge = hex(32), suffix = hex(4);
   const file = (prefix, extension = '') => join(cell.observations, `${prefix}${suffix}${extension}`);
-  const planFile = file('p', '.json'), baseFile = file('b', '.json'), profileFile = file('d', '.json'), receiptFile = file('r', '.json');
+  let planFile, baseFile, windowsCanary;
+  const profileFile = file('d', '.json'), receiptFile = file('r', '.json');
   const workload = resource('linux-workload.mjs'), runner = resource('linux-runner.mjs'), interopHelper = resource('linux/facility');
-  const windowsCanary = execution === 'wsl2' ? file('w', '.exe') : null;
   const collectorEndpoint = `${collector.endpoint}/v1/logs`;
   const canaries = { files: null, writes: null, pathname: null, abstract: `aih-native-${hex(12)}`, port: null,
     hostPid: process.pid, mountFiles: execution === 'wsl2' ? hostVisible(WSL_MOUNT_FILES) : [],
@@ -228,11 +241,12 @@ export async function composeLinuxSandbox(input, observerPins) {
   const servers = [], sockets = new Set(), ownedFiles = [];
   let context, probeTransport, evidenceTransport, base, receipt, client = null, binding = null, bridge, bridgeCreated = false;
   let absentMounts = null, protectedValues = [], argumentsInspected = 0, started = false, cleanup, clientPin, session;
-  let stagedLibraries, libraryReadPaths, outsideCanaries, runnerPid;
+  let cellProfile, outsideCanaries, runnerPid, preparedResources = false;
   const proxyArguments = { bwrapArguments: 0, shellArguments: 0, unexpectedArguments: 0 };
 
   const verifyProfile = () => {
     try {
+      cellProfile.validate();
       const current = parseStrictJson(readBounded(receiptFile, 16384).toString('utf8'));
       const serialized = readBounded(profileFile, 65536).toString('utf8');
       if (!hasExactKeys(current, ['slots', 'baseSha256', 'profileSha256', 'proxyCapabilitySha256']) || !HEX.test(current.proxyCapabilitySha256) ||
@@ -248,6 +262,7 @@ export async function composeLinuxSandbox(input, observerPins) {
     } catch { return false; }
   };
   const inspectArguments = async () => {
+    try { cellProfile.validate(); } catch { return false; }
     const inventory = await context.observe();
     if (inventory?.status !== 'observed' || !Array.isArray(inventory.processes) || inventory.processes.length > 128) return null;
     let inspected = 0, complete = true;
@@ -255,7 +270,7 @@ export async function composeLinuxSandbox(input, observerPins) {
       const observed = await context.inspect(row);
       if (observed?.status !== 'observed') {
         // An exited short-lived helper supplies no observation; any other refusal leaves the proof open.
-        if (!['ipc-peer-membership', 'ipc-peer-birth'].includes(observed?.reason)) complete = false;
+        if (observed?.reason !== 'process-exited') complete = false;
         continue;
       }
       const result = inspectLinuxArguments(observed.argv, protectedValues);
@@ -304,7 +319,6 @@ export async function composeLinuxSandbox(input, observerPins) {
     for (const path of ownedFiles) { try { unlinkSync(path); } catch { /* cell removal owns regular files */ } }
     if (canaries.pathname) removeOwnedSocket(canaries.pathname);
     if (bridgeCreated && !sweepLinuxBridge(bridge, runnerPid)) confirmed = false;
-    stagedLibraries?.remove();
     if (absentMounts) sweepVendorMountPoints(cell.project, absentMounts);
     return outsideCanaries?.remove() !== false && confirmed;
   };
@@ -317,14 +331,21 @@ export async function composeLinuxSandbox(input, observerPins) {
     const result = context ? await context.terminate({ graceMs: Number.isFinite(options.graceMs) ? options.graceMs : 1000,
       deadlineMs: Math.max(0, budget - (performance.now() - begun)) }) : { processes: 'confirmed', survivors: [], elapsedMs: 0 };
     await closed;
-    if (result.processes === 'confirmed' && !removeOwned()) return { ...result, processes: 'unresolved' };
-    return result;
+    const confirmed = result.processes === 'confirmed' && removeOwned();
+    const released = cellProfile ? cellProfile.release(confirmed, preparedResources, {
+      check: () => { if (performance.now() - begun >= budget) throw Error(); }
+    }) : confirmed;
+    return { ...result, processes: released && performance.now() - begun < budget ? result.processes : 'unresolved',
+      elapsedMs: Math.round(performance.now() - begun) };
   })();
   const wrapHandle = handle => {
     runnerPid = handle.pid;
     return { pid: handle.pid, birth: handle.birth, argv: [runtime.node, runner, planFile], stdin: handle.stdin, stdout: handle.stdout,
       stderr: handle.stderr, exited: handle.exited, get failure() { return handle.failure; },
-      track: async () => { await handle.track(); await bindClient(); }, terminate };
+      track: async () => {
+        await handle.track(); await bindClient();
+        if (session.proof.clientBound && !session.state.ended) await session.auditArguments();
+      }, terminate };
   };
   const acceptServer = async identity => {
     if (!session.proof.authenticated || identity?.status !== 'observed' || !session.state.clientPid) return false;
@@ -356,13 +377,17 @@ export async function composeLinuxSandbox(input, observerPins) {
         !sameArgv(runtime.libraryAliasDirectories, ['/usr/lib64']) || !Array.isArray(runtime.libraryClosure)) return unavailable();
     for (const member of runtime.libraryClosure) if (!input.runtimePins.some(pin => pin.path === member.source &&
         pin.sha256 === member.sha256 && pin.byteLength === member.byteLength)) throw Error();
-    const loader = runtime.libraryClosure.find(member => member.source === '/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2');
-    if (!loader) throw Error();
-    stagedLibraries = stageLinuxLibraryClosure({ directory: cell.observations, closure: runtime.libraryClosure });
-    ldLibraryPath = stagedLibraries.directory;
-    libraryReadPaths = [...stagedLibraries.pins.map(pin => pin.path), loader.source, ...runtime.libraryAliasDirectories];
+    const observerResources = observerPins();
+    cellProfile = acquireLinuxCellProfile({ cell, phase: input.phase, runtime, execution, workload,
+      interopSource: resource('linux/interop-canary.exe'), interopHelper,
+      expected: { cell: Object.fromEntries(CELL_KEYS.map(key => [key, cell[key]])), runtime, execution, workload, runner,
+        interopHelper, selectedPaths, expectedArgv, selectedEntries: input.selectedEntries,
+        runtimePins: input.runtimePins, vendor: { entry: vendor.entry, treeSha256: vendor.treeSha256, pins: vendor.pins },
+        observerPins: observerResources } });
+    ({ planFile, baseFile, windowsCanary, base } = cellProfile);
+    ldLibraryPath = cellProfile.staged.directory;
     const merged = new Map();
-    for (const pin of [...input.runtimePins, ...stagedLibraries.pins, ...vendor.pins, ...observerPins()]) {
+    for (const pin of [...input.runtimePins, ...cellProfile.pins, ...vendor.pins, ...observerResources]) {
       const path = realpathSync.native(pin.path), prior = merged.get(path);
       if (prior && (prior.sha256 !== pin.sha256 || prior.byteLength !== pin.byteLength)) throw Error();
       merged.set(path, { path, sha256: pin.sha256, byteLength: pin.byteLength });
@@ -379,17 +404,19 @@ export async function composeLinuxSandbox(input, observerPins) {
     outsideCanaries = createLinuxCanaries({ home: homedir(), sibling: dirname(cell.path), temporary: tmpdir(),
       provisioner: cell.observations, agent: agentRoot });
     Object.assign(canaries, { files: outsideCanaries.files, writes: outsideCanaries.writes, pathname: outsideCanaries.pathname });
-    if (windowsCanary) {
-      copyFileSync(resource('linux/interop-canary.exe'), windowsCanary, 1 /* COPYFILE_EXCL */); ownedFiles.push(windowsCanary);
-      chmodSync(windowsCanary, 0o700); // a non-executable canary would make an EACCES refusal meaningless
-    }
     await bind({ path: canaries.pathname }); await bind({ path: '\0' + canaries.abstract });
     canaries.port = (await bind({ host: '127.0.0.1', port: 0 })).address().port;
     const prepared = await prepareLinuxContext({ directory: cell.observations, deadline, signal, runtimePins: [...merged.values()],
       selectedEntries: [...input.selectedEntries, { ...entry, argv: [...entry.argv] }] });
     if (prepared.status !== 'ready') {
       await closeResources();
-      return removeOwned() ? prepared : { ...prepared, cleanup: { confirmed: false, survivors: [] } };
+      const nativeConfirmed = prepared.cleanup?.confirmed !== false;
+      const removed = nativeConfirmed && removeOwned();
+      const cleanupBegun = prepared.cleanupStartedAt ?? performance.now();
+      const confirmed = cellProfile.release(removed, false, {
+        check: () => { if (performance.now() - cleanupBegun >= 10000) throw Error(); }
+      });
+      return confirmed ? prepared : { ...prepared, cleanup: { confirmed: false, survivors: [] } };
     }
     context = prepared.context;
     session = createLinuxProbeSession({ token, challenge, entry, hostNamespaces: context.hostNamespaces, verifyProfile, inspectArguments,
@@ -398,6 +425,7 @@ export async function composeLinuxSandbox(input, observerPins) {
     if (channel.status !== 'ready') throw Error();
     probeTransport = channel.transport;
     probeTransport.onConnection(socket => session.accept(socket));
+    preparedResources = true;
     return { status: 'ready', context: {
       async createPipe() {
         if (evidenceTransport) return unavailable();
@@ -412,19 +440,15 @@ export async function composeLinuxSandbox(input, observerPins) {
         let serialized;
         try {
           absentMounts = absentVendorMountPoints(cell.project);
-          const profileRuntime = Object.fromEntries(RUNTIME_KEYS.map(key => [key, runtime[key]]));
-          profileRuntime.libraries = libraryReadPaths;
-          profileRuntime.readFiles = [...runtime.readFiles, ...(windowsCanary ? [windowsCanary, interopHelper] : [])];
-          const profileInput = { cell: Object.fromEntries(CELL_KEYS.map(key => [key, cell[key]])), runtime: profileRuntime,
-            workload, plan: planFile, selectedPaths: [...selectedPaths] };
-          base = createLinuxBaseProfile(profileInput);
+          cellProfile.validate();
+          const { profileInput } = cellProfile, profileRuntime = profileInput.runtime;
           serialized = canonicalJson({ version: 1, profileInput, cell: profileInput.cell, runtime: profileRuntime, which: runtime.which, ldLibraryPath,
             vendorEntry: vendor.entry, vendorTreeSha256: vendor.treeSha256, execution, argv: [...expectedArgv], workload, windowsCanary, interopHelper,
             bridge, baseFile, profileFile, receiptFile, collector: collectorEndpoint, evidence: evidenceTransport.endpoint,
             probe: probeTransport.endpoint, canaries, selectedPaths: profileInput.selectedPaths });
           if (Buffer.byteLength(serialized) > 65536) return unavailable('session-launch-failed');
-          writeFileSync(baseFile, canonicalJson(base), { flag: 'wx', mode: 0o600 });
-          writeFileSync(planFile, serialized, { flag: 'wx', mode: 0o600 });
+          cellProfile.writePlan(serialized);
+          ownedFiles.push(profileFile, receiptFile);
         } catch { return unavailable('session-launch-failed'); }
         protectedValues = [...additional, token, challenge, collector.probeToken, collector.token, env.AIHQ_NATIVE_EVIDENCE_TOKEN]
           .filter(value => typeof value === 'string' && value.length > 0);

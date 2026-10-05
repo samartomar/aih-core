@@ -76,7 +76,7 @@ test('authenticated transcript reaches the client only after kernel identity, pr
   socket.send({ type: 'end', code: 0 });
   await waitFor(() => socket.sent.length === 4, 'finish');
   assert.deepEqual(socket.sent[3], { type: 'finish' });
-  assert.equal(session.state.ended, true); assert.equal(calls.inspect, 2);
+  assert.equal(session.state.ended, true); assert.equal(calls.inspect, 3);
   assert.equal(evaluateLinuxIsolation(session.proof), 'unobservable'); // no selected server yet
   session.proof.serverBound = true;
   assert.equal(evaluateLinuxIsolation(session.proof), 'observed');
@@ -94,6 +94,34 @@ test('a forged or replayed hello never reaches kernel identity or a challenge', 
     assert.equal(socket.sent.length, 0); assert.equal(session.proof.authenticated, false);
     assert.equal(socket.peerCalls, 0); assert.equal(socket.destroyed, true); assert.equal(session.state.violation, false);
   }
+});
+
+test('a live helper argv leak remains violated after the helper exits before the end frame', async () => {
+  const { session, socket, calls } = await authenticated({ inspect: [true, true, false, true] });
+  socket.send(probes()); await waitFor(() => socket.sent.length === 2, 'start');
+  socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3, 'resume');
+  await session.auditArguments();
+  assert.equal(calls.inspect, 3);
+  assert.equal(session.proof.argumentsClean, false);
+  assert.equal(session.state.violation, true);
+  socket.send({ type: 'end', code: 0 }); await settle();
+  assert.equal(session.proof.argumentsClean, false);
+  assert.equal(evaluateLinuxIsolation(session.proof), 'violated');
+  assert.equal(session.state.ended, false);
+});
+
+test('the bound client is audited before resume and overlapping live audits share one observation', async () => {
+  const refused = await authenticated({ inspect: [true, false] });
+  refused.socket.send(probes()); await waitFor(() => refused.socket.sent.length === 2, 'start');
+  refused.socket.send({ type: 'client', pid: 9 }); await settle();
+  assert.equal(refused.socket.sent.length, 2);
+  assert.equal(refused.session.state.violation, true);
+  const { session, socket, calls } = await authenticated();
+  socket.send(probes()); await waitFor(() => socket.sent.length === 2, 'start');
+  socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3, 'resume');
+  const before = calls.inspect;
+  await Promise.all([session.auditArguments(), session.auditArguments(), session.auditArguments()]);
+  assert.equal(calls.inspect - before, 1);
 });
 
 test('the kernel peer must be the exact selected workload with the claimed namespace PID', async () => {
@@ -239,7 +267,7 @@ test('cleanup removes only vendor mount points that were absent before launch', 
 });
 
 test('bridge cleanup removes exactly the vendor socket and empty bind source, then the bridge', { skip: POSIX ? false : 'Unix sockets only' }, async t => {
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-linux-bridge-')));
+  const root = realpathSync.native(mkdtempSync(join('/tmp', 'ahb-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const bridge = join(root, 's1'); mkdirSync(bridge, { mode: 0o700 });
   const server = net.createServer(); const socket = join(bridge, 'claude-http-0123456789abcdef.sock');
@@ -257,7 +285,7 @@ test('bridge cleanup removes exactly the vendor socket and empty bind source, th
 });
 
 test('killed-runner cleanup recognizes only its exact fresh vendor multiplex socket', { skip: POSIX ? false : 'Unix sockets only' }, async t => {
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-linux-mux-')));
+  const root = realpathSync.native(mkdtempSync(join('/tmp', 'ahm-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const bridge = join(root, 's1'); mkdirSync(bridge, { mode: 0o700 });
   const server = net.createServer(), path = join(bridge, 'srt-mux-123-0.sock');
@@ -289,19 +317,20 @@ async function probeCollector(t) {
   t.after(() => new Promise(resolve => server.close(() => resolve())));
   return { endpoint: `http://127.0.0.1:${server.address().port}`, token, probeToken };
 }
-async function composition(t, argv) {
+async function composition(t, argv, prior) {
   const described = JSON.parse(readFileSync(RUNTIME, 'utf8'));
   const vendor = verifyLinuxVendorClosure(); assert.equal(vendor.status, 'ready');
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-native-')));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const cell = { path: root, ...Object.fromEntries(['home', 'project', 'scratch', 'observations'].map(name => [name, join(root, name)])) };
-  for (const name of ['home', 'project', 'scratch', 'observations']) mkdirSync(cell[name], { mode: 0o700 });
-  const selected = join(cell.project, 'selected.txt'); writeFileSync(selected, 'synthetic', { mode: 0o600 });
+  const root = prior?.cell.path ?? realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-native-')));
+  if (!prior) t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cell = prior?.cell ?? { path: root, ...Object.fromEntries(['home', 'project', 'scratch', 'observations'].map(name => [name, join(root, name)])) };
+  if (!prior) for (const name of ['home', 'project', 'scratch', 'observations']) mkdirSync(cell[name], { mode: 0o700 });
+  const selected = join(cell.project, 'selected.txt'); if (!prior) writeFileSync(selected, 'synthetic', { mode: 0o600 });
   const collector = await probeCollector(t);
   const observerPins = linuxObserverSources.map(name => pin(fileURLToPath(new URL(name, sourceRoot))));
-  const prepared = await composeLinuxSandbox({ cell, runtime: { ...described.runtime, ldLibraryPath: described.ldLibraryPath }, vendor,
+  const input = { cell, runtime: { ...described.runtime, ldLibraryPath: described.ldLibraryPath }, vendor,
     deadline: performance.now() + 60_000, collector, execution: described.execution, selectedPaths: [selected], expectedArgv: argv,
-    runtimePins: described.pins, selectedEntries: [] }, () => observerPins);
+    runtimePins: described.pins, selectedEntries: [] };
+  const prepared = await composeLinuxSandbox(input, () => observerPins);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
   t.after(() => prepared.context.terminate({ graceMs: 0, deadlineMs: 10_000 }));
   assert.equal((await prepared.context.createPipe()).status, 'ready');
@@ -311,7 +340,7 @@ async function composition(t, argv) {
   assert.equal(started.status, 'started', JSON.stringify(started));
   // Real adapters track the outer runner while probes are still running and no client PID exists.
   await started.handle.track();
-  return { cell, context: prepared.context, handle: started.handle, secrets: [collector.token, collector.probeToken, evidenceToken] };
+  return { cell, input, observerPins, context: prepared.context, handle: started.handle, secrets: [collector.token, collector.probeToken, evidenceToken] };
 }
 const assertNoLeftovers = cell => {
   assert.deepEqual(readdirSync(cell.project), ['selected.txt']);
@@ -343,4 +372,61 @@ test('a runner killed before vendor reset still leaves no socket, bridge or moun
   const receipt = await context.terminate({ graceMs: 0, deadlineMs: 10_000 });
   assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt)); assert.ok(receipt.elapsedMs <= 10_000);
   assertNoLeftovers(cell);
+});
+
+test('sequential sessions retain one immutable base and reject changed or concurrent requests', { ...composed, timeout: 180_000 }, async t => {
+  const argv = ['-c', 'read -t 2 _ || true'];
+  const first = await composition(t, argv);
+  const concurrent = await composeLinuxSandbox(first.input, () => first.observerPins);
+  if (concurrent.status === 'ready') t.after(() => concurrent.context.terminate({ graceMs: 0, deadlineMs: 10000 }));
+  assert.equal(concurrent.status, 'unavailable');
+  await first.handle.exited;
+  const firstRecord = first.context.isolationRecord();
+  const firstProfileFile = readdirSync(first.cell.observations).find(name => /^d[0-9a-f]+\.json$/.test(name));
+  const firstProfile = JSON.parse(readFileSync(join(first.cell.observations, firstProfileFile), 'utf8'));
+  const firstResources = readdirSync(first.cell.observations).filter(name => /^[bpw][0-9a-f]+\.(?:json|exe)$/.test(name) || /^l[0-9a-zA-Z]+$/.test(name)).sort();
+  assert.equal(first.context.versionProbeReady(), true);
+  assert.equal((await first.context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
+  for (const changed of [
+    { selectedPaths: [...first.input.selectedPaths, join(first.cell.project, 'extra.txt')] },
+    { runtime: { ...first.input.runtime, readFiles: [...first.input.runtime.readFiles, '/etc/hosts'] } },
+    { runtime: { ...first.input.runtime, node: first.input.runtime.bash } },
+    { vendor: { ...first.input.vendor, treeSha256: '0'.repeat(64) } }
+  ]) assert.equal((await composeLinuxSandbox({ ...first.input, ...changed }, () => first.observerPins)).status, 'unavailable');
+  const second = await composition(t, argv, first);
+  await second.handle.exited;
+  const secondRecord = second.context.isolationRecord();
+  const secondProfileFile = readdirSync(first.cell.observations).find(name => /^d[0-9a-f]+\.json$/.test(name));
+  const secondProfile = JSON.parse(readFileSync(join(first.cell.observations, secondProfileFile), 'utf8'));
+  assert.equal(second.context.versionProbeReady(), true);
+  assert.equal(secondRecord.baseSha256, firstRecord.baseSha256);
+  assert.notEqual(secondRecord.profileSha256, firstRecord.profileSha256);
+  const withoutSlots = profile => ({ ...profile,
+    network: { ...profile.network, allowedDomains: profile.network.allowedDomains.filter(value => !/^127\.0\.0\.1:/.test(value)) },
+    filesystem: { ...profile.filesystem, allowRead: profile.filesystem.allowRead.filter(value => !value.startsWith(first.cell.observations + '/') ||
+      firstResources.some(name => value === join(first.cell.observations, name) || value.startsWith(join(first.cell.observations, name) + '/'))) } });
+  assert.deepEqual(withoutSlots(secondProfile), withoutSlots(firstProfile));
+  assert.equal((await second.context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
+  assertNoLeftovers(first.cell);
+  assert.deepEqual(readdirSync(first.cell.observations).filter(name => /^[bpw][0-9a-f]+\.(?:json|exe)$/.test(name) || /^l[0-9a-zA-Z]+$/.test(name)).sort(), firstResources);
+  const baseFile = join(first.cell.observations, firstResources.find(name => /^b/.test(name)));
+  const bytes = readFileSync(baseFile); rmSync(baseFile); writeFileSync(baseFile, bytes, { mode: 0o400 });
+  assert.equal((await composeLinuxSandbox({ ...first.input, deadline: performance.now() + 60000 }, () => first.observerPins)).status, 'unavailable');
+});
+
+test('a live descendant leaking an environment-only token permanently violates isolation', composed, async t => {
+  const { runtime } = JSON.parse(readFileSync(RUNTIME, 'utf8'));
+  // Built-in bounded waits keep the leaked helper alive even when native stdin is already at EOF.
+  const argv = ['-c', `"${runtime.bash}" -c 'end=$((SECONDS+2)); while ((SECONDS<end)); do :; done' "$AIHQ_NATIVE_EVIDENCE_TOKEN" & end=$((SECONDS+4)); while ((SECONDS<end)); do :; done; wait`];
+  const { context, handle, secrets } = await composition(t, argv);
+  for (let i = 0; i < 400 && context.isolation() !== 'violated'; i++) {
+    await handle.track(); await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(context.isolationRecord().clientBound, true, JSON.stringify(context.isolationRecord()));
+  assert.equal(context.isolation(), 'violated', JSON.stringify(context.isolationRecord()));
+  await handle.exited;
+  assert.equal(context.isolation(), 'violated');
+  assert.equal(context.versionProbeReady(), false);
+  for (const value of secrets) assert.equal(JSON.stringify(context.isolationRecord()).includes(value), false);
+  assert.equal((await context.terminate({ graceMs: 0, deadlineMs: 10000 })).processes, 'confirmed');
 });

@@ -2,7 +2,7 @@
 // native Linux/WSL2 sandbox cells. Every fixture is an isolated temporary
 // directory; the helper itself performs no execution, writes or network use.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -16,7 +16,9 @@ const WINDOWS_SOURCE_UNKNOWN = 'windows-host-file-source-unknown';
 const EXECUTION_UNKNOWN = 'execution-unknown';
 
 const withRoot = body => {
-  const root = mkdtempSync(join(tmpdir(), 'aihq-managed-policy-'));
+  // macOS exposes its temporary root through /var -> /private/var. Fixtures must
+  // start at the real root so tests introduce only the symlinks under test.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-managed-policy-')));
   try { return body(root); } finally { rmSync(root, { recursive: true, force: true }); }
 };
 

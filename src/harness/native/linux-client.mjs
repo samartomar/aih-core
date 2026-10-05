@@ -59,7 +59,7 @@ export async function resolveLinuxNativeClient({ definition, input, client, cell
   try {
     writeFileSync(marker, 'fixed-version-probe', { flag: 'wx', mode: 0o600 });
     const telemetry = await collector.start(); check();
-    const prepared = await prepareLinuxSandboxContext({ cell, runtime, vendor, collector: telemetry, execution: definition.platform.execution,
+    const prepared = await prepareLinuxSandboxContext({ cell, runtime, vendor, phase: 'preflight', collector: telemetry, execution: definition.platform.execution,
       deadline: input.deadline, signal: input.signal, runtimePins: pins, selectedEntries: [], selectedPaths: [marker], expectedArgv: definition.versionArgv });
     if (prepared.status !== 'ready') { const failure = await failed('isolation-unobserved'); return prepared.cleanup?.confirmed === false ? { ...failure, cleanup: prepared.cleanup } : failure; }
     context = prepared.context;

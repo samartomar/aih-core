@@ -140,15 +140,19 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         const schema = (await import('@aihq/core/'+path+'/1.0.0.json',{with:{type:'json'}})).default;
         schemas.addSchema(schema);
       }
-      schemas.addSchema((await import('@aihq/core/harness/schemas/native-verification-definition/1.1.0.json',{with:{type:'json'}})).default);
+      // Definition 1.1 uses intentional partial prefix arrays for adjacent argv values.
+      // Keep all schema validation; only Ajv's optional fixed-tuple heuristic is disabled for this schema.
+      const vendorSchema=(await import('@aihq/core/harness/schemas/native-verification-definition/1.1.0.json',{with:{type:'json'}})).default;
+      const vendorSchemas=new Ajv2020({strict:true,strictTuples:false}).addSchema(vendorSchema);
       const request = {schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'};
       assert.equal(validateNativeVerificationRequest(request).valid,true);
       assert.equal(schemas.validate(request.schema,request),true,JSON.stringify(schemas.errors));
       assert.equal(schemas.validate(request.schema,{...request,command:'untrusted'}),false);
       for (const definition of nativeVerificationDefinitions) {
+        const validator=definition.schema===vendorSchema.$id?vendorSchemas:schemas;
         assert.equal(validateNativeVerificationDefinition(definition).valid,true);
-        assert.equal(schemas.validate(definition.schema,definition),true,JSON.stringify(schemas.errors));
-        assert.equal(schemas.validate(definition.schema,{...definition,unexpected:true}),false);
+        assert.equal(validator.validate(definition.schema,definition),true,JSON.stringify(validator.errors));
+        assert.equal(validator.validate(definition.schema,{...definition,unexpected:true}),false);
       }
       const linuxDefinition=nativeVerificationDefinitions.find(value=>value.schema==='urn:aihq:harness:native-verification-definition:1.1.0');
       assert.ok(linuxDefinition,'packed Harness carries the Linux vendor-runtime definition');
@@ -156,8 +160,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(linuxDefinition.isolation.mechanism,'vendor-runtime');
       assert.equal(linuxDefinition.isolation.observerId,'anthropic-srt-linux.v1');
       assert.deepEqual(linuxDefinition.sessionArgv.slice(-2),['--tools','']);
-      assert.equal(schemas.validate(linuxDefinition.schema,{...linuxDefinition,sessionArgv:['-p','']}),false);
-      assert.equal(schemas.validate(linuxDefinition.schema,{...linuxDefinition,isolation:{...linuxDefinition.isolation,mechanism:'none'}}),false);
+      assert.equal(vendorSchemas.validate(linuxDefinition.schema,{...linuxDefinition,sessionArgv:['-p','']}),false);
+      assert.equal(vendorSchemas.validate(linuxDefinition.schema,{...linuxDefinition,isolation:{...linuxDefinition.isolation,mechanism:'none'}}),false);
       const legacyDefinition=nativeVerificationDefinitions.find(value=>value.schema==='urn:aihq:harness:native-verification-definition:1.0.0');
       assert.ok(legacyDefinition,'packed Harness keeps the unchanged 1.0.0 definition');
       assert.equal(schemas.validate(legacyDefinition.schema,{...legacyDefinition,sessionArgv:[...legacyDefinition.sessionArgv,'']}),false);

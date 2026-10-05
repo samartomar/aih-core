@@ -30,6 +30,10 @@ Only the exact local telemetry collector and fixed provider destinations can pas
 the proxy allowlist. `NO_PROXY` and `no_proxy` are removed after vendor setup so
 the collector must traverse that proxy.
 
+Both acceptance sessions share one immutable base and once-staged supporting
+files. Reuse checks their exact bytes and file identities; concurrent use or a
+changed input refuses the session. The earlier version preflight has its own
+fixed profile and receives no dedicated identity or selected configuration.
 Per-launch derivation adds only the exact collector IP/port and enumerated IPC
 socket paths. Both the host and runner compare the full derived profile and its
 serialized bytes with the fixed base. Public requests accept no wrapper,
@@ -82,7 +86,10 @@ arguments and shell command. This is an acknowledged argv exposure: local reader
 permitted by host process visibility may reuse the capability for the same
 allowlisted egress or denial of service while the proxy lives. It is not an OAuth,
 identity, telemetry or evidence credential. The latter values must never appear
-in argv. No raw capability or argv is retained in admission records. The fixed
+in argv. The observer audits the bound client before resume and audits owned
+process arguments while it runs; detected leaks remain failures after a process
+exits. Unreadable live identity is missing proof. No raw capability or argv is
+retained in admission records. The fixed
 integration does not claim protection from a hostile host account or kernel.
 
 Optional process-local subscribers to `aih.native.admission.v1` through Node's

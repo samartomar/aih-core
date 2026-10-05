@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stageLinuxLibraryClosure } from '../../src/harness/native/linux-libraries.mjs';
@@ -36,4 +36,17 @@ test('library aliases cannot escape their directory or conceal conflicting bytes
     { source: other, sha256: hash('different-lib'), byteLength: 13, names: ['libsample.so.1'] }] }), /runtime-changed/);
   assert.deepEqual(readdirSync(directory).sort(), ['libsample.so.1.2', 'other']);
   assert.equal(readFileSync(source, 'utf8'), 'synthetic-lib');
+});
+
+test('retained library resources reject changed bytes and replacement identities before reuse', t => {
+  const { directory, pin } = setup(t);
+  const staged = stageLinuxLibraryClosure({ directory, closure: [pin] });
+  assert.equal(staged.validate(), true);
+  const path = staged.pins[0].path;
+  if (process.platform === 'win32') chmodSync(path, 0o600);
+  rmSync(path); writeFileSync(path, 'synthetic-lib', { mode: 0o444 });
+  assert.throws(() => staged.validate(), /runtime-changed/);
+  const other = stageLinuxLibraryClosure({ directory, closure: [pin] });
+  const member = other.pins[0].path; chmodSync(member, 0o600); writeFileSync(member, 'changed-bytes');
+  assert.throws(() => other.validate(), /runtime-changed/);
 });
