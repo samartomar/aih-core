@@ -1,0 +1,663 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:native-verification-result:1.0.0",
+  "title": "Native verification result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "package",
+    "status",
+    "verdict",
+    "proofScope",
+    "admission",
+    "client",
+    "adapter",
+    "platform",
+    "content",
+    "sessions",
+    "stages",
+    "security",
+    "authority",
+    "survivingProcesses",
+    "cleanup",
+    "diagnostics",
+    "limits"
+  ],
+  "properties": {
+    "schema": {"const":"urn:aihq:core:native-verification-result:1.0.0"},
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name","version"],
+      "properties": {"name":{"const":"@aihq/core"},"version":{"type":"string","minLength":1,"maxLength":128}}
+    },
+    "status": {"enum":["complete","incomplete","invalid","cancelled"]},
+    "verdict": {"enum":["verified","failed","unverified"]},
+    "proofScope": {"enum":["bundled-mechanism","test-configuration","production-configuration","none"]},
+    "admission": {"enum":["admitted","candidate-smoke"]},
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id","observedVersion"],
+      "properties": {
+        "id": {"oneOf":[{"$ref":"#/$defs/clientId"},{"type":"null"}]},
+        "observedVersion": {"oneOf":[{"$ref":"#/$defs/safeToken"},{"type":"null"}]}
+      }
+    },
+    "adapter": {
+      "oneOf": [
+        {"type":"null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id","sha256"],
+          "properties": {"id":{"$ref":"#/$defs/nativeId"},"sha256":{"$ref":"#/$defs/sha256"}}
+        }
+      ]
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os","arch","osRelease","execution"],
+      "properties": {
+        "os": {"enum":["win32","linux","darwin","unsupported"]},
+        "arch": {"$ref":"#/$defs/safeToken"},
+        "osRelease": {"$ref":"#/$defs/safeToken"},
+        "execution": {"enum":["native","wsl2"]}
+      }
+    },
+    "content": {
+      "oneOf": [
+        {"type":"null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bundleId","manifestSha256","archiveSha256","outputTreeSha256","guardrailsSha256","stagedConfigurationDigest"],
+          "properties": {
+            "bundleId": {"$ref":"#/$defs/nativeId"},
+            "manifestSha256": {"$ref":"#/$defs/sha256"},
+            "archiveSha256": {"oneOf":[{"$ref":"#/$defs/sha256"},{"type":"null"}]},
+            "outputTreeSha256": {"$ref":"#/$defs/sha256"},
+            "guardrailsSha256": {"$ref":"#/$defs/sha256"},
+            "stagedConfigurationDigest": {"$ref":"#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "sessions": {"type":"array","maxItems":2,"items":{"$ref":"#/$defs/session"}},
+    "stages": {"type":"array","maxItems":32,"items":{"$ref":"#/$defs/stage"}},
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sandbox","hostSecretIsolation"],
+      "properties": {
+        "sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level","mechanism","reason"],
+          "properties": {
+            "level": {"enum":["observed-os-boundary","hygiene-only","not-started"]},
+            "mechanism": {"oneOf":[{"$ref":"#/$defs/nativeId"},{"type":"null"}]},
+            "reason": {"$ref":"#/$defs/reasonToken"}
+          }
+        },
+        "hostSecretIsolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome","reason"],
+          "properties": {"outcome":{"enum":["passed","unavailable"]},"reason":{"$ref":"#/$defs/reasonToken"}}
+        }
+      }
+    },
+    "authority": {"const":"not-evaluated"},
+    "survivingProcesses": {"type":"array","maxItems":32,"items":{"$ref":"#/$defs/survivor"}},
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["processes","files","retainedCell"],
+      "properties": {
+        "processes": {"enum":["confirmed","unresolved","not-created"]},
+        "files": {"enum":["removed","retained","not-created"]},
+        "retainedCell": {"oneOf":[{"type":"null"},{"type":"string","pattern":"^aih-native-[a-f0-9]{32}$"}]}
+      }
+    },
+    "diagnostics": {"type":"array","maxItems":16,"items":{"$ref":"#/$defs/diagnostic"}},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budgetMs",
+        "elapsedMs",
+        "sessionsStarted",
+        "stagesCompleted",
+        "observedBytes",
+        "telemetryEvents",
+        "rpcMessages",
+        "evidenceTruncated"
+      ],
+      "properties": {
+        "budgetMs": {"type":"integer","minimum":1000,"maximum":600000},
+        "elapsedMs": {"type":"integer","minimum":0},
+        "sessionsStarted": {"type":"integer","minimum":0,"maximum":2},
+        "stagesCompleted": {"type":"integer","minimum":0,"maximum":32},
+        "observedBytes": {"type":"integer","minimum":0},
+        "telemetryEvents": {"type":"integer","minimum":0},
+        "rpcMessages": {"type":"integer","minimum":0},
+        "evidenceTruncated": {"type":"boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "nativeId": {"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,127}$"},
+    "sha256": {"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "clientId": {"enum":["claude","codex","cursor","gemini","copilot","windsurf","opencode","kimi","kiro","antigravity","zed"]},
+    "safeToken": {"type":"string","pattern":"^[a-zA-Z0-9 ._()+:#/-]{1,128}$"},
+    "sessionId": {"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$"},
+    "reasonToken": {"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "reason": {
+      "enum": [
+        "schema-id",
+        "request-field",
+        "controls-field",
+        "client-id",
+        "budget-invalid",
+        "path-invalid",
+        "binding-invalid",
+        "strict-json",
+        "fixture-bytes-mismatch",
+        "material-path-unsafe",
+        "configuration-unavailable",
+        "sandbox-root-unavailable",
+        "staging-unavailable",
+        "client-absent",
+        "version-unreadable",
+        "client-unsupported",
+        "version-unsupported",
+        "platform-unsupported",
+        "cell-not-admitted",
+        "transport-unsupported",
+        "configuration-channel-unsupported",
+        "authentication-channel-unsupported",
+        "authentication-unavailable",
+        "identity-binding-invalid",
+        "session-launch-failed",
+        "executable-changed",
+        "session-identity-unobservable",
+        "session-not-fresh",
+        "loading-mode-unobservable",
+        "configuration-not-loaded",
+        "managed-restriction",
+        "guardrail-path-conflict",
+        "restriction-unobservable",
+        "identity-session-mismatch",
+        "identity-conflict",
+        "tools-not-discovered",
+        "server-evidence-unavailable",
+        "instructions-not-loaded",
+        "instruction-attestation-unobservable",
+        "instruction-attestation-mismatch",
+        "instruction-source-ambiguous",
+        "query-challenge-mismatch",
+        "query-answer-mismatch",
+        "configuration-changed",
+        "isolation-unobserved",
+        "isolation-violated",
+        "observed",
+        "before-session-2",
+        "after-session-2",
+        "cancelled",
+        "budget-exhausted",
+        "limit-exceeded",
+        "native-internal",
+        "not-run-after-failure",
+        "not-run-after-restriction",
+        "not-run-after-unavailable",
+        "termination-unresolved",
+        "cleanup-unresolved"
+      ]
+    },
+    "stageId": {
+      "enum": [
+        "fixture-integrity",
+        "host-presence",
+        "identity-binding",
+        "cell-staging",
+        "session-start",
+        "configuration-unchanged",
+        "stop",
+        "cleanup",
+        "session-freshness",
+        "loading-mode",
+        "tool-restrictions",
+        "provider-authentication",
+        "tool-discovery",
+        "instruction-loading",
+        "read-only-query",
+        "isolation"
+      ]
+    },
+    "evidence": {
+      "oneOf": [
+        {"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"const":"none"}}},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind","sha256"],
+          "properties": {"kind":{"const":"digest"},"sha256":{"$ref":"#/$defs/sha256"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind","count"],
+          "properties": {"kind":{"const":"counts"},"count":{"type":"integer","minimum":0}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind","matched"],
+          "properties": {"kind":{"const":"match"},"matched":{"type":"boolean"}}
+        }
+      ]
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id","session","outcome","reason","evidence"],
+      "properties": {
+        "id": {"$ref":"#/$defs/stageId"},
+        "session": {"enum":[1,2,null]},
+        "outcome": {"enum":["passed","failed","unsupported","restricted","unavailable"]},
+        "reason": {"$ref":"#/$defs/reason"},
+        "evidence": {"$ref":"#/$defs/evidence"}
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index","process","launchArgvDigest","stagedConfigurationDigest","challengeSha256","stages"],
+      "properties": {
+        "index": {"enum":[1,2]},
+        "process": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pid","clientSessionId"],
+          "properties": {"pid":{"type":"integer","minimum":1},"clientSessionId":{"oneOf":[{"$ref":"#/$defs/sessionId"},{"type":"null"}]}}
+        },
+        "launchArgvDigest": {"$ref":"#/$defs/sha256"},
+        "stagedConfigurationDigest": {"$ref":"#/$defs/sha256"},
+        "challengeSha256": {"$ref":"#/$defs/sha256"},
+        "stages": {"type":"array","maxItems":16,"items":{"$ref":"#/$defs/stage"}}
+      }
+    },
+    "survivor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid","role"],
+      "properties": {"pid":{"type":"integer","minimum":1},"role":{"enum":["client","server","recorder","helper"]}}
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code","reason","message"],
+      "properties": {
+        "code": {
+          "enum": ["INPUT_INVALID","SCHEMA_UNSUPPORTED","PREREQUISITE_UNAVAILABLE","EXECUTION_FAILED","CANCELLED","INTERNAL_ERROR"]
+        },
+        "reason": {"$ref":"#/$defs/reason"},
+        "message": {"type":"string","minLength":1,"maxLength":512},
+        "path": {"type":"string","pattern":"^/[A-Za-z0-9_./-]{0,511}$"},
+        "guidance": {"type":"string","minLength":1,"maxLength":512}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties":{"verdict":{"const":"verified"}},"required":["verdict"]},
+      "then": {
+        "type": "object",
+        "properties": {
+          "status": {"const":"complete"},
+          "proofScope": {"enum":["bundled-mechanism","test-configuration","production-configuration"]},
+          "client": {"type":"object","properties":{"id":{"$ref":"#/$defs/clientId"},"observedVersion":{"$ref":"#/$defs/safeToken"}}},
+          "adapter": {"type":"object"},
+          "content": {"type":"object"},
+          "platform": {"type":"object","properties":{"os":{"enum":["win32","linux","darwin"]}}},
+          "sessions": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {"const":1},
+                  "process": {"type":"object","properties":{"clientSessionId":{"$ref":"#/$defs/sessionId"}}},
+                  "stages": {
+                    "type": "array",
+                    "minItems": 9,
+                    "maxItems": 9,
+                    "prefixItems": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"session-freshness"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"loading-mode"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"tool-restrictions"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"provider-authentication"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"tool-discovery"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"counts"},"count":{"type":"integer","minimum":1}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"instruction-loading"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"read-only-query"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"isolation"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"cleanup"},
+                          "session": {"const":1},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"none"}}}
+                        }
+                      }
+                    ],
+                    "items": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "index": {"const":2},
+                  "process": {"type":"object","properties":{"clientSessionId":{"$ref":"#/$defs/sessionId"}}},
+                  "stages": {
+                    "type": "array",
+                    "minItems": 9,
+                    "maxItems": 9,
+                    "prefixItems": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"session-freshness"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"loading-mode"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"tool-restrictions"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"provider-authentication"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"tool-discovery"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"counts"},"count":{"type":"integer","minimum":1}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"instruction-loading"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"read-only-query"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"isolation"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {"const":"cleanup"},
+                          "session": {"const":2},
+                          "outcome": {"const":"passed"},
+                          "reason": {"const":"observed"},
+                          "evidence": {"type":"object","properties":{"kind":{"const":"none"}}}
+                        }
+                      }
+                    ],
+                    "items": false
+                  }
+                }
+              }
+            ],
+            "items": false
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 9,
+            "maxItems": 9,
+            "prefixItems": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"fixture-integrity"},
+                  "session": {"const":null},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"},
+                  "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"host-presence"},
+                  "session": {"const":null},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"identity-binding"},
+                  "session": {"const":null},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"},
+                  "evidence": {"type":"object","properties":{"kind":{"const":"match"},"matched":{"const":true}}}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"cell-staging"},
+                  "session": {"const":null},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"},
+                  "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"session-start"},
+                  "session": {"const":1},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"configuration-unchanged"},
+                  "session": {"const":2},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"before-session-2"},
+                  "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"session-start"},
+                  "session": {"const":2},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"configuration-unchanged"},
+                  "session": {"const":2},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"after-session-2"},
+                  "evidence": {"type":"object","properties":{"kind":{"const":"digest"}}}
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {"const":"cleanup"},
+                  "session": {"const":null},
+                  "outcome": {"const":"passed"},
+                  "reason": {"const":"observed"}
+                }
+              }
+            ],
+            "items": false
+          },
+          "security": {
+            "type": "object",
+            "properties": {
+              "sandbox": {
+                "type": "object",
+                "properties": {
+                  "level": {"const":"observed-os-boundary"},
+                  "mechanism": {"$ref":"#/$defs/nativeId"},
+                  "reason": {"const":"observed"}
+                }
+              },
+              "hostSecretIsolation": {"type":"object","properties":{"outcome":{"const":"passed"},"reason":{"const":"observed"}}}
+            }
+          },
+          "survivingProcesses": {"type":"array","maxItems":0},
+          "cleanup": {
+            "type": "object",
+            "properties": {"processes":{"const":"confirmed"},"files":{"const":"removed"},"retainedCell":{"type":"null"}}
+          },
+          "diagnostics": {"type":"array","maxItems":0},
+          "limits": {"type":"object","properties":{"sessionsStarted":{"const":2},"stagesCompleted":{"const":27}}}
+        }
+      }
+    }
+  ]
+}

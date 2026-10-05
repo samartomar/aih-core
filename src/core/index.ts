@@ -1,4 +1,9 @@
 export type * from './types.js';
+export { verifyNativeClient } from './native-verification.js';
+export type { NativeVerificationControls } from './native-verification.js';
+export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
+  NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
+  NativeVerificationResult } from './native-contracts.js';
 export type * from './host-types.js';
 export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,

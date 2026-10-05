@@ -88,6 +88,70 @@ const result = await inspect({ targets: ['node', 'npm'], network: 'off' });
 
 Inspection also covers the helpers `rg`, `fd` (or Debian's `fdfind`), `jq`, `curl`, `keytool` and `bash`, and the clients Antigravity (`agy`, legacy `antigravity`) and Zed (`zed`, or `zeditor`/`zedit` where a distribution renames it). Each is a presence and version probe, not a general tool inventory; `keytool`'s own `-version` exists only in newer JDKs, so its probe passes `-version` to the Java launcher through the documented `-J` option. When several distinct PATH candidates (after resolving symlinks, and counting one install directory once) resolve for one of these tools, the `<id>/resolution` observation names the file and 1-based PATH entry used and how many others exist. On Windows a `bash` in System32 or WindowsApps is reported as an ambiguous WSL launcher rather than assumed to be Git Bash, and its version command is skipped (`bash/version` reason `wsl-launcher`) so inspection never starts WSL. For Antigravity and Zed, a detected installation or configuration adds an `<id>/loading` observation and manual guidance: presence and configuration are shown, but native loading is not verified. Gemini CLI configuration is recognised only from its own `~/.gemini/tmp`, `extensions`, `commands` or `history` directories, so an Antigravity-only `~/.gemini` (`antigravity`, `antigravity-cli`, `config`) does not report `gemini` as configured. A Gemini `settings.json` or `GEMINI.md` alone is not treated as a trace, because Antigravity shares the `~/.gemini` namespace; an installed `gemini` executable is still detected.
 
+## Explicit native client verification
+
+`verifyNativeClient(request, controls?)` and `aih verify-client` are separate
+from ordinary inspection. Inspection retains its presence/version and optional
+TLS checks without launching configured MCP commands, servers or client sessions.
+Native verification uses explicit input, a disposable cell and bounded evidence.
+
+```js
+import { verifyNativeClient } from '@aihq/core';
+const result = await verifyNativeClient({
+  schema: 'urn:aihq:core:native-verification-request:1.0.0',
+  client: 'claude'
+});
+```
+
+```sh
+aih verify-client claude --json
+aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json
+```
+
+No client is admitted by this development artifact. A normal call reports its
+unadmitted or unsupported cell. The bundled Claude candidate is a mechanism
+smoke candidate; passing it never changes admission. All eleven selected client
+IDs remain available for explicit, honest outcomes: Claude, Codex, Cursor,
+Gemini, Copilot, Windsurf, OpenCode, Kimi, Kiro, Antigravity and Zed.
+
+The default whole-check budget is 180000 ms; `--budget-ms` accepts integers
+1000–600000. Cancellation uses `controls.signal` or CLI SIGINT. Cleanup has one
+additional 10000 ms allowance, with unresolved resources reported explicitly.
+JSON output contains one result and no raw process output. Exit codes are 0 for
+`complete/verified`, 2 for invalid input, 130 for cancellation and 1 otherwise.
+No verification result grants Apply approval or organization authority.
+
+The complete request may come from `--configuration <request-json-file>`; its
+client must match the positional client. `--host-bindings <host-json-file>`
+accepts only `testIdentity` and `configurationSources`, independently selected
+by a trusted Node host. Embedded paths are absolute. These files are bounded
+strict UTF-8 JSON, reject duplicate keys and links, and are never echoed.
+No ambient credentials, arbitrary commands, callbacks, environment maps or
+collector endpoints are accepted. Dedicated OAuth provisioning is an operator
+step outside verification; the normal user profile is never its credential source.
+
+Supplied configuration uses independent archive/member pins and exact starting
+and output trees. The bundled fixture proves only its mechanism; test content
+cannot establish production configuration. Both fresh sessions must separately
+observe initial instruction loading, MCP discovery and the fixed read-only query,
+then establish unchanged configuration and cleanup. Identity, loading, isolation
+and cleanup remain distinct; hygiene evidence cannot become full native proof.
+Unavailable process/peer-identity facilities fail closed. Native platform acceptance
+requires actual observations and separate maintained evidence.
+
+The current bundled candidate names Claude Code 2.1.285 on Windows x64
+(`10.0.26200`). This artifact has no Windows Job Object launcher or OS IPC
+peer-identity helper, and no observed cell-local OAuth or whole-client isolation
+channel. Candidate verification therefore stops before a native session. POSIX
+lifecycle helpers and controlled session fixtures exercise the protocol; they
+do not admit a POSIX client or establish a passing native cell.
+
+Portable validators `validateNativeVerificationRequest`,
+`validateNativeVerificationResult` and `validateNativeVerificationBundle` are
+exported from `@aihq/core/contracts`. The five version 1.0.0 schema exports cover
+Core request/result/bundle and Harness definition/test identity. Portable import
+and validation perform no host work. Host controls belong only in `@aihq/core`.
+
 ## Repair Node/npm trust
 
 The versioned trust request reviews each source separately, retains previously

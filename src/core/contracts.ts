@@ -25,6 +25,11 @@ export {
   validateCertificateExportRequest, validateCertificateExportInputs,
   validatePreparedWork12, validateRunResult12, validateTrustCustody
 } from './trust-contracts.js';
+export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
+  NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
+  NativeVerificationResult } from './native-contracts.js';
+export { validateNativeVerificationRequest, validateNativeVerificationResult,
+  validateNativeVerificationBundle } from './native-contracts.js';
 
 const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
@@ -62,7 +67,12 @@ export const contractSupport = Object.freeze({
     { id: 'urn:aihq:harness:repair:1.1.0', role: 'accepts',
       schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' },
     { id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'accepts',
-      schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }
+      schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' },
+    { id: 'urn:aihq:core:native-verification-request:1.0.0', role: 'accepts', schemaExport: '@aihq/core/schemas/native-verification-request/1.0.0.json' },
+    { id: 'urn:aihq:core:native-verification-result:1.0.0', role: 'both', schemaExport: '@aihq/core/schemas/native-verification-result/1.0.0.json' },
+    { id: 'urn:aihq:core:native-verification-bundle:1.0.0', role: 'accepts', schemaExport: '@aihq/core/schemas/native-verification-bundle/1.0.0.json' },
+    { id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.0.0.json' },
+    { id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' }
   ],
   entries: [
     { export: '@aihq/core/contracts', runtime: 'portable' },

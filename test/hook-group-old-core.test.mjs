@@ -2,7 +2,6 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { policy as legacyPolicy } from './fixture.mjs';
@@ -14,7 +13,10 @@ const BASE = '225888273cb9b6e6222068277fbb4947b62ee313';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const git = args => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
 const available = git(['cat-file', '-e', `${BASE}^{commit}`]).status === 0 && spawnSync('tar', ['--version']).status === 0;
-const scratch = mkdtempSync(join(tmpdir(), 'aih-old-core-'));
+// Keep the shared compiler's disposable build output in the worktree. Product effect targets
+// still come from sandbox() outside the source checkout; this fixture only compiles old source.
+mkdirSync(join(root, '.scratch'), { recursive: true });
+const scratch = mkdtempSync(join(root, '.scratch', 'aih-old-core-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
 
 function buildOldCore() {
@@ -24,7 +26,8 @@ function buildOldCore() {
   const extract = spawnSync('tar', ['-xf', '-'], { cwd: dir, input: archive });
   assert.equal(extract.status, 0, String(extract.stderr));
   symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'junction');
-  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: dir, stdio: 'ignore' });
+  try { execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: dir, encoding: 'utf8' }); }
+  catch (error) { throw new Error(`Old Core build failed:\n${error.stdout ?? ''}${error.stderr ?? ''}`); }
   writeFileSync(join(dir, 'old-run.mjs'), `
     import {readFileSync} from 'node:fs';
     import {pathToFileURL} from 'node:url';

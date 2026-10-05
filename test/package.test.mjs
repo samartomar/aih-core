@@ -44,7 +44,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       // Bundled dependency sources are part of their reviewed package bytes.
       // Product sources and private instructions/scratch remain excluded.
       assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/[a-z0-9-]+\.(?:mjs|d\.mts|json)|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -69,6 +69,17 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {diagnose} from '@aihq/core/harness/runtime';
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
       import {checkFileState,listManagedSelections,prepareManagedRemoval} from '@aihq/core';
+      import {verifyNativeClient} from '@aihq/core';
+      import type {NativeVerificationRequest, NativeVerificationResult, NativeVerificationControls} from '@aihq/core';
+      import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
+      import type {NativeVerificationBundle} from '@aihq/core/contracts';
+      // @ts-expect-error Host controls belong only in the Node entry.
+      import type {NativeVerificationControls as PortableHostControls} from '@aihq/core/contracts';
+      const nativeRequest: NativeVerificationRequest = {schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'};
+      const nativeControls: NativeVerificationControls = {budgetMs:1000,admission:'candidate-smoke'};
+      const nativeResult: Promise<NativeVerificationResult> = verifyNativeClient(nativeRequest,nativeControls);
+      validateNativeVerificationRequest(nativeRequest); validateNativeVerificationResult({}); validateNativeVerificationBundle({});
       import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
       import type {CertificateExportRequest,TrustRepairRequest,TrustSources} from '@aihq/core';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
@@ -102,6 +113,55 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     execFileSync(process.execPath, [compiler,
       '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
       '--target', 'ES2023', 'contracts.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+    writeFileSync(join(consumer, 'native-public.mjs'), `
+      import assert from 'node:assert/strict';
+      import {spawnSync} from 'node:child_process';
+      import {fileURLToPath} from 'node:url';
+      import {verifyNativeClient} from '@aihq/core';
+      import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
+      import {Ajv2020} from 'ajv/dist/2020.js';
+      const schemas = new Ajv2020({strict:true});
+      for (const path of ['schemas/native-verification-request','schemas/native-verification-result','schemas/native-verification-bundle',
+        'harness/schemas/native-verification-definition','harness/schemas/native-test-identity']) {
+        const schema = (await import('@aihq/core/'+path+'/1.0.0.json',{with:{type:'json'}})).default;
+        schemas.addSchema(schema);
+      }
+      const request = {schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'};
+      assert.equal(validateNativeVerificationRequest(request).valid,true);
+      assert.equal(schemas.validate(request.schema,request),true,JSON.stringify(schemas.errors));
+      assert.equal(schemas.validate(request.schema,{...request,command:'untrusted'}),false);
+      for (const definition of nativeVerificationDefinitions) {
+        assert.equal(validateNativeVerificationDefinition(definition).valid,true);
+        assert.equal(schemas.validate(definition.schema,definition),true,JSON.stringify(schemas.errors));
+        assert.equal(schemas.validate(definition.schema,{...definition,unexpected:true}),false);
+      }
+      const identity = {schema:'urn:aihq:harness:native-test-identity:1.0.0',id:'dedicated-test',client:'claude',
+        adapterId:'claude-oauth-otel.v1',purpose:'dedicated-native-test',
+        expected:{accountUuid:'11111111-1111-1111-1111-111111111111',organizationId:'22222222-2222-2222-2222-222222222222'},
+        credential:{path:'oauth.json',sha256:'a'.repeat(64),byteLength:100}};
+      assert.equal(validateNativeTestIdentity(identity).valid,true);
+      assert.equal(schemas.validate(identity.schema,identity),true,JSON.stringify(schemas.errors));
+      assert.equal(schemas.validate(identity.schema,{...identity,credential:{...identity.credential,path:'arbitrary.json'}}),false);
+      assert.equal(validateNativeVerificationBundle({}).valid,false);
+      const invalid = await verifyNativeClient({...request,command:'SECRET'});
+      assert.equal(invalid.status,'invalid');
+      assert.equal(validateNativeVerificationResult(invalid).valid,true);
+      assert.equal(schemas.validate(invalid.schema,invalid),true,JSON.stringify(schemas.errors));
+      const controller = new AbortController(); controller.abort();
+      const cancelled = await verifyNativeClient(request,{signal:controller.signal});
+      assert.equal(cancelled.status,'cancelled'); assert.equal(cancelled.sessions.length,0);
+      assert.equal(validateNativeVerificationResult(cancelled).valid,true);
+      const binary = fileURLToPath(new URL('./cli.js',import.meta.resolve('@aihq/core')));
+      const child = spawnSync(process.execPath,[binary,'verify-client','claude','--json'],{encoding:'utf8',timeout:20000,windowsHide:true});
+      assert.equal(child.status,1,child.stderr);
+      const result = JSON.parse(child.stdout);
+      assert.equal(result.verdict,'unverified'); assert.equal(result.limits.sessionsStarted,0);
+      assert.equal(schemas.validate(result.schema,result),true,JSON.stringify(schemas.errors));
+      assert.equal(validateNativeVerificationResult(result).valid,true);
+      assert.ok(!JSON.stringify(result).includes('SECRET'));
+    `);
+    run(join(consumer, 'native-public.mjs'));
     const coreRequire = createRequire(join(installed, 'package.json'));
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
@@ -302,11 +362,19 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     `);
     assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
-      import {parsePolicy,contractSupport} from '@aihq/core/contracts';
-      import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers} from '@aihq/core/harness';
+      import {parsePolicy,contractSupport,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers,nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
         contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length,
-        verificationPublishers.length,selectVerificationPublishers('scan-report').status];`, resolveDir: consumer },
+        verificationPublishers.length,selectVerificationPublishers('scan-report').status];
+      globalThis.nativePortable = [
+        validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'}).valid,
+        validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',command:'untrusted'}).valid,
+        validateNativeVerificationResult({}).valid,
+        validateNativeVerificationBundle({}).valid,
+        nativeVerificationDefinitions.every(value=>validateNativeVerificationDefinition(value).valid),
+        validateNativeTestIdentity({}).valid
+      ];`, resolveDir: consumer },
       bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/harness\/(?:runtime|ca|candidate|user-trust)\.mjs$/.test(name)), false);
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/core\/evidence\/|@sigstore\//.test(name)), false);
@@ -319,6 +387,12 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(browserGlobals.portable[4], 'node-npm-ca');
     assert.equal(browserGlobals.portable[6], 1);
     assert.equal(browserGlobals.portable[7], 'selected');
+    assert.equal(browserGlobals.nativePortable[0], true);
+    assert.equal(browserGlobals.nativePortable[1], false);
+    assert.equal(browserGlobals.nativePortable[2], false);
+    assert.equal(browserGlobals.nativePortable[3], false);
+    assert.equal(browserGlobals.nativePortable[4], true);
+    assert.equal(browserGlobals.nativePortable[5], false);
     const supportBrowser = await build({ absWorkingDir: consumer, stdin: { contents: `
       import {getGuidance,renderSupportMarkdown} from '@aihq/core/support';
       globalThis.support = [typeof getGuidance, typeof renderSupportMarkdown,

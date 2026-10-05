@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.7",
+  "version": "1.0.0-dev.8",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": { "node": ">=24.15.0 <25" },
@@ -15,6 +15,11 @@
     "./harness/runtime": { "types": "./dist/harness/runtime.d.mts", "import": "./dist/harness/runtime.mjs" },
     "./harness/schemas/repair/1.0.0.json": "./dist/harness/schemas/repair/1.0.0.json",
     "./harness/schemas/diagnostic/1.0.0.json": "./dist/harness/schemas/diagnostic/1.0.0.json",
+    "./harness/schemas/native-verification-definition/1.0.0.json": "./dist/harness/schemas/native-verification-definition/1.0.0.json",
+    "./harness/schemas/native-test-identity/1.0.0.json": "./dist/harness/schemas/native-test-identity/1.0.0.json",
+    "./schemas/native-verification-request/1.0.0.json": "./dist/core/schemas/native-verification-request/1.0.0.json",
+    "./schemas/native-verification-result/1.0.0.json": "./dist/core/schemas/native-verification-result/1.0.0.json",
+    "./schemas/native-verification-bundle/1.0.0.json": "./dist/core/schemas/native-verification-bundle/1.0.0.json",
     "./schemas/package-support/1.0.0.json": "./dist/harness/schemas/package-support/1.0.0.json",
     "./schemas/execution-policy/1.0.0.json": "./dist/core/schemas/execution-policy/1.0.0.json",
     "./schemas/recipe/1.0.0.json": "./dist/core/schemas/recipe/1.0.0.json",
@@ -46,7 +51,7 @@
     "typecheck": "tsc --noEmit",
     "verify:report-consumer": "node scripts/verify-report-consumer.mjs",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
-    "test": "node --test test/*.test.mjs test/harness/*.test.mjs",
+    "test": "node --test --test-concurrency=4 test/*.test.mjs test/harness/*.test.mjs",
     "prepack": "npm run build"
   },
   "dependencies": { "@sigstore/bundle": "5.0.0", "@sigstore/protobuf-specs": "0.5.0", "@sigstore/verify": "4.1.2", "ajv": "8.20.0", "asn1js": "3.0.10", "jsonc-parser": "3.3.1", "pkijs": "3.4.1" },

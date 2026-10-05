@@ -39,6 +39,7 @@ function refused(code: string, reason: string, message = 'Check the policy, targ
 }
 const usage = {
   'export-ca': 'aih export-ca [--format pem|pkcs7-der] [--output user-home-relative-path] [--inputs-file sources.json] [--resolutions resolutions.json] [--offline] [--apply --yes] [--no-log] [--json]\n',
+  'verify-client': 'aih verify-client <client-id> [--configuration <request-json-file>] [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>] [--budget-ms <integer>] [--candidate-smoke] [--json]\n',
   report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--demo] [--json]\n' +
     'aih report --output <new-directory> --snapshot <report.json> [--demo] [--json]\n',
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
@@ -50,6 +51,7 @@ const usage = {
 };
 const examples: Record<keyof typeof usage, string> = {
   'export-ca': 'Examples:\n  aih export-ca --json\n  aih export-ca --format pkcs7-der --output certificates/os-ca.p7b --apply\n',
+  'verify-client': 'Examples:\n  aih verify-client claude --json\n  aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json\n',
   report: 'Examples:\n  aih report --output local-report --json\n  aih report --snapshot saved-report.json --output replay --json\n',
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
@@ -165,7 +167,10 @@ async function supportReport(input: SupportInput, operationCode: number): Promis
   } catch { fail('failed'); }
 }
 
-try {
+if (process.argv[2] === 'verify-client') {
+  const { runNativeClientCli } = await import('./native-cli.js');
+  await runNativeClientCli(process.argv.slice(3), controller.signal);
+} else try {
   const cliArgs = process.argv.slice(2);
   // parseArgs treats a separate negative number as an option; keep it attached
   // so managed list can report the documented budget-ms diagnostic.

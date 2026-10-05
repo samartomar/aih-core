@@ -12,6 +12,8 @@ export { buildTrustDefinitions, trustRepairIndex, trustLimits, trustAdapters, tr
 // Admission cells are static raw data (trust-capabilities.mjs): only exact tested export format/profile cells are admitted;
 // native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
+export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
+  validateNativeTestIdentity } from './native/contracts.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.0.0',
   package: distribution,
@@ -27,7 +29,11 @@ export const contractSupport = Object.freeze({
     Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
       schemaExport: '@aihq/core/report/schema' }),
     Object.freeze({ id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' })
+      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'both',
+      schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts',
+      schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' })
   ]),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },

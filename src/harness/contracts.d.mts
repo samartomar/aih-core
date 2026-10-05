@@ -1,6 +1,8 @@
 export interface TargetDefinition {
   id: string; label: string; binaries: readonly string[]; configDirs: readonly string[]; origins: readonly string[];
 }
+export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
+  validateNativeTestIdentity } from './native/contracts.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
 }
