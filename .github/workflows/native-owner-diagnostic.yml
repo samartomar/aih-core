@@ -1,0 +1,57 @@
+name: Temporary native owner diagnostic
+
+on:
+  push:
+    branches: [codex/core-77-native-verification]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - shell: pwsh
+        run: |
+          @'
+          import { execFileSync } from 'node:child_process';
+          import { mkdtempSync, rmSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { tmpdir } from 'node:os';
+          import { createOwnedCell, windowsDaclPrincipals, isOwnerOnly } from './src/harness/native/cell.mjs';
+          const parent = mkdtempSync(join(tmpdir(), 'aihq-owner-diagnostic-'));
+          try {
+            const created = createOwnedCell({ parent });
+            console.log(JSON.stringify({ cellStatus: created.status }));
+            if (!created.cell) process.exitCode = 1;
+            else {
+              const target = created.cell.home;
+              const system = join(process.env.SystemRoot, 'System32');
+              const sid = /"(S-1-5-[0-9-]+)"/.exec(execFileSync(join(system, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh']).toString())[1];
+              const common = "$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';";
+              const scripts = {
+                cmdlet: common + "[Console]::Write((Get-Acl -LiteralPath $env:AIHQ_NATIVE_OWNER_PATH).GetOwner([System.Security.Principal.SecurityIdentifier]).Value)",
+                direct: common + "[Console]::Write([System.IO.File]::GetAccessControl($env:AIHQ_NATIVE_OWNER_PATH).GetOwner([System.Security.Principal.SecurityIdentifier]).Value)",
+              };
+              for (const [name, script] of Object.entries(scripts)) for (const inherited of [false, true]) {
+                const started = performance.now();
+                try {
+                  const out = execFileSync(join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+                    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+                    { windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
+                      env: { ...(inherited ? process.env : { SystemRoot: process.env.SystemRoot }), AIHQ_NATIVE_OWNER_PATH: target } }).toString().trim();
+                  console.log(JSON.stringify({ name, inherited, elapsedMs: performance.now() - started, matched: out === sid, valid: /^S-1-5-[0-9-]+$/.test(out) }));
+                } catch (error) {
+                  console.log(JSON.stringify({ name, inherited, elapsedMs: performance.now() - started, code: error.code, status: error.status }));
+                }
+              }
+              const dacl = windowsDaclPrincipals(target);
+              console.log(JSON.stringify({ daclStatus: dacl.status, ownerOnly: isOwnerOnly(target) }));
+            }
+          } finally { rmSync(parent, { recursive: true, force: true }); }
+          '@ | node --input-type=module -
