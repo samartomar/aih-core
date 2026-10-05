@@ -44,6 +44,7 @@ function hardenWindows(path) {
   try {
     const sid = windowsUserSid();
     if (!sid) return false;
+    execFileSync(join(system32(), 'icacls.exe'), [path, '/setowner', `*${sid}`, '/q'], { windowsHide: true, timeout: 15000 });
     execFileSync(join(system32(), 'icacls.exe'), [path, '/inheritance:r', '/grant:r',
       `*${sid}:(OI)(CI)F`, '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '/q'], { windowsHide: true, timeout: 15000 });
     const seen = windowsDaclPrincipals(path);
@@ -58,14 +59,25 @@ function ownerOnlyPosix(path) {
   return stat.uid === process.getuid() && (stat.mode & 0o077) === 0;
 }
 
-// true/false when observed; null when the platform facility is unobservable. On Windows this checks the
-// DACL only (current user and OS administrative principals); the owner SID itself is not read.
+function windowsOwnerSid(path) {
+  try {
+    const script = "$ProgressPreference='SilentlyContinue';$ErrorActionPreference='Stop';[Console]::Write((Get-Acl -LiteralPath $env:AIHQ_NATIVE_OWNER_PATH).GetOwner([System.Security.Principal.SecurityIdentifier]).Value)";
+    const out = execFileSync(join(system32(), 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      { windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'], env: { SystemRoot: process.env.SystemRoot, AIHQ_NATIVE_OWNER_PATH: path } }).toString().trim();
+    return /^S-1-5-[0-9-]+$/.test(out) ? out : null;
+  } catch { return null; }
+}
+
+// true/false when both owner and access policy are observed; null when either facility is unavailable.
 export function isOwnerOnly(path) {
   if (process.platform !== 'win32') { try { return ownerOnlyPosix(path); } catch { return null; } }
   try {
     const seen = windowsDaclPrincipals(path);
     const sid = windowsUserSid();
-    if (seen.status !== 'observed' || !sid || seen.sids.length === 0) return null;
+    const owner = windowsOwnerSid(path);
+    if (seen.status !== 'observed' || !sid || !owner || seen.sids.length === 0) return null;
+    if (owner !== sid) return false;
     return seen.sids.every(entry => entry === sid || (entry === 'LA' && sid.endsWith('-500')) || OS_ADMIN_SIDS.has(entry));
   } catch { return null; }
 }

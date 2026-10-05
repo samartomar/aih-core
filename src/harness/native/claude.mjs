@@ -3,12 +3,10 @@
 // native run: the descriptor stays a candidate until an evidence-bound change says otherwise.
 import { closeSync, fstatSync, openSync, readSync, readdirSync } from 'node:fs';
 import { posix, win32, join } from 'node:path';
-import { isRecord } from './canonical.mjs';
+import { isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const depthOf = (value, depth = 1) => typeof value !== 'object' || value === null ? depth
-  : Math.max(depth, ...Object.values(value).map(child => depthOf(child, depth + 1)));
 const textOf = content => typeof content === 'string' ? [content]
   : Array.isArray(content) ? content.filter(b => isRecord(b) && b.type === 'text' && typeof b.text === 'string').map(b => b.text) : [];
 
@@ -17,7 +15,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
   const prefix = `mcp__${serverName}__`;
   const state = { status: 'ok', bytes: 0, records: 0, sessionId: null, ids: new Set(), initSeen: false,
     serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false,
-    resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [] };
+    resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
   const calls = new Map();
   let pending = '';
   const stop = status => { if (state.status === 'ok') state.status = status; };
@@ -37,6 +35,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
         const names = new Set(value.tools.filter(tool => typeof tool === 'string'));
         state.toolsListed = true;
         state.visible = [attestTool, queryTool].filter(tool => names.has(prefix + tool));
+        state.unselectedTools = [...names].filter(name => name !== prefix + attestTool && name !== prefix + queryTool).length;
         state.builtin = [...names].filter(name => !name.startsWith('mcp__')).slice(0, 64).map(name => name.slice(0, 64));
       }
     } else if (value.type === 'assistant' && isRecord(value.message) && Array.isArray(value.message.content)) {
@@ -60,7 +59,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
         if (call.role === 'other') call.entry.permitted = ok;
         else if (call.role === 'attest' && ok && texts.length === 1) {
           try {
-            const parsed = JSON.parse(texts[0]);
+            const parsed = parseStrictJson(texts[0], nativeBounds.jsonDepth);
             if (isRecord(parsed) && Object.keys(parsed).length === 2 && parsed.markerSha256 === markerSha256 &&
                 parsed.challenge === challenge) state.attestationReturned = true;
           } catch { /* not the attestation object */ }
@@ -76,13 +75,19 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     if (text.trim() === '' || state.status !== 'ok') return;
     if (Buffer.byteLength(text) > maxRecordBytes) return stop('limit-exceeded');
     let value;
-    try { value = JSON.parse(text); } catch { return stop('malformed'); }
-    if (depthOf(value) > nativeBounds.jsonDepth) return stop('limit-exceeded');
+    try { value = parseStrictJson(text, nativeBounds.jsonDepth); } catch (error) { return stop(error.message === 'strict-json-depth' ? 'limit-exceeded' : 'malformed'); }
     if (!isRecord(value)) return stop('malformed');
     record(value);
   };
 
+  const snapshot = () => ({ status: state.status, bytes: state.bytes, records: state.records, sessionId: state.sessionId,
+    sessionIdConsistent: state.initSeen && state.sessionId !== null && [...state.ids].every(id => id === state.sessionId),
+    serverStatus: state.serverStatus, visibleSelectedTools: state.visible.slice(), toolsListed: state.toolsListed,
+    builtinTools: state.builtin.slice(), unselectedTools: state.unselectedTools, permissionMode: state.permissionMode,
+    attestationReturned: state.attestationReturned, answerReturned: state.answerReturned,
+    resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected.map(value => ({ ...value })) });
   return {
+    snapshot,
     push(chunk) {
       if (state.status !== 'ok') return;
       const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
@@ -100,13 +105,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     finish() {
       if (pending.trim() !== '') line(pending);
       pending = '';
-      const consistent = state.sessionId !== null && [...state.ids].every(id => id === state.sessionId);
-      return { status: state.status, bytes: state.bytes, records: state.records, sessionId: state.sessionId,
-        sessionIdConsistent: state.initSeen && consistent,
-        serverStatus: state.serverStatus, visibleSelectedTools: state.visible, toolsListed: state.toolsListed,
-        builtinTools: state.builtin, permissionMode: state.permissionMode,
-        attestationReturned: state.attestationReturned, answerReturned: state.answerReturned,
-        resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected };
+      return snapshot();
     }
   };
 }

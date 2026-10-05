@@ -143,6 +143,10 @@ const verifying = typeof channelPath === 'string' && channelPath !== '' &&
 const upstreamEnv = { ...process.env };
 delete upstreamEnv[CHANNEL_ENV];
 delete upstreamEnv[TOKEN_ENV];
+if (verifying) {
+  delete upstreamEnv.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+  delete upstreamEnv.OTEL_EXPORTER_OTLP_LOGS_HEADERS;
+}
 
 const pending = new Map();
 const serverPending = new Set();

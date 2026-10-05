@@ -27,7 +27,7 @@ import { appendFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 const mode = process.env.MOCK_MODE ?? '';
 const note = entry => appendFileSync(process.env.MOCK_LOG, JSON.stringify(entry) + '\\n');
-note({ boot: process.pid, leaked: Boolean(process.env.AIHQ_NATIVE_EVIDENCE_TOKEN || process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL) });
+note({ boot: process.pid, leaked: Boolean(process.env.AIHQ_NATIVE_EVIDENCE_TOKEN || process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL), telemetry: Boolean(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS) });
 const send = message => process.stdout.write(JSON.stringify(message) + '\\n');
 if (mode === 'linger') setInterval(() => {}, 1000);
 createInterface({ input: process.stdin }).on('line', line => {
@@ -135,7 +135,8 @@ test('ordinary use forwards bytes unchanged, adds nothing and withholds verifica
 
 test('verification in argument mode attests, forwards the one pinned query and emits only digests', async () => {
   const ctx = setup();
-  const r = await run(ctx, { verify: { plan: plan() } });
+  const r = await run(ctx, { verify: { plan: plan() }, env: {
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: 'http://127.0.0.1:1', OTEL_EXPORTER_OTLP_LOGS_HEADERS: 'Authorization=Bearer client-only' } });
   try {
     await r.rpc(1, 'initialize', {});
     const list = await r.rpc(2, 'tools/list');
@@ -160,6 +161,7 @@ test('verification in argument mode attests, forwards the one pinned query and e
     for (const secret of [r.channel.challenge, fixtureMarker, 'entry', 'leaf']) assert.ok(!text.includes(secret), secret);
     const seen = entries(ctx);
     assert.equal(seen[0].leaked, false);
+    assert.equal(seen[0].telemetry, false);
     assert.equal(seen.filter(entry => entry.method === 'tools/call').length, 1);
     await assertUpstreamGone(ctx);
   } finally { await r.dispose(); rmSync(ctx.dir, { recursive: true, force: true }); }

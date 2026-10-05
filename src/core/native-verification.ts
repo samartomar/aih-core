@@ -32,7 +32,7 @@ const safeHostValue = (value: string): string => /^[a-zA-Z0-9 ._()+:#/-]{1,128}$
 const blankObservations = (): NativeSessionObservations => ({ sessionId: null, resumed: false, loading: 'unobservable', restrictions: 'unobservable', authentication: 'missing',
   discovery: { complete: false, clientTools: [], serverList: false }, instructions: { nativeSha256: [], attestations: [], rejected: false, alternateRead: false },
   query: { correlated: false, challengeMatched: false, resultSha256: null, answerSha256: null }, isolation: 'unobservable', serverPeerBound: false,
-  counts: { observedBytes: 0, telemetryEvents: 0, rpcMessages: 0 } });
+  counts: { observedBytes: 0, telemetryEvents: 0, rpcMessages: 0 }, completed: [] });
 async function observeSession(handle: NativeSessionHandle, deadline: number, signal?: AbortSignal): Promise<NativeSessionObservations> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
@@ -102,9 +102,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     // This single path is fixed in the artifact. No caller module, callback or executable enters it.
     const helpers = captureNativeHelpers(check);
     const installedRuntime = await import('../harness/native/runtime.mjs');
-    // Controlled artifact fixtures can supply the same fixed process boundary in tests. The
-    // shipped module uses its concrete Harness exports and exposes no substitution control.
-    const runtime = 'nativeDefinitions' in installedRuntime ? installedRuntime as unknown as NativeRuntime : nativeRuntime(installedRuntime);
+    const runtime = nativeRuntime(installedRuntime);
     check();
     const clientDefinitions = runtime.nativeDefinitions.filter(definition => definition.client === selected.client);
     if (!clientDefinitions.length) throw new NativeStop('client-unsupported', 'unsupported');
@@ -164,6 +162,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     activeStage = 'cell-staging'; cell ??= createNativeCell(host.sandboxRoot, check, created => { cell = created; });
     if (!await runtime.protectNativeCell(cell, { deadline, signal: host.signal })) throw new NativeStop('staging-unavailable');
     check();
+    if (!await runtime.revalidateNativeIdentity(identity, { check })) throw new NativeStop('identity-binding-invalid');
     const stagedConfigurationDigest = stageNativeCell(cell, material, definition.guardrails, guardrailBytes, definition.guardrailsSha256,
       { destination: definition.credentialDestination.path, bytes: identity.credential }, check);
     result.content = { bundleId: material.id, manifestSha256: material.manifestSha256, archiveSha256: material.archiveSha256,
@@ -196,9 +195,18 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       result.sessions.push(session); row('session-start', 'passed', 'observed', index);
       activeStage = 'stop';
       let observations = blankObservations(); let sessionStop: string | undefined = 'outcome' in launched ? launched.reason : undefined;
-      try { check(); observations = await observeSession(handle, sessionDeadline, host.signal); check(); }
-      catch (error) { sessionStop = host.signal?.aborted ? 'cancelled' : performance.now() >= deadline ? 'budget-exhausted' : error instanceof NativeStop ? error.reason : 'native-internal'; }
-      if (['cancelled', 'budget-exhausted'].includes(observations.failure?.reason ?? '')) sessionStop ??= observations.failure!.reason;
+      let finalizedObservations = false;
+      try { check(); observations = await observeSession(handle, sessionDeadline, host.signal); finalizedObservations = true; check(); }
+      catch (error) {
+        sessionStop = host.signal?.aborted ? 'cancelled' : performance.now() >= deadline ? 'budget-exhausted' : error instanceof NativeStop ? error.reason : 'native-internal';
+        if (!finalizedObservations && handle.snapshot) {
+          try { observations = handle.snapshot(); }
+          catch { /* An unavailable snapshot cannot manufacture proof; retain the empty observation. */ }
+        }
+      }
+      // Preserve operational stop evidence outside the proof rows, even if every received row
+      // completed before a later cancellation, cap or helper fault.
+      sessionStop ??= observations.failure?.reason;
       if (!Object.values(observations.counts).every(value => Number.isSafeInteger(value) && value >= 0)) {
         sessionStop = 'native-internal'; observations.counts = { observedBytes: 0, telemetryEvents: 0, rpcMessages: 0 };
       } else if (observations.counts.observedBytes > 8 * 1024 * 1024 || observations.counts.telemetryEvents > 512 || observations.counts.rpcMessages > 512) sessionStop = 'limit-exceeded';

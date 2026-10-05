@@ -1,6 +1,11 @@
 import type { NativeBundledFixture, NativeClientId, NativeMember, NativeVerificationDefinition } from './contracts.mjs';
 
 export * from './contracts.mjs';
+/** Internal composition used only with the fixed installed exports by Core. */
+export function createNativeRuntime(module: typeof import('./runtime.mjs'), dependencies: {
+  readPinned: typeof import('../../core/internal/native-material.js').nativeReadPinned;
+  Stop: typeof import('../../core/internal/native-input.js').NativeStop;
+}): import('../../core/internal/native-session.js').NativeRuntime;
 
 export type NativePlatform = { os: 'win32' | 'linux' | 'darwin' | 'unsupported'; arch: string; osRelease: string; execution: 'native' | 'wsl2' };
 export type NativeStageOutcome = 'passed' | 'failed' | 'unsupported' | 'restricted' | 'unavailable';
@@ -63,7 +68,8 @@ export function startLifecycle(input: { lifecycleId: string; os: string; file: s
   Promise<{ status: 'started'; handle: LifecycleHandle } | { status: 'unavailable'; reason: 'platform-unsupported' | 'session-launch-failed' }>;
 
 export type EvidenceChannel = { endpoint: string; token: string; challenge: string; close(): Promise<{ frames: unknown[]; bytes: number;
-  connections: number; rejectedFrames: number; peer: 'none' | 'authenticated' | 'unavailable' | 'rejected'; violation: null | 'limit-exceeded' | 'frame-invalid' }> };
+  connections: number; rejectedFrames: number; peer: 'none' | 'authenticated' | 'unavailable' | 'rejected'; violation: null | 'limit-exceeded' | 'frame-invalid' }>;
+  snapshot(): Awaited<ReturnType<EvidenceChannel['close']>> };
 export function startEvidenceChannel(input: { directory: string; isOwnedServer: (identity: { pid: number; birth: string }) => boolean; plan?: RecorderPlan | null }): Promise<EvidenceChannel>;
 
 export type RecorderPlan = { attestTool: string | null; markers: string[]; queryTool: string; queryArguments: Record<string, unknown>; challengeField: string | null; toolNames: string[] };
@@ -84,8 +90,8 @@ export type ClaudeStreamOptions = { serverName: string; attestTool: string; quer
 export type ClaudeStreamObservation = { status: 'ok' | 'limit-exceeded' | 'malformed'; bytes: number; records: number; sessionId: string | null;
   sessionIdConsistent: boolean; serverStatus: string | null; visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
   permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; resultSubtype: string | null; resultIsError: boolean | null;
-  unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };
-export function createClaudeStreamParser(options: ClaudeStreamOptions): { push(chunk: Uint8Array | string): void; finish(): ClaudeStreamObservation };
+  unselectedTools: number; unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };
+export function createClaudeStreamParser(options: ClaudeStreamOptions): { push(chunk: Uint8Array | string): void; snapshot(): ClaudeStreamObservation; finish(): ClaudeStreamObservation };
 export function claudeStreamOptions(resolved: ResolvedFixture, challenge: string): ClaudeStreamOptions;
 export function claudePrompt(challenge: string): string;
 export function claudeSessionsAreFresh(first: string | null, second: string | null): boolean;
@@ -100,6 +106,7 @@ export type TelemetryOutcome = { outcome: 'passed' | 'unavailable'; reason: stri
   counts: { requests: number; events: number; matched: number; wrongSession: number; duplicates: number; ignored: number }; bytes: number };
 export function createClaudeCollector(input: { sessionId?: string | null; expected: { accountUuid: string; organizationId: string }; bodyTimeoutMs?: number }): {
   token: string; endpoint: string; start(): Promise<{ endpoint: string; token: string }>; bindSession(id: string | null): void; cancel(): Promise<void>;
+  snapshot(input: { launchedAtMs: number; closedAtMs: number }): TelemetryOutcome;
   drain(input: { launchedAtMs: number; closedAtMs: number; timeoutMs?: number }): Promise<TelemetryOutcome> };
 
 export function evaluateClaudeSession(input: { sessionIndex: 1 | 2; previousSessionId: string | null; stream: ClaudeStreamObservation;

@@ -217,6 +217,15 @@ function resultSemantics(document: NativeVerificationResult): Diagnostic[] {
   const invalid = (reason: string, path: string) => diagnostics.push(diagnostic('INPUT_INVALID', reason, path));
   const rows = [...document.stages, ...document.sessions.flatMap(session => session.stages)];
   if (rows.length > 32) invalid('result-limit', '/stages');
+  if (document.limits.sessionsStarted !== document.sessions.length || document.limits.stagesCompleted !== rows.length)
+    invalid('result-field', '/limits');
+  const sessionRows = ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication',
+    'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'];
+  for (const [index, session] of document.sessions.entries()) {
+    if (session.index !== index + 1 || session.stages.length !== sessionRows.length ||
+        session.stages.some((stage, row) => stage.id !== sessionRows[row] || stage.session !== session.index))
+      invalid('result-field', `/sessions/${index}`);
+  }
   if (document.status === 'invalid') {
     if (document.stages.length || document.sessions.length) invalid('result-field', '/stages');
     if (document.adapter !== null || document.content !== null || document.proofScope !== 'none')
@@ -233,6 +242,34 @@ function resultSemantics(document: NativeVerificationResult): Diagnostic[] {
       invalid('result-field', '/cleanup');
     if (document.security.hostSecretIsolation.outcome !== 'passed')
       invalid('result-field', '/security/hostSecretIsolation');
+    if (document.security.sandbox.level !== 'observed-os-boundary' || document.security.sandbox.mechanism === null ||
+        document.security.sandbox.reason !== 'observed' || document.security.hostSecretIsolation.reason !== 'observed')
+      invalid('result-field', '/security/sandbox');
+    if (document.client.id === null || document.client.observedVersion === null || document.adapter === null ||
+        document.content === null || document.proofScope === 'none' || document.platform.os === 'unsupported')
+      invalid('result-field', '/content');
+    if (document.survivingProcesses.length || document.cleanup.retainedCell !== null || document.diagnostics.length)
+      invalid('result-field', '/cleanup');
+    const requiredRunRows = [
+      ['fixture-integrity', null, 'observed'], ['host-presence', null, 'observed'],
+      ['identity-binding', null, 'observed'], ['cell-staging', null, 'observed'],
+      ['session-start', 1, 'observed'], ['configuration-unchanged', 2, 'before-session-2'],
+      ['session-start', 2, 'observed'], ['configuration-unchanged', 2, 'after-session-2'],
+      ['cleanup', null, 'observed']
+    ];
+    if (document.stages.length !== requiredRunRows.length || document.stages.some((stage, index) =>
+      stage.id !== requiredRunRows[index]![0] || stage.session !== requiredRunRows[index]![1] || stage.reason !== requiredRunRows[index]![2]))
+      invalid('result-field', '/stages');
+    const [first, second] = document.sessions;
+    if (!first?.process.clientSessionId || !second?.process.clientSessionId ||
+        first.process.clientSessionId === second.process.clientSessionId || first.challengeSha256 === second.challengeSha256)
+      invalid('result-field', '/sessions');
+    if (document.content && (document.sessions.some(session => session.stagedConfigurationDigest !== document.content!.stagedConfigurationDigest) ||
+        document.stages.filter(stage => stage.id === 'cell-staging' || stage.id === 'configuration-unchanged')
+          .some(stage => stage.evidence.kind !== 'digest' || stage.evidence.sha256 !== document.content!.stagedConfigurationDigest)))
+      invalid('result-field', '/content/stagedConfigurationDigest');
+    if (document.proofScope !== 'bundled-mechanism' && document.content?.archiveSha256 === null)
+      invalid('result-field', '/content/archiveSha256');
   }
   return diagnostics;
 }

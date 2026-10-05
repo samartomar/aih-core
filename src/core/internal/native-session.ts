@@ -34,6 +34,8 @@ export interface NativeSessionObservations {
   query: { correlated: boolean; challengeMatched: boolean; resultSha256: string | null; answerSha256: string | null; rejectedCalls?: boolean };
   isolation: 'observed' | 'unobservable' | 'violated';
   serverPeerBound: boolean;
+  /** Completed proof rows in a partial snapshot; omitted for a finalized full observation. */
+  completed?: readonly NativeSessionProofRow[];
   failure?: { reason: string; outcome: NativeStage['outcome'] };
   counts: { observedBytes: number; telemetryEvents: number; rpcMessages: number };
 }
@@ -46,6 +48,8 @@ export interface NativeSessionHandle {
   challenge?: string;
   cleanupStartedAt?: number;
   observations: Promise<NativeSessionObservations>;
+  /** Bounded already-received evidence only; never resumes collection or finalizes authentication. */
+  snapshot?(): NativeSessionObservations;
   cleanup(input: { deadline: number; graceMs: number }): Promise<NativeSessionCleanup>;
 }
 export type NativeHelperFailure = { outcome: 'unsupported' | 'unavailable' | 'failed' | 'restricted'; reason: string;
@@ -67,28 +71,36 @@ export interface NativeRuntime {
 }
 
 export const nativeSessionRows = ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication', 'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'] as const;
+export type NativeSessionProofRow = Exclude<typeof nativeSessionRows[number], 'cleanup'>;
 export function evaluateNativeSession(result: NativeVerificationResult, session: NativeVerificationResult['sessions'][number], observations: NativeSessionObservations,
   material: NativeMaterial, previousSessionId: string | null, stoppedReason?: string): void {
   let stop: NativeStage | undefined;
   const row = (id: string, outcome: NativeStage['outcome'], reason: string, evidence: NativeStage['evidence'] = { kind: 'none' }) => {
     if (!nativeReasons.has(reason)) { reason = 'native-internal'; outcome = 'unavailable'; }
     const stage: NativeStage = { id, session: session.index, outcome, reason, evidence };
-    session.stages.push(stage); addNativeDiagnostic(result, stage); if (outcome !== 'passed' && id !== 'isolation') stop = stage;
+    session.stages.push(stage); addNativeDiagnostic(result, stage);
+    if (outcome !== 'passed' && id !== 'isolation' && stop?.outcome !== 'failed') stop = stage;
   };
   const skip = (id: string) => session.stages.push({ id, session: session.index, outcome: 'unavailable',
     reason: stop?.outcome === 'failed' ? 'not-run-after-failure' : stop?.outcome === 'restricted' ? 'not-run-after-restriction' : 'not-run-after-unavailable', evidence: { kind: 'none' } });
+  const interruption = stoppedReason ?? observations.failure?.reason;
+  // The canonical row order does not imply observations completed in that order. Preserve every
+  // completed proof when interruption leaves another row unfinished, including known contradictions.
+  const completed = new Set<string>(observations.completed ?? nativeSessionRows.slice(0, -1));
   for (const id of nativeSessionRows.slice(0, -1)) {
-    if (stop) { skip(id); continue; }
+    if (interruption && !completed.has(id)) {
+      if (stop) skip(id);
+      else row(id, 'unavailable', interruption);
+      continue;
+    }
+    if (stop && !interruption) { skip(id); continue; }
     // A positive native managed-policy observation precedes omitted loading/identity evidence.
-    if (observations.restrictions === 'managed') {
+    if (observations.restrictions === 'managed' && !interruption) {
       if (id === 'tool-restrictions') row(id, 'restricted', 'managed-restriction');
       else if (id === 'session-freshness' && observations.sessionId && !observations.resumed && observations.sessionId !== previousSessionId && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(observations.sessionId)) {
         session.process.clientSessionId = observations.sessionId; row(id, 'passed', 'observed', { kind: 'match', matched: true });
       } else session.stages.push({ id, session: session.index, outcome: 'unavailable', reason: 'not-run-after-restriction', evidence: { kind: 'none' } });
       continue;
-    }
-    if (stoppedReason || observations.failure) {
-      row(id, observations.failure?.outcome ?? 'unavailable', stoppedReason ?? observations.failure!.reason); continue;
     }
     switch (id) {
       case 'session-freshness':
@@ -102,7 +114,8 @@ export function evaluateNativeSession(result: NativeVerificationResult, session:
         else row(id, 'passed', 'observed', { kind: 'match', matched: true });
         break;
       case 'tool-restrictions':
-        if (observations.restrictions !== 'observed') row(id, 'unavailable', 'restriction-unobservable');
+        if (observations.restrictions === 'managed') row(id, 'restricted', 'managed-restriction');
+        else if (observations.restrictions !== 'observed') row(id, 'unavailable', 'restriction-unobservable');
         else row(id, 'passed', 'observed', { kind: 'match', matched: true });
         break;
       case 'provider-authentication':

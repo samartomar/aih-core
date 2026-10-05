@@ -14,7 +14,7 @@ const expected = { accountUuid: ACCOUNT, organizationId: ORG };
 const attr = (key, value) => ({ key, value: typeof value === 'number' ? { intValue: String(value) } : { stringValue: value } });
 const event = ({ name = 'claude_code.api_request', session = SID, request = 'req_1', account = ACCOUNT, org = ORG, at = Date.now() } = {}) => ({
   timeUnixNano: String(BigInt(at) * 1000000n),
-  attributes: [attr('event.name', name), attr('session.id', session), attr('request_id', request),
+  attributes: [attr('event.name', name), attr('success', 'true'), attr('session.id', session), attr('request_id', request),
     attr('user.account_uuid', account), attr('organization.id', org), attr('user.email', EMAIL), attr('model', 'secret-model')]
 });
 const body = (...events) => JSON.stringify({ resourceLogs: [{ scopeLogs: [{ logRecords: events }] }] });
@@ -120,6 +120,26 @@ test('only api_request events inside the launch-to-close window count', async ()
   assert.equal(result.reason, 'authentication-unavailable');
   assert.equal(result.counts.matched, 0);
   assert.equal(result.counts.ignored, 3);
+});
+
+test('aliases, body-text names and events without affirmative success cannot establish identity', async () => {
+  const c = make(); await c.start();
+  const fallback = event({ request: 'body' });
+  fallback.attributes = fallback.attributes.filter(value => value.key !== 'event.name');
+  fallback.body = { stringValue: 'claude_code.api_request' };
+  const unknown = event({ request: 'unknown' });
+  unknown.attributes = unknown.attributes.filter(value => value.key !== 'success');
+  await post(c, { payload: body(event({ name: 'api_request' }), fallback, unknown) });
+  assert.equal(c.snapshot(times()).outcome, 'unavailable');
+  assert.equal((await c.drain({ ...times(), timeoutMs: 0 })).reason, 'authentication-unavailable');
+});
+
+test('a snapshot preserves a known identity conflict and cannot finalize affirmative authentication', async () => {
+  const c = make(); await c.start(); await post(c);
+  assert.equal(c.snapshot(times()).outcome, 'unavailable');
+  await post(c, { payload: body(event({ account: '33333333-3333-4333-8333-333333333333' })) });
+  assert.equal(c.snapshot(times()).reason, 'identity-conflict');
+  await c.cancel();
 });
 
 test('an event without a request id or with a non-success flag is ignored', async () => {

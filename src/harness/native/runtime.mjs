@@ -3,6 +3,7 @@
 // is an explicit outcome and every missing observation stays unavailable.
 import { fixtureAttestTool, fixtureFiles, fixtureQueryTool, fixtureServerName } from './fixture-data.mjs';
 import { startEvidenceChannel as internalEvidenceChannel } from './evidence.mjs';
+export { createNativeRuntime } from './adapter.mjs';
 
 export { nativeClientIds, nativeBounds, nativeStageReasons, nativeRunStageIds, nativeSessionStageIds,
   nativeVerificationDefinitions, bundledNativeFixtures, validateNativeVerificationDefinition,

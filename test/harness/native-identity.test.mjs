@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,11 @@ function provision(t, { manifest = {}, credential = oauth, extra = false } = {})
   if (credential !== null) writeFileSync(join(root, 'oauth.json'), credential);
   if (manifest !== null) writeFileSync(join(root, 'identity.json'), manifestText);
   if (extra) writeFileSync(join(root, 'other.txt'), 'x');
+  if (process.platform === 'win32') {
+    const system = join(process.env.SystemRoot, 'System32');
+    const sid = /"(S-1-5-[0-9-]+)"/.exec(execFileSync(join(system, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { windowsHide: true }).toString())[1];
+    execFileSync(join(system, 'icacls.exe'), [root, '/setowner', `*${sid}`, '/t', '/q'], { windowsHide: true });
+  }
   return { parent, cell, root, manifestSha256: sha(manifestText) };
 }
 const capture = (p, overrides = {}) => captureTestIdentity({ provisionedRoot: p.root, manifestSha256: p.manifestSha256, expected, ...overrides });

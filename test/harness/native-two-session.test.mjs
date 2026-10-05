@@ -60,7 +60,7 @@ out({ type: 'result', subtype: 'success', is_error: false, result: 'leaf', sessi
 server.stdin.end();
 const header = process.env.OTEL_EXPORTER_OTLP_LOGS_HEADERS.replace('Authorization=', '');
 const attr = (key, value) => ({ key, value: { stringValue: value } });
-const event = { timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes: [attr('event.name', 'claude_code.api_request'),
+const event = { timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes: [attr('event.name', 'claude_code.api_request'), attr('success', 'true'),
   attr('session.id', mode === 'wrong-session' ? '2f8fad5b-d9cb-469f-a165-70867728950e' : session), attr('request_id', 'req_' + session),
   attr('user.account_uuid', process.env.FAKE_ACCOUNT), attr('organization.id', process.env.FAKE_ORG)] };
 if (mode !== 'no-telemetry') {

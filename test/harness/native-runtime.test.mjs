@@ -16,7 +16,7 @@ test('the runtime entry exports exactly the documented surface', () => {
   assert.deepEqual(Object.keys(runtime).sort(), [
     'bundledNativeFixtures', 'buildClaudeEnvironment', 'canonicalJson', 'captureTestIdentity', 'claudeDeniedBuiltins',
     'claudePrompt', 'claudeSessionsAreFresh', 'claudeStreamOptions', 'configurationDigest', 'createClaudeCollector',
-    'createClaudeStreamParser', 'createOwnedCell', 'definitionIdentity', 'evaluateClaudeSession', 'evaluateServerEvidence',
+    'createClaudeStreamParser', 'createNativeRuntime', 'createOwnedCell', 'definitionIdentity', 'evaluateClaudeSession', 'evaluateServerEvidence',
     'fixtureServerName', 'lifecycleAvailability', 'matchClientVersion', 'nativeBounds', 'nativeClientIds',
     'nativeRunStageIds', 'nativeSessionStageIds', 'nativeStageReasons', 'nativeVerificationDefinitions',
     'observeCellConfiguration', 'observeClaudeManagedSettings', 'observeNativePlatform', 'parseClaudeVersionOutput',
@@ -48,6 +48,10 @@ test('importing the runtime entry starts no process, listener or file write', ()
 test('the public evidence channel can never authenticate a helper without an OS peer facility', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aihq-chan-'));
   try {
+    if (process.platform === 'win32') {
+      await assert.rejects(async () => runtime.startEvidenceChannel({ directory: root, isOwnedServer: () => true }), /channel-protection-unavailable/);
+      return;
+    }
     const channel = await runtime.startEvidenceChannel({ directory: root, isOwnedServer: () => true });
     assert.match(channel.token, /^[0-9a-f]{64}$/);
     assert.match(channel.challenge, /^[0-9a-f]{64}$/);

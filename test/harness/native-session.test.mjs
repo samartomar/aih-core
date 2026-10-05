@@ -32,11 +32,13 @@ test('a healthy hygiene session passes every observation row and leaves isolatio
   assert.deepEqual(row(result, 'read-only-query').evidence, { kind: 'digest', sha256: RESULT });
 });
 
-test('the restriction row passes only when no denied built-in tool is offered', () => {
+test('the restriction row passes only when selected MCP tools are the entire offered set', () => {
   assert.deepEqual(pair(evaluateClaudeSession(input()), 'tool-restrictions'), ['passed', 'observed']);
   const offered = evaluateClaudeSession(input({ stream: stream({ builtinTools: ['Read', 'Bash'] }) }));
   assert.deepEqual(pair(offered, 'tool-restrictions'), ['unavailable', 'restriction-unobservable']);
   assert.equal(offered.proceed, false);
+  for (const unselected of [{ builtinTools: ['FutureReadTool'] }, { unselectedTools: 1 }])
+    assert.deepEqual(pair(evaluateClaudeSession(input({ stream: stream(unselected) })), 'tool-restrictions'), ['unavailable', 'restriction-unobservable']);
   const used = evaluateClaudeSession(input({ stream: stream({ unselectedToolUses: [{ name: 'Read', permitted: true, beforeAttestation: false }] }) }));
   assert.deepEqual(pair(used, 'tool-restrictions'), ['unavailable', 'restriction-unobservable']);
 });

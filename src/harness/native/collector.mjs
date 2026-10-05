@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
 
-const EVENT_NAMES = new Set(['claude_code.api_request', 'api_request']);
+const EVENT_NAME = 'claude_code.api_request';
 
 function attributesOf(record) {
   const map = new Map();
@@ -87,10 +87,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
             if (state.events > nativeBounds.collectorEvents) { state.violation = true; continue; }
             if (state.violation || !isRecord(record)) continue;
             const attrs = attributesOf(record);
-            const name = attrs.get('event.name') ?? (isRecord(record.body) ? record.body.stringValue : undefined);
-            if (!EVENT_NAMES.has(name)) { state.ignored += 1; continue; }
+            const name = attrs.get('event.name');
+            if (name !== EVENT_NAME) { state.ignored += 1; continue; }
             const request = attrs.get('request_id');
-            if (!request || attrs.get('success') === 'false') { state.ignored += 1; continue; }
+            if (!request || attrs.get('success') !== 'true') { state.ignored += 1; continue; }
             // The native session ID is only known after the client's init record, so binding is deferred.
             state.candidates.push({ session: attrs.get('session.id') ?? null, request, account: attrs.get('user.account_uuid') ?? null,
               org: attrs.get('organization.id') ?? null, atMs: eventMs(record), received });
@@ -143,6 +143,13 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     },
     // Bind the observed native structured session ID before drain. Events for any other ID never count.
     bindSession(id) { boundSession = typeof id === 'string' ? id : null; },
+    snapshot({ launchedAtMs, closedAtMs }) {
+      const result = evaluate({ launchedAtMs, closedAtMs }, performance.now());
+      return { outcome: 'unavailable', reason: state.violation ? 'limit-exceeded' : result.conflict ? 'identity-conflict' :
+        result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable',
+        counts: { requests: state.requests, events: Math.min(state.events, nativeBounds.collectorEvents),
+          matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes };
+    },
     async cancel() { state.cancelled = true; await shut(); },
     async drain({ launchedAtMs, closedAtMs, timeoutMs = nativeBounds.telemetryDrainMs }) {
       const deadline = performance.now() + timeoutMs;

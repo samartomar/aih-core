@@ -37,7 +37,7 @@ export function evaluateClaudeSession({ sessionIndex, previousSessionId, stream,
     if (restricted) return row('tool-restrictions', 'restricted', 'managed-restriction');
     if (malformed || !stream.toolsListed || managed?.outcome === 'unreadable')
       return unavailable('tool-restrictions', 'restriction-unobservable');
-    const offered = stream.builtinTools.some(name => deniedBuiltins.includes(name));
+    const offered = stream.builtinTools.length > 0 || (stream.unselectedTools ?? 0) > 0;
     const used = stream.unselectedToolUses.some(use => use.permitted);
     if (offered || used) return unavailable('tool-restrictions', 'restriction-unobservable');
     return row('tool-restrictions', 'passed', 'observed', { kind: 'counts', count: stream.builtinTools.length });

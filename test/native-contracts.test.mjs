@@ -51,9 +51,11 @@ function session(index) {
   const stage = (id, outcome, reason, evidence = { kind: 'none' }) =>
     ({ id, session: index, outcome, reason, evidence });
   return { index, process: { pid: 4000 + index, clientSessionId: `session-${index}` },
-    launchArgvDigest: sha('argv'), stagedConfigurationDigest: sha('staged'), challengeSha256: sha('challenge'),
-    stages: [stage('session-freshness', 'passed', 'observed', { kind: 'match', matched: true }),
-      stage('cleanup', 'passed', 'observed')] };
+    launchArgvDigest: sha('argv'), stagedConfigurationDigest: sha('staged'), challengeSha256: sha(`challenge-${index}`),
+    stages: ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication',
+      'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'].map(id =>
+      stage(id, 'passed', 'observed', id === 'cleanup' ? { kind: 'none' } : id === 'tool-discovery' ?
+        { kind: 'counts', count: 2 } : id === 'read-only-query' ? { kind: 'digest', sha256: sha('answer') } : { kind: 'match', matched: true })) };
 }
 
 function observedResult() {
@@ -69,12 +71,19 @@ function observedResult() {
     sessions: [session(1), session(2)],
     stages: [{ id: 'fixture-integrity', session: null, outcome: 'passed', reason: 'observed',
       evidence: { kind: 'digest', sha256: sha('manifest') } },
+    { id: 'host-presence', session: null, outcome: 'passed', reason: 'observed', evidence: { kind: 'none' } },
+    { id: 'identity-binding', session: null, outcome: 'passed', reason: 'observed', evidence: { kind: 'match', matched: true } },
+    { id: 'cell-staging', session: null, outcome: 'passed', reason: 'observed', evidence: { kind: 'digest', sha256: sha('staged') } },
+    { id: 'session-start', session: 1, outcome: 'passed', reason: 'observed', evidence: { kind: 'none' } },
+    { id: 'configuration-unchanged', session: 2, outcome: 'passed', reason: 'before-session-2', evidence: { kind: 'digest', sha256: sha('staged') } },
+    { id: 'session-start', session: 2, outcome: 'passed', reason: 'observed', evidence: { kind: 'none' } },
+    { id: 'configuration-unchanged', session: 2, outcome: 'passed', reason: 'after-session-2', evidence: { kind: 'digest', sha256: sha('staged') } },
     { id: 'cleanup', session: null, outcome: 'passed', reason: 'observed', evidence: { kind: 'none' } }],
     security: { sandbox: { level: 'observed-os-boundary', mechanism: 'windows-job.v1', reason: 'observed' },
       hostSecretIsolation: { outcome: 'passed', reason: 'observed' } },
     authority: 'not-evaluated', survivingProcesses: [],
     cleanup: { processes: 'confirmed', files: 'removed', retainedCell: null },
-    diagnostics: [], limits: { budgetMs: 180000, elapsedMs: 1200, sessionsStarted: 2, stagesCompleted: 6,
+    diagnostics: [], limits: { budgetMs: 180000, elapsedMs: 1200, sessionsStarted: 2, stagesCompleted: 27,
       observedBytes: 0, telemetryEvents: 2, rpcMessages: 4, evidenceTruncated: false },
   };
 }
@@ -209,6 +218,13 @@ test('the five published schema files compile standalone and mirror the validato
   assert.equal(ajv.validate(REQUEST_ID, { ...request, command: 'untrusted' }), false);
   assert.equal(ajv.validate(BUNDLE_ID, suppliedBundle()), true, JSON.stringify(ajv.errors));
   assert.equal(ajv.validate(RESULT_ID, observedResult()), true, JSON.stringify(ajv.errors));
+  const missingProof = observedResult();
+  missingProof.sessions.forEach(value => { value.stages = []; value.process.clientSessionId = null; });
+  missingProof.stages = [missingProof.stages.at(-1)];
+  missingProof.adapter = null; missingProof.content = null; missingProof.proofScope = 'none';
+  missingProof.security.sandbox = { level: 'not-started', mechanism: null, reason: 'not-started' };
+  missingProof.limits.stagesCompleted = 1;
+  assert.equal(ajv.validate(RESULT_ID, missingProof), false);
   assert.equal(validateNativeVerificationBundle(suppliedBundle()).valid, true);
   assert.equal(validateNativeVerificationResult(observedResult()).valid, true);
   const identity = { schema: IDENTITY_ID, id: 'dedicated-test', client: 'claude',
@@ -238,6 +254,32 @@ test('the five published schema files compile standalone and mirror the validato
     sessionArgv: [...definition.sessionArgv, '--bare'] }), false);
   assert.equal(ajv.validate(DEFINITION_ID, { ...definition,
     platform: { ...definition.platform, execution: 'wsl2' } }), false);
+});
+
+test('verified results require the full two-session proof ledger and consistent identities', () => {
+  const remove = (value, predicate) => {
+    value.stages = value.stages.filter(stage => !predicate(stage));
+    value.sessions.forEach(session => { session.stages = session.stages.filter(stage => !predicate(stage)); });
+    value.limits.stagesCompleted = value.stages.length + value.sessions.reduce((sum, session) => sum + session.stages.length, 0);
+  };
+  const mutations = [
+    value => remove(value, stage => stage.id === 'instruction-loading'),
+    value => remove(value, stage => stage.id === 'configuration-unchanged'),
+    value => { value.sessions[1].process.clientSessionId = value.sessions[0].process.clientSessionId; },
+    value => { value.sessions[1].challengeSha256 = value.sessions[0].challengeSha256; },
+    value => { value.sessions[1].stagedConfigurationDigest = sha('changed'); },
+    value => { value.sessions[1].stages[0].session = 1; },
+    value => { value.sessions[1].stages[0].evidence = { kind: 'match', matched: false }; },
+    value => { value.content = null; },
+    value => { value.adapter = null; },
+    value => { value.limits.sessionsStarted = 0; },
+    value => { value.survivingProcesses = [{ pid: 4001, role: 'client' }]; },
+    value => { value.security.sandbox.level = 'hygiene-only'; }
+  ];
+  for (const mutate of mutations) {
+    const value = observedResult(); mutate(value);
+    assert.equal(validateNativeVerificationResult(value).valid, false, JSON.stringify(value));
+  }
 });
 
 test('portable contracts import no Node built-in', () => {

@@ -1,6 +1,7 @@
 import { distribution } from '../../distribution.mjs';
 import type { Diagnostic } from '../types.js';
 import type { NativeVerificationResult } from '../native-contracts.js';
+import { validateNativeVerificationResult } from '../native-contracts.js';
 import { nativeClients, nativeDiagnostic, ownNativeValue } from './native-input.js';
 
 export type NativeStage = NativeVerificationResult['stages'][number];
@@ -58,6 +59,9 @@ export function finishNativeResult(result: NativeVerificationResult, started: nu
     result.cleanup.processes === 'confirmed' && result.cleanup.files === 'removed' && result.security.hostSecretIsolation.outcome === 'passed';
   result.verdict = failed ? 'failed' : verified ? 'verified' : 'unverified';
   result.status = cancelled ? 'cancelled' : result.cleanup.processes === 'unresolved' || result.cleanup.files === 'retained' ? 'incomplete' : failed || verified ? 'complete' : 'incomplete';
+  if (result.verdict === 'verified' && !validateNativeVerificationResult(result).valid) {
+    result.verdict = 'unverified'; result.status = 'incomplete';
+  }
   if (Buffer.byteLength(JSON.stringify(result)) > 65536) {
     result.limits.evidenceTruncated = true;
     for (const stage of rows) stage.evidence = { kind: 'none' };

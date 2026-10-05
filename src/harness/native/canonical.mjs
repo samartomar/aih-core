@@ -90,7 +90,7 @@ export function parseStrictJson(text, maxDepth = 16) {
     try { return JSON.parse(text.slice(start, index)); } catch { return fail(); }
   };
   const value = depth => {
-    if (depth > maxDepth) fail();
+    if (depth > maxDepth) throw new SyntaxError('strict-json-depth');
     space();
     const c = text[index];
     if (c === '{') {

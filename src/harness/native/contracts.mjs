@@ -83,8 +83,8 @@ function buildClaudeFixture() {
 
 export const bundledNativeFixtures = deepFreeze([buildClaudeFixture()]);
 
-// Proposed candidate only: 2.1.285 and this Windows release are the host observations recorded
-// in AIHQ evidence; no run, credential channel or guardrail effect is observed. Evidence stays null.
+// Proposed exact version/platform candidate. Native loading, credential-channel and guardrail
+// effects remain unobserved; the descriptor does not establish admission. Evidence stays null.
 function buildClaudeCandidate() {
   const fixture = bundledNativeFixtures[0];
   return {

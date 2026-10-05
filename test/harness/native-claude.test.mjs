@@ -45,6 +45,27 @@ test('a healthy stream yields session id, discovery, attestation and answer evid
   assert.deepEqual(o.unselectedToolUses, []);
 });
 
+test('snapshots retain complete records and do not consume an unfinished record', () => {
+  const parser = createClaudeStreamParser(options);
+  parser.push(line(init()) + '{"type":');
+  const first = parser.snapshot();
+  assert.equal(first.sessionId, SID);
+  first.visibleSelectedTools.length = 0;
+  assert.equal(parser.snapshot().visibleSelectedTools.length, 2);
+  parser.push('"result","subtype":"success","is_error":false}\n');
+  assert.equal(parser.finish().resultSubtype, 'success');
+  assert.equal(parse([init({ tools: [...init().tools, 'mcp__other__read'] })]).unselectedTools, 1);
+});
+
+test('duplicate keys and extreme depth cannot yield client evidence or overflow the parser stack', () => {
+  const duplicate = createClaudeStreamParser(options);
+  duplicate.push('{"type":"system","type":"result"}\n');
+  assert.equal(duplicate.finish().status, 'malformed');
+  const deep = createClaudeStreamParser(options);
+  assert.doesNotThrow(() => deep.push('['.repeat(20000) + '0' + ']'.repeat(20000) + '\n'));
+  assert.equal(deep.finish().status, 'limit-exceeded');
+});
+
 test('chunk boundaries do not change the parse', () => {
   const bytes = Buffer.from(healthy().map(line).join(''));
   const parser = createClaudeStreamParser(options);

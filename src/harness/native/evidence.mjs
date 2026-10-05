@@ -106,6 +106,8 @@ export async function createEvidenceChannel({ directory, peerIdentity = osPeerId
 
   return {
     endpoint, token, challenge,
+    snapshot() { return { frames: state.frames.map(value => ({ ...value })), bytes: state.bytes, connections: state.connections,
+      rejectedFrames: state.rejectedFrames, peer: state.peer, violation: state.violation }; },
     async close() {
       for (const socket of sockets) socket.end();
       await new Promise(resolve => setTimeout(resolve, 20)); // drain already-received data only
@@ -119,8 +121,10 @@ export async function createEvidenceChannel({ directory, peerIdentity = osPeerId
 }
 
 // Production entry: only the OS peer facility may authenticate the helper process.
-export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null }) =>
-  createEvidenceChannel({ directory, peerIdentity: osPeerIdentity, isOwnedServer, plan });
+export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null }) => {
+  if (process.platform === 'win32') throw new Error('channel-protection-unavailable');
+  return createEvidenceChannel({ directory, peerIdentity: osPeerIdentity, isOwnedServer, plan });
+};
 
 // Evaluate server-side frames. Every missing or inconsistent record stays unproven.
 export function evaluateServerEvidence(frames, { attestTool, queryTool, markerSha256, expectedResultSha256 }) {
