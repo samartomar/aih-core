@@ -21,14 +21,14 @@ function provision(t, { manifest = {}, credential = oauth, extra = false } = {})
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const { cell } = createOwnedCell({ parent });
   const root = join(cell.credentials, 'provisioned');
-  mkdirSync(root);
+  mkdirSync(root, { mode: 0o700 });
   const text = credential ?? oauth;
   const body = { schema: 'urn:aihq:harness:native-test-identity:1.0.0', id: 'dedicated-smoke', client: 'claude',
     adapterId: 'claude-oauth-otel.v1', purpose: 'dedicated-native-test', expected,
     credential: { path: 'oauth.json', sha256: sha(text), byteLength: Buffer.byteLength(text) }, ...manifest };
   const manifestText = JSON.stringify(body);
-  if (credential !== null) writeFileSync(join(root, 'oauth.json'), credential);
-  if (manifest !== null) writeFileSync(join(root, 'identity.json'), manifestText);
+  if (credential !== null) writeFileSync(join(root, 'oauth.json'), credential, { mode: 0o600 });
+  if (manifest !== null) writeFileSync(join(root, 'identity.json'), manifestText, { mode: 0o600 });
   if (extra) writeFileSync(join(root, 'other.txt'), 'x');
   if (process.platform === 'win32') {
     const system = join(process.env.SystemRoot, 'System32');

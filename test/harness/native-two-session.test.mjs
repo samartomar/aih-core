@@ -74,7 +74,8 @@ if (mode !== 'no-telemetry') {
 `;
 
 function setup(t) {
-  const parent = mkdtempSync(join(tmpdir(), 'aihq-two-'));
+  // Darwin's default temp path plus the cell can exceed its Unix socket path limit.
+  const parent = mkdtempSync(join(process.platform === 'darwin' ? '/tmp' : tmpdir(), 'aihq-two-'));
   const { cell } = createOwnedCell({ parent });
   t.after(() => { removeOwnedCell(cell, { processesConfirmed: true }); rmSync(parent, { recursive: true, force: true }); });
   const resolved = resolveBundledFixture('claude');
