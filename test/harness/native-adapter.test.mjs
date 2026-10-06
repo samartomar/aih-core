@@ -18,6 +18,7 @@ test('registered Linux client resolution delegates its version execution to the 
 });
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
+import { channel } from 'node:diagnostics_channel';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,9 +112,47 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   assert.equal(typeof handle.snapshot, 'function');
   t.after(async () => { controller.abort(); await handle.observations;
     await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 }); });
-  return { handle, telemetry, stream, stdout, exit, controller, terminationCount: () => terminationCount,
+  return { handle, telemetry, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount,
     setNativeFailure(value) { nativeFailure = value; } };
 }
+
+test('session cleanup publishes collector diagnostics and the parsed error result exactly once', async t => {
+  const records = [], sink = value => records.push(value), diagnostics = channel('aih.native.diagnostics.v1');
+  diagnostics.subscribe(sink);
+  try {
+    const { handle, telemetry, stdout, exit, cell } = await session(t, { realParser: true });
+    telemetry.stats = { requests: 3, rejected: { auth: 3 } };
+    stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'private-result' }) + '\n');
+    exit({ code: 1 });
+    const observation = await handle.observations;
+    assert.equal(observation.authentication, 'missing');
+    assert.equal(Object.hasOwn(observation, 'stats'), false);
+    await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 });
+    await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 });
+    assert.equal(records.length, 1);
+    assert.equal(records[0].runSha256, installed.sha256(cell.path));
+    assert.equal(records[0].collector.requests, 3);
+    assert.equal(records[0].collector.rejected.auth, 3);
+    assert.deepEqual(records[0].result, { seen: true, isError: true, subtype: 'error_during_execution' });
+    assert.equal(JSON.stringify(records[0]).includes('private-result'), false);
+  } finally { diagnostics.unsubscribe(sink); }
+});
+
+test('cancelled sessions publish their partial collector diagnostics with no result', async t => {
+  const records = [], sink = value => records.push(value), diagnostics = channel('aih.native.diagnostics.v1');
+  diagnostics.subscribe(sink);
+  try {
+    const { handle, telemetry, controller } = await session(t, { realParser: true });
+    telemetry.stats = { requests: 1, rejected: { contentEncoding: 1 }, contentEncodings: { gzip: 1 } };
+    controller.abort();
+    await handle.observations;
+    assert.equal(records.length, 1);
+    assert.equal(records[0].collector.requests, 1);
+    assert.equal(records[0].collector.rejected.contentEncoding, 1);
+    assert.equal(records[0].collector.contentEncodings.gzip, 1);
+    assert.deepEqual(records[0].result, { seen: false, isError: null, subtype: 'none' });
+  } finally { diagnostics.unsubscribe(sink); }
+});
 
 test('partial adapter leaves a correct query response unfinished until the client receipt', async t => {
   const { handle } = await session(t);

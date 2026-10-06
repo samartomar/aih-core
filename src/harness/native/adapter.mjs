@@ -5,7 +5,7 @@ import { claudeConfigDirectory } from "./claude.mjs";
 import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
-import { publishNativeAdmission } from './admission.mjs';
+import { publishNativeAdmission, publishNativeDiagnostics } from './admission.mjs';
 const sameWindowsPath = (a, b) => typeof a === "string" && typeof b === "string" && win32.isAbsolute(a) && win32.isAbsolute(b) && win32.normalize(a).toLowerCase() === win32.normalize(b).toLowerCase();
 const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
 const linuxVendor = definition => definition.platform.os === 'linux' && definition.lifecycleId === 'linux-srt.v1' && definition.isolation?.mechanism === 'vendor-runtime';
@@ -403,6 +403,18 @@ function createNativeRuntime(module, dependencies) {
       let watchdog;
       let tracking;
       let admissionPublished = false;
+      let diagnosticsPublished = false;
+      let telemetryFinal;
+      let diagnosticsSnapshot = () => ({ collector: collector.snapshot({ launchedAtMs: Date.now(), closedAtMs: Date.now() }).stats });
+      const publishDiagnostics = () => {
+        if (diagnosticsPublished) return;
+        diagnosticsPublished = true;
+        // Diagnostics are evidence-free; a failure here must never affect cleanup or admission publication.
+        try {
+          publishNativeDiagnostics({ phase: 'session', index: input.index, definition: input.definition.id,
+            runSha256: sha256(input.cell.path), ...diagnosticsSnapshot() });
+        } catch { /* diagnostics are best-effort */ }
+      };
       let restrictionCounts;
       let snapshot = () => ({ ...incomplete(stopped ?? "native-internal"), completed: [] });
       const detach = () => {
@@ -417,6 +429,7 @@ function createNativeRuntime(module, dependencies) {
         if (!owner) {
           await collector.cancel();
           await closeChannel();
+          publishDiagnostics();
           return { confirmed: true, survivors: [] };
         }
         // The started handle and its context share one aggregate cleanup; with no client only the context exists.
@@ -424,6 +437,7 @@ function createNativeRuntime(module, dependencies) {
         const receipt = await termination;
         await collector.cancel();
         await closeChannel();
+        publishDiagnostics();
         if (linux && !admissionPublished) {
           admissionPublished = true;
           publishNativeAdmission({ phase: 'session', index: input.index, definition: input.definition.id,
@@ -515,6 +529,8 @@ function createNativeRuntime(module, dependencies) {
         const options = module.claudeStreamOptions(resolved, challenge);
         const parsers = input.material.instructions.map((value) => module.createClaudeStreamParser({ ...options, markerSha256: value.markerSha256 }));
         const launchedAtMs = Date.now();
+        diagnosticsSnapshot = () => ({ collector: telemetryFinal?.stats ?? collector.snapshot({ launchedAtMs, closedAtMs: Date.now() }).stats,
+          result: parsers[0].snapshot() });
         const capture = (streams, telemetryResult, evidence, finalized = false) => {
             const stream = streams[0];
             const spec = { ...module.serverEvidenceSpec(resolved), queryTool: input.material.server.queryTool };
@@ -676,6 +692,7 @@ function createNativeRuntime(module, dependencies) {
             const stream = streams[0];
             collector.bindSession(stream.sessionId);
             const telemetryResult = await collector.drain({ launchedAtMs, closedAtMs: Date.now(), timeoutMs: Math.min(2000, Math.max(0, input.deadline - performance.now())) });
+            telemetryFinal = telemetryResult;
             const evidence = await closeChannel();
             if (linux) {
               // Core consumes observations before invoking handle cleanup. Final coverage must

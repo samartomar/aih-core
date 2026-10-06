@@ -7,6 +7,7 @@ import { isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
 
 const EVENT_NAME = 'claude_code.api_request';
+const increment = (counts, key) => { counts[key] = Math.min(1000000, counts[key] + 1); };
 
 function attributesOf(record) {
   const map = new Map();
@@ -32,14 +33,23 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
   const probeToken = randomBytes(32).toString('hex');
   let boundSession = sessionId;
   const state = { requests: 0, events: 0, bytes: 0, violation: false, cancelled: false, candidates: [], ignored: 0 };
+  const stats = { requests: 0, accepted: 0,
+    rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
+    contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
+    events: 0, eventNames: { apiRequest: 0, apiError: 0, other: 0 }, ignored: 0 };
   let startedMono = 0;
   let closed = false;
 
   const server = http.createServer((req, res) => {
+    const probe = req.method === 'GET' && req.url === '/aih-native-probe';
     // Every reply closes the connection; the request body is never read after a rejection. A graceful
     // half-close lets the client read the status, then a short timer destroys any unread remainder.
-    const reply = status => {
+    const reply = (status, reason = 'other') => {
       if (res.headersSent || res.writableEnded) return;
+      if (!probe) {
+        if (status === 200) increment(stats, 'accepted');
+        else increment(stats.rejected, reason);
+      }
       res.statusCode = status;
       res.setHeader('content-type', 'application/json');
       res.setHeader('connection', 'close');
@@ -51,53 +61,59 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     if (state.cancelled) { req.destroy(); return; }
     // A separate, non-telemetry challenge proves the sandbox's exact allowed route. It cannot
     // submit identity evidence and is never included in snapshots or final collector results.
-    if (req.method === 'GET' && req.url === '/aih-native-probe') {
+    if (probe) {
       const provided = Buffer.from(String(req.headers.authorization ?? ''));
       const wanted = Buffer.from(`Bearer ${probeToken}`);
       if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) return reply(401);
       res.setHeader('x-aih-native-probe', probeToken);
       return reply(200);
     }
-    if (req.method !== 'POST') return reply(405);
-    if (req.url !== '/v1/logs') return reply(404);
+    increment(stats, 'requests');
+    const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    increment(stats.contentTypes, type === 'application/json' ? 'json' : type === 'application/x-protobuf' ? 'protobuf' : type === '' ? 'none' : 'other');
+    increment(stats.contentEncodings, req.headers['content-encoding'] === undefined ? 'none' : req.headers['content-encoding'] === 'gzip' ? 'gzip' : 'other');
+    if (req.method !== 'POST') return reply(405, 'method');
+    if (req.url !== '/v1/logs') return reply(404, 'path');
     const provided = Buffer.from(String(req.headers.authorization ?? ''));
     const wanted = Buffer.from(`Bearer ${token}`);
-    if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) return reply(401);
-    const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-    if (type !== 'application/json' || req.headers['content-encoding'] !== undefined) return reply(415);
+    if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) return reply(401, 'auth');
+    if (type !== 'application/json') return reply(415, 'contentType');
+    if (req.headers['content-encoding'] !== undefined) return reply(415, 'contentEncoding');
     state.requests += 1;
     if (state.requests > nativeBounds.collectorRequests) { state.violation = true; return reply(429); }
     const declared = req.headers['content-length'];
-    if (declared !== undefined && Number(declared) > nativeBounds.collectorRequestBytes) { state.violation = true; reply(413); return; }
+    if (declared !== undefined && Number(declared) > nativeBounds.collectorRequestBytes) { state.violation = true; reply(413, 'size'); return; }
     const chunks = [];
     let size = 0;
     const timer = setTimeout(() => reply(408), bodyTimeoutMs);
     req.on('error', () => clearTimeout(timer));
     req.on('data', chunk => {
       size += chunk.length;
-      if (size > nativeBounds.collectorRequestBytes) { state.violation = true; clearTimeout(timer); reply(413); return; }
+      if (size > nativeBounds.collectorRequestBytes) { state.violation = true; clearTimeout(timer); reply(413, 'size'); return; }
       chunks.push(chunk);
     });
     req.on('end', () => {
       clearTimeout(timer);
       if (res.headersSent || res.writableEnded) return;
       state.bytes += size;
-      if (state.bytes > nativeBounds.collectorBytes) { state.violation = true; return reply(429); }
+      if (state.bytes > nativeBounds.collectorBytes) { state.violation = true; return reply(429, 'size'); }
       let parsed;
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
         parsed = parseStrictJson(text, nativeBounds.jsonDepth);
-      } catch { return reply(400); }
-      if (!isRecord(parsed)) return reply(400);
+      } catch { return reply(400, 'parse'); }
+      if (!isRecord(parsed)) return reply(400, 'parse');
       const received = performance.now();
       for (const resource of Array.isArray(parsed.resourceLogs) ? parsed.resourceLogs : []) {
         for (const scope of isRecord(resource) && Array.isArray(resource.scopeLogs) ? resource.scopeLogs : []) {
           for (const record of isRecord(scope) && Array.isArray(scope.logRecords) ? scope.logRecords : []) {
-            state.events += 1;
-            if (state.events > nativeBounds.collectorEvents) { state.violation = true; continue; }
-            if (state.violation || !isRecord(record)) continue;
-            const attrs = attributesOf(record);
+            increment(stats, 'events');
+            const attrs = isRecord(record) ? attributesOf(record) : new Map();
             const name = attrs.get('event.name');
+            increment(stats.eventNames, name === EVENT_NAME ? 'apiRequest' : name === 'claude_code.api_error' ? 'apiError' : 'other');
+            state.events += 1;
+            if (state.events > nativeBounds.collectorEvents) { state.violation = true; increment(stats, 'ignored'); continue; }
+            if (state.violation || !isRecord(record)) { increment(stats, 'ignored'); continue; }
             if (name !== EVENT_NAME) { state.ignored += 1; continue; }
             const request = attrs.get('request_id');
             if (!request || attrs.get('success') !== 'true') { state.ignored += 1; continue; }
@@ -142,6 +158,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     }
     return { matched, duplicates, ignored, conflict, wrongSession };
   };
+  const diagnostics = result => ({ requests: stats.requests, accepted: stats.accepted, rejected: { ...stats.rejected },
+    contentTypes: { ...stats.contentTypes }, contentEncodings: { ...stats.contentEncodings }, events: stats.events,
+    eventNames: { ...stats.eventNames }, ignored: Math.min(1000000, stats.ignored + result.ignored),
+    matched: result.matched, duplicates: result.duplicates, wrongSession: result.wrongSession, conflict: result.conflict });
 
   return {
     token, endpoint: '',
@@ -158,7 +178,8 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       return { outcome: 'unavailable', reason: state.violation ? 'limit-exceeded' : result.conflict ? 'identity-conflict' :
         result.matched === 0 && result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable',
         counts: { requests: state.requests, events: Math.min(state.events, nativeBounds.collectorEvents),
-          matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes };
+          matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes,
+        stats: diagnostics(result) };
     },
     async cancel() { state.cancelled = true; await shut(); },
     async drain({ launchedAtMs, closedAtMs, timeoutMs = nativeBounds.telemetryDrainMs }) {
@@ -181,7 +202,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       else if (state.violation) reason = 'limit-exceeded';
       else if (result.conflict) reason = 'identity-conflict';
       else if (result.matched === 0) reason = result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable';
-      return { outcome: reason === 'observed' ? 'passed' : 'unavailable', reason, counts, bytes: state.bytes };
+      return { outcome: reason === 'observed' ? 'passed' : 'unavailable', reason, counts, bytes: state.bytes, stats: diagnostics(result) };
     }
   };
 }

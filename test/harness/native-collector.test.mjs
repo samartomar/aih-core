@@ -32,6 +32,43 @@ function post(collector, { path = '/v1/logs', method = 'POST', headers = {}, pay
 const times = () => ({ launchedAtMs: Date.now() - 5000, closedAtMs: Date.now() + 5000 });
 const make = (options = {}) => createClaudeCollector({ sessionId: SID, expected, ...options });
 
+test('diagnostics count HTTP rejection reasons and ignored and matched events without retaining content', async t => {
+  const c = make();
+  await c.start();
+  t.after(() => c.cancel());
+  assert.equal(await post(c, { auth: false }), 401);
+  assert.equal(await post(c, { headers: { 'content-encoding': 'gzip' } }), 415);
+  assert.equal(await post(c, { headers: { 'content-type': 'application/x-protobuf' } }), 415);
+  assert.equal(await post(c, { payload: body(event({ name: 'claude_code.tool_result' })) }), 200);
+  assert.equal(await post(c), 200);
+  const result = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(result.outcome, 'passed');
+  assert.deepEqual(result.counts, { requests: 2, events: 2, matched: 1, wrongSession: 0, duplicates: 0, ignored: 1 });
+  assert.deepEqual(result.stats, {
+    requests: 5, accepted: 2,
+    rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
+    contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
+    events: 2, eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1,
+    duplicates: 0, wrongSession: 0, conflict: false
+  });
+  assert.deepEqual(c.snapshot(times()).stats, result.stats);
+  for (const secret of [EMAIL, ACCOUNT, ORG, 'secret-model', c.token, 'req_1', 'claude_code.tool_result'])
+    assert.equal(JSON.stringify(result.stats).includes(secret), false);
+});
+
+test('diagnostics classify api_error and unknown events while preserving ignored-success evidence', async t => {
+  const c = make(); await c.start(); t.after(() => c.cancel());
+  const failed = event({ request: 'failed' }); failed.attributes.push(attr('success', 'false'));
+  assert.equal(await post(c, { payload: body(event({ name: 'claude_code.api_error' }),
+    event({ name: 'client-private-name' }), failed, null) }), 200);
+  const result = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(result.reason, 'authentication-unavailable');
+  assert.deepEqual(result.stats.eventNames, { apiRequest: 1, apiError: 1, other: 2 });
+  assert.equal(result.stats.ignored, 4);
+  assert.equal(result.stats.matched, 0);
+  assert.equal(JSON.stringify(result.stats).includes('client-private-name'), false);
+});
+
 test('the isolated reachability probe uses a separate token and cannot establish identity', async () => {
   const c = make(); const started = await c.start();
   try {
@@ -44,6 +81,9 @@ test('the isolated reachability probe uses a separate token and cannot establish
     assert.equal(result.outcome, 'unavailable');
     assert.equal(result.counts.events, 0);
     assert.equal(result.counts.requests, 0);
+    assert.equal(result.stats.requests, 0);
+    assert.equal(result.stats.accepted, 0);
+    assert.equal(result.stats.rejected.auth, 0);
     assert.equal(JSON.stringify(result).includes(started.probeToken), false);
   } finally { await c.cancel(); }
 });
@@ -75,6 +115,7 @@ test('unauthorized, wrong-type, compressed and misrouted requests never count', 
   assert.equal(result.outcome, 'unavailable');
   assert.equal(result.reason, 'authentication-unavailable');
   assert.equal(result.counts.events, 0);
+  assert.deepEqual(result.stats.rejected, { auth: 2, method: 1, path: 2, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 });
 });
 
 test('deep, duplicate-key and malformed UTF-8 bodies are rejected without crashing the collector', async () => {
@@ -90,6 +131,7 @@ test('deep, duplicate-key and malformed UTF-8 bodies are rejected without crashi
     const result = await c.drain({ ...times(), timeoutMs: 50 });
     assert.equal(result.reason, 'observed');
     assert.equal(result.counts.events, 1);
+    assert.equal(result.stats.rejected.parse, 3);
   } finally { await c.cancel(); }
 });
 
@@ -100,6 +142,7 @@ test('events for another session are mismatched evidence, not authentication', a
   const result = await c.drain({ ...times(), timeoutMs: 50 });
   assert.equal(result.reason, 'identity-session-mismatch');
   assert.equal(result.counts.wrongSession, 1);
+  assert.equal(result.stats.wrongSession, 1);
 });
 
 test('a wrong-session event beside a match does not become an immediate identity negative', async () => {
@@ -126,6 +169,7 @@ test('a wrong account or organization conflicts even beside a good event', async
     const result = await c.drain({ ...times(), timeoutMs: 50 });
     assert.equal(result.reason, 'identity-conflict');
     assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.stats.conflict, true);
   }
 });
 
@@ -137,6 +181,7 @@ test('identical duplicates count once and conflicting duplicates invalidate', as
   assert.equal(ok.outcome, 'passed');
   assert.equal(ok.counts.matched, 1);
   assert.equal(ok.counts.duplicates, 1);
+  assert.equal(ok.stats.duplicates, 1);
   const d = make();
   await d.start();
   await post(d, { payload: body(event(), event({ account: '33333333-3333-4333-8333-333333333333' })) });
@@ -152,6 +197,8 @@ test('only api_request events inside the launch-to-close window count', async ()
   assert.equal(result.reason, 'authentication-unavailable');
   assert.equal(result.counts.matched, 0);
   assert.equal(result.counts.ignored, 3);
+  assert.equal(result.stats.ignored, 3);
+  assert.deepEqual(result.stats.eventNames, { apiRequest: 2, apiError: 0, other: 1 });
 });
 
 test('aliases, body-text names and events without affirmative success cannot establish identity', async () => {
@@ -189,18 +236,28 @@ test('request, event and size caps stop acceptance as limit-exceeded', async () 
   const statuses = [];
   for (let i = 0; i < 65; i++) statuses.push(await post(many, { payload: body(event({ request: `r${i}` })) }));
   assert.equal(statuses.at(-1), 429);
-  assert.equal((await many.drain({ ...times(), timeoutMs: 50 })).reason, 'limit-exceeded');
+  const requestLimit = await many.drain({ ...times(), timeoutMs: 50 });
+  assert.equal(requestLimit.reason, 'limit-exceeded');
+  assert.equal(requestLimit.stats.requests, 65);
+  assert.equal(requestLimit.stats.rejected.other, 1);
 
   const big = make();
   await big.start();
   assert.equal(await post(big, { payload: 'x'.repeat(262145) }), 413);
-  assert.equal((await big.drain({ ...times(), timeoutMs: 50 })).reason, 'limit-exceeded');
+  const sizeLimit = await big.drain({ ...times(), timeoutMs: 50 });
+  assert.equal(sizeLimit.reason, 'limit-exceeded');
+  assert.equal(sizeLimit.stats.rejected.size, 1);
 
   const events = make();
   await events.start();
   const lots = Array.from({ length: 513 }, (_, i) => event({ request: `e${i}` }));
-  await post(events, { payload: body(...lots) });
-  assert.equal((await events.drain({ ...times(), timeoutMs: 50 })).reason, 'limit-exceeded');
+  assert.equal(await post(events, { payload: body(...lots.slice(0, 256)) }), 200);
+  assert.equal(await post(events, { payload: body(...lots.slice(256)) }), 200);
+  const eventLimit = await events.drain({ ...times(), timeoutMs: 50 });
+  assert.equal(eventLimit.reason, 'limit-exceeded');
+  assert.equal(eventLimit.counts.events, 512);
+  assert.equal(eventLimit.stats.events, 513);
+  assert.equal(eventLimit.stats.ignored, 1);
 });
 
 test('a stalled body is cut off by the body timeout', async () => {
@@ -217,7 +274,9 @@ test('a stalled body is cut off by the body timeout', async () => {
     setTimeout(() => reject(new Error('not closed')), 3000).unref();
   });
   assert.equal(closed, true);
-  assert.equal((await c.drain({ ...times(), timeoutMs: 50 })).counts.events, 0);
+  const result = await c.drain({ ...times(), timeoutMs: 50 });
+  assert.equal(result.counts.events, 0);
+  assert.equal(result.stats.rejected.other, 1);
 });
 
 test('cancel stops acceptance immediately and leaves authentication unavailable', async () => {

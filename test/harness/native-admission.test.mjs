@@ -2,6 +2,83 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { channel } from 'node:diagnostics_channel';
 import { publishNativeAdmission } from '../../src/harness/native/admission.mjs';
+import * as admission from '../../src/harness/native/admission.mjs';
+
+const emptyCollector = {
+  requests: 0, accepted: 0,
+  rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
+  contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
+  events: 0, eventNames: { apiRequest: 0, apiError: 0, other: 0 }, ignored: 0, matched: 0,
+  duplicates: 0, wrongSession: 0, conflict: false
+};
+
+test('session diagnostics publish an exact deeply frozen counts-only record with closed vocabularies', () => {
+  assert.equal(typeof admission.publishNativeDiagnostics, 'function');
+  const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
+  stream.subscribe(sink);
+  try {
+    admission.publishNativeDiagnostics({ phase: 'version', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285',
+      runSha256: 'a'.repeat(64), collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
+        rejected: { ...emptyCollector.rejected, auth: 1, contentType: 1, contentEncoding: 1, private: 'header-marker' },
+        contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
+        eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1, secret: 'attribute-marker' },
+      result: { resultSeen: true, resultIsError: true, resultSubtype: 'error_during_execution', text: 'result-marker' },
+      token: 'token-marker' });
+    assert.equal(records.length, 1);
+    const record = records[0];
+    assert.match(record.recordId, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+    assert.deepEqual(record, {
+      schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: record.recordId,
+      runSha256: 'a'.repeat(64), phase: 'session', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285',
+      collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
+        rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
+        contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
+        eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1 },
+      result: { seen: true, isError: true, subtype: 'error_during_execution' }
+    });
+    const inspect = value => {
+      assert.ok(Object.isFrozen(value));
+      for (const nested of Object.values(value)) if (nested !== null && typeof nested === 'object') inspect(nested);
+    };
+    inspect(record);
+    for (const secret of ['header-marker', 'attribute-marker', 'result-marker', 'token-marker'])
+      assert.equal(JSON.stringify(record).includes(secret), false);
+
+    admission.publishNativeDiagnostics({ index: 'secret', definition: 'secret', runSha256: 'secret',
+      collector: { requests: 1000001, accepted: -1, events: Infinity, matched: 1.5, ignored: 'secret', conflict: 'true',
+        rejected: { auth: Number.MAX_SAFE_INTEGER, parse: NaN } },
+      result: { resultSeen: true, resultIsError: 'true', resultSubtype: 'secret' } });
+    assert.deepEqual(records[1], {
+      schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: records[1].recordId,
+      runSha256: null, phase: 'session', index: 1, definition: null,
+      collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 } },
+      result: { seen: true, isError: null, subtype: 'other' }
+    });
+    for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
+      admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: false, resultSubtype: subtype } });
+      assert.deepEqual(records.at(-1).result, { seen: true, isError: false, subtype });
+    }
+    admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: null, resultSubtype: null } });
+    assert.deepEqual(records.at(-1).result, { seen: true, isError: null, subtype: 'other' });
+    admission.publishNativeDiagnostics({});
+    assert.deepEqual(records.at(-1).collector, emptyCollector);
+    assert.deepEqual(records.at(-1).result, { seen: false, isError: null, subtype: 'none' });
+    admission.publishNativeDiagnostics({ definition: 'claude-win32-x64-2.1.285' });
+    assert.equal(records.at(-1).definition, 'claude-win32-x64-2.1.285');
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('session diagnostics do not read inputs or publish without a subscriber', () => {
+  assert.equal(typeof admission.publishNativeDiagnostics, 'function');
+  const stream = channel('aih.native.diagnostics.v1');
+  assert.equal(stream.hasSubscribers, false);
+  const original = stream.publish;
+  stream.publish = () => { throw new Error('unexpected publication'); };
+  try {
+    const input = new Proxy({}, { get: () => { throw new Error('unexpected input read'); } });
+    assert.doesNotThrow(() => admission.publishNativeDiagnostics(input));
+  } finally { stream.publish = original; }
+});
 
 test('admission instrumentation retains only fixed proof fields and counts', () => {
   const records = [], sink = value => records.push(value), stream = channel('aih.native.admission.v1');

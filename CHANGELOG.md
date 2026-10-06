@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.14 makes native session diagnostics available to acceptance
+tooling as counts only through an optional process-local diagnostics channel.
+Collector request and event counters and fixed result classifications preserve
+the existing verification and admission contracts. This development candidate
+has not been published to npm.
+
 Core 1.0.0-dev.13 fixes Linux sandbox preparation for npm-installed scoped
 packages: profile paths admit a leading '@' in a path component. Linux API/CLI
 runs that were refused as isolation-unobserved before the client started now

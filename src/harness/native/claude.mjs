@@ -17,7 +17,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
   const expectedAnswerSha256 = sha256(expectedAnswer);
   const state = { status: 'ok', bytes: 0, records: 0, sessionId: null, ids: new Set(), initSeen: false,
     serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false, answerSha256: null,
-    resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
+    resultSeen: false, resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
   const calls = new Map();
   let pending = '';
   const stop = status => { if (state.status === 'ok') state.status = status; };
@@ -74,6 +74,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
         }
       }
     } else if (value.type === 'result') {
+      state.resultSeen = true;
       state.resultSubtype = typeof value.subtype === 'string' ? value.subtype.slice(0, 64) : null;
       state.resultIsError = typeof value.is_error === 'boolean' ? value.is_error : null;
     }
@@ -93,7 +94,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     serverStatus: state.serverStatus, visibleSelectedTools: state.visible.slice(), toolsListed: state.toolsListed,
     builtinTools: state.builtin.slice(), unselectedTools: state.unselectedTools, permissionMode: state.permissionMode,
     attestationReturned: state.attestationReturned, answerReturned: state.answerReturned, answerSha256: state.answerSha256,
-    resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected.map(value => ({ ...value })) });
+    resultSeen: state.resultSeen, resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected.map(value => ({ ...value })) });
   return {
     snapshot,
     push(chunk) {
