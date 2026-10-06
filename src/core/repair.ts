@@ -25,13 +25,16 @@ export interface RepairRequest {
   resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
 }
 
+// Keep capture signatures structural so public repair declarations do not import
+// the host transaction module and its Node-only Buffer types.
+interface CapturedPathPin { path: string; identity: string }
 interface RepairState {
   policyHandle: PreparedHandle; policyReviewDigest: string; publicReviewDigest: string;
   id: string; variantRef: string;
-  sources: Record<string, { path: string; pins: ReturnType<typeof pathPins>; sha256: string; maxBytes: number }>;
-  configs: Record<string, { path: string; maxBytes: number; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  sources: Record<string, { path: string; pins: CapturedPathPin[]; sha256: string; maxBytes: number }>;
+  configs: Record<string, { path: string; maxBytes: number; pins: CapturedPathPin[]; sha256: string | null }>;
   requiredAbsences: { path: string; reason: string; purpose: string }[];
-  executables: Record<string, { name: string; kind?: 'launcher'; path: string | null; launchPath: string | null; pins: ReturnType<typeof pathPins>; sha256: string | null }>;
+  executables: Record<string, { name: string; kind?: 'launcher'; path: string | null; launchPath: string | null; pins: CapturedPathPin[]; sha256: string | null }>;
   helperSha256: string; targets: string[]; fingerprints: string[]; offlineVerification: readonly { target: string; operationId: string; checkId: string }[];
   offline: boolean; observations: { id: string; operationId: string; raw: string; expectedRaw: string }[]; managedPath: string;
   ordinaryInputs: Record<string, string | boolean | number>;
@@ -112,7 +115,7 @@ function userConfigurationPath(target: NonNullable<VariantMetadata['configFiles'
       target.segments.some((slot: { literal: string }) => !slot || typeof slot !== 'object' ||
         Reflect.ownKeys(slot).length !== 1 || typeof slot.literal !== 'string' || !validSegment(slot.literal)))
     throw new Error('repair-definition');
-  return join(homedir(), ...target.segments.map(slot => slot.literal));
+  return join(projectRoot(homedir()), ...target.segments.map(slot => slot.literal));
 }
 
 class ConfigurationPrerequisiteUnavailable extends Error {
@@ -120,7 +123,7 @@ class ConfigurationPrerequisiteUnavailable extends Error {
 }
 
 /** Bind absence conditions without pinning parents that authorized writes may create. */
-function captureRequiredAbsences(variant: VariantMetadata) {
+export function captureRequiredAbsences(variant: VariantMetadata) {
   const list = variant.requiredAbsences ?? [];
   if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
   const captured: RepairState['requiredAbsences'] = [];
@@ -141,7 +144,7 @@ function captureRequiredAbsences(variant: VariantMetadata) {
 }
 
 /** Portable variant metadata declares scoped user configuration inputs; Core captures their exact bytes. */
-function captureConfigFiles(variant: VariantMetadata) {
+export function captureConfigFiles(variant: VariantMetadata) {
   const list = variant.configFiles ?? [];
   if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
   const captures: RepairState['configs'] = {};
@@ -171,7 +174,7 @@ function captureConfigFiles(variant: VariantMetadata) {
 }
 
 /** Portable variant metadata declares reviewed executable prerequisites; Core resolves and pins their bytes. */
-function resolveExecutableBindings(variant: VariantMetadata) {
+export function resolveExecutableBindings(variant: VariantMetadata) {
   const list = variant.executableBindings ?? [];
   if (!Array.isArray(list) || list.length > 16) throw new Error('repair-definition');
   const executables: RepairState['executables'] = {};
@@ -193,7 +196,7 @@ function resolveExecutableBindings(variant: VariantMetadata) {
 }
 
 /** Expose unavailable helper prerequisites to the existing policy admission engine. */
-function unavailableExecutableInvocations(recipe: Recipe, executables: RepairState['executables']) {
+export function unavailableExecutableInvocations(recipe: Recipe, executables: RepairState['executables']) {
   const unavailable = { operations: {} as Record<string, string>, checks: {} as Record<string, string> };
   const missing = Object.entries(executables).filter(([, executable]) => executable.path === null);
   const prerequisite = (invocation: ProcessInvocation) => {

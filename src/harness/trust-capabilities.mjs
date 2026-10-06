@@ -1,5 +1,4 @@
 // Exact tested supplied-format/profile admission; OS/native repair remains unavailable.
-// This data is excluded from its own evidence subject. Records contain only executed outcomes.
 export const trustCellRecords = Object.freeze([
   {
     "id": "export-pem-win32-declared",
@@ -19,8 +18,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-pem-win32-declared.json",
-      "sha256": "1996c3ac3e7bf22c7d65e29321ca20cacbb06b99f9cfb1eb4b894fedb5a7990a",
-      "subjectSha256": "ee7e8d9339d2c28e6205cec42dd7e483678239e59ffe0627709d38449bb87733"
+      "sha256": "2d64d7b28908c4dd8e673dde609d63a5f28b8baa6b58863e045c59a8861028fa",
+      "subjectSha256": "0b43f28b59c7cd627189409f1d210a56e1d99801eea213036d52a7798639b204"
     }
   },
   {
@@ -41,8 +40,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-pem-win32-off.json",
-      "sha256": "2d3486d8b8d9812531ab0db39ee4a0c415d7f664b6ed321446e8fe3afdc49ef8",
-      "subjectSha256": "2ee21bc6cbd460c239ee8c6303415e64c6ee6393c44e1187b257c67d627829ec"
+      "sha256": "17e14663ae9a10d92158a423a8e5b6769f7467bbf14e23a453ba5b3930a91977",
+      "subjectSha256": "57e60aeb4a56ecefafdfba26babe7e80e2a56a7497c5369dcc24a94463251bfd"
     }
   },
   {
@@ -63,8 +62,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-p7b-win32-declared.json",
-      "sha256": "b19c6a49b07d5fbe518c53e1eea7cd0a5105a8fec92d4e14256b769049b6246d",
-      "subjectSha256": "eb73d8a8a97ce37af425e8011d29ca00694d79fc9bd72f7ad0adc03006dd6a49"
+      "sha256": "16569d02a4cd2bb890fcbbd02f62078aa9225134ea57728258514794de8f7c70",
+      "subjectSha256": "61c8571a8bad42f9ca25916596dcbf7a7aec5471dad6b8d9833f00f1c99e70e0"
     }
   },
   {
@@ -85,8 +84,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-p7b-win32-off.json",
-      "sha256": "7e7aa9346798f5349f0b017b4732877af07b56d0371a7d003771d0483f5c9684",
-      "subjectSha256": "ff2106624390aa13c61c8c2e8227a8d9b779ba7a85c527b57fbdc3144799c454"
+      "sha256": "617cc6b1fae0d9444fba51e2fa857ffac404a47bbf5743488d839f8244684afe",
+      "subjectSha256": "7d02cf622208aa6a2e780fdf812e7a898c990a489a0b019d75bc32ed52bd9fb7"
     }
   }
 ]);

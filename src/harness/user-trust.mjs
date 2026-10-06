@@ -133,18 +133,8 @@ function ambiguousConfig(id, text) {
   }
   return false;
 }
-export function prepareUserToolsRepair(request) {
-  const variant = variantFor(request);
-  if (!variant || !Array.isArray(request.targets) || variant.targets.length !== request.targets.length ||
-      !variant.targets.every(id => request.targets.includes(id)) ||
-      (!request.validateOnly && variant.network !== (request.offline ? 'off' : 'declared')) ||
-      !(request.files?.caFile instanceof Uint8Array)) return invalid('repair-input', 'Unsupported user-tool repair input.');
-  const accepted = validateSuppliedCa(request.files.caFile);
-  if (!accepted.valid) return { status: 'invalid', assessedBlocks: accepted.assessedBlocks,
-    ...(accepted.assessmentLimit ? { assessmentLimit: accepted.assessmentLimit } : {}), diagnostics: accepted.diagnostics };
-  const facts = { fingerprints: accepted.certificates.map(item => item.fingerprint), evaluatedAt: accepted.evaluatedAt,
-    count: accepted.certificates.length, duplicates: accepted.duplicates };
-  if (request.validateOnly) return { status: 'completed', ...facts };
+/** Actual-client environment guards shared by the legacy supplied-file and shared-source file routes. */
+function userToolsEnvironmentBlock(variant, managedPath) {
   const home = homedir();
   const pipLocation = join(home, ...(variant.os === 'win32' ? ['AppData', 'Roaming', 'pip', 'pip.ini'] : ['.config', 'pip', 'pip.conf']));
   const sameLocation = (a, b) => variant.os === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b);
@@ -165,12 +155,27 @@ export function prepareUserToolsRepair(request) {
       variant.targets.includes('pip') && process.env.PIP_TRUSTED_HOST ||
       variant.targets.includes('git') && process.env.GIT_SSL_NO_VERIFY ||
       variant.targets.includes('conda') && process.env.CONDA_SSL_VERIFY &&
-        process.env.CONDA_SSL_VERIFY !== request.managedPath))
+        process.env.CONDA_SSL_VERIFY !== managedPath))
     return invalid('trust-bypass-environment', 'An inherited tool environment bypasses or overrides the selected TLS verification. Remove that override before preparing.', 'PREREQUISITE_UNAVAILABLE');
   for (const [id, key] of [['pip', 'PIP_CERT'], ['git', 'GIT_SSL_CAINFO'], ['cargo', 'CARGO_HTTP_CAINFO'],
     ['conda', 'REQUESTS_CA_BUNDLE'], ['conda', 'CURL_CA_BUNDLE']])
-    if (variant.targets.includes(id) && process.env[key] && process.env[key] !== request.managedPath)
+    if (variant.targets.includes(id) && process.env[key] && process.env[key] !== managedPath)
       return invalid('trust-override-environment', 'An inherited CA environment value overrides the selected user configuration.', 'PREREQUISITE_UNAVAILABLE');
+}
+export function prepareUserToolsRepair(request) {
+  const variant = variantFor(request);
+  if (!variant || !Array.isArray(request.targets) || variant.targets.length !== request.targets.length ||
+      !variant.targets.every(id => request.targets.includes(id)) ||
+      (!request.validateOnly && variant.network !== (request.offline ? 'off' : 'declared')) ||
+      !(request.files?.caFile instanceof Uint8Array)) return invalid('repair-input', 'Unsupported user-tool repair input.');
+  const accepted = validateSuppliedCa(request.files.caFile);
+  if (!accepted.valid) return { status: 'invalid', assessedBlocks: accepted.assessedBlocks,
+    ...(accepted.assessmentLimit ? { assessmentLimit: accepted.assessmentLimit } : {}), diagnostics: accepted.diagnostics };
+  const facts = { fingerprints: accepted.certificates.map(item => item.fingerprint), evaluatedAt: accepted.evaluatedAt,
+    count: accepted.certificates.length, duplicates: accepted.duplicates };
+  if (request.validateOnly) return { status: 'completed', ...facts };
+  const environment = userToolsEnvironmentBlock(variant, request.managedPath);
+  if (environment) return environment;
   // All selected managers can replace their normal CA bundle; preserve roots alongside supplied CAs.
   const bundle = composeExistingTrust(request.existing, accepted.material, { includeNodeDefaults: true });
   if (bundle === undefined) return invalid('existing-trust-uncomposable', 'Existing managed trust cannot be safely composed.', 'STATE_CONFLICT');
@@ -179,6 +184,44 @@ export function prepareUserToolsRepair(request) {
     bundleSha256: createHash('sha256').update(bundle).digest('hex') });
   return rendered.status === 'completed' ? { ...rendered, ...facts, bundle } : rendered;
 }
+
+/**
+ * Shared-source file route (repair definition 1.1): the caller passes the complete reviewed
+ * source set by identity only — `bundleSha256` of the exact serialized PEM and the sorted
+ * unique DER `fingerprints` of every admitted certificate. Prior managed output is never an
+ * input and never read here; refresh rebuilds from revalidated sources in the caller.
+ * Runs the same actual-client environment/config guards as the legacy supplied-file repair,
+ * then renders the original user recipe bindings from the captured snapshots/executable paths.
+ */
+export function renderUserToolsTrustFileRepair(request) {
+  const variant = variantFor(request);
+  if (request?.id !== 'user-tools-ca' || !variant || !Array.isArray(request.targets) ||
+      variant.targets.length !== request.targets.length || !variant.targets.every(id => request.targets.includes(id)) ||
+      typeof request.offline !== 'boolean' || variant.network !== (request.offline ? 'off' : 'declared') ||
+      typeof request.bundlePath !== 'string' || !isAbsolute(request.bundlePath) ||
+      !/^[a-f0-9]{64}$/.test(request.bundleSha256 ?? '') ||
+      !Array.isArray(request.fingerprints) || !request.fingerprints.length ||
+      request.fingerprints.some(value => typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)))
+    return invalid('repair-input', 'Unsupported user-tool trust file input.');
+  if (Object.hasOwn(request, 'caFile') || Object.hasOwn(request, 'files') ||
+      Object.hasOwn(request, 'existing') || Object.hasOwn(request, 'validateOnly'))
+    return invalid('repair-input', 'The shared file route binds the complete source set; supplied-file fields are not accepted.');
+  const environment = userToolsEnvironmentBlock(variant, request.bundlePath);
+  if (environment) return environment;
+  // The complete CSV is a process argument only for declared Python verification.
+  const pythonPath = typeof request.executablePaths?.pythonExecutable === 'string' ? request.executablePaths.pythonExecutable : '';
+  const verificationCharacters = request.fingerprints.join(',').length + 2 * (pythonTls.length + pythonPath.length) + 64;
+  if (variant.targets.includes('python') && !request.offline && (request.fingerprints.length > 400 || verificationCharacters > 32000))
+    return { status: 'blocked', diagnostics: [{ code: 'SOURCE_LIMIT', reason: 'source-limit',
+      message: 'The complete Python verification set exceeds the portable process-argument bound.' }] };
+  const rendered = renderUserToolsRepair(request);
+  if (rendered.status !== 'completed' || !variant.targets.includes('python')) return rendered;
+  const recipe = userToolsRecipe(variant);
+  // Shared discovery includes the complete aggregate, beyond the legacy single-file bound.
+  recipe.inputs.fingerprintCsv.maxLength = (request.offline ? 4096 : 400) * 65 - 1;
+  return { ...rendered, recipe };
+}
+
 
 const nodeInvocation = (script, args = []) => ({ executable: { name: process.execPath },
   args: [literal('-e'), literal(script), ...args], cwd, env: {}, timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0] });

@@ -393,11 +393,20 @@ export function exportAdmissionTemplate(format, platform = trustPlatformMatrix[0
     requiredLimitations: [...probe[1].requiredLimitations] };
 }
 
-/** Fixed file-route integration for supplied-file repairs; only Node/npm is integrated today. */
+/** Fixed supplied-file integrations; JVM trust binds its explicit baseline and both managed outputs. */
 export function getTrustFileIntegration(definitionId, targets) {
   const unavailable = { status: 'unavailable', code: 'PREREQUISITE_UNAVAILABLE', reason: 'file-route-unsupported' };
-  if (definitionId !== 'node-npm-ca' || !Array.isArray(targets) || !targets.length || new Set(targets).size !== targets.length ||
-      targets.some(target => !FAMILIES['node-npm-ca'].targets.includes(target))) return unavailable;
-  // npm's cafile replaces its bundled defaults, so the Node-bundled partition rides with npm.
-  return { status: 'supported', format: 'pem', includeNodeBundled: targets.includes('npm') };
+  const family = Object.hasOwn(FAMILIES, definitionId) ? FAMILIES[definitionId] : undefined;
+  if (!family || !Array.isArray(targets) || !targets.length || new Set(targets).size !== targets.length ||
+      targets.some(target => !family.targets.includes(target))) return unavailable;
+  if (definitionId === 'node-npm-ca')
+    // npm's cafile replaces its bundled defaults, so the Node-bundled partition rides with npm.
+    return { status: 'supported', format: 'pem', includeNodeBundled: targets.includes('npm') };
+  if (definitionId === 'user-tools-ca')
+    // Every user-tool manager replaces its normal CA bundle; the Node-bundled partition is always preserved.
+    return { status: 'supported', format: 'pem', includeNodeBundled: true };
+  if (definitionId === 'jvm-ca')
+    return { status: 'supported', format: 'pem', includeNodeBundled: false, baseline: 'jks',
+      outputs: [{ operationId: 'jks-materialize', name: 'trust.jks', format: 'jks' }] };
+  return unavailable;
 }
