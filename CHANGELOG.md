@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.15 extends the optional counts-only native diagnostics record with
+closed provider error classes and trusted Linux sandbox proxy decision counts in
+fixed host buckets. Unobservable proxy decisions remain null. Client error text
+and destination hosts are never retained in the record; verification, admission
+and sandbox policy remain unchanged. This development candidate has not been
+published to npm.
+
 Core 1.0.0-dev.14 makes native session diagnostics available to acceptance
 tooling as counts only through an optional process-local diagnostics channel.
 Collector request and event counters and fixed result classifications preserve

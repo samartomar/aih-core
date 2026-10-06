@@ -5,7 +5,7 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync,
   readSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson, hasExactKeys, parseStrictJson } from './canonical.mjs';
@@ -14,6 +14,7 @@ import { acquireLinuxCellProfile } from './linux-cell-profile.mjs';
 import { createLinuxCanaries } from './linux-canaries.mjs';
 import { deriveLinuxSessionProfile } from './linux-profile.mjs';
 import { evaluateLinuxIsolation, inspectLinuxArguments, inspectLinuxProxyCapability, isolationProbeNames, validIsolationProbes } from './linux-isolation.mjs';
+import { linuxProxyBuckets } from './linux-proxy.mjs';
 
 const resource = name => fileURLToPath(new URL(name, import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -27,7 +28,7 @@ const WSL_MOUNT_FILES = Object.freeze(['/mnt/c/Windows/System32/cmd.exe', '/mnt/
 const WSL_INTEROP_FILES = Object.freeze(['/init', '/run/WSL', '/proc/sys/fs/binfmt_misc/WSLInterop']);
 // Files loaded by processes in the owned tree outside the sandbox profile's own runtime pins.
 export const linuxObserverSources = Object.freeze(['canonical.mjs', 'contracts.mjs', 'fixture-data.mjs', 'fixture-metadata.mjs',
-  'linux-runner.mjs', 'linux-workload.mjs', 'linux-profile.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
+  'linux-runner.mjs', 'linux-workload.mjs', 'linux-profile.mjs', 'linux-proxy.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
   'linux/interop-canary.cs', 'linux/interop-canary.exe', 'linux/interop-build-record.json', 'linux/facility', 'linux/build-record.json']);
 // Host paths the pinned SRT 0.0.78 can leave when its runner is killed before reset(): bwrap's empty
 // read-only mount points for absent mandatory-deny names in the working directory. Deepest first.
@@ -250,6 +251,18 @@ export async function composeLinuxSandbox(input, observerPins) {
   const file = (prefix, extension = '') => join(cell.observations, `${prefix}${suffix}${extension}`);
   let planFile, baseFile, windowsCanary;
   const profileFile = file('d', '.json'), receiptFile = file('r', '.json');
+  const diagnosticsFile = join(cell.observations, `proxy-${basename(receiptFile)}`);
+  let proxyDiagnostics = null;
+  const readProxyDiagnostics = () => {
+    try {
+      const record = parseStrictJson(readBounded(diagnosticsFile, 4096).toString('utf8'));
+      if (!hasExactKeys(record, linuxProxyBuckets) || linuxProxyBuckets.some(key =>
+        !hasExactKeys(record[key], ['allowed', 'denied']) || ['allowed', 'denied'].some(decision =>
+          !Number.isSafeInteger(record[key][decision]) || record[key][decision] < 0 || record[key][decision] > 1000000))) return;
+      for (const pair of Object.values(record)) Object.freeze(pair);
+      proxyDiagnostics = Object.freeze(record);
+    } catch { /* a killed runner or incomplete diagnostic receipt is unobservable */ }
+  };
   const workload = resource('linux-workload.mjs'), runner = resource('linux-runner.mjs'), interopHelper = resource('linux/facility');
   const collectorEndpoint = `${collector.endpoint}/v1/logs`;
   const canaries = { files: null, writes: null, pathname: null, abstract: `aih-native-${hex(12)}`, port: null,
@@ -366,6 +379,7 @@ export async function composeLinuxSandbox(input, observerPins) {
     if (session && result.auditCoverage !== true && session.proof.argumentsClean !== false) session.proof.argumentsClean = null;
     session?.close();
     await closeResources();
+    readProxyDiagnostics();
     const confirmed = result.processes === 'confirmed' && removeOwned();
     const released = cellProfile ? cellProfile.release(confirmed, preparedResources, {
       check: () => { if (performance.now() - begun >= budget) throw Error(); }
@@ -489,7 +503,7 @@ export async function composeLinuxSandbox(input, observerPins) {
             probe: probeTransport.endpoint, canaries, selectedPaths: profileInput.selectedPaths });
           if (Buffer.byteLength(serialized) > 65536) return unavailable('session-launch-failed');
           cellProfile.writePlan(serialized);
-          ownedFiles.push(profileFile, receiptFile);
+          ownedFiles.push(profileFile, receiptFile, diagnosticsFile);
         } catch { return unavailable('session-launch-failed'); }
         protectedValues = [...additional, token, challenge, collector.probeToken, collector.token, env.AIHQ_NATIVE_EVIDENCE_TOKEN]
           .filter(value => typeof value === 'string' && value.length > 0);
@@ -503,6 +517,7 @@ export async function composeLinuxSandbox(input, observerPins) {
       acceptServer,
       isolation,
       get failureReason() { return auditFailure; },
+      proxyDiagnostics: () => proxyDiagnostics,
       isolationRecord() {
         const { proof, state } = session;
         return { version: 1, baseSha256: receipt?.baseSha256, profileSha256: receipt?.profileSha256, proxyArguments: { ...proxyArguments }, compared: proof.profileCompared, probes: proof.probes ? { ...proof.probes } : null,

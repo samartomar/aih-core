@@ -32,6 +32,48 @@ const parse = (records, extra = options) => {
   return parser.finish();
 };
 
+test('provider result errors are reduced to closed classes without retaining client text', () => {
+  const cases = [
+    ['authentication', '401 authentication failed secret-marker'],
+    ['forbidden', '403 forbidden secret-marker'],
+    ['rate-limit', '429 rate limit secret-marker'],
+    ['overloaded', '529 overloaded secret-marker'],
+    ['network', 'ECONNRESET fetch failed secret-marker'],
+    ['other', 'unrecognized failure secret-marker']
+  ];
+  for (const [errorClass, text] of cases) {
+    const observed = parse([{ ...done, is_error: true, result: text }]);
+    assert.equal(observed.errorClass, errorClass);
+    assert.equal(JSON.stringify(observed).includes('secret-marker'), false);
+  }
+  assert.equal(parse([done]).errorClass, 'none');
+  assert.equal(parse([init()]).errorClass, 'none');
+  assert.equal(parse([{ ...done, result: 'oauth network 403' }]).errorClass, 'none', 'successful prose is not an error');
+});
+
+test('assistant and system API errors use numeric status before text and survive a generic result', () => {
+  for (const [status, errorClass] of [[401, 'authentication'], [403, 'forbidden'], [429, 'rate-limit'], [529, 'overloaded'], [500, 'other']]) {
+    for (const type of ['assistant', 'system']) {
+      const observed = parse([{ type, subtype: 'api_error', error: { status, message: 'opaque secret-marker' },
+        message: { content: [{ type: 'text', text: 'opaque secret-marker' }] } },
+      { ...done, is_error: true, errors: ['opaque secret-marker'] }]);
+      assert.equal(observed.errorClass, errorClass);
+      assert.equal(JSON.stringify(observed).includes('secret-marker'), false);
+    }
+  }
+  for (const [text, errorClass] of [['Please run /login', 'authentication'], ['token has expired', 'authentication'],
+    ['invalid x-api key', 'authentication'], ['ENOTFOUND', 'network'], ['socket hang up', 'network']]) {
+    assert.equal(parse([{ type: 'assistant', error: 'api_error', message: { content: [{ type: 'text', text }] } },
+      { ...done, is_error: true }]).errorClass, errorClass);
+    assert.equal(parse([{ type: 'system', subtype: 'api_error', error: { message: text } }]).errorClass, errorClass);
+    assert.equal(parse([{ ...done, is_error: true, errors: [text] }]).errorClass, errorClass);
+  }
+  assert.equal(parse([{ ...done, is_error: true, error: { status: 429, message: 'authentication network' } }]).errorClass, 'rate-limit');
+  assert.equal(parse([{ ...done, is_error: true, status_code: 403 }]).errorClass, 'forbidden');
+  assert.equal(parse([{ type: 'assistant', message: { content: [{ type: 'text', text: 'oauth forbidden network' }] } }, done]).errorClass, 'none');
+  assert.equal(parse([{ type: 'system', subtype: 'init', error: 'network' }, done]).errorClass, 'none');
+});
+
 test('result presence distinguishes an absent result from one with no subtype or error flag', () => {
   const absent = parse([init()]);
   assert.equal(absent.resultSeen, false);

@@ -10,13 +10,14 @@ import { canonicalJson, parseStrictJson } from './canonical.mjs';
 import { createLinuxBaseProfile, deriveLinuxSessionProfile, fixedLinuxCommand,
   initializeLinuxProfile, verifyLinuxSessionProfile } from './linux-profile.mjs';
 import { verifyLinuxVendorClosure } from './linux-runtime.mjs';
+import { observeLinuxProxyDiagnostics } from './linux-proxy.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const present = path => { try { lstatSync(path); return true; } catch (error) { if (error?.code === 'ENOENT') return false; throw error; } };
 // Vendor convenience write roots are not part of the fixed profile; any object there, even a dangling link, is refused.
 const vendorTmpPresent = () => present('/tmp/claude') || present('/private/tmp/claude');
 const ownedSocket = path => { const stat = lstatSync(path); return stat.isSocket() && stat.uid === process.getuid(); };
-let manager, child, stopping = false, code = 125;
+let manager, child, proxyDiagnostics, diagnosticsFile, stopping = false, code = 125;
 const stop = () => {
   if (stopping) return; stopping = true;
   try { child?.kill('SIGTERM'); } catch { /* the native subreaper owns final termination */ }
@@ -47,6 +48,12 @@ try {
   const base = createLinuxBaseProfile(plan.profileInput);
   if (canonicalJson(base) !== readFileSync(plan.baseFile, 'utf8') || vendorTmpPresent()) throw Error();
   manager = (await import(pathToFileURL(library).href)).SandboxManager;
+  // Optional diagnostics cannot affect enforcement. The file stays in the unreadable/unwritable
+  // observations directory; only this trusted process handles the vendor's debug logger.
+  try {
+    diagnosticsFile = join(plan.cell.observations, `proxy-${basename(plan.receiptFile)}`);
+    proxyDiagnostics = observeLinuxProxyDiagnostics(manager.getSandboxViolationStore(), plan.collector);
+  } catch { /* unavailable diagnostics */ }
   const initial = initializeLinuxProfile(base, plan.collector);
   await manager.initialize(initial, undefined, false);
   if (stopping || manager.getConfig() !== initial || manager.getMitmCA() !== undefined) throw Error();
@@ -76,5 +83,10 @@ try {
 } catch { code = 125; }
 finally {
   if (manager) { try { manager.cleanupAfterCommand(); await manager.reset(); } catch { code = 125; } }
+  try {
+    const proxy = proxyDiagnostics?.snapshot() ?? null;
+    proxyDiagnostics?.stop();
+    if (diagnosticsFile) writeFileSync(diagnosticsFile, canonicalJson(proxy), { flag: 'wx', mode: 0o600 });
+  } catch { /* diagnostics never change the exit status */ }
 }
 process.exit(code);
