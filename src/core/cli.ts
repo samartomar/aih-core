@@ -20,6 +20,8 @@ import type { PolicyRequest } from './host-types.js';
 import type { RepairRequest } from './repair.js';
 import type { CertificateExportRequest, TrustRepairRequest, TrustSources } from './trust-contracts.js';
 import { disposeTrustHandle } from './trust.js';
+import { disposeMacosSessionHandle, isMacosSessionHandle } from './macos-session.js';
+import { validateMacosRepairInputs, type MacosRepairRequest, type MacosSessionSelection } from './macos-session-contracts.js';
 import type { ManagedRemovalRequest, ManagedRemovalPreparationResult } from './managed-removal.js';
 
 const controller = new AbortController();
@@ -38,6 +40,7 @@ function refused(code: string, reason: string, message = 'Check the policy, targ
       REVIEW_STALE: 'review-stale' } as Record<string, string>)[code] ?? 'input-rejected'}\n`);
 }
 const usage = {
+  'verify-macos-session': 'aih verify-macos-session --management-id <id> [--no-log] [--json]\n',
   'export-ca': 'aih export-ca [--format pem|pkcs7-der] [--output user-home-relative-path] [--inputs-file sources.json] [--resolutions resolutions.json] [--offline] [--apply --yes] [--no-log] [--json]\n',
   'verify-client': 'aih verify-client <client-id> [--configuration <request-json-file>] [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>] [--budget-ms <integer>] [--candidate-smoke] [--json]\n',
   report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--demo] [--json]\n' +
@@ -50,6 +53,7 @@ const usage = {
   managed: 'aih managed <list|remove> [options]\n'
 };
 const examples: Record<keyof typeof usage, string> = {
+  'verify-macos-session': 'Examples:\n  aih verify-macos-session --management-id node-npm-trust --no-log --json\n',
   'export-ca': 'Examples:\n  aih export-ca --json\n  aih export-ca --format pkcs7-der --output certificates/os-ca.p7b --apply\n',
   'verify-client': 'Examples:\n  aih verify-client claude --json\n  aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json\n',
   report: 'Examples:\n  aih report --output local-report --json\n  aih report --snapshot saved-report.json --output replay --json\n',
@@ -90,7 +94,10 @@ function cliTrustSources(source: TrustSources, inputPath: string): TrustSources 
     ({ id: entry.id, file: resolve(dirname(inputPath), entry.file) })) };
 }
 /** Approval applies only to the document bytes used to create this review. */
-async function runTrustCli(request: TrustRepairRequest | CertificateExportRequest,
+function disposeCliHandle(handle: import('./host-types.js').PreparedHandle): void {
+  if (isMacosSessionHandle(handle)) disposeMacosSessionHandle(handle); else disposeTrustHandle(handle);
+}
+async function runTrustCli(request: TrustRepairRequest | CertificateExportRequest | MacosRepairRequest,
   bound: BoundCliDocument[], options: { apply?: boolean; yes?: boolean; allowPartial?: boolean; resolutions?: string;
     logging?: 'off' }): Promise<void> {
   if (options.resolutions !== undefined) {
@@ -103,7 +110,7 @@ async function runTrustCli(request: TrustRepairRequest | CertificateExportReques
   const preparation = await prepare(request, controls);
   const { prepared: handle, ...publicPreparation } = preparation;
   if (!options.apply || !handle || !preparation.review) {
-    if (handle) disposeTrustHandle(handle);
+    if (handle) disposeCliHandle(handle);
     emit(publicPreparation, exitCode(preparation));
     return;
   }
@@ -114,11 +121,11 @@ async function runTrustCli(request: TrustRepairRequest | CertificateExportReques
     try { approved = /^y(?:es)?$/i.test((await prompt.question('Apply this reviewed work? [y/N] ', { signal: controller.signal })).trim()); }
     finally { prompt.close(); }
   }
-  if (!approved) { disposeTrustHandle(handle); refused('APPROVAL_REQUIRED', 'explicit-approval'); return; }
+  if (!approved) { disposeCliHandle(handle); refused('APPROVAL_REQUIRED', 'explicit-approval'); return; }
   if (bound.some(item => {
     const bytes = readRegularFile(item.path, { maxBytes: 1_000_000 });
     return !bytes || sha256(bytes) !== item.digest;
-  })) { disposeTrustHandle(handle); refused('REVIEW_STALE', 'input-file-changed'); return; }
+  })) { disposeCliHandle(handle); refused('REVIEW_STALE', 'input-file-changed'); return; }
   const result = await apply(handle, { reviewDigest: preparation.review.reviewDigest, approved: true,
     origin: options.yes ? 'automation' : 'interactive',
     ...(options.allowPartial === undefined ? {} : { allowPartial: options.allowPartial }) }, controls);
@@ -167,7 +174,10 @@ async function supportReport(input: SupportInput, operationCode: number): Promis
   } catch { fail('failed'); }
 }
 
-if (process.argv[2] === 'verify-client') {
+if (process.argv[2] === 'verify-macos-session') {
+  const { runMacosSessionCli } = await import('./macos-session-cli.js');
+  await runMacosSessionCli(process.argv.slice(3), controller.signal);
+} else if (process.argv[2] === 'verify-client') {
   const { runNativeClientCli } = await import('./native-cli.js');
   await runNativeClientCli(process.argv.slice(3), controller.signal);
 } else try {
@@ -391,7 +401,15 @@ if (process.argv[2] === 'verify-client') {
       if (!input) throw new Error('inputs-file');
       const document = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(input), 'repair inputs');
       if (Object.hasOwn(document, 'schema')) {
-        const validation = validateTrustRepairInputs(document);
+        const macos = document.schema === 'urn:aihq:core:repair-inputs:1.1.0';
+        // The document path is the reference point for explicitly supplied app bundles.
+        if (macos && document.macosSession && typeof document.macosSession === 'object' &&
+            Array.isArray((document.macosSession as { applications?: unknown }).applications)) {
+          const selection = document.macosSession as MacosSessionSelection;
+          selection.applications = selection.applications.map(app => app && typeof app === 'object' && typeof app.appPath === 'string'
+            ? { ...app, appPath: app.appPath.startsWith('/') ? app.appPath : resolve(dirname(inputPath), app.appPath) } : app);
+        }
+        const validation = macos ? validateMacosRepairInputs(document) : validateTrustRepairInputs(document);
         if (!validation.valid) {
           const diagnostic = validation.diagnostics[0] ?? { code: 'INPUT_INVALID', reason: 'inputs-file' };
           refused(diagnostic.code, diagnostic.reason);
@@ -402,11 +420,12 @@ if (process.argv[2] === 'verify-client') {
           if (!rawInputs || typeof rawInputs !== 'object' || Array.isArray(rawInputs)) throw new Error('inputs-file');
           const inputs = Object.fromEntries(Object.entries(rawInputs).map(([key, value]) =>
             [key, key === 'baselineStore' && typeof value === 'string' ? resolve(dirname(inputPath), value) : value]));
-          const request: TrustRepairRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair',
+          const request = { schema: macos ? 'urn:aihq:core:repair-request:1.1.0' : 'urn:aihq:core:repair-request:1.0.0', useCase: 'repair',
             route: document.route as 'native' | 'file', repairs: [{ id: definition.id as TrustRepairRequest['repairs'][0]['id'],
               targets: values.target, inputs: inputs as TrustRepairRequest['repairs'][0]['inputs'] }],
             ...(Object.hasOwn(document, 'sources') ? { sources: cliTrustSources(document.sources as TrustSources, inputPath) } : {}),
-            ...(values.offline ? { network: 'off' as const } : {}) };
+            ...(values.offline ? { network: 'off' as const } : {}),
+            ...(macos ? { macosSession: document.macosSession as MacosSessionSelection } : {}) } as TrustRepairRequest | MacosRepairRequest;
           await runTrustCli(request, [{ path: inputPath, digest: sha256(input), document }],
             { apply: values.apply, yes: values.yes, allowPartial: values['allow-partial'], resolutions: values.resolutions, ...logging });
         }

@@ -8,6 +8,7 @@ import type { Ownership } from './internal/state.js';
 import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
+import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
 
 const SCHEMA = 'urn:aihq:core:managed-inventory-result:1.0.0' as const;
 const DEFAULT_BUDGET_MS = 30000;
@@ -152,6 +153,16 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       }
     }
     if (request.scope !== 'project') {
+      const session = readMacosCustody();
+      for (const entry of session.value.entries) {
+        check();
+        if (!sessionFilesMatch(entry)) {
+          const key = `user\0${entry.managementId}`;
+          if (!rows.has(key)) rows.set(key, { managementId: entry.managementId, scope: 'user', custody: 'legacy-reconcile', memberCount: 0, sharedMemberCount: 0 });
+          else rows.get(key)!.custody = 'legacy-reconcile';
+          result.status = 'incomplete'; result.diagnostics.push(diagnostic('STATE_CONFLICT', 'session-config-drift', 'Managed session files and ownership disagree.'));
+        }
+      }
       const trust = readTrustCustody(true);const pending=readPendingTrust(trust);
       if(pending) {
         result.status='incomplete';result.diagnostics.push(diagnostic('STATE_CONFLICT','trust-custody-pending','Review the pending trust selection before restoration or removal.'));
@@ -191,7 +202,7 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       result.diagnostics.push(diagnostic('CANCELLED', 'cancelled', 'Inventory was cancelled.'));
     } else {
       result.status = 'incomplete';
-      if (reason === 'trust-custody-pending' || reason === 'trust-custody-conflict') {
+      if (['trust-custody-pending', 'trust-custody-conflict', 'session-custody-unavailable', 'session-recovery-required'].includes(reason)) {
         result.diagnostics.push(diagnostic('STATE_CONFLICT',reason,'Protected trust custody requires reviewed reconciliation.'));
         return finish();
       }

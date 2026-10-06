@@ -1,0 +1,20 @@
+{
+  "schema": "urn:aihq:core:macos-session-verification-result:1.0.0",
+  "status": "incomplete",
+  "package": { "name": "@aihq/core", "version": "1.0.0-dev.9" },
+  "platform": { "os": "darwin", "release": "26.0", "build": "25A354", "architecture": "arm64" },
+  "managementId": "node-npm-trust",
+  "selectionId": null,
+  "bindingSha256": null,
+  "observations": [],
+  "configuration": "not-applied",
+  "verification": "unavailable",
+  "reason": "session-custody-unavailable",
+  "applications": [],
+  "checks": [],
+  "diagnostics": [
+    { "code": "STATE_CONFLICT", "reason": "session-custody-unavailable", "message": "Review the macOS session prerequisite and the required relaunch guidance." }
+  ],
+  "elapsedMs": 3,
+  "record": { "status": "disabled", "reason": "logging-off" }
+}

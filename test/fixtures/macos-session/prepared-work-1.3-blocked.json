@@ -1,0 +1,48 @@
+{
+  "schema": "urn:aihq:core:prepared-work:1.3.0",
+  "useCase": "repair",
+  "mode": "standalone",
+  "target": { "scope": "user", "project": "/Users/example" },
+  "inputs": {
+    "trust": {
+      "route": "native",
+      "definition": { "id": "node-npm-ca", "schema": "urn:aihq:harness:repair:1.2.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.9" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": null,
+      "targets": [
+        {
+          "id": "node",
+          "route": "native",
+          "admission": "unavailable",
+          "reason": "native-route-unsupported",
+          "cellId": null,
+          "client": null,
+          "policy": null,
+          "configurationSha256": null,
+          "secondarySources": [],
+          "verification": { "status": "unavailable", "reason": "native-route-unsupported", "checkIds": [] }
+        }
+      ],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    },
+    "macosSession": {
+      "context": "terminal",
+      "bindingSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "session": null,
+      "applications": [],
+      "effects": []
+    }
+  },
+  "operations": [],
+  "observations": [],
+  "conflicts": [],
+  "omissions": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "session-platform-unsupported", "message": "This host is not an admitted macOS session." }
+  ],
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" }, "inputs": {} },
+  "reviewDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

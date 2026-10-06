@@ -1,0 +1,14 @@
+{
+  "schema": "urn:aihq:core:repair-request:1.1.0",
+  "useCase": "repair",
+  "repairs": [{ "id": "node-npm-ca", "targets": ["node", "npm"], "inputs": {} }],
+  "route": "file",
+  "sources": { "os": false, "supplied": [{ "id": "company", "file": "/Users/example/inbox/company-ca.pem" }] },
+  "macosSession": {
+    "context": "desktop",
+    "applications": [
+      { "clientId": "claude", "appPath": "/Applications/Claude.app", "targets": ["node"], "launch": "finder" },
+      { "clientId": "cursor", "appPath": "/Applications/Cursor.app", "targets": ["npm"], "launch": "dock" }
+    ]
+  }
+}

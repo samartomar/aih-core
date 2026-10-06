@@ -1,0 +1,46 @@
+name: macOS session development rehearsal
+on:
+  pull_request:
+    paths: ['src/**', 'test/**', 'scripts/**', 'package.json', 'package-lock.json', '.github/workflows/macos-session.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos-26-arm64:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Pack and rehearse installed public entries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          case_dir="$(mktemp -d "$RUNNER_TEMP/aih-macos-session-consumer.XXXXXX")"
+          mkdir -p "$case_dir/packs" "$case_dir/consumer"
+          npm pack --ignore-scripts --pack-destination "$case_dir/packs"
+          printf 'AIH_SESSION_PACKAGE_DIR=%s\n' "$case_dir/packs" >> "$GITHUB_ENV"
+          shasum -a 256 "$case_dir"/packs/*.tgz > "$RUNNER_TEMP/macos-session-package.sha256"
+          cp scripts/ci/macos-session-native.mjs "$case_dir/consumer/driver.mjs"
+          cp scripts/ci/macos-session-public.mjs "$case_dir/consumer/public.mjs"
+          cd "$case_dir/consumer"
+          printf '{"private":true,"type":"module"}\n' > package.json
+          npm install --ignore-scripts --no-audit --no-fund --package-lock=false "$case_dir"/packs/*.tgz
+          node public.mjs | tee "$RUNNER_TEMP/macos-session-public.json"
+          node driver.mjs | tee "$RUNNER_TEMP/macos-session-rehearsal.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-session-development-evidence
+          path: |
+            ${{ runner.temp }}/macos-session-package.sha256
+            ${{ runner.temp }}/macos-session-rehearsal.json
+            ${{ runner.temp }}/macos-session-public.json
+            ${{ env.AIH_SESSION_PACKAGE_DIR }}/*.tgz

@@ -3,6 +3,8 @@ import type { RunResult } from '../host-types.js';
 
 /** Internal engine participant, never accepted through caller controls. */
 export interface TrustEngineParticipant {
+  /** Installed macOS session participant; never supplied through public controls. */
+  macosSession?: true;
   exactReplacement: boolean;
   lockRoot: string;
   reviewBinding: string;

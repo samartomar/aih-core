@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:macos-session-verification-result:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "package", "platform", "managementId", "selectionId", "bindingSha256", "observations", "configuration", "verification", "reason", "applications", "checks", "diagnostics", "elapsedMs", "record"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:macos-session-verification-result:1.0.0" },
+    "status": { "enum": ["complete", "incomplete", "invalid", "cancelled"] },
+    "package": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false, "required": ["name", "version"],
+          "properties": { "name": { "const": "@aihq/core" }, "version": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        }
+      ]
+    },
+    "platform": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false, "required": ["os", "release", "build", "architecture"],
+          "properties": {
+            "os": { "const": "darwin" },
+            "release": { "$ref": "#/$defs/boundedLabel" },
+            "build": { "$ref": "#/$defs/boundedLabel" },
+            "architecture": { "enum": ["arm64", "x64"] }
+          }
+        }
+      ]
+    },
+    "managementId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 256 }] },
+    "selectionId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 128 }] },
+    "bindingSha256": { "$ref": "#/$defs/nullableSha256" },
+    "observations": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/observation" }
+    },
+    "configuration": { "enum": ["applied", "already-satisfied", "not-applied", "uncertain"] },
+    "verification": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+    "reason": { "type": "string", "maxLength": 512 },
+    "applications": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/applicationRun" }
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" },
+    "elapsedMs": { "type": "integer", "minimum": 0 },
+    "record": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "reference"],
+          "properties": { "status": { "const": "written" }, "reference": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+          "properties": { "status": { "const": "disabled" }, "reason": { "const": "logging-off" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason", "diagnosticId"],
+          "properties": { "status": { "const": "failed" }, "reason": { "enum": ["record-limit", "record-write"] }, "diagnosticId": { "type": "string" } } }
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nullableSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "boundedLabel": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+        "properties": {
+          "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" },
+          "path": { "type": "string" }, "encountered": { "type": "string" },
+          "supported": { "type": "array", "items": { "type": "string" } },
+          "guidance": { "type": "string" }
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "target", "clientId", "appPath", "profileId", "trustCellId", "probeProfile", "client", "executableSha256", "applicationIdentitySha256", "configurationSha256", "helperSha256", "sessionIdentitySha256", "processBirthSha256", "observationSha256", "checkIds"],
+      "properties": {
+        "context": { "enum": ["terminal", "desktop"] },
+        "target": { "$ref": "#/$defs/identifier" },
+        "clientId": { "anyOf": [{ "type": "null" }, { "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"] }] },
+        "appPath": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 4096 }] },
+        "profileId": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "trustCellId": { "$ref": "#/$defs/identifier" },
+        "probeProfile": { "$ref": "#/$defs/identifier" },
+        "client": {
+          "type": "object", "additionalProperties": false,
+          "required": ["version", "build", "backend", "backendVersion", "applicationId"],
+          "properties": {
+            "version": { "$ref": "#/$defs/boundedLabel" },
+            "build": { "$ref": "#/$defs/boundedLabel" },
+            "backend": { "$ref": "#/$defs/boundedLabel" },
+            "backendVersion": { "$ref": "#/$defs/boundedLabel" },
+            "applicationId": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/boundedLabel" }] }
+          }
+        },
+        "executableSha256": { "$ref": "#/$defs/sha256" },
+        "applicationIdentitySha256": { "$ref": "#/$defs/nullableSha256" },
+        "configurationSha256": { "$ref": "#/$defs/sha256" },
+        "helperSha256": { "$ref": "#/$defs/sha256" },
+        "sessionIdentitySha256": { "$ref": "#/$defs/nullableSha256" },
+        "processBirthSha256": { "$ref": "#/$defs/sha256" },
+        "observationSha256": { "$ref": "#/$defs/sha256" },
+        "checkIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/boundedLabel" } }
+      }
+    },
+    "applicationRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientId", "appPath", "targets", "launch", "configuration", "verification", "reason", "relaunch"],
+      "properties": {
+        "clientId": { "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"] },
+        "appPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["node", "npm", "python", "pip", "git", "cargo", "conda", "gradle", "maven"] }
+        },
+        "launch": { "enum": ["finder", "dock"] },
+        "configuration": { "enum": ["applied", "already-satisfied", "not-applied", "uncertain"] },
+        "verification": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+        "reason": { "type": "string", "maxLength": 512 },
+        "relaunch": { "enum": ["none", "quit-app", "logout-login", "unavailable"] }
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "operationId", "status", "reason"],
+      "properties": {
+        "id": { "type": "string" }, "operationId": { "type": "string" },
+        "status": { "enum": ["passed", "failed", "unavailable", "skipped"] }, "reason": { "type": "string" },
+        "effectsUncertain": { "type": "boolean" }, "terminationUnconfirmed": { "type": "boolean" }
+      }
+    }
+  }
+}
