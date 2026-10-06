@@ -19,12 +19,12 @@ test('the runtime entry exports exactly the documented surface', () => {
     'createClaudeStreamParser', 'createNativeRuntime', 'createOwnedCell', 'definitionIdentity', 'evaluateClaudeSession', 'evaluateServerEvidence',
     'fixtureServerName', 'lifecycleAvailability', 'matchClientVersion', 'nativeBounds', 'nativeClientIds',
     'nativeRunStageIds', 'nativeSessionStageIds', 'nativeStageReasons', 'nativeVerificationDefinitions',
-    'observeCellConfiguration', 'observeClaudeManagedSettings', 'observeNativePlatform', 'parseClaudeVersionOutput',
+    'observeCellConfiguration', 'observeClaudeManagedSettings', 'observeLinuxNativePolicy', 'observeNativePlatform', 'parseClaudeVersionOutput',
     'parseStrictJson', 'pinExecutable', 'prepareLifecycleContext', 'protectWindowsCell', 'removeOwnedCell', 'resolveBundledFixture', 'revalidateExecutable',
     'selectNativeCell', 'serverEvidenceSpec', 'sha256', 'stageCellFiles', 'stageCredential', 'startEvidenceChannel',
     'recorderCommand', 'recorderId', 'recorderMaterial', 'recorderPlan',
     'startLifecycle', 'validateClaudeOAuthFile', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition', 'validateWindowsCell',
-    'verifyFixtureMaterials'].sort());
+    'verifyFixtureMaterials', 'verifyLinuxVendorClosure', 'resolveLinuxNativeClient', 'prepareLinuxSandboxContext'].sort());
 });
 
 test('portable metadata imports no Node module and runs without Node globals', async () => {

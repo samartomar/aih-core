@@ -62,7 +62,8 @@ test('every roster member has an explicit unsupported or unadmitted native outco
 const fixtureRuntime = scenario => `
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, unlinkSync, lstatSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync, lstatSync, mkdirSync, linkSync } from 'node:fs';
+import { createNativeRuntime as installedHarness } from './adapter.mjs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
@@ -71,7 +72,8 @@ const hash = v => createHash('sha256').update(v).digest('hex');
 const canonical = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? '['+v.map(canonical).join(',')+']' : '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
 const fixture = Buffer.from('Initial controlled instruction.'); const guardrail = Buffer.from('Controlled deny rules.');
 const member = { path:'package/test/instruction', sha256:hash(fixture), byteLength:fixture.length };
-const guard = { root:'home', path:'settings.json', member:{path:'package/test/guardrail',sha256:hash(guardrail),byteLength:guardrail.length} };
+// The home guardrail lives under .claude/, mirroring the real bundled fixture layout.
+const guard = { root:'home', path:'.claude/settings.json', member:{path:'package/test/guardrail',sha256:hash(guardrail),byteLength:guardrail.length} };
 const outputTree = [{root:'project',path:'INSTRUCTIONS.md',member}];
 const treeHash = tree => hash(canonical(tree.map(({root,path,member})=>({root,path,sha256:member.sha256,byteLength:member.byteLength})).sort((a,b)=>a.root.localeCompare(b.root)||a.path.localeCompare(b.path))));
 const marker = hash('controlled-marker');
@@ -88,8 +90,53 @@ export function revalidateNativeClient(pin){return hash(readFileSync(pin.executa
 export async function captureNativeIdentity(binding){return {credential:Buffer.from('{}'),expected:binding.expected,sourceIdentity:null};}
 export function revalidateNativeIdentity(){return true;}
 export async function protectNativeCell(){if(scenario==='protect-helper-cleanup-unresolved'){recordCleanup({confirmed:false,survivors:[{pid:65001,role:'helper'}]},performance.now());return false;}return true;}
-export function nativeStatePaths(){return {home:[],project:[]};}
-export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,startNativeSession};}
+// Ordinary client state comes from the installed Harness enumeration and its separate inspector.
+const harness = installedHarness({ nativeVerificationDefinitions: [] }, { readPinned(){ throw Error('unused'); }, Stop: Error });
+const harnessClient = { client:'claude', parserId:'claude-stream-json.v1' };
+const tree = (path, exclusions = []) => ({ path, exclusions, inspected:false });
+const contracts = {
+  'state-two-wildcards': { home:[tree('.claude/projects', ['*/*'])], project:[] },
+  'state-traversal': { home:[tree('../outside')], project:[] },
+  'state-overlap': { home:[tree('.claude')], project:[] },
+  'state-credential-overlap': { home:[tree('oauth.json')], project:[] },
+  'state-too-many': { home:Array.from({ length:17 }, (_, i) => tree('state-'+i)), project:[] },
+  'state-inspector-missing': { home:[{ path:'client.json', exclusions:[], inspected:true }], project:[] },
+};
+export function nativeStatePaths(){return contracts[scenario] ?? harness.nativeStatePaths(harnessClient);}
+export function inspectNativeState(_definition, input){return harness.inspectNativeState(harnessClient, input);}
+const writeState=(root,path,bytes)=>{const target=join(root,...path.split('/'));mkdirSync(join(target,'..'),{recursive:true});writeFileSync(target,bytes);};
+const globalState=(project={})=>JSON.stringify({numStartups:2,firstStartTime:'2026-10-05T00:00:00.000Z',userID:'0'.repeat(64),hasCompletedOnboarding:true,
+  projects:{'/cell/project':{allowedTools:[],mcpServers:{},enabledMcpjsonServers:[],disabledMcpjsonServers:[],hasTrustDialogAccepted:false,projectOnboardingSeenCount:1,lastSessionId:'00000000-0000-4000-8000-000000000000',lastCost:0,...project}}});
+function clientWrites(cell,index){
+  if(index!==1||!scenario.startsWith('client-state'))return;
+  writeState(cell.home,'.claude/projects/cell-project/session-1.jsonl','{"transcript":true}');
+  writeState(cell.home,'.claude/.claude.json',globalState());
+  const dir=(root,path)=>mkdirSync(join(root,...path.split('/')),{recursive:true});
+  ({
+    'client-state-full':()=>{writeState(cell.home,'.claude/projects/cell-project/session-1/tool-results/r.txt','result');
+      writeState(cell.home,'.claude/backups/.claude.json.backup.1759622400000',globalState());dir(cell.home,'.claude/.claude.json.lock');
+      writeState(cell.home,'.claude/history.jsonl','{"display":"prompt"}');dir(cell.home,'.claude/history.jsonl.lock');
+      writeState(cell.home,'.claude/telemetry/1p_failed_events.session-1.json','[]');},
+    'client-state-tiny-memory':()=>writeState(cell.home,'.claude/projects/cell-project/tiny_memory/note.md','remember'),
+    'client-state-session-aliases':()=>writeState(cell.home,'.claude/projects/cell-project/.session-aliases','{}'),
+    'client-state-personal-memory':()=>writeState(cell.home,'.claude/memory/personal/MEMORY.md','remember'),
+    'client-state-shell-snapshot':()=>writeState(cell.home,'.claude/shell-snapshots/snapshot-bash-1-x.sh','export X=1'),
+    'client-state-session-env':()=>writeState(cell.home,'.claude/session-env/session-1/hook-0.sh','export X=1'),
+    'client-state-sessions':()=>writeState(cell.home,'.claude/sessions/peer.json','{}'),
+    'client-state-policy-limits':()=>writeState(cell.home,'.claude/policy-limits.json','{}'),
+    'client-state-memory':()=>writeState(cell.home,'.claude/projects/cell-project/memory/MEMORY.md','remember'),
+    'client-state-memory-case':()=>writeState(cell.home,'.claude/projects/cell-project/Memory/MEMORY.md','remember'),
+    'client-state-changed-config':()=>writeFileSync(join(cell.project,'INSTRUCTIONS.md'),'changed'),
+    'client-state-hardlink':()=>linkSync(join(cell.home,'.claude','projects','cell-project','session-1.jsonl'),join(cell.home,'.claude','projects','cell-project','alias.jsonl')),
+    'client-state-user-mcp':()=>writeState(cell.home,'.claude/.claude.json',JSON.stringify({numStartups:2,mcpServers:{extra:{type:'stdio',command:'node'}}})),
+    'client-state-project-mcp':()=>writeState(cell.home,'.claude/.claude.json',globalState({mcpServers:{extra:{type:'stdio',command:'node'}}})),
+    'client-state-allowed-tools':()=>writeState(cell.home,'.claude/.claude.json',globalState({allowedTools:['Bash']})),
+    'client-state-trust':()=>writeState(cell.home,'.claude/.claude.json',globalState({hasTrustDialogAccepted:true})),
+    'client-state-unknown-key':()=>writeState(cell.home,'.claude/.claude.json',JSON.stringify({numStartups:2,futureLoader:{path:'x'}})),
+    'client-state-root-global':()=>writeState(cell.home,'.claude.json',globalState()),
+  })[scenario]?.();
+}
+export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,...(scenario==='state-inspector-missing'?{}:{inspectNativeState}),startNativeSession};}
 const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
   if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};
@@ -123,7 +170,7 @@ export async function startNativeSession(input){
     abort=()=>{child.stdin.destroy();child.kill();reject(Error('controlled cancellation'));};
     if(input.signal)input.signal.addEventListener('abort',abort,{once:true});
     timer=setTimeout(()=>{child.kill();resolve({...snapshot??observations,completed:snapshot?.completed??[],counts:{...snapshot?.counts??observations.counts,observedBytes:Buffer.byteLength(output)},failure:{reason:'budget-exhausted',outcome:'unavailable'}});},Math.max(1,input.deadline-performance.now()));
-    child.once('close',()=>{clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(scenario==='partial-spawn')return resolve({...observations,completed:[],failure:{reason:'native-internal',outcome:'unavailable'}});try{const value=JSON.parse(output);value.counts.observedBytes=Buffer.byteLength(output);if(scenario==='changed-config'&&input.index===1)writeFileSync(join(input.cell.project,'INSTRUCTIONS.md'),'changed');if(scenario==='replaced-config'&&input.index===1){const p=join(input.cell.project,'INSTRUCTIONS.md');unlinkSync(p);writeFileSync(p,fixture);}resolve(value);}catch{reject(Error('controlled output unavailable'));}});
+    child.once('close',()=>{clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(scenario==='partial-spawn')return resolve({...observations,completed:[],failure:{reason:'native-internal',outcome:'unavailable'}});try{const value=JSON.parse(output);value.counts.observedBytes=Buffer.byteLength(output);if(scenario==='changed-config'&&input.index===1)writeFileSync(join(input.cell.project,'INSTRUCTIONS.md'),'changed');if(scenario==='replaced-config'&&input.index===1){const p=join(input.cell.project,'INSTRUCTIONS.md');unlinkSync(p);writeFileSync(p,fixture);}clientWrites(input.cell,input.index);if(scenario==='conflicting-loading-source'&&input.index===1)writeFileSync(join(input.cell.home,'.claude','settings.local.json'),'{}');resolve(value);}catch{reject(Error('controlled output unavailable'));}});
   });
   child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial,ready:scenario==='deadline'}));
   const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:scenario!=='cleanup-unresolved',survivors:scenario==='cleanup-unresolved'?[{pid:child.pid,role:'client'}]:[]};}};
@@ -246,6 +293,50 @@ test('controlled hygiene evidence preserves both sessions while remaining unveri
   assert.equal(result.sessions.length, 2); assert.equal(result.status, 'incomplete'); assert.equal(result.verdict, 'unverified');
   assert.equal(result.security.sandbox.level, 'hygiene-only');
 });
+test('controlled ordinary client-owned state is preserved into the second session', async t => {
+  const result = await controlled(t, 'client-state');
+  assert.equal(result.status, 'complete', JSON.stringify(result)); assert.equal(result.verdict, 'verified');
+  assert.equal(result.sessions.length, 2);
+  assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'passed']);
+  assert.equal(result.cleanup.files, 'removed');
+});
+test('controlled full ordinary client state set is preserved into the second session', async t => {
+  const result = await controlled(t, 'client-state-full');
+  assert.equal(result.status, 'complete', JSON.stringify(result.stages)); assert.equal(result.verdict, 'verified');
+  assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'passed']);
+  assert.equal(result.cleanup.files, 'removed');
+});
+test('controlled hard link inside ordinary client state is configuration-changed and blocks unsafe removal', async t => {
+  const result = await controlled(t, 'client-state-hardlink');
+  assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
+  assert.ok(result.stages.some(row => row.id === 'configuration-unchanged' && row.session === 2 && row.reason === 'configuration-changed'));
+  // The existing cleanup rule never removes a tree containing a multiply linked file.
+  assert.equal(result.status, 'incomplete'); assert.equal(result.cleanup.files, 'retained');
+});
+for (const scenario of ['client-state-changed-config', 'client-state-memory', 'client-state-memory-case',
+  'client-state-user-mcp', 'client-state-project-mcp', 'client-state-allowed-tools', 'client-state-trust', 'client-state-unknown-key',
+  'client-state-root-global', 'client-state-tiny-memory', 'client-state-session-aliases', 'client-state-personal-memory',
+  'client-state-shell-snapshot', 'client-state-session-env', 'client-state-sessions', 'client-state-policy-limits',
+  'conflicting-loading-source']) {
+  test(`controlled ${scenario} beside ordinary client state is configuration-changed`, async t => {
+    const result = await controlled(t, scenario);
+    assert.equal(result.status, 'complete'); assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
+    assert.ok(result.stages.some(row => row.id === 'configuration-unchanged' && row.session === 2 && row.outcome === 'failed' &&
+      row.reason === 'configuration-changed'), JSON.stringify(result.stages));
+    assert.equal(result.cleanup.files, 'removed');
+  });
+}
+for (const [scenario, outcome, reason] of [['state-two-wildcards', 'unavailable', 'native-internal'], ['state-traversal', 'unavailable', 'native-internal'],
+  ['state-too-many', 'unavailable', 'native-internal'], ['state-inspector-missing', 'unavailable', 'native-internal'],
+  ['state-overlap', 'unsupported', 'guardrail-path-conflict'], ['state-credential-overlap', 'unsupported', 'guardrail-path-conflict']]) {
+  test(`controlled invalid client state contract ${scenario} stops before any session`, async t => {
+    const result = await controlled(t, scenario);
+    assert.equal(result.sessions.length, 0);
+    assert.ok(result.stages.some(row => row.id === 'cell-staging' && row.outcome === outcome && row.reason === reason), JSON.stringify(result.stages));
+    assert.ok(!result.stages.some(row => row.id === 'cell-staging' && row.outcome === 'passed'));
+    assert.equal(result.cleanup.files, 'removed');
+  });
+}
 test('default OS temporary parent supports controlled verification without a sandboxRoot control', async t => {
   const result = await controlled(t, 'default-temp');
   assert.equal(result.status, 'complete', JSON.stringify(result)); assert.equal(result.verdict, 'verified');
@@ -271,6 +362,54 @@ test('missing executable remains observable when the fixed server adapter is una
   const result = await controlled(t, 'missing-client-and-server');
   assert.ok(result.stages.some(value => value.reason === 'client-absent'));
   assert.equal(result.sessions.length, 0); assert.equal(result.cleanup.files, 'not-created');
+});
+// The installed Harness runtime and its real bundled fixture, behind the public verifier. Only the host match is
+// retargeted so each registered definition is reached on this machine; no client is resolved or launched.
+async function installedFixture(t, definitionId, parserId) {
+  const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-installed-native-')));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  cpSync(join(root, 'dist'), join(directory, 'dist'), { recursive: true });
+  cpSync(join(root, 'package.json'), join(directory, 'package.json'));
+  symlinkSync(join(root, 'node_modules'), join(directory, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  const native = join(directory, 'dist', 'harness', 'native');
+  cpSync(join(native, 'runtime.mjs'), join(native, 'installed-runtime.mjs'));
+  writeFileSync(join(native, 'runtime.mjs'), `
+import { release } from 'node:os';
+import * as installed from './installed-runtime.mjs';
+export function createNativeRuntime(_module, dependencies) {
+  const runtime = installed.createNativeRuntime(installed, dependencies);
+  const registered = installed.nativeVerificationDefinitions.find(value => value.id === ${JSON.stringify(definitionId)});
+  const platform = { os: process.platform, arch: process.arch, execution: process.platform === 'linux' && /microsoft/i.test(release()) ? 'wsl2' : 'native', osRelease: release() };
+  const definition = { ...registered, platform, ...(${JSON.stringify(parserId ?? null)} ? { parserId: ${JSON.stringify(parserId ?? null)} } : {}) };
+  return { ...runtime, nativeDefinitions: [definition], nativeManagedRestriction: () => false,
+    resolveNativeClient: async () => ({ outcome: 'unavailable', reason: 'client-absent' }) };
+}
+`);
+  writeFileSync(join(directory, 'entry.mjs'), "export { verifyNativeClient } from '@aihq/core';\n");
+  const api = await import(pathToFileURL(join(directory, 'entry.mjs')).href);
+  const cells = join(directory, 'cells'); mkdirSync(cells);
+  const result = await api.verifyNativeClient(request, { admission: 'candidate-smoke', sandboxRoot: realpathSync.native(cells) });
+  assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
+  return result;
+}
+const { bundledNativeFixtures, nativeVerificationDefinitions } = await import(new URL('../dist/harness/native/contracts.mjs', import.meta.url).href);
+for (const definition of nativeVerificationDefinitions) {
+  test(`the shared bundled fixture reaches host presence for ${definition.id}`, async t => {
+    const result = await installedFixture(t, definition.id);
+    const rows = result.stages.map(({ id, outcome, reason }) => ({ id, outcome, reason }));
+    assert.deepEqual(rows.slice(0, 2), [{ id: 'fixture-integrity', outcome: 'passed', reason: 'observed' },
+      { id: 'host-presence', outcome: 'unavailable', reason: 'client-absent' }], JSON.stringify(rows));
+    assert.equal(result.adapter.id, definition.id); assert.equal(result.proofScope, 'bundled-mechanism');
+    assert.equal(result.stages[0].evidence.sha256, bundledNativeFixtures[0].manifestSha256);
+    assert.equal(result.sessions.length, 0); assert.equal(result.cleanup.files, 'not-created');
+  });
+}
+test('the bundled fixture is refused by a definition whose fixed parser it does not bind', async t => {
+  const result = await installedFixture(t, nativeVerificationDefinitions[0].id, 'claude-unbound.v1');
+  assert.ok(result.stages.some(row => row.id === 'fixture-integrity' && row.outcome === 'unsupported' && row.reason === 'configuration-channel-unsupported'),
+    JSON.stringify(result.stages));
+  assert.ok(!result.stages.some(row => row.id === 'host-presence')); assert.equal(result.cleanup.files, 'not-created');
 });
 for (const [scenario, reason, verdict, sessions] of [
   ['reused', 'session-not-fresh', 'failed', 2],

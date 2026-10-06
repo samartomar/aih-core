@@ -38,6 +38,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
+| `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate definitions; 1.1 adds the Linux vendor-runtime mechanism |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
 
@@ -133,13 +134,28 @@ step outside verification; the normal user profile is never its credential sourc
 Supplied configuration uses independent archive/member pins and exact starting
 and output trees. The bundled fixture proves only its mechanism; test content
 cannot establish production configuration. Both fresh sessions must separately
-observe initial instruction loading, MCP discovery and the fixed read-only query,
-then establish unchanged configuration and cleanup. Identity, loading, isolation
-and cleanup remain distinct; hygiene evidence cannot become full native proof.
+observe initial instruction loading, MCP discovery and the fixed read-only query.
+Before and after the second session, selected configuration and guardrail bytes
+must be unchanged, and every other path in the cell must be fixed client-owned
+state named by the installed adapter. Such a state tree may change except beneath
+its fixed loading exclusions; for Claude, per-project memory and the client's other
+reserved non-transcript names stay excluded. The client's global state file is
+accepted only when a separate inspection finds bounded bookkeeping, without MCP
+servers, tool or permission grants, trust or approval entries, credentials,
+environment values or unrecognized keys. Any new instruction, settings, hook,
+plugin, MCP, memory, shell-snapshot, session-environment or managed-policy file
+is `configuration-changed`, as are links and other non-regular files in state.
+
+Accepted limitation: provider feature-gate and experiment caches recorded by the
+client, such as `cachedGrowthBookFeatures`, `cachedDynamicConfigs` and the
+`cachedExperiment*` keys, persist from the first session into the second. The
+second session's loading, restriction, tool-discovery and authentication evidence
+is still observed independently. Identity, loading, isolation and cleanup remain
+distinct; hygiene evidence cannot become full native proof.
 Unavailable process/peer-identity facilities fail closed. Native platform acceptance
 requires actual observations and separate maintained evidence.
 
-The current bundled candidate names Claude Code 2.1.285 on Windows x64
+The Windows candidate names Claude Code 2.1.285 on Windows x64
 (`10.0.26200`). The package includes a bounded Windows Job launcher, OS-bound
 named-pipe peer observation and an explicit protected cell-local OAuth file path.
 Facility availability requires actual probes; missing or changed helper/runtime
@@ -147,8 +163,13 @@ bytes fail closed. Dedicated identity still requires operator provisioning and
 same-session authentication evidence. The candidate has no whole-client isolation
 mechanism, so useful hygiene evidence remains incomplete/unverified. See
 [Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
-POSIX lifecycle helpers and controlled session fixtures do not admit a POSIX
-client or establish a passing native cell.
+The separate Linux x64 WSL2 candidate wraps the entire workload in pinned
+Anthropic Sandbox Runtime 0.0.78 and uses a bundled Linux kernel observer for
+process ownership, authenticated IPC and cleanup. It requires the exact client,
+kernel and runtime byte closure recorded by its candidate metadata. It remains
+unadmitted until packed API/CLI acceptance and dedicated identity evidence pass.
+See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
+Controlled facility and synthetic session checks do not establish native acceptance.
 
 Portable validators `validateNativeVerificationRequest`,
 `validateNativeVerificationResult` and `validateNativeVerificationBundle` are

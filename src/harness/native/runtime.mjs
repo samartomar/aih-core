@@ -4,6 +4,7 @@
 import { fixtureAttestTool, fixtureFiles, fixtureQueryTool, fixtureServerName } from './fixture-data.mjs';
 import { startEvidenceChannel as internalEvidenceChannel } from './evidence.mjs';
 import { isWindowsTransport } from './windows-facility.mjs';
+import { isLinuxTransport } from './linux-facility.mjs';
 export { createNativeRuntime } from './adapter.mjs';
 
 export { nativeClientIds, nativeBounds, nativeStageReasons, nativeRunStageIds, nativeSessionStageIds,
@@ -16,6 +17,9 @@ export { createOwnedCell, stageCellFiles, observeCellConfiguration, removeOwnedC
 export { captureTestIdentity, stageCredential, validateClaudeOAuthFile } from './identity.mjs';
 export { lifecycleAvailability, prepareLifecycleContext, startLifecycle, pinExecutable, revalidateExecutable } from './lifecycle.mjs';
 export { protectWindowsCell, validateWindowsCell } from './windows-facility.mjs';
+export { resolveLinuxNativeClient, observeLinuxNativePolicy } from './linux-client.mjs';
+export { prepareLinuxSandboxContext } from './linux-sandbox.mjs';
+export { verifyLinuxVendorClosure } from './linux-runtime.mjs';
 export { createClaudeCollector } from './collector.mjs';
 export { createClaudeStreamParser, buildClaudeEnvironment, claudePrompt, claudeSessionsAreFresh,
   observeClaudeManagedSettings } from './claude.mjs';
@@ -25,7 +29,7 @@ export { recorderId, recorderMaterial, recorderPlan, recorderCommand } from './r
 
 // Transport ownership stays inside the fixed installed adapter and platform facility.
 export const startEvidenceChannel = ({ directory, isOwnedServer, plan = null, transport }) => {
-  if (transport !== undefined && !isWindowsTransport(transport)) throw new Error('channel-protection-unavailable');
+  if (transport !== undefined && !isWindowsTransport(transport) && !isLinuxTransport(transport)) throw new Error('channel-protection-unavailable');
   return internalEvidenceChannel({ directory, isOwnedServer, plan, transport });
 };
 

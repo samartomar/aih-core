@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-if (process.platform === 'win32' && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
+if ((process.platform === 'win32' || process.platform === 'linux') && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
     process.argv[2] !== '--aihq-native-absolute-entry') {
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--aihq-native-absolute-entry', ...process.argv.slice(2)],
     { shell: false, windowsHide: true, stdio: 'inherit', env: process.env });
@@ -22,7 +22,7 @@ if (process.platform === 'win32' && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
   await new Promise(() => {});
 }
 // The fixed private launch marker is not an upstream command argument.
-if (process.platform === 'win32' && process.argv[2] === '--aihq-native-absolute-entry') process.argv.splice(2, 1);
+if ((process.platform === 'win32' || process.platform === 'linux') && process.argv[2] === '--aihq-native-absolute-entry') process.argv.splice(2, 1);
 
 const CHANNEL_ENV = 'AIHQ_NATIVE_EVIDENCE_CHANNEL';
 const TOKEN_ENV = 'AIHQ_NATIVE_EVIDENCE_TOKEN';

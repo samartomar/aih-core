@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -79,9 +79,10 @@ async function run(ctx, { verify = null, env = {} } = {}) {
     childEnv.AIHQ_NATIVE_EVIDENCE_TOKEN = verify.token ?? channel.token;
   }
   // This controlled peer fixture launches the absolute entry directly so its held
-  // process remains the observed peer; native Job tests cover the relative wrapper.
+  // process remains the observed peer, passing the fixed marker explicitly on every
+  // trampoline platform; native Job tests cover the relative wrapper.
   const child = spawn(process.execPath, [join(ctx.dir, 'recorder.mjs'),
-    ...(channel && process.platform === 'win32' ? ['--aihq-native-absolute-entry'] : []),
+    ...(channel && (process.platform === 'win32' || process.platform === 'linux') ? ['--aihq-native-absolute-entry'] : []),
     '--', process.execPath, join(ctx.dir, 'mock.mjs')],
     { stdio: ['pipe', 'pipe', 'ignore'], env: childEnv, windowsHide: true });
   holder.child = child;
@@ -324,4 +325,68 @@ test('plan derivation, material integrity and the standalone Node-builtins-only 
   assert.deepEqual(specifiers.sort(), ['node:child_process', 'node:crypto', 'node:net', 'node:url']);
   assert.deepEqual(recorderCommand({ command: 'node', args: ['server.mjs'] }),
     { command: 'node', args: ['.aihq-native/recorder.mjs', '--', 'node', 'server.mjs'] });
+});
+
+// Linux-only: /proc resolution stands in for the fixed kernel peer facility; the claimed hello
+// PID is resolved to the process's actual argv, parent and start time, never trusted by itself.
+test('the nested Linux trampoline keeps the exact fixed remainder and the marker never reaches the upstream',
+  { skip: process.platform === 'linux' ? false : 'Linux /proc peer observation only', timeout: 30_000 }, async () => {
+  const ctx = setup();
+  ctx.dir = realpathSync.native(ctx.dir);
+  const recorderPath = join(ctx.dir, 'recorder.mjs');
+  const mockPath = join(ctx.dir, 'mock.mjs');
+  const expectedArgv = [process.execPath, recorderPath, '--aihq-native-absolute-entry', '--', process.execPath, mockPath];
+  const identities = [];
+  const channel = await createEvidenceChannel({ directory: ctx.dir, plan: plan(),
+    peerIdentity: async (_socket, hello) => {
+      try {
+        const argv = readFileSync(`/proc/${hello.pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+        const stat = readFileSync(`/proc/${hello.pid}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        return { status: 'observed', pid: hello.pid, birth: fields[19], argv, ppid: Number(fields[1]) };
+      } catch { return { status: 'unavailable' }; }
+    },
+    isOwnedServer: identity => {
+      identities.push(identity);
+      return Array.isArray(identity.argv) && identity.argv.length === expectedArgv.length &&
+        identity.argv.every((value, index) => value === expectedArgv[index]);
+    } });
+  // The ordinary configured command line has no marker; the recorder must re-exec once to the
+  // exact absolute entry with the declared remainder, and the nested child is the observed peer.
+  const child = spawn(process.execPath, [recorderPath, '--', process.execPath, mockPath], {
+    stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+    env: { ...process.env, MOCK_LOG: ctx.log, MOCK_MODE: ctx.mode,
+      AIHQ_NATIVE_EVIDENCE_CHANNEL: channel.endpoint, AIHQ_NATIVE_EVIDENCE_TOKEN: channel.token } });
+  try {
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    const rpc = async (id, method, params) => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      return JSON.parse((await lines.next()).value);
+    };
+    await rpc(1, 'initialize', {});
+    await rpc(2, 'tools/list');
+    const attest = await rpc(3, 'tools/call', { name: ATTEST, arguments: { marker: fixtureMarker, challenge: channel.challenge } });
+    assert.deepEqual(JSON.parse(attest.result.content[0].text), { markerSha256: fixtureMarkerSha256, challenge: channel.challenge });
+    const query = await rpc(4, 'tools/call', { name: QUERY, arguments: { node: 'entry', challenge: channel.challenge } });
+    assert.deepEqual(query.result, RESULT);
+    child.stdin.end();
+    const [code] = await once(child, 'exit');
+    assert.equal(code, 0);
+    const result = await channel.close();
+    assert.equal(result.peer, 'authenticated', JSON.stringify({ peer: result.peer, violation: result.violation }));
+    assert.equal(result.violation, null);
+    assert.equal(identities.length, 1);
+    assert.deepEqual(identities[0].argv, expectedArgv);
+    assert.notEqual(identities[0].pid, child.pid, 'the observed peer is the nested absolute-entry child, not the held launcher');
+    assert.equal(identities[0].ppid, child.pid, 'the absolute-entry child is the immediate child of the launcher');
+    const evaluation = evaluateServerEvidence(result.frames, spec);
+    assert.equal(evaluation.attestation, 'attested');
+    assert.equal(evaluation.query, 'answered');
+    // The upstream saw the declared command and query only: the private marker was spliced out
+    // and the verifier variables never reached it.
+    const seen = entries(ctx);
+    assert.equal(seen[0].leaked, false);
+    assert.deepEqual(seen.find(entry => entry.method === 'tools/call').params.arguments, { node: 'entry', challenge: channel.challenge });
+    await assertUpstreamGone(ctx);
+  } finally { child.kill(); await channel.close().catch(() => {}); rmSync(ctx.dir, { recursive: true, force: true }); }
 });

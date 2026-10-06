@@ -165,7 +165,7 @@ test('the environment is built from scratch with fixed telemetry and no inherite
   assert.equal(env.CLAUDE_CODE_ENABLE_TELEMETRY, '1');
   assert.equal(env.OTEL_LOGS_EXPORTER, 'otlp');
   assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL, 'http/json');
-  assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318');
+  assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318/v1/logs');
   assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_HEADERS, `Authorization=Bearer ${'t'.repeat(64)}`);
   assert.equal(env.OTEL_LOGS_EXPORT_INTERVAL, '1000');
   assert.equal(env.OTEL_METRICS_EXPORTER, 'none');

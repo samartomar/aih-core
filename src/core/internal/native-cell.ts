@@ -7,6 +7,7 @@ import { readRegularFileWithStats } from './fsxn.js';
 import { canonicalJson } from './canonical.js';
 import { NativeStop, safeNativePath } from './native-input.js';
 import { nativeTreeDigest, type NativeMaterial, type NativeTreeFile } from './native-material.js';
+import type { NativeStateEntry } from './native-session.js';
 
 export interface NativeCell {
   path: string; home: string; project: string; scratch: string; credentials: string; observations: string;
@@ -73,11 +74,57 @@ export function stageNativeCell(cell: NativeCell, material: NativeMaterial, guar
     }
     if (credential) write(cell.home, credential.destination, credential.bytes);
     cell.outputTreeSha256 = material.outputTreeSha256; cell.guardrailsSha256 = guardrailsSha256;
-    if (!checkNativePersistence(cell, credential?.destination ? [credential.destination] : [], [], check)) throw new NativeStop('configuration-changed', 'failed');
+    const staged: NativeStatePlan = { home: credential ? [{ path: credential.destination, exclusions: [], inspected: false }] : [], project: [] };
+    if (!checkNativePersistence(cell, staged, check)) throw new NativeStop('configuration-changed', 'failed');
     return sha256(canonicalJson({ outputTreeSha256: cell.outputTreeSha256, guardrailsSha256: cell.guardrailsSha256 }));
   } catch (error) { if (error instanceof NativeStop) throw error; throw new NativeStop('staging-unavailable'); }
 }
-export function checkNativePersistence(cell: NativeCell, homeStatePaths: string[], projectStatePaths: string[], check: () => void): boolean {
+export type NativeStateInspector = (root: 'home' | 'project', path: string, bytes: Buffer) => boolean;
+export interface NativeStatePlan { home: NativeStateEntry[]; project: NativeStateEntry[]; inspect?: NativeStateInspector }
+const STATE_ENTRIES = 16, STATE_EXCLUSIONS = 8, STATE_SEGMENTS = 16, STATE_DEPTH = 32, INSPECTED_STATE_BYTES = 1024 * 1024;
+const aliasOverlap = (a: string, b: string): boolean => {
+  const x = a.toLowerCase(), y = b.toLowerCase();
+  return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+};
+const plainRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) &&
+  [Object.prototype, null].includes(Object.getPrototypeOf(value));
+/**
+ * Validate the runtime's fixed client-state contract before staging and append the staged credential. A malformed
+ * contract is an adapter defect; state that overlaps selected configuration or the credential is a path conflict.
+ */
+export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], credential: string | undefined, inspect?: NativeStateInspector): NativeStatePlan {
+  const invalid = () => new NativeStop('native-internal');
+  if (!plainRecord(value) || Object.keys(value).sort().join() !== 'home,project') throw invalid();
+  const plan: NativeStatePlan = { home: [], project: [], ...(inspect ? { inspect } : {}) };
+  for (const root of ['home', 'project'] as const) {
+    const list = value[root];
+    if (!Array.isArray(list) || list.length > STATE_ENTRIES) throw invalid();
+    for (const raw of list) {
+      if (!plainRecord(raw) || Object.keys(raw).sort().join() !== 'exclusions,inspected,path') throw invalid();
+      const { path, exclusions, inspected } = raw;
+      if (typeof path !== 'string' || !safeNativePath(path) || path.split('/').length > STATE_SEGMENTS || typeof inspected !== 'boolean' ||
+        !Array.isArray(exclusions) || exclusions.length > STATE_EXCLUSIONS || inspected && (exclusions.length > 0 || !inspect)) throw invalid();
+      const fixed: string[] = [];
+      for (const exclusion of exclusions) {
+        const parts = typeof exclusion === 'string' && exclusion.length <= 512 ? exclusion.split('/') : [];
+        if (!parts.length || parts.length > STATE_SEGMENTS || parts.filter(part => part === '*').length > 1 || parts.every(part => part === '*') ||
+          !parts.every(part => part === '*' || safeNativePath(part))) throw invalid();
+        fixed.push(parts.join('/').toLowerCase());
+      }
+      if (plan[root].some(other => aliasOverlap(other.path, path))) throw invalid();
+      if (selected.some(file => file.root === root && aliasOverlap(file.path, path)) || root === 'home' && credential !== undefined && aliasOverlap(credential, path))
+        throw new NativeStop('guardrail-path-conflict', 'unsupported');
+      plan[root].push({ path, exclusions: fixed, inspected });
+    }
+  }
+  if (credential !== undefined) plan.home.push({ path: credential, exclusions: [], inspected: false });
+  return plan;
+}
+/**
+ * Selected bytes must be unchanged and every other cell path must be fixed client state. State trees may change,
+ * except links, non-regular files and paths under their loading exclusions; inspected files must pass inspection.
+ */
+export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, check: () => void): boolean {
   check(); if (!pinsMatch(cell.pins) || !cell.configurationPins.every(pinsMatch)) return false;
   try {
     if (!cell.configurationFacts.every(file => configurationIdentity(file.path) === file.identity)) return false;
@@ -87,19 +134,48 @@ export function checkNativePersistence(cell: NativeCell, homeStatePaths: string[
       if (!captured || captured.identity.nlink !== 1n || !pinsMatch(pins) || captured.contents.length !== file.member.byteLength || sha256(captured.contents) !== file.member.sha256) return false;
     }
     let seen = 0;
-    const walk = (root: string, selected: string[], state: string[], prefix = ''): boolean => {
-      for (const name of readdirSync(join(root, prefix))) {
-        check(); if (++seen > 4096) throw new NativeStop('limit-exceeded');
-        const path = prefix ? `${prefix}/${name}` : name; const stat = lstatSync(join(root, ...path.split('/')));
-        if (stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isDirectory() && !stat.isFile()) return false;
-        if (selected.includes(path)) { if (!stat.isFile()) return false; continue; }
-        if (state.some(allowed => path === allowed || path.startsWith(`${allowed}/`))) continue;
-        if (!stat.isDirectory() || !selected.some(file => file.startsWith(`${path}/`)) || !walk(root, selected, state, path)) return false;
+    const inspected: { root: 'home' | 'project'; path: string; absolute: string }[] = [];
+    const entry = (root: string, path: string) => {
+      check(); if (++seen > 4096) throw new NativeStop('limit-exceeded');
+      const stat = lstatSync(join(root, ...path.split('/')));
+      return stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isDirectory() && !stat.isFile() ? undefined : stat;
+    };
+    const excluded = (state: NativeStateEntry, relative: string[]) => state.exclusions.some(exclusion => {
+      const parts = exclusion.split('/');
+      return parts.length <= relative.length && parts.every((part, index) => part === '*' || part === relative[index]?.toLowerCase());
+    });
+    const walkState = (root: string, state: NativeStateEntry, relative: string[]): boolean => {
+      if (relative.length >= STATE_DEPTH) throw new NativeStop('limit-exceeded');
+      for (const name of readdirSync(join(root, ...state.path.split('/'), ...relative))) {
+        const next = [...relative, name]; const stat = entry(root, [state.path, ...next].join('/'));
+        if (!stat || excluded(state, next) || stat.isDirectory() && !walkState(root, state, next)) return false;
       }
       return true;
     };
-    return walk(cell.home, cell.tree.filter(file => file.root === 'home').map(file => file.path), homeStatePaths) &&
-      walk(cell.project, cell.tree.filter(file => file.root === 'project').map(file => file.path), projectStatePaths);
+    const walk = (rootName: 'home' | 'project', root: string, selected: string[], state: readonly NativeStateEntry[], prefix = ''): boolean => {
+      for (const name of readdirSync(join(root, prefix))) {
+        const path = prefix ? `${prefix}/${name}` : name; const stat = entry(root, path);
+        if (!stat) return false;
+        if (selected.includes(path)) { if (!stat.isFile()) return false; continue; }
+        const owned = state.find(value => value.path === path);
+        if (owned?.inspected) { if (!stat.isFile()) return false; inspected.push({ root: rootName, path, absolute: join(root, ...path.split('/')) }); continue; }
+        if (owned) { if (stat.isDirectory() && !walkState(root, owned, [])) return false; continue; }
+        if (!stat.isDirectory() || ![...selected, ...state.map(value => value.path)].some(file => file.startsWith(`${path}/`)) ||
+          !walk(rootName, root, selected, state, path)) return false;
+      }
+      return true;
+    };
+    if (!walk('home', cell.home, cell.tree.filter(file => file.root === 'home').map(file => file.path), plan.home) ||
+      !walk('project', cell.project, cell.tree.filter(file => file.root === 'project').map(file => file.path), plan.project)) return false;
+    for (const file of inspected) {
+      check();
+      const captured = readRegularFileWithStats(file.absolute, { maxBytes: INSPECTED_STATE_BYTES });
+      if (!captured || captured.identity.nlink !== 1n) return false;
+      let accepted = false;
+      try { accepted = plan.inspect?.(file.root, file.path, captured.contents) === true; } catch { accepted = false; }
+      if (!accepted) return false;
+    }
+    return true;
   } catch (error) { if (error instanceof NativeStop) throw error; return false; }
 }
 export function removeNativeCell(cell: NativeCell, check: () => void): boolean {

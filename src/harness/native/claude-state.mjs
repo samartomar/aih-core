@@ -1,0 +1,140 @@
+// Claude's ordinary client-owned state in the owned cell, and the separate precedence check for its global
+// state file. Pure functions over bytes: no host effects.
+import { isRecord, parseStrictJson } from './canonical.mjs';
+
+// The verifier redirects CLAUDE_CONFIG_DIR to <home>/.claude. The client then keeps its global state file at
+// <config home>/.claude.json (locked through a sibling `.lock` directory while it is written), rotating copies under
+// backups/ that it never loads, transcripts under projects/, prompt history in history.jsonl and unsent telemetry
+// batches under telemetry/. Inside a project folder the client reserves fixed non-transcript names; per-project memory
+// is a loaded instruction source and the others are not transcripts, so all of them stay refused.
+export const claudeGlobalStatePath = '.claude/.claude.json';
+const tree = (path, exclusions = []) => Object.freeze({ path, exclusions: Object.freeze(exclusions), inspected: false });
+export const claudeStatePaths = Object.freeze({
+  home: Object.freeze([
+    tree('.claude/projects', ['*/memory', '*/tiny_memory', '*/bagel', '*/cloud-snapshots', '*/bridge-pointer.json', '*/.session-aliases']),
+    Object.freeze({ path: claudeGlobalStatePath, exclusions: Object.freeze([]), inspected: true }),
+    tree('.claude/.claude.json.lock'),
+    tree('.claude/backups'),
+    tree('.claude/history.jsonl'),
+    tree('.claude/history.jsonl.lock'),
+    tree('.claude/telemetry')
+  ]),
+  project: Object.freeze([])
+});
+
+export const claudeGlobalStateBytes = 1024 * 1024;
+const DEPTH = 32;
+
+// Keys that could add an MCP server, tool or permission grant, trust/approval, credential or environment input.
+// They are accepted only when absent or empty/false, which is how the client records "nothing granted".
+const GRANTS = new Set(['mcpServers', 'allowedTools', 'mcpContextUris', 'enabledMcpjsonServers', 'disabledMcpjsonServers',
+  'enableAllProjectMcpServers', 'hasTrustDialogAccepted', 'hasClaudeMdExternalIncludesApproved', 'ignorePatterns']);
+const empty = value => value === false || (Array.isArray(value) && value.length === 0) || (isRecord(value) && Object.keys(value).length === 0);
+
+// Value shapes. Every allowed key carries a bounded shape, so a grant cannot hide inside bookkeeping.
+const STRING = 65536;
+const scalar = value => value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) ||
+  (typeof value === 'string' && value.length <= STRING);
+const count = value => Number.isSafeInteger(value) && value >= 0;
+const number = value => typeof value === 'number' && Number.isFinite(value);
+const text = value => typeof value === 'string' && value.length <= STRING;
+const bool = value => typeof value === 'boolean';
+const nullable = check => value => value === null || check(value);
+const recordOf = check => value => isRecord(value) && Object.values(value).every(check);
+const arrayOf = (check, max) => value => Array.isArray(value) && value.length <= max && value.every(check);
+// Keys that, nested anywhere inside client bookkeeping, would name a server, tool, permission, hook, plugin,
+// environment, credential helper or directory grant. Bookkeeping never needs them.
+const NESTED_GRANTS = new Set([...GRANTS, 'permissions', 'allow', 'deny', 'ask', 'hooks', 'env', 'apiKeyHelper', 'mcp',
+  'enabledPlugins', 'extraKnownMarketplaces', 'additionalDirectories', 'defaultMode', 'primaryApiKey', 'customApiKeyResponses']);
+// Client-structured data of scalars, arrays and records (depth-bounded), without nested grant names.
+const data = (depth = 4) => value => scalar(value) || (depth > 0 && (
+  (Array.isArray(value) && value.length <= 1024 && value.every(data(depth - 1))) ||
+  (isRecord(value) && Object.entries(value).every(([key, field]) => !NESTED_GRANTS.has(key) && data(depth - 1)(field)))));
+// Provider-response caches (feature gates, dynamic configs, experiments, usage, eligibility). Their content is the
+// provider's, kept between sessions by the client; it is accepted as an explicit limitation while every session's
+// loading, restriction, tool and authentication evidence is still observed independently.
+const providerCache = value => value === null || isRecord(value) || Array.isArray(value) || scalar(value);
+const counterMap = recordOf(value => count(value) || recordOf(count)(value));
+// Profile metadata the client merges after authentication: known fields only.
+const ACCOUNT = new Set(['accountUuid', 'emailAddress', 'organizationUuid', 'organizationRole', 'workspaceRole', 'organizationName',
+  'displayName', 'fullName', 'hasExtraUsageEnabled', 'billingType', 'subscriptionCreatedAt', 'accountCreatedAt',
+  'claudeCodeTrialEndsAt', 'claudeCodeTrialDurationDays', 'seatTier', 'planDisplayName', 'profileFetchedAt']);
+const account = value => isRecord(value) && Object.entries(value).every(([key, field]) =>
+  key === 'ccOnboardingFlags' ? recordOf(scalar)(field) && !Object.keys(field).some(name => NESTED_GRANTS.has(name))
+    : ACCOUNT.has(key) && scalar(field));
+
+const COUNTERS = ['numStartups', 'memoryUsageCount', 'promptQueueUseCount', 'btwUseCount', 'queuedCommandUpHintCount',
+  'lspRecommendationIgnoredCount', 'promptSuggestionUnusedStreak', 'subscriptionNoticeCount', 'subscriptionUpsellShownCount',
+  'passesUpsellSeenCount', 'promoStartupSeenCount', 'fullscreenUpsellSeenCount', 'fullscreenDownsellSeenCount',
+  'voiceLangHintShownCount', 'voiceFooterHintSeenCount', 'experimentNoticesSeenCount'];
+// The client's own set of global counter/cache keys whose churn it treats as bookkeeping, plus the startup and
+// response bookkeeping it writes itself: install markers, onboarding and release-note markers, profile metadata after
+// authentication and account-keyed provider caches. Auto-update is disabled for verification; only the disabled value
+// is accepted, because enabling the updater would be a behaviour input.
+const GLOBAL_STATE = new Map([
+  ...COUNTERS.map(key => [key, count]),
+  ['skillUsage', data()], ['pluginUsage', data()], ['tipsHistory', counterMap], ['tipLifetimeShownCounts', counterMap],
+  ['tipsHistoryByCommand', data(3)], ['seenNotifications', data()], ['announcementImpressions', data()],
+  ['lastShownEmergencyTip', data(1)],
+  ['cachedGrowthBookFeatures', providerCache], ['cachedGrowthBookFeaturesAt', number], ['cachedArtifactRoster', providerCache],
+  ['artifactRosterDenied', scalar], ['promoStartupStatusCache', providerCache], ['cachedDynamicConfigs', providerCache],
+  ['cachedExperimentFeatures', providerCache], ['cachedExperimentData', providerCache],
+  ['firstStartTime', text], ['claudeCodeFirstTokenDate', nullable(text)], ['startupPrefetchedAt', number],
+  ['firstStartVersion', recordOf(scalar)], ['installMethod', value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(value)],
+  ['autoUpdates', value => value === false], ['autoUpdatesProtectedForNative', bool], ['hasCompletedOnboarding', bool],
+  ['lastOnboardingVersion', text], ['lastReleaseNotesSeen', text], ['changelogLastFetched', number], ['oauthAccount', account],
+  ['cachedExtraUsageDisabledReason', nullable(text)], ['cachedUsageUtilization', providerCache],
+  ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache]
+]);
+// Locally generated random identifiers.
+const IDENTIFIERS = new Set(['userID', 'machineID', 'summonSidKey']);
+// The client's own set of per-project keys whose churn it treats as bookkeeping (session metrics and markers).
+// Legacy prompt history is a bounded list of plain entries without grant names.
+const PROJECT_STATE = new Map([
+  ...['lastCost', 'lastAPIDuration', 'lastAPIDurationWithoutRetries', 'lastToolDuration', 'lastDuration', 'lastStartTime',
+    'lastLinesAdded', 'lastLinesRemoved', 'lastTotalInputTokens', 'lastTotalOutputTokens', 'lastTotalCacheCreationInputTokens',
+    'lastTotalCacheReadInputTokens', 'lastTotalWebSearchRequests', 'lastFpsAverage', 'lastFpsLow1Pct',
+    'exampleFilesGeneratedAt'].map(key => [key, number]),
+  ['lastSessionId', text], ['lastGracefulShutdown', bool], ['lastVersionBase', text], ['lastModelUsage', data(3)],
+  ['lastSessionMetrics', data(3)], ['exampleFiles', arrayOf(text, 64)], ['seenTeamArtifactPaths', arrayOf(text, 1024)],
+  ['hasUnseenTeamArtifacts', bool], ['hasClaudeMdExternalIncludesWarningShown', bool], ['projectOnboardingSeenCount', count],
+  ['hasCompletedProjectOnboarding', bool], ['devIntentsDetected', data(2)],
+  ['history', arrayOf(entry => isRecord(entry) && data(3)(entry), 100)]
+]);
+// The exact one-shot startup migration markers this client version writes: they only record that a migration ran
+// (boolean) or when (integer epoch milliseconds). A migration that changes settings writes those settings files, which
+// stay selected or refused separately. Any other marker name is unknown and refused.
+const MIGRATIONS = new Map([
+  ['opusProMigrationComplete', bool], ['sonnet1m45MigrationComplete', bool], ['hasResetAutoModeOptInForDefaultOffer', bool],
+  ['opusProMigrationTimestamp', count], ['legacyOpusMigrationTimestamp', count], ['sonnet45To46MigrationTimestamp', count],
+  ['fable5ToFableAliasMigrationTimestamp', count]
+]);
+
+function acceptedGlobal(key, value) {
+  if (GRANTS.has(key)) return empty(value);
+  if (GLOBAL_STATE.has(key)) return GLOBAL_STATE.get(key)(value);
+  if (IDENTIFIERS.has(key)) return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+  if (MIGRATIONS.has(key)) return MIGRATIONS.get(key)(value);
+  return false;
+}
+const acceptedProject = (key, value) => GRANTS.has(key) ? empty(value) : PROJECT_STATE.has(key) && PROJECT_STATE.get(key)(value);
+
+// Separate precedence check (not selected-byte persistence). Fail closed: malformed, oversized or too-deep JSON,
+// any grant-capable key with content, and any key not recognised as client bookkeeping are refused, because an
+// unrecognised key could be a loading, permission, preference or behaviour input the inspector cannot classify.
+export function inspectClaudeGlobalState(bytes) {
+  try {
+    if (!(bytes instanceof Uint8Array) || bytes.length > claudeGlobalStateBytes) return false;
+    const value = parseStrictJson(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), DEPTH);
+    if (!isRecord(value)) return false;
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === 'projects') {
+        if (!isRecord(entry)) return false;
+        for (const project of Object.values(entry)) {
+          if (!isRecord(project) || !Object.entries(project).every(([name, field]) => acceptedProject(name, field))) return false;
+        }
+      } else if (!acceptedGlobal(key, entry)) return false;
+    }
+    return true;
+  } catch { return false; }
+}

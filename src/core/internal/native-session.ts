@@ -13,7 +13,7 @@ export interface NativeDefinition {
   clientVersions: string[]; executableNames: string[]; runtimeMembers: NativeTreeFile['member'][];
   versionArgv: string[]; sessionArgv: string[]; parserId: string; identityAdapterId: string;
   credentialDestination: { root: 'home'; path: string }; guardrails: NativeTreeFile[]; guardrailsSha256: string;
-  lifecycleId: string; isolation: { mechanism: 'none' | 'client-native'; observerId: string | null; documentation: string[] };
+  lifecycleId: string; isolation: { mechanism: 'none' | 'client-native' | 'vendor-runtime'; observerId: string | null; documentation: string[] };
   evidenceSha256: string | null;
 }
 export interface NativeClientPin {
@@ -69,8 +69,18 @@ export interface NativeRuntime {
   protectNativeCell(cell: NativeCell, input: { deadline: number; signal?: AbortSignal }): Promise<boolean>;
   startNativeSession(input: { definition: NativeDefinition; pin: NativeClientPin; identity: NativeIdentityCapture; cell: NativeCell; material: NativeMaterial;
     index: 1 | 2; challenge: string; deadline: number; signal?: AbortSignal; environment: Record<string, string>; prompt: string }): Promise<NativeSessionHandle | (NativeHelperFailure & { partial?: NativeSessionHandle })>;
-  nativeStatePaths(definition: NativeDefinition): { home: string[]; project: string[] };
+  /** Fixed client-owned state for a definition; see {@link NativeStateEntry}. */
+  nativeStatePaths(definition: NativeDefinition): NativeStatePaths;
+  /** Separate precedence check for an inspected state file: true only when its content cannot change loading or permissions. */
+  inspectNativeState?(definition: NativeDefinition, input: { root: 'home' | 'project'; path: string; bytes: Buffer }): boolean;
 }
+/**
+ * One client-owned state path under a cell root. A tree entry may change between sessions, except any path that
+ * equals or lies beneath one of its fixed relative loading exclusions (at most one single-segment `*` each).
+ * An inspected entry is one regular file whose content must pass the runtime's separate inspection.
+ */
+export interface NativeStateEntry { path: string; exclusions: readonly string[]; inspected: boolean }
+export interface NativeStatePaths { home: readonly NativeStateEntry[]; project: readonly NativeStateEntry[] }
 
 export const nativeSessionRows = ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication', 'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'] as const;
 export type NativeSessionProofRow = Exclude<typeof nativeSessionRows[number], 'cleanup'>;

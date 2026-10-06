@@ -2,9 +2,13 @@ import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
 import { claudeConfigDirectory } from "./claude.mjs";
+import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
+import { publishNativeAdmission } from './admission.mjs';
 const sameWindowsPath = (a, b) => typeof a === "string" && typeof b === "string" && win32.isAbsolute(a) && win32.isAbsolute(b) && win32.normalize(a).toLowerCase() === win32.normalize(b).toLowerCase();
+const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
+const linuxVendor = definition => definition.platform.os === 'linux' && definition.lifecycleId === 'linux-srt.v1' && definition.isolation?.mechanism === 'vendor-runtime';
 const ENTRY_MARKER = "--aihq-native-absolute-entry";
 const MAX_PINNED_BYTES = 256 * 1024 * 1024;
 // `handle` is a started lifecycle handle or, when no client was started, the prepared context. The race
@@ -33,6 +37,8 @@ function createNativeRuntime(module, dependencies) {
   const adapters = new Set(["claude-stream-json.v1"]);
   const identitiesSupported = new Set(["claude-oauth-otel.v1"]);
   const identities = new WeakMap();
+  const linuxClients = new WeakMap();
+  const managedPolicy = definition => linuxVendor(definition) ? module.observeLinuxNativePolicy(definition.platform.execution) : module.observeClaudeManagedSettings();
   const checkTime = (input) => {
     if (input.signal?.aborted) throw new NativeStop("cancelled");
     if (performance.now() >= input.deadline) throw new NativeStop("budget-exhausted");
@@ -60,8 +66,10 @@ function createNativeRuntime(module, dependencies) {
   const credentialChannelSupported = (definition) => {
     try {
       const destination = definition.credentialDestination;
-      const redirect = claudeConfigDirectory("win32", "C:\\aihq-probe", posix.dirname(destination.path));
-      return definition.client === "claude" && identitiesSupported.has(definition.identityAdapterId) && destination.root === CREDENTIAL_DESTINATION.root && destination.path === CREDENTIAL_DESTINATION.path && redirect === win32.join("C:\\aihq-probe", posix.dirname(destination.path)) && typeof module.protectWindowsCell === "function";
+      const linux = linuxVendor(definition), platform = linux ? 'linux' : 'win32';
+      const home = linux ? '/aih-probe' : 'C:\\aihq-probe', paths = linux ? posix : win32;
+      const redirect = claudeConfigDirectory(platform, home, posix.dirname(destination.path));
+      return definition.client === "claude" && identitiesSupported.has(definition.identityAdapterId) && destination.root === CREDENTIAL_DESTINATION.root && destination.path === CREDENTIAL_DESTINATION.path && redirect === paths.join(home, posix.dirname(destination.path)) && (linux || typeof module.protectWindowsCell === "function");
     } catch {
       return false;
     }
@@ -80,7 +88,7 @@ function createNativeRuntime(module, dependencies) {
     const check = () => checkTime(input);
     const refused = () => new NativeStop("server-evidence-unavailable");
     try {
-      const cellRoot = `${realpathSync.native(cell.path).toLowerCase()}${sep}`;
+      const cellRoot = `${pathKey(realpathSync.native(cell.path))}${sep}`;
       const pins = new Map();
       const addPin = (path, expected, reason) => {
         const canonical = realpathSync.native(path);
@@ -88,19 +96,24 @@ function createNativeRuntime(module, dependencies) {
         const digest = sha256(bytes);
         if (digest !== expected.sha256 || expected.byteLength !== undefined && bytes.length !== expected.byteLength) throw new NativeStop(reason, "failed");
         const value = { path: canonical, sha256: digest, byteLength: bytes.length };
-        pins.set(canonical.toLowerCase(), value);
+        pins.set(pathKey(canonical), value);
         return value;
       };
       addPin(pin.executable, pin, "executable-changed");
       for (const value of pin.runtime) addPin(value.path, value, "executable-changed");
-      const nodeCanonical = realpathSync.native(process.execPath).toLowerCase();
+      if (linuxVendor(input.definition)) for (const file of [...material.outputTree, ...(input.definition.guardrails ?? [])]) {
+        const canonical = realpathSync.native(join(cell[file.root], ...file.path.split('/')));
+        if (!pathKey(canonical).startsWith(cellRoot)) throw new NativeStop('material-path-unsafe', 'failed');
+        addPin(canonical, file.member, 'fixture-bytes-mismatch');
+      }
+      const nodeCanonical = pathKey(realpathSync.native(process.execPath));
       const nodePin = pins.get(nodeCanonical);
       if (!nodePin) throw new NativeStop("executable-changed", "failed");
       const locate = (member) => {
         const file = material.outputTree.find((value) => value.member.path === member.path && value.member.sha256 === member.sha256 && value.member.byteLength === member.byteLength);
         if (!file || file.root !== "home" && file.root !== "project") throw refused();
         const canonical = realpathSync.native(join(cell[file.root], ...file.path.split("/")));
-        if (!canonical.toLowerCase().startsWith(cellRoot)) throw new NativeStop("material-path-unsafe", "failed");
+        if (!pathKey(canonical).startsWith(cellRoot)) throw new NativeStop("material-path-unsafe", "failed");
         return { file, pin: addPin(canonical, member, "fixture-bytes-mismatch") };
       };
       const recorded = material.server.evidenceAdapterId === module.recorderId;
@@ -143,8 +156,9 @@ function createNativeRuntime(module, dependencies) {
       const matches = selection.entries.filter((value) => value.id === identity.selectedEntryId);
       if (matches.length !== 1) return false;
       const [entry] = matches;
-      if (!sameWindowsPath(identity.executablePath, entry.executablePath) || identity.executableSha256 !== entry.executableSha256) return false;
-      if (!Array.isArray(identity.argv) || identity.argv.length !== entry.argv.length || !identity.argv.every((value, index) => index === 0 ? sameWindowsPath(value, entry.argv[0]) : value === entry.argv[index])) return false;
+      const samePath = linuxVendor(input.definition) ? (a, b) => typeof a === 'string' && posix.isAbsolute(a) && a === b : sameWindowsPath;
+      if (!samePath(identity.executablePath, entry.executablePath) || identity.executableSha256 !== entry.executableSha256) return false;
+      if (!Array.isArray(identity.argv) || identity.argv.length !== entry.argv.length || !identity.argv.every((value, index) => index === 0 ? samePath(value, entry.argv[0]) : value === entry.argv[index])) return false;
       checkTime(input);
       return true;
     } catch {
@@ -161,12 +175,13 @@ function createNativeRuntime(module, dependencies) {
     }
     const available = lifecycle?.status === "available";
     const windows = definition.platform.os === "win32" && process.platform === "win32" && definition.lifecycleId === "windows-job.v1";
+    const linux = linuxVendor(definition) && process.platform === 'linux' && process.arch === 'x64';
     return {
       lifecycle,
       capabilities: {
         lifecycle: available,
-        peerIdentity: available && windows && !lifecycle.missing && typeof module.prepareLifecycleContext === "function",
-        credentialChannel: available && windows && credentialChannelSupported(definition),
+        peerIdentity: available && (windows || linux) && !lifecycle.missing && typeof module.prepareLifecycleContext === "function",
+        credentialChannel: available && (windows || linux) && credentialChannelSupported(definition),
         ...!available ? { reason: lifecycle?.reason ?? "termination-unresolved" } : {}
       }
     };
@@ -194,7 +209,7 @@ function createNativeRuntime(module, dependencies) {
       return !!expected && canonicalJson(material.server.runtime) === canonicalJson(expected.server.runtime);
     },
     nativeManagedRestriction(definition) {
-      return definition.client === "claude" && adapters.has(definition.parserId) && module.observeClaudeManagedSettings().outcome === "restricted";
+      return definition.client === "claude" && adapters.has(definition.parserId) && managedPolicy(definition).outcome === "restricted";
     },
     async nativeCapabilities(definition, input) {
       return (await observeCapabilities(definition, input)).capabilities;
@@ -213,6 +228,13 @@ function createNativeRuntime(module, dependencies) {
       if (!input.acquireCell) return { outcome: "unavailable", reason: "sandbox-root-unavailable" };
       const cell = await input.acquireCell();
       checkTime(input);
+      if (linuxVendor(definition)) {
+        const resolved = observeFacility(await module.resolveLinuxNativeClient({ definition, input, client, cell, check: () => checkTime(input) }));
+        checkTime(input);
+        if (resolved.status !== 'resolved') return resolved;
+        linuxClients.set(resolved.pin, { platform: resolved.platform, vendor: resolved.vendor, runtime: resolved.runtime });
+        return resolved.pin;
+      }
       const nodeSha256 = sha256(nativeReadPinned(process.execPath, 256 * 1024 * 1024, () => checkTime(input)));
       const env = {
         PATH: [dirname(client.path), dirname(process.execPath)].join(process.platform === "win32" ? ";" : ":"),
@@ -351,6 +373,9 @@ function createNativeRuntime(module, dependencies) {
       checkTime(input);
       if (!adapters.has(input.definition.parserId) || !identitiesSupported.has(input.definition.identityAdapterId) || input.definition.client !== "claude") return { outcome: "unsupported", reason: "client-unsupported" };
       if (runtime.nativeManagedRestriction?.(input.definition)) return { outcome: "restricted", reason: "managed-restriction" };
+      const linux = linuxVendor(input.definition);
+      const linuxClient = linux ? linuxClients.get(input.pin) : null;
+      if (linux && (!linuxClient || managedPolicy(input.definition).outcome !== 'file-sources-clear')) return { outcome: 'unavailable', reason: 'restriction-unobservable' };
       const capabilities = await runtime.nativeCapabilities(input.definition, input);
       checkTime(input);
       if (!capabilities.lifecycle) return { outcome: "unavailable", reason: "termination-unresolved" };
@@ -375,6 +400,9 @@ function createNativeRuntime(module, dependencies) {
       };
       let stopped;
       let watchdog;
+      let tracking;
+      let admissionPublished = false;
+      let restrictionCounts;
       let snapshot = () => ({ ...incomplete(stopped ?? "native-internal"), completed: [] });
       const detach = () => {
         if (timer) clearTimeout(timer);
@@ -395,6 +423,13 @@ function createNativeRuntime(module, dependencies) {
         const receipt = await termination;
         await collector.cancel();
         await closeChannel();
+        if (linux && !admissionPublished) {
+          admissionPublished = true;
+          publishNativeAdmission({ phase: 'session', index: input.index, definition: input.definition.id,
+            runSha256: sha256(input.cell.path), vendorTreeSha256: linuxClient.vendor.treeSha256,
+            innerArgv: [input.pin.executable, ...input.definition.sessionArgv], outerArgv: lifecycle?.argv,
+            isolation: context.isolationRecord(), restrictions: restrictionCounts, cleanupConfirmed: receipt.confirmed });
+        }
         return receipt;
       };
       // Pre-client failure: stop whatever was created (context, channel, collector) and always report the
@@ -425,7 +460,7 @@ function createNativeRuntime(module, dependencies) {
       });
       const ownedHandle = (observations) => ({
         pid: lifecycle.pid,
-        argv: [input.pin.executable, ...input.definition.sessionArgv],
+        argv: linux ? lifecycle.argv : [input.pin.executable, ...input.definition.sessionArgv],
         challenge: channel.challenge,
         get cleanupStartedAt() {
           return cleanupStartedAt;
@@ -435,10 +470,12 @@ function createNativeRuntime(module, dependencies) {
         cleanup: (value) => cleanup(value.deadline, value.graceMs)
       });
       try {
-        // A fresh context (non-inheritable Job) exists before any evidence channel or client; every
+        // A fresh context exists before any evidence channel or client; every
         // failure below reaches cleanup(), which terminates it even when no client ever started.
         const selection = launchPlan(input);
-        const prepared = observeFacility(await module.prepareLifecycleContext({
+        const telemetry = await collector.start();
+        checkTime(input);
+        const contextInput = {
           lifecycleId: input.definition.lifecycleId,
           os: input.definition.platform.os,
           directory: input.cell.observations,
@@ -446,11 +483,14 @@ function createNativeRuntime(module, dependencies) {
           signal: input.signal,
           runtimePins: selection.runtimePins,
           selectedEntries: selection.entries
-        }));
-        if (prepared?.status !== "ready" || !prepared.context) return { outcome: "unavailable", reason: facilityReason(prepared?.reason, "termination-unresolved") };
+        };
+        const prepared = observeFacility(await (linux ? module.prepareLinuxSandboxContext({ ...contextInput,
+          cell: input.cell, runtime: linuxClient.runtime, vendor: linuxClient.vendor, collector: telemetry,
+          execution: input.definition.platform.execution, expectedArgv: input.definition.sessionArgv,
+          selectedPaths: [...new Set([...input.material.outputTree, ...input.definition.guardrails].map(file => join(input.cell[file.root], ...file.path.split('/'))))]
+        }) : module.prepareLifecycleContext(contextInput)));
+        if (prepared?.status !== "ready" || !prepared.context) return await failed(facilityReason(prepared?.reason, "termination-unresolved"));
         context = prepared.context;
-        checkTime(input);
-        const telemetry = await collector.start();
         checkTime(input);
         const plan = input.material.server.evidenceAdapterId === module.recorderId ? module.recorderPlan(resolved) : null;
         let transport;
@@ -460,7 +500,8 @@ function createNativeRuntime(module, dependencies) {
           if (created?.status !== "ready" || !created.transport) throw new Error("pipe-unavailable");
           transport = created.transport;
           handedOver = true;
-          channel = await module.startEvidenceChannel({ directory: input.cell.observations, isOwnedServer: (identity) => ownedPeer(identity, selection, input), plan, transport });
+          channel = await module.startEvidenceChannel({ directory: input.cell.observations,
+            isOwnedServer: async identity => await ownedPeer(identity, selection, input) && (!linux || context.acceptServer(identity)), plan, transport });
         } catch (error) {
           // The channel closes a transport it was given; a pipe it never handed over is closed here.
           if (transport && !handedOver) await Promise.resolve(transport.close?.()).catch(() => {
@@ -477,7 +518,10 @@ function createNativeRuntime(module, dependencies) {
             const stream = streams[0];
             const spec = { ...module.serverEvidenceSpec(resolved), queryTool: input.material.server.queryTool };
             const server = module.evaluateServerEvidence(evidence?.frames ?? [], spec);
-            const managed = module.observeClaudeManagedSettings();
+            restrictionCounts = { listedBuiltins: stream.builtinTools.length, listedUnselected: stream.unselectedTools,
+              permittedUnselected: stream.unselectedToolUses.filter(use => use.permitted).length,
+              unrequestedCalls: server.unrequestedCalls, rejectedQueryCalls: server.rejectedQueryCalls };
+            const managed = managedPolicy(input.definition);
             const evaluation = module.evaluateClaudeSession({
               sessionIndex: input.index,
               previousSessionId: null,
@@ -489,7 +533,7 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
+            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (linux ? context.failureReason : undefined) ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
@@ -518,7 +562,7 @@ function createNativeRuntime(module, dependencies) {
                 answerSha256: stream.answerSha256,
                 rejectedCalls: server.rejectedQueryCalls > 0
               },
-              isolation: "unobservable",
+              isolation: linux ? context.isolation() : "unobservable",
               serverPeerBound: evidence?.peer === "authenticated" && !evidence.violation,
               ...failure ? { failure: { reason: failure, outcome: "unavailable" } } : {},
               counts: { observedBytes: countedBytes("output", outputBytes) + telemetryResult.bytes + countedBytes("pipe", evidence?.bytes ?? 0), telemetryEvents: telemetryResult.counts.events, rpcMessages: evidence?.frames.length ?? 0 }
@@ -530,7 +574,8 @@ function createNativeRuntime(module, dependencies) {
               ...(['identity-conflict','limit-exceeded'].includes(telemetryResult.reason) ? ['provider-authentication'] : []),
               ...(server.discovery === 'complete' && stream.toolsListed ? ['tool-discovery'] : []),
               ...(observation.instructions.attestations.length || observation.instructions.alternateRead ? ['instruction-loading'] : []),
-              ...(server.query !== 'missing' && (server.query !== 'answered' || stream.answerSha256 !== null) ? ['read-only-query'] : [])
+              ...(server.query !== 'missing' && (server.query !== 'answered' || stream.answerSha256 !== null) ? ['read-only-query'] : []),
+              ...(observation.isolation === 'violated' || observation.isolation === 'observed' ? ['isolation'] : [])
             ];
             return observation;
         };
@@ -544,16 +589,20 @@ function createNativeRuntime(module, dependencies) {
           hostEnv: input.environment,
           homeDir: input.cell.home,
           scratchDir: input.cell.scratch,
-          runtimeDirs: [dirname(input.pin.executable), ...input.pin.runtime.map((value) => dirname(value.path))],
+          runtimeDirs: linux ? [dirname(linuxClient.runtime.node), dirname(linuxClient.runtime.client)] : [dirname(input.pin.executable), ...input.pin.runtime.map((value) => dirname(value.path))],
           telemetry,
           evidence: { endpoint: channel.endpoint, token: channel.token },
           configDir: posix.dirname(input.definition.credentialDestination.path)
         });
+        const protectedValues = linux ? (() => {
+          const oauth = module.parseStrictJson(input.identity.credential.toString('utf8')).claudeAiOauth;
+          return [oauth.accessToken, oauth.refreshToken, input.identity.expected.accountUuid, input.identity.expected.organizationId];
+        })() : [];
         const launched = await context.start({
           file: input.pin.executable,
           argv: input.definition.sessionArgv,
           cwd: input.cell.project,
-          env
+          env, ...(linux ? { protectedValues } : {})
         });
         if (launched?.status !== "started" || !launched.handle) {
           const reason = facilityReason(launched?.reason, "session-launch-failed");
@@ -604,6 +653,10 @@ function createNativeRuntime(module, dependencies) {
         }, Math.max(1, input.deadline - performance.now()));
         if (input.signal?.aborted) abort();
         watchdog = setInterval(() => {
+          if (!tracking && typeof lifecycle.track === 'function') {
+            tracking = Promise.resolve().then(() => lifecycle.track())
+              .catch(() => stop('isolation-unobserved')).finally(() => { tracking = undefined; });
+          }
           const observed = snapshot();
           if (observed.restrictions === 'managed') void stop('managed-restriction');
           else if (observed.sessionId && observed.authentication === 'conflict') void stop('identity-conflict');
@@ -623,6 +676,12 @@ function createNativeRuntime(module, dependencies) {
             collector.bindSession(stream.sessionId);
             const telemetryResult = await collector.drain({ launchedAtMs, closedAtMs: Date.now(), timeoutMs: Math.min(2000, Math.max(0, input.deadline - performance.now())) });
             const evidence = await closeChannel();
+            if (linux) {
+              // Core consumes observations before invoking handle cleanup. Final coverage must
+              // therefore reach this observation through the same memoized cleanup receipt.
+              cleanupStartedAt ??= performance.now();
+              await cleanup(Math.min(input.deadline, cleanupStartedAt + 10_000), 1000);
+            }
             return capture(streams, telemetryResult, evidence, true);
           } finally {
             detach();
@@ -638,8 +697,15 @@ function createNativeRuntime(module, dependencies) {
         return await failed(reason);
       }
     },
-    nativeStatePaths() {
-      return { home: [], project: [] };
+    // Only the fixed ordinary state of a supported Claude definition; never configuration or instruction surfaces.
+    nativeStatePaths(definition) {
+      const supported = definition?.client === "claude" && adapters.has(definition.parserId);
+      const copy = (entries) => supported ? entries.map((entry) => ({ path: entry.path, exclusions: [...entry.exclusions], inspected: entry.inspected })) : [];
+      return { home: copy(claudeStatePaths.home), project: copy(claudeStatePaths.project) };
+    },
+    // Separate precedence check for the one inspected state file.
+    inspectNativeState(definition, input) {
+      return definition?.client === "claude" && adapters.has(definition.parserId) && input?.root === "home" && input.path === claudeGlobalStatePath && inspectClaudeGlobalState(input.bytes);
     }
   };
   return runtime;

@@ -65,7 +65,7 @@ const event = { timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes:
   attr('user.account_uuid', process.env.FAKE_ACCOUNT), attr('organization.id', process.env.FAKE_ORG)] };
 if (mode !== 'no-telemetry') {
   await new Promise(resolve => {
-    const req = http.request(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT + '/v1/logs', { method: 'POST',
+    const req = http.request(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, { method: 'POST',
       headers: { authorization: header, 'content-type': 'application/json' } }, res => { res.resume(); res.on('end', resolve); });
     req.on('error', resolve);
     req.end(JSON.stringify({ resourceLogs: [{ scopeLogs: [{ logRecords: [event] }] }] }));

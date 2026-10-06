@@ -7,10 +7,12 @@ import { createReadStream, lstatSync, readdirSync, readFileSync, realpathSync, s
 import { delimiter as posixDelimiter, isAbsolute, join, posix, win32 } from 'node:path';
 import { nativeBounds } from './contracts.mjs';
 import { prepareWindowsContext, windowsAvailability } from './windows-facility.mjs';
+import { prepareLinuxContext, linuxAvailability } from './linux-facility.mjs';
 
 export async function lifecycleAvailability(lifecycleId, os, bounds = {}) {
   if (lifecycleId === 'posix-group.v1' && (os === 'linux' || os === 'darwin')) return { status: 'available' };
   if (lifecycleId === 'windows-job.v1' && os === 'win32') return windowsAvailability(bounds);
+  if (lifecycleId === 'linux-srt.v1' && os === 'linux') return linuxAvailability(bounds);
   return { status: 'unavailable', reason: 'platform-unsupported' };
 }
 
@@ -165,6 +167,7 @@ export async function startLifecycle({ lifecycleId, os, file, argv, cwd, env, de
 
 export async function prepareLifecycleContext(input) {
   if (input.lifecycleId === 'windows-job.v1' && input.os === 'win32') return prepareWindowsContext(input);
+  if (input.lifecycleId === 'linux-srt.v1' && input.os === 'linux') return prepareLinuxContext(input);
   return { status: 'unavailable', reason: 'platform-unsupported' };
 }
 

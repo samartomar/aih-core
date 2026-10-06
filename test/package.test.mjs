@@ -33,7 +33,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
-    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
+    // Installing the packed artifact fetches its registry dependencies; slower runners need more than the default.
+    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer, 300_000);
   };
   const run = (file, extraEnv = {}, timeout = 30_000) => execFileSync(process.execPath, [file],
     { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout });
@@ -44,11 +45,21 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       // Bundled dependency sources are part of their reviewed package bytes.
       // Product sources and private instructions/scratch remain excluded.
       assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:native-windows-verification\.md|reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md)|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:native-(?:windows|linux)-verification\.md|reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md)|examples\/reporting\/(?:data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes|@anthropic-ai\/sandbox-runtime|@pondwader\/socks5-server|commander|node-forge|zod)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json)|linux\/(?:facility|facility\.c|build-record\.json|interop-canary\.cs|interop-canary\.exe|interop-build-record\.json|runtime-lock\.json|runtime-platform\.json|observer-lock\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.1\.0\.json|schemas\/native-verification-definition\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
         `The published artifact must carry the reviewed @sigstore/${name} bytes.`);
+    }
+    for (const path of ['dist/harness/native/linux/facility', 'dist/harness/native/linux/facility.c',
+      'dist/harness/native/linux/build-record.json', 'dist/harness/native/linux/interop-canary.cs',
+      'dist/harness/native/linux/interop-canary.exe', 'dist/harness/native/linux/interop-build-record.json',
+      'dist/harness/native/linux/runtime-lock.json', 'dist/harness/native/linux/runtime-platform.json',
+      'dist/harness/native/linux/observer-lock.json',
+      'dist/harness/schemas/native-verification-definition/1.1.0.json', 'docs/native-linux-verification.md',
+      'node_modules/@anthropic-ai/sandbox-runtime/package.json', 'node_modules/@pondwader/socks5-server/package.json',
+      'node_modules/commander/package.json', 'node_modules/node-forge/package.json', 'node_modules/zod/package.json']) {
+      assert.ok(packed.files.some(entry => entry.path === path), `The published artifact must carry ${path}.`);
     }
     // The cryptography tree must come from the selected artifact, even without
     // registry access. Other ordinary dependencies retain their normal registry.
@@ -116,8 +127,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, 'native-public.mjs'), `
       import assert from 'node:assert/strict';
       import {spawnSync} from 'node:child_process';
-      import {readFileSync} from 'node:fs';
+      import {lstatSync,readFileSync,realpathSync} from 'node:fs';
       import {createHash} from 'node:crypto';
+      import {sep} from 'node:path';
       import {fileURLToPath} from 'node:url';
       import {verifyNativeClient} from '@aihq/core';
       import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
@@ -129,15 +141,31 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         const schema = (await import('@aihq/core/'+path+'/1.0.0.json',{with:{type:'json'}})).default;
         schemas.addSchema(schema);
       }
+      // Definition 1.1 uses intentional partial prefix arrays for adjacent argv values.
+      // Keep all schema validation; only Ajv's optional fixed-tuple heuristic is disabled for this schema.
+      const vendorSchema=(await import('@aihq/core/harness/schemas/native-verification-definition/1.1.0.json',{with:{type:'json'}})).default;
+      const vendorSchemas=new Ajv2020({strict:true,strictTuples:false}).addSchema(vendorSchema);
       const request = {schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'};
       assert.equal(validateNativeVerificationRequest(request).valid,true);
       assert.equal(schemas.validate(request.schema,request),true,JSON.stringify(schemas.errors));
       assert.equal(schemas.validate(request.schema,{...request,command:'untrusted'}),false);
       for (const definition of nativeVerificationDefinitions) {
+        const validator=definition.schema===vendorSchema.$id?vendorSchemas:schemas;
         assert.equal(validateNativeVerificationDefinition(definition).valid,true);
-        assert.equal(schemas.validate(definition.schema,definition),true,JSON.stringify(schemas.errors));
-        assert.equal(schemas.validate(definition.schema,{...definition,unexpected:true}),false);
+        assert.equal(validator.validate(definition.schema,definition),true,JSON.stringify(validator.errors));
+        assert.equal(validator.validate(definition.schema,{...definition,unexpected:true}),false);
       }
+      const linuxDefinition=nativeVerificationDefinitions.find(value=>value.schema==='urn:aihq:harness:native-verification-definition:1.1.0');
+      assert.ok(linuxDefinition,'packed Harness carries the Linux vendor-runtime definition');
+      assert.equal(linuxDefinition.lifecycleId,'linux-srt.v1');
+      assert.equal(linuxDefinition.isolation.mechanism,'vendor-runtime');
+      assert.equal(linuxDefinition.isolation.observerId,'anthropic-srt-linux.v1');
+      assert.deepEqual(linuxDefinition.sessionArgv.slice(-2),['--tools','']);
+      assert.equal(vendorSchemas.validate(linuxDefinition.schema,{...linuxDefinition,sessionArgv:['-p','']}),false);
+      assert.equal(vendorSchemas.validate(linuxDefinition.schema,{...linuxDefinition,isolation:{...linuxDefinition.isolation,mechanism:'none'}}),false);
+      const legacyDefinition=nativeVerificationDefinitions.find(value=>value.schema==='urn:aihq:harness:native-verification-definition:1.0.0');
+      assert.ok(legacyDefinition,'packed Harness keeps the unchanged 1.0.0 definition');
+      assert.equal(schemas.validate(legacyDefinition.schema,{...legacyDefinition,sessionArgv:[...legacyDefinition.sessionArgv,'']}),false);
       const identity = {schema:'urn:aihq:harness:native-test-identity:1.0.0',id:'dedicated-test',client:'claude',
         adapterId:'claude-oauth-otel.v1',purpose:'dedicated-native-test',
         expected:{accountUuid:'11111111-1111-1111-1111-111111111111',organizationId:'22222222-2222-2222-2222-222222222222'},
@@ -166,9 +194,37 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         assert.equal(bytes.length,row.byteLength);
         assert.equal(createHash('sha256').update(bytes).digest('hex'),row.sha256);
       }
+      const linuxRecord=JSON.parse(readFileSync(new URL('linux/build-record.json',nativeRoot),'utf8'));
+      assert.equal(linuxRecord.protocol,1); assert.equal(linuxRecord.platform,'linux-x64');
+      assert.equal(linuxRecord.build.status,'ci-reproduced'); assert.equal(linuxRecord.build.independentBuildVerified,true);
+      assert.deepEqual(linuxRecord.resources.map(row=>row.name).sort(),['facility','facility.c']);
+      const interopRecord=JSON.parse(readFileSync(new URL('linux/interop-build-record.json',nativeRoot),'utf8'));
+      assert.equal(interopRecord.purpose,'synthetic-wsl-execution-canary');
+      assert.deepEqual(interopRecord.resources.map(row=>row.name).sort(),['interop-canary.cs','interop-canary.exe']);
+      for (const row of [...linuxRecord.resources,...interopRecord.resources]) {
+        const bytes=readFileSync(new URL('linux/'+row.name,nativeRoot));
+        assert.equal(bytes.length,row.byteLength); assert.equal(createHash('sha256').update(bytes).digest('hex'),row.sha256);
+      }
+      const installedRoot=realpathSync.native(fileURLToPath(new URL('../../../',nativeRoot)));
+      const {linuxObserverPins,linuxObserverSources}=await import(new URL('linux-sandbox.mjs',nativeRoot));
+      const observer=linuxObserverPins(); assert.equal(observer.length,linuxObserverSources.length);
+      for (const pin of observer) assert.ok(pin.path.startsWith(installedRoot+sep));
+      const {verifyLinuxVendorClosure}=await import(new URL('linux-runtime.mjs',nativeRoot));
+      const vendor=verifyLinuxVendorClosure(); assert.equal(vendor.status,'ready');
+      const vendorLock=JSON.parse(readFileSync(new URL('linux/runtime-lock.json',nativeRoot),'utf8'));
+      assert.equal(vendor.treeSha256,vendorLock.treeSha256);
+      assert.ok(vendor.entry.startsWith(installedRoot+sep));
+      for (const pin of vendor.pins) assert.ok(pin.path.startsWith(installedRoot+sep));
       const nativeRuntime=await import(new URL('runtime.mjs',nativeRoot));
       const facility=await nativeRuntime.lifecycleAvailability('windows-job.v1','win32',{deadline:performance.now()+5000});
       assert.equal(facility.status,process.platform==='win32'&&process.arch==='x64'?'available':'unavailable');
+      const linuxFacility=await nativeRuntime.lifecycleAvailability('linux-srt.v1','linux',{deadline:performance.now()+5000});
+      const linuxSupported=process.platform==='linux'&&process.arch==='x64'&&process.getuid()!==0;
+      assert.equal(linuxFacility.status,linuxSupported?'available':'unavailable',JSON.stringify(linuxFacility));
+      if (linuxSupported) {
+        assert.notEqual(lstatSync(new URL('linux/facility',nativeRoot)).mode&0o111,0);
+        assert.equal(linuxFacility.cleanup.confirmed,true);
+      }
       const child = spawnSync(process.execPath,[binary,'verify-client','claude','--json'],{encoding:'utf8',timeout:20000,windowsHide:true});
       assert.equal(child.status,1,child.stderr);
       const result = JSON.parse(child.stdout);
@@ -194,6 +250,32 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         expected, `Actual verifier resolution of ${name}`);
     }
     assert.equal(installedVersion(bundleRequire, '@sigstore/protobuf-specs'), '0.5.0');
+    // The pinned Linux vendor closure resolves from the artifact's own bundled bytes.
+    const srtRequire = createRequire(coreRequire.resolve('@anthropic-ai/sandbox-runtime/package.json'));
+    const closureVersion = (resolveFrom, name) => {
+      let directory = dirname(resolveFrom.resolve(name));
+      for (let depth = 0; depth <= 8; depth += 1) {
+        const candidate = join(directory, 'package.json');
+        if (existsSync(candidate)) {
+          const parsed = JSON.parse(readFileSync(candidate, 'utf8'));
+          if (parsed.name === name) return { root: directory, version: parsed.version };
+        }
+        const parent = dirname(directory);
+        if (parent === directory) break;
+        directory = parent;
+      }
+      throw new Error(`Cannot locate the installed ${name} manifest`);
+    };
+    for (const [name, expected] of Object.entries({
+      '@anthropic-ai/sandbox-runtime': '0.0.78', '@pondwader/socks5-server': '1.0.10',
+      'commander': '12.1.0', 'node-forge': '1.4.0', 'zod': '3.25.76'
+    })) {
+      const resolveFrom = name === '@anthropic-ai/sandbox-runtime' ? coreRequire : srtRequire;
+      const found = closureVersion(resolveFrom, name);
+      assert.ok(found.root.startsWith(join(installed, 'node_modules') + sep),
+        `Bundled resolution of ${name}`);
+      assert.equal(found.version, expected, `Actual Linux vendor closure resolution of ${name}`);
+    }
     assert.equal(manifest.dependencies['@aihq/harness'], undefined);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/harness')), false);
     assert.equal(existsSync(join(consumer, 'node_modules/@aihq/scan')), false);
@@ -588,7 +670,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(existsSync(join(updated, 'dist/harness/package.json')), false);
     // This runs a complete standalone suite, including bounded Windows native
     // subprocess checks. Its budget is larger than an individual npm install.
-    npm(['test'], updated, 300_000);
+    try { npm(['test'], updated, 300_000); } catch (error) {
+      const lines = String(error.stdout ?? '').split('\n');
+      const failing = lines.filter(line => /^\s*✖ /.test(line)).slice(0, 20);
+      const failingAt = lines.findIndex(line => line.includes('failing tests:'));
+      error.message += '\nnested suite failures:\n' + (failingAt >= 0 ? failing.concat(lines.slice(failingAt + 1, failingAt + 61)) : failing).join('\n');
+      throw error;
+    }
     const replacement = pack(updated);
     assert.equal(replacement.version, nextVersion);
     install(replacement);

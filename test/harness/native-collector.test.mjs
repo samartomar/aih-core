@@ -32,6 +32,22 @@ function post(collector, { path = '/v1/logs', method = 'POST', headers = {}, pay
 const times = () => ({ launchedAtMs: Date.now() - 5000, closedAtMs: Date.now() + 5000 });
 const make = (options = {}) => createClaudeCollector({ sessionId: SID, expected, ...options });
 
+test('the isolated reachability probe uses a separate token and cannot establish identity', async () => {
+  const c = make(); const started = await c.start();
+  try {
+    assert.match(started.probeToken, /^[a-f0-9]{64}$/);
+    assert.notEqual(started.probeToken, c.token);
+    assert.equal(await post(c, { method: 'GET', path: '/aih-native-probe', payload: '' }), 401);
+    assert.equal(await post(c, { method: 'GET', path: '/aih-native-probe', payload: '',
+      headers: { authorization: 'Bearer ' + started.probeToken } }), 200);
+    const result = c.snapshot(times());
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.counts.events, 0);
+    assert.equal(result.counts.requests, 0);
+    assert.equal(JSON.stringify(result).includes(started.probeToken), false);
+  } finally { await c.cancel(); }
+});
+
 test('a matched api_request event proves identity and retains no content', async () => {
   const c = make();
   await c.start();

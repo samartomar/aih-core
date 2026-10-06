@@ -8,9 +8,9 @@ import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-// Only the exact absolute-entry child opens the verification channel on Windows.
+// Only the exact absolute-entry child opens the verification channel on Windows and Linux.
 // The configuration's relative command remains unchanged between fresh sessions.
-if (process.platform === 'win32' && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
+if ((process.platform === 'win32' || process.platform === 'linux') && process.env.AIHQ_NATIVE_EVIDENCE_CHANNEL &&
     process.argv[2] !== '--aihq-native-absolute-entry') {
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--aihq-native-absolute-entry'],
     { shell: false, windowsHide: true, stdio: 'inherit', env: process.env });
