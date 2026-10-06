@@ -669,7 +669,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(existsSync(join(updated, 'dist/harness/package.json')), false);
     // This runs a complete standalone suite, including bounded Windows native
     // subprocess checks. Its budget is larger than an individual npm install.
-    npm(['test'], updated, 300_000);
+    try { npm(['test'], updated, 300_000); } catch (error) {
+      const lines = String(error.stdout ?? '').split('\n');
+      const failing = lines.filter(line => /^\s*✖ /.test(line)).slice(0, 20);
+      const failingAt = lines.findIndex(line => line.includes('failing tests:'));
+      error.message += '\nnested suite failures:\n' + (failingAt >= 0 ? failing.concat(lines.slice(failingAt + 1, failingAt + 61)) : failing).join('\n');
+      throw error;
+    }
     const replacement = pack(updated);
     assert.equal(replacement.version, nextVersion);
     install(replacement);

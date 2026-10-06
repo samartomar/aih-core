@@ -113,7 +113,9 @@ test('adapter refreshes owned processes without overlapping native observations'
     calls++; active++; maximum = Math.max(maximum, active);
     await new Promise(resolve => setTimeout(resolve, 35)); active--;
   } });
-  await new Promise(resolve => setTimeout(resolve, 140));
+  const refreshDeadline = Date.now() + 5000;
+  while (calls < 2 && Date.now() < refreshDeadline) await new Promise(resolve => setTimeout(resolve, 10));
+  if (calls < 2) assert.fail('adapter did not refresh twice');
   assert.ok(calls >= 2);
   assert.equal(maximum, 1);
 });
