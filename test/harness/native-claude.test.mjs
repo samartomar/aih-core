@@ -32,6 +32,19 @@ const parse = (records, extra = options) => {
   return parser.finish();
 };
 
+test('result presence distinguishes an absent result from one with no subtype or error flag', () => {
+  const absent = parse([init()]);
+  assert.equal(absent.resultSeen, false);
+  const unknown = parse([init(), { type: 'result', session_id: SID }]);
+  assert.equal(unknown.resultSeen, true);
+  assert.equal(unknown.resultSubtype, null);
+  assert.equal(unknown.resultIsError, null);
+  const error = parse([init(), { ...done, subtype: 'error_during_execution', is_error: true }]);
+  assert.equal(error.resultSeen, true);
+  assert.equal(error.resultSubtype, 'error_during_execution');
+  assert.equal(error.resultIsError, true);
+});
+
 test('a healthy stream yields session id, discovery, attestation and answer evidence', () => {
   const o = parse(healthy());
   assert.equal(o.status, 'ok');
