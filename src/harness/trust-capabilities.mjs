@@ -1,4 +1,4 @@
-// Exact tested format/profile admission. OS discovery and actual client admission remain separate gates.
+// Exact tested supplied-format/profile admission; OS/native repair remains unavailable.
 // This data is excluded from its own evidence subject. Records contain only executed outcomes.
 export const trustCellRecords = Object.freeze([
   {
@@ -19,7 +19,7 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-pem-win32-declared.json",
-      "sha256": "076b4726df21863ba4124ecdeeec7f4fb650bc8f24d0d2aeee6b4ba875b84fec",
+      "sha256": "1996c3ac3e7bf22c7d65e29321ca20cacbb06b99f9cfb1eb4b894fedb5a7990a",
       "subjectSha256": "ee7e8d9339d2c28e6205cec42dd7e483678239e59ffe0627709d38449bb87733"
     }
   },
@@ -41,7 +41,7 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-pem-win32-off.json",
-      "sha256": "bebc6c54bb00fb0a57dbcd12e1a9e4ef6b1013b8e43ad35712bdbc9e11028c5e",
+      "sha256": "2d3486d8b8d9812531ab0db39ee4a0c415d7f664b6ed321446e8fe3afdc49ef8",
       "subjectSha256": "2ee21bc6cbd460c239ee8c6303415e64c6ee6393c44e1187b257c67d627829ec"
     }
   },
@@ -63,7 +63,7 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-p7b-win32-declared.json",
-      "sha256": "39d28d706ab3a2ba64e743656c860397dafdc702eb4db739786a4a6ad0d370a4",
+      "sha256": "b19c6a49b07d5fbe518c53e1eea7cd0a5105a8fec92d4e14256b769049b6246d",
       "subjectSha256": "eb73d8a8a97ce37af425e8011d29ca00694d79fc9bd72f7ad0adc03006dd6a49"
     }
   },
@@ -85,7 +85,7 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/export-p7b-win32-off.json",
-      "sha256": "14c0bebd96a2933c03f65c370b8fe5fd84dace6dcadb95c623c9e2e3b0765b56",
+      "sha256": "7e7aa9346798f5349f0b017b4732877af07b56d0371a7d003771d0483f5c9684",
       "subjectSha256": "ff2106624390aa13c61c8c2e8227a8d9b779ba7a85c527b57fbdc3144799c454"
     }
   }

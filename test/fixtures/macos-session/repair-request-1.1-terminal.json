@@ -1,0 +1,7 @@
+{
+  "schema": "urn:aihq:core:repair-request:1.1.0",
+  "useCase": "repair",
+  "repairs": [{ "id": "node-npm-ca", "targets": ["node", "npm"], "inputs": {} }],
+  "route": "native",
+  "macosSession": { "context": "terminal", "applications": [] }
+}

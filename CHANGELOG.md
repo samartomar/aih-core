@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.11 adds versioned macOS session contracts, supplied-file Node/npm
+terminal integration, protected session custody and observation/removal support.
+Desktop requests remain unavailable until exact native application profiles are
+admitted. CI and VM rehearsal are development evidence. Full desktop acceptance
+and npm publication remain pending.
+
 Core 1.0.0-dev.10 adds a Linux x64 WSL2 native-verification candidate using a
 fixed Anthropic Sandbox Runtime 0.0.78 profile, a packaged Linux process/IPC
 observer and independently pinned runtime bytes. Definition schema 1.1.0 adds

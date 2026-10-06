@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:repair-request:1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "useCase", "repairs", "route", "macosSession"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:repair-request:1.1.0" },
+    "useCase": { "const": "repair" },
+    "repairs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "targets", "inputs"],
+        "properties": {
+          "id": { "enum": ["node-npm-ca", "user-tools-ca", "jvm-ca"] },
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["node", "npm", "python", "pip", "git", "cargo", "conda", "gradle", "maven"] }
+          },
+          "inputs": {
+            "type": "object",
+            "propertyNames": { "not": { "const": "caFile" } },
+            "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }] }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "type": "object", "properties": { "id": { "const": "node-npm-ca" } }, "required": ["id"] },
+            "then": { "type": "object", "properties": { "targets": { "type": "array", "items": { "enum": ["node", "npm"] } } } }
+          },
+          {
+            "if": { "type": "object", "properties": { "id": { "const": "user-tools-ca" } }, "required": ["id"] },
+            "then": { "type": "object", "properties": { "targets": { "type": "array", "items": { "enum": ["python", "pip", "git", "cargo", "conda"] } } } }
+          },
+          {
+            "if": { "type": "object", "properties": { "id": { "const": "jvm-ca" } }, "required": ["id"] },
+            "then": { "type": "object", "properties": { "targets": { "type": "array", "items": { "enum": ["gradle", "maven"] } } } }
+          }
+        ]
+      }
+    },
+    "route": { "enum": ["native", "file"] },
+    "sources": { "$ref": "#/$defs/trustSources" },
+    "network": { "enum": ["declared", "off"] },
+    "resolutions": { "type": "array", "items": { "$ref": "#/$defs/trustResolution" } },
+    "macosSession": { "$ref": "#/$defs/macosSession" }
+  },
+  "allOf": [
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "file" } }, "required": ["route"] },
+      "then": { "type": "object", "properties": { "sources": {} }, "required": ["sources"] }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "native" } }, "required": ["route"] },
+      "then": { "not": { "type": "object", "properties": { "sources": {} }, "required": ["sources"] } }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "native" } }, "required": ["route"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "repairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": { "inputs": { "type": "object", "propertyNames": { "not": { "const": "baselineStore" } } } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "type": "object", "properties": { "route": { "const": "file" } }, "required": ["route"] },
+      "then": {
+        "type": "object",
+        "properties": {
+          "repairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "if": { "type": "object", "properties": { "id": { "const": "jvm-ca" } }, "required": ["id"] },
+              "then": { "type": "object", "properties": { "inputs": { "type": "object", "properties": { "baselineStore": {} }, "required": ["baselineStore"] } } }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "suppliedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": { "$ref": "#/$defs/sourceId" },
+        "file": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "trustSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "supplied"],
+      "properties": {
+        "os": { "type": "boolean" },
+        "supplied": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/suppliedSource" }
+        },
+        "removeSupplied": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        }
+      }
+    },
+    "trustResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selectionId", "operationId", "choice", "observedSha256"],
+      "properties": {
+        "selectionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "choice": { "const": "replace" },
+        "observedSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+      }
+    },
+    "macosSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "applications"],
+      "properties": {
+        "context": { "enum": ["terminal", "desktop", "both"] },
+        "applications": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/macosApplication" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "properties": { "context": { "const": "terminal" } }, "required": ["context"] },
+          "then": { "type": "object", "properties": { "applications": { "type": "array", "maxItems": 0 } } }
+        },
+        {
+          "if": { "type": "object", "properties": { "context": { "enum": ["desktop", "both"] } }, "required": ["context"] },
+          "then": { "type": "object", "properties": { "applications": { "type": "array", "minItems": 1 } } }
+        }
+      ]
+    },
+    "macosApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientId", "appPath", "targets", "launch"],
+      "properties": {
+        "clientId": { "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"] },
+        "appPath": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["node", "npm", "python", "pip", "git", "cargo", "conda", "gradle", "maven"] }
+        },
+        "launch": { "enum": ["finder", "dock"] }
+      }
+    }
+  }
+}

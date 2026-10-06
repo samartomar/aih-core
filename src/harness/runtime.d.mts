@@ -77,3 +77,8 @@ export type ReadGitHubPolicyResult =
       message: string; source?: GitHubPolicySource; retryAfterSeconds?: number;
       helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting };
 export declare function readGitHubPolicy(source: unknown, controls?: GitHubPolicyReaderControls): Promise<ReadGitHubPolicyResult>;
+export { macosSessionBudgets, macosSessionTrustKeys, renderMacosSessionLaunchAgent,
+  observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
+export type { MacosSessionBudgets, MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
+  MacosSessionControls, MacosGuiSessionObservation, MacosApplicationRequest, MacosApplicationObservation,
+  MacosGuiKeyRequest, MacosGuiKeyRead } from './macos-session.mjs';

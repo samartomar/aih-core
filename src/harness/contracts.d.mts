@@ -1,6 +1,10 @@
 export interface TargetDefinition {
   id: string; label: string; binaries: readonly string[]; configDirs: readonly string[]; origins: readonly string[];
 }
+export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 } from './macos-session-definitions.mjs';
+export type { RepairDefinition12 } from './macos-session-definitions.mjs';
+export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
+import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export interface SupportedContract {
@@ -72,7 +76,7 @@ export declare const trustPlatformMatrix: readonly { os: 'win32' | 'darwin' | 'l
 export declare const consumerProfiles: { readonly pem: 'pem-server-ca-v1'; readonly 'pkcs7-der': 'pkcs7-certificate-import-v1' };
 export declare const trustCapabilities: TrustCapabilities;
 export declare function selectRepairDefinition(query: { requestSchema?: string; repairId: string; definitionSchema: string }):
-  RepairDefinition11 | (typeof repairIndex)[number] | undefined;
+  RepairDefinition11 | RepairDefinition12 | (typeof repairIndex)[number] | undefined;
 export declare function validateRepairDefinition11(value: unknown, options?: {
   adapters?: readonly { id: string }[]; capabilities?: TrustCapabilities; resolveRecipeRef?: (ref: string) => boolean }):
   { valid: boolean; diagnostics: TrustDefinitionDiagnostic[] };

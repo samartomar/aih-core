@@ -8,6 +8,9 @@ import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner, cus
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathPins } from './internal/host-files.js';
+import { readMacosCustody, macosCustodyParticipant, joinSessionParticipant, sessionFilesMatch } from './internal/macos-session-custody.js';
+import { wrapMacosRemoval } from './macos-session.js';
+import type { MacosSessionEffect } from './macos-session-contracts.js';
 import type { Diagnostic, ExecutionPolicy } from './types.js';
 import type { GitHubPolicySource, HostControls, PreparationResult } from './host-types.js';
 
@@ -142,6 +145,15 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   try { home = userHomeRoot(); image = readImage(project, home); } catch { return unverifiable(); }
   if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unverifiable();
   const custody = classify(image, project, home, scope, managementId);
+  let sessionImage: ReturnType<typeof readMacosCustody> | undefined;
+  let sessionEntry: NonNullable<typeof sessionImage>['value']['entries'][number] | undefined;
+  if (scope === 'user') {
+    try {
+      sessionImage = readMacosCustody(); sessionEntry = sessionImage.value.entries.find(entry => entry.managementId === managementId);
+      if (sessionEntry && (sessionEntry.context !== 'terminal' || sessionEntry.keys.length || sessionEntry.profileIds.length || !sessionFilesMatch(sessionEntry)))
+        return done('reconcile-required', known, [diagnostic('STATE_CONFLICT', 'session-ownership-conflict', 'Session configuration changed; reconcile it before removal.')]);
+    } catch (error) { return unavailable(error instanceof Error ? error.message : 'session-custody-unavailable', 'Session recovery requires reconciliation.', 'STATE_CONFLICT'); }
+  }
   let trustImage: TrustCustodyImage | undefined; let trustEntries: TrustCustodyEntry[] = [];let pending:TrustPendingImage|undefined;
   if (scope === 'user') {
     try {
@@ -193,12 +205,20 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   const forwarded: HostControls = { ...(controls.signal === undefined ? {} : { signal: controls.signal }),
     ...(controls.logging === undefined ? {} : { logging: controls.logging }),
     ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) };
-  const preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
-    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
-  undefined, sameImage, trustImage && trustEntries.length ? custodyParticipant(trustImage,[],() => {
+  const trustParticipant = trustImage && trustEntries.length ? custodyParticipant(trustImage, [], () => {
     if (!sameImage()) throw new Error('review-stale');
     for (const entry of trustEntries) if (!custody.claimed && !absent(join(home,...entry.relativePath.split('/')))) throw new Error('review-stale');
-  },trustEntries,pending) : undefined);
+  }, trustEntries, pending) : undefined;
+  const effects: MacosSessionEffect[] = [];
+  const sessionParticipant = sessionImage && sessionEntry ? macosCustodyParticipant(sessionImage, null, sessionEntry, () => {
+    if (!sameImage() || !sessionFilesMatch(sessionEntry!)) throw new Error('review-stale');
+  }, effects) : undefined;
+  if (sessionParticipant && !trustParticipant) return unavailable('session-custody-unavailable', 'Ordinary trust and session custody must agree.', 'STATE_CONFLICT');
+  const participant = sessionParticipant ? joinSessionParticipant(trustParticipant!, sessionParticipant) : trustParticipant;
+  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
+    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
+  undefined, sameImage, participant);
+  if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation });

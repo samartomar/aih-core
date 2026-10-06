@@ -1,0 +1,45 @@
+{
+  "schema": "urn:aihq:core:macos-session-verification-result:1.0.0",
+  "status": "complete",
+  "package": { "name": "@aihq/core", "version": "1.0.0-dev.9" },
+  "platform": { "os": "darwin", "release": "26.0", "build": "25A354", "architecture": "arm64" },
+  "managementId": "node-npm-trust",
+  "selectionId": "trust",
+  "bindingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "observations": [
+    {
+      "context": "terminal",
+      "target": "node",
+      "clientId": null,
+      "appPath": null,
+      "profileId": null,
+      "trustCellId": "node-macos-26-arm64-native",
+      "probeProfile": "node-tls-npm-v1",
+      "client": {
+        "version": "24.19.0",
+        "build": "release",
+        "backend": "OpenSSL",
+        "backendVersion": "3.0.16",
+        "applicationId": null
+      },
+      "executableSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "applicationIdentitySha256": null,
+      "configurationSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "helperSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sessionIdentitySha256": null,
+      "processBirthSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "observationSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "checkIds": ["node-tls"]
+    }
+  ],
+  "configuration": "already-satisfied",
+  "verification": "passed",
+  "reason": "terminal-checks-passed",
+  "applications": [],
+  "checks": [
+    { "id": "node-tls", "operationId": "trust/node-config", "status": "passed", "reason": "observed" }
+  ],
+  "diagnostics": [],
+  "elapsedMs": 42,
+  "record": { "status": "disabled", "reason": "logging-off" }
+}

@@ -24,55 +24,55 @@
       "id": "pem-custody-recorded",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Persisted provenance matched a genuine ordinary recipe receipt and observed output digest."
+      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
     },
     {
       "id": "pem-deterministic-bytes",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Reversed source DER order preserved exact output bytes through packed public refresh."
+      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
     },
     {
       "id": "pem-independent-parse-set",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Strict independent parser found the exact two DER fingerprints and certificate-only container."
+      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
     },
     {
       "id": "pem-public-api-write",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Packed public Prepare/Apply wrote the reviewed path; full 1.2 review and result validated."
+      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
     },
     {
       "id": "pem-refresh-replace-reviewed",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Explicit same-ID replacement reviewed removal and persisted the exact refreshed source set."
+      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
     },
     {
       "id": "pem-reject-key-material",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "A supplied private-key block rejected the whole request and preserved prior output."
+      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
     },
     {
       "id": "pem-reject-output-extension-mismatch",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Mismatched output extension rejected before user-output effects."
+      "summary": "An output extension mismatch rejected before output effects."
     },
     {
       "id": "pem-reject-unsafe-path",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "A parent-traversal output was rejected and no outside file appeared."
+      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
     },
     {
       "id": "pem-removal-reconciled",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Managed public removal retired the output, ordinary claim and protected provenance."
+      "summary": "Managed public removal retired the output and protected provenance with its ordinary ownership."
     }
   ],
   "limitations": [

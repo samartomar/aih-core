@@ -17,6 +17,19 @@ import { canonicalJson } from './internal/canonical.js';
 import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
 import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { trustContractSchemas } from './trust-contracts.js';
+import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
+import macosInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
+import macosPreparedSchema from './schemas/prepared-work/1.3.0.json' with { type: 'json' };
+import macosResultSchema from './schemas/run-result/1.3.0.json' with { type: 'json' };
+import macosCustodySchema from './schemas/macos-session-custody/1.0.0.json' with { type: 'json' };
+import macosVerificationRequestSchema from './schemas/macos-session-verification-request/1.0.0.json' with { type: 'json' };
+import macosVerificationResultSchema from './schemas/macos-session-verification-result/1.0.0.json' with { type: 'json' };
+export type * from './macos-session-contracts.js';
+export { validateMacosRepairRequest, validateMacosRepairInputs, validateMacosSessionReview, validateMacosSessionRun,
+  validateMacosSessionCustody, validateMacosSessionVerificationRequest, validateMacosSessionVerificationResult,
+  validateMacosSessionProfiles, validatePreparedWork13, validateRunResult13,
+  MACOS_REPAIR_REQUEST_SCHEMA, MACOS_REPAIR_INPUTS_SCHEMA, MACOS_PREPARED_WORK_SCHEMA, MACOS_RUN_RESULT_SCHEMA,
+  MACOS_SESSION_CUSTODY_SCHEMA, MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA, MACOS_SESSION_VERIFICATION_RESULT_SCHEMA } from './macos-session-contracts.js';
 export type * from './types.js';
 export type * from './file-state-types.js';
 export type * from './trust-contracts.js';
@@ -64,6 +77,14 @@ export const contractSupport = Object.freeze({
       id: schema.$id, role: trustSchemaRoles[schema.$id] ?? 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
+    ...[macosRequestSchema, macosInputsSchema, macosPreparedSchema, macosResultSchema, macosCustodySchema,
+      macosVerificationRequestSchema, macosVerificationResultSchema].map(schema => ({
+      id: schema.$id, role: schema === macosCustodySchema ? 'both' :
+        [macosPreparedSchema, macosResultSchema, macosVerificationResultSchema].includes(schema as never) ? 'produces' : 'accepts',
+      schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
+    })),
+    { id: 'urn:aihq:harness:repair:1.2.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/repair/1.2.0.json' },
+    { id: 'urn:aihq:harness:macos-session-profiles:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/macos-session-profiles/1.0.0.json' },
     { id: 'urn:aihq:harness:repair:1.1.0', role: 'accepts',
       schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' },
     { id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'accepts',

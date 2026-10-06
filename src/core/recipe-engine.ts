@@ -440,7 +440,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`; overlayKey = key;
           const overlay = overlays.get(key);
           if (overlay) requires.push(overlay.priorId);
-          guardTrustMember(root, path, trustParticipant?.allows(root, path) ?? false);
+          guardTrustMember(root, path, trustParticipant?.allows(root, path) ?? false, trustParticipant?.macosSession === true);
           const tx = transaction(root); const live = tx.inspect(path);
           if (live.state === 'unreadable') throw new Error('target-unreadable');
           initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
@@ -703,7 +703,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
       if (owner.managementId.startsWith('ca-export-') && !(trustParticipant?.allows(root,descriptor.path) ?? false)) throw new Error('trust-custody-conflict');
-      guardTrustMember(root, descriptor.path, trustParticipant?.allows(root, descriptor.path) ?? false);
+      guardTrustMember(root, descriptor.path, trustParticipant?.allows(root, descriptor.path) ?? false, trustParticipant?.macosSession === true);
       const live = transaction(root).inspect(descriptor.path);
       if (live.state === 'unreadable') throw new Error('target-unreadable');
       const destination = `${root}:${process.platform === 'win32' ? descriptor.path.toLowerCase() : descriptor.path}`;
@@ -944,7 +944,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const capture of state.captures) if (!await capture.recheck()) throw new Error('review-stale');
     const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
-      guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false);
+      guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false, state?.trustParticipant?.macosSession === true);
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
       if (!pinsOkay && isManagedContentRoot(step.root) &&

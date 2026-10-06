@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:macos-session-profiles:1.0.0",
+  "title": "Harness macOS session admission profiles",
+  "description": "Finite bundled session admission profiles. An empty list means no admitted app/session cell. Package identity, evidence bytes, helper bytes and the trust-capability join are verified by the installed package.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package", "profiles"],
+  "properties": {
+    "schema": { "const": "urn:aihq:harness:macos-session-profiles:1.0.0" },
+    "package": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": { "name": { "const": "@aihq/core" }, "version": { "$ref": "#/$defs/text" } }
+    },
+    "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/profile" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "cdHash": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "clientId", "trustCellId", "launch", "mechanism", "bundleId", "teamId", "cdHash", "appVersion", "appBuild", "runtimeSha256", "configurationProfile", "helperSha256", "environmentKeys", "relaunch", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "clientId": { "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"] },
+        "trustCellId": { "$ref": "#/$defs/identifier" },
+        "launch": { "enum": ["finder", "dock"] },
+        "mechanism": { "enum": ["app-config", "gui-environment"] },
+        "bundleId": { "$ref": "#/$defs/text" },
+        "teamId": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/identifier" }] },
+        "cdHash": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/cdHash" }] },
+        "appVersion": { "$ref": "#/$defs/text" },
+        "appBuild": { "$ref": "#/$defs/text" },
+        "runtimeSha256": { "$ref": "#/$defs/sha256" },
+        "configurationProfile": { "$ref": "#/$defs/identifier" },
+        "helperSha256": { "$ref": "#/$defs/sha256" },
+        "environmentKeys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "relaunch": { "enum": ["quit-app", "logout-login"] },
+        "evidence": {
+          "type": "object", "additionalProperties": false, "required": ["reference", "sha256", "subjectSha256"],
+          "properties": {
+            "reference": { "$ref": "#/$defs/text" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "subjectSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    }
+  }
+}

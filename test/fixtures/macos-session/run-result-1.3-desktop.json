@@ -1,0 +1,42 @@
+{
+  "schema": "urn:aihq:core:run-result:1.3.0",
+  "runId": "run-session-2",
+  "useCase": "repair",
+  "completion": "incomplete",
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [
+    {
+      "id": "trust/gui-env-node-extra-ca-certs",
+      "application": "applied",
+      "verification": { "status": "unavailable", "reason": "relaunch-required" }
+    }
+  ],
+  "checks": [],
+  "diagnostics": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "relaunch-required", "message": "Quit and reopen the named app before verification." }
+  ],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "followUp": ["Quit Claude fully, including helpers, and reopen it from Finder."],
+  "trust": { "outputs": [], "targets": [] },
+  "macosSession": {
+    "context": "desktop",
+    "managementId": "node-npm-trust",
+    "selectionId": "trust",
+    "configuration": "applied",
+    "persistence": "registered",
+    "verification": "unavailable",
+    "reason": "relaunch-required",
+    "applications": [
+      {
+        "clientId": "claude",
+        "appPath": "/Applications/Claude.app",
+        "targets": ["node"],
+        "launch": "finder",
+        "configuration": "applied",
+        "verification": "unavailable",
+        "reason": "relaunch-required",
+        "relaunch": "quit-app"
+      }
+    ]
+  }
+}
