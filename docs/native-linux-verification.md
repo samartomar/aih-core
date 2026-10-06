@@ -50,11 +50,13 @@ The observer launches the real client itself and holds it behind a private
 launch gate. Before releasing that gate it attaches with unprivileged
 `PTRACE_SEIZE` to this one root only, so kernel fork, vfork, clone, exec and exit
 stops apply before the client's first instruction and to every traced descendant.
-Each new process stays held until its executable, namespaces and actual argv have
-been read twice with matching results; each captured generation is classified and
-then explicitly acknowledged. If tracing is denied, for example by Yama ptrace
-scope, another security module or seccomp, the launch is unavailable. There is no
-untraced fallback or exemption.
+Each new process is held at its kernel stop while its executable, namespaces and
+actual argv are read twice with matching results; each captured generation is
+classified and then explicitly acknowledged. A failed capture may be resumed for
+lifecycle progress and bounded cleanup, but its argument coverage is then
+unavailable or a permanent gap and can never become clean. If tracing is denied,
+for example by Yama ptrace scope, another security module or seccomp, the launch
+is unavailable. There is no untraced fallback or exemption.
 
 Before the client continues, synthetic probes check host-home, sibling,
 provisioner and outside temporary files; pathname and abstract agent sockets;
@@ -95,7 +97,13 @@ with no added capability, setuid helper or host policy change. Where Yama ptrace
 scope, another security module or seccomp denies that, the session is unavailable
 rather than exempted. Every captured argument generation is retained until it is
 classified and acknowledged; a pending generation, or a lifetime that ended without
-an acknowledged capture, keeps argument proof unavailable. Capture is sampled at
+an acknowledged capture, keeps argument proof unavailable. A confirmed executable
+replacement needs its own captured and acknowledged generation; a different image
+appearing before that capture, or the lifetime ending first, is a permanent gap.
+Matching argument reads that span a namespace change are kept as a generation to
+classify, any earlier acknowledgement stops counting, and coverage returns only
+after a consistent capture in the new namespaces is itself acknowledged; ending
+before that capture is a permanent gap. Capture is sampled at
 kernel stops and audits, so arguments rewritten in place between samples, clones
 created explicitly with `CLONE_UNTRACED` and exec from a non-leader thread are
 outside the claim; the last fails closed.

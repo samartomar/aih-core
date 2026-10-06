@@ -278,10 +278,13 @@ export async function prepareLinuxContext({ directory, deadline, signal, runtime
         // The internal Harness classifier drains retained generations before native stopping.
         // Both the drain and closure share this single allowance; a late generation remains
         // unacknowledged and makes the native final coverage receipt false.
+        // The audit may use only part of the allowance: native stopping keeps a reserved
+        // share for its receipt and helper closure, and an unfinished audit fails closed.
         let auditTimer, auditCompleted = typeof audit !== 'function';
+        const nativeReserve = Math.min(2500, Math.floor(allowance / 2));
         if (typeof audit === 'function') {
           try { await Promise.race([Promise.resolve().then(audit).then(() => { auditCompleted = true; }), new Promise(resolve => {
-            auditTimer = setTimeout(resolve, Math.max(1, allowance));
+            auditTimer = setTimeout(resolve, Math.max(1, allowance - nativeReserve));
           })]); } catch { /* coverage receipt still fails closed for pending generations */ }
           finally { clearTimeout(auditTimer); }
         }

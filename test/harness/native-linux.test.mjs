@@ -281,6 +281,19 @@ test('post-client drain retains a detached helper exec and audits it before fina
   }
 });
 
+test('a final audit that never settles still leaves native stopping its reserved budget', native, async t => {
+  const f = fixture(t, `console.log('ready'); setInterval(() => {}, 1000);`);
+  const c = await context(t, f);
+  const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started'); assert.equal(await bounded(line(started.handle.stdout)), 'ready');
+  let audited = false;
+  const receipt = await c.terminate({ graceMs: 0, deadlineMs: 10000, audit: () => { audited = true; return new Promise(() => {}); } });
+  assert.equal(audited, true);
+  assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(receipt.auditCoverage, false, 'an unfinished final audit must fail closed');
+  assert.ok(receipt.elapsedMs <= 10000, JSON.stringify(receipt));
+});
+
 test('immediate same-image forks from an owned descendant retain actual argv generations', native, async t => {
   try { accessSync('/bin/bash', constants.X_OK); }
   catch (error) {
