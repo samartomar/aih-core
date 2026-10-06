@@ -1,0 +1,12 @@
+{
+  "schema": "urn:aihq:core:repair-inputs:1.1.0",
+  "route": "file",
+  "repairs": { "user-tools-ca": {} },
+  "macosSession": {
+    "context": "desktop",
+    "applications": [
+      { "clientId": "kimi", "appPath": "Applications/Kimi.app", "targets": ["python", "pip"], "launch": "finder" }
+    ]
+  },
+  "sources": { "os": false, "supplied": [{ "id": "company", "file": "company-ca.pem" }] }
+}

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.11 adds versioned macOS session contracts, supplied-file Node/npm
+terminal integration, protected session custody and observation/removal support.
+Desktop requests remain unavailable until exact native application profiles are
+admitted. CI and VM rehearsal are development evidence. Full desktop acceptance
+and npm publication remain pending.
+
 Core 1.0.0-dev.9 adds bounded Windows Job lifecycle and OS-bound named-pipe
 facilities with packaged helper byte binding, partial-launch cleanup and protected
 dedicated OAuth staging. Runtime entry ownership is independent of a claimed PID

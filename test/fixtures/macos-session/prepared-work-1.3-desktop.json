@@ -1,0 +1,106 @@
+{
+  "schema": "urn:aihq:core:prepared-work:1.3.0",
+  "useCase": "repair",
+  "mode": "standalone",
+  "target": { "scope": "user", "project": "/Users/example" },
+  "inputs": {
+    "trust": {
+      "route": "file",
+      "definition": { "id": "node-npm-ca", "schema": "urn:aihq:harness:repair:1.2.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.9" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": "abababababababababababababababababababababababababababababababab",
+      "targets": [],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    },
+    "macosSession": {
+      "context": "desktop",
+      "bindingSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "session": { "uid": 501, "domain": "gui/501", "identitySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+      "applications": [
+        {
+          "clientId": "claude",
+          "appPath": "/Applications/Claude.app",
+          "bundleId": "com.anthropic.claude",
+          "version": "2.1.285",
+          "build": "285",
+          "targets": ["node"],
+          "launch": "finder",
+          "profileIds": ["claude-macos-26-arm64-node"],
+          "status": "admitted",
+          "reason": null,
+          "relaunch": "quit-app"
+        },
+        {
+          "clientId": "codex",
+          "appPath": "/Applications/Codex.app",
+          "bundleId": null,
+          "version": null,
+          "build": null,
+          "targets": ["npm"],
+          "launch": "dock",
+          "profileIds": [],
+          "status": "unavailable",
+          "reason": "app-session-unsupported",
+          "relaunch": "unavailable"
+        }
+      ],
+      "effects": [
+        {
+          "operationId": "trust/node-config",
+          "kind": "terminal-config",
+          "target": "/Users/example/.zprofile",
+          "scope": "current-user-config",
+          "beforeSha256": null,
+          "afterSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "effect": "create",
+          "persistent": true,
+          "key": null
+        },
+        {
+          "operationId": "trust/gui-env-node-extra-ca-certs",
+          "kind": "launch-agent",
+          "target": "/Users/example/Library/LaunchAgents/dev.aihq.trust.node-extra-ca-certs.plist",
+          "scope": "current-user-gui-future-processes",
+          "beforeSha256": null,
+          "afterSha256": "1212121212121212121212121212121212121212121212121212121212121212",
+          "effect": "create",
+          "persistent": true,
+          "key": "NODE_EXTRA_CA_CERTS"
+        }
+      ]
+    }
+  },
+  "operations": [
+    {
+      "id": "trust/node-config",
+      "purpose": "Write the managed Node terminal trust configuration",
+      "kind": "file.write",
+      "scope": "user",
+      "effects": "create-file",
+      "ownership": "managed",
+      "requires": [],
+      "checks": [],
+      "details": { "target": "/Users/example/.zprofile" }
+    },
+    {
+      "id": "trust/gui-env-node-extra-ca-certs",
+      "purpose": "Register the owned per-key LaunchAgent",
+      "kind": "file.write",
+      "scope": "user",
+      "effects": "create-file",
+      "ownership": "managed",
+      "requires": ["trust/node-config"],
+      "checks": [],
+      "details": { "target": "/Users/example/Library/LaunchAgents/dev.aihq.trust.node-extra-ca-certs.plist" }
+    }
+  ],
+  "observations": [],
+  "conflicts": [],
+  "omissions": [],
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" }, "inputs": {} },
+  "reviewDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

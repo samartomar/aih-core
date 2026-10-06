@@ -1,0 +1,20 @@
+{
+  "schema": "urn:aihq:core:macos-session-verification-result:1.0.0",
+  "status": "invalid",
+  "package": null,
+  "platform": null,
+  "managementId": null,
+  "selectionId": null,
+  "bindingSha256": null,
+  "observations": [],
+  "configuration": "not-applied",
+  "verification": "unavailable",
+  "reason": "invalid-session-selection",
+  "applications": [],
+  "checks": [],
+  "diagnostics": [
+    { "code": "INPUT_INVALID", "reason": "invalid-session-selection", "message": "The document does not satisfy the published contract." }
+  ],
+  "elapsedMs": 0,
+  "record": { "status": "disabled", "reason": "logging-off" }
+}

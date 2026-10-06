@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:run-result:1.3.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "evidence": { "type": "array", "maxItems": 32, "items": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {
+        "scanId": { "type": "string", "pattern": "^scan:sha256:[a-f0-9]{64}$" },
+        "status": { "enum": ["skipped", "authenticated", "unverifiable"] },
+        "reason": { "enum": ["not-supplied", "not-requested", "unavailable", "unsupported-artifact", "malformed",
+          "id-mismatch", "byte-mismatch", "unsigned", "unknown-producer", "untrusted-key", "invalid-signature", "resource-limit"] },
+        "producerIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "keyId": { "type": "string", "pattern": "^ed25519:[a-f0-9]{64}$" },
+        "reportRead": { "enum": ["supported", "unsupported", "not-requested"] }
+      }
+    } },
+    "schema": { "const": "urn:aihq:core:run-result:1.3.0" },
+    "runId": { "type": "string" },
+    "useCase": { "const": "repair" },
+    "completion": { "enum": ["complete", "incomplete", "cancelled", "rejected"] },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trust", "macosSession"],
+      "properties": {
+        "trust": { "$ref": "urn:aihq:core:prepared-work:1.3.0#/$defs/trustInputs" },
+        "macosSession": { "$ref": "urn:aihq:core:prepared-work:1.3.0#/$defs/macosSessionReview" }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "allowPartial"],
+      "properties": {
+        "origin": { "enum": ["interactive", "automation"] },
+        "allowPartial": {
+          "type": "object", "additionalProperties": false, "required": ["value", "origin"],
+          "properties": { "value": { "type": "boolean" }, "origin": { "enum": ["default", "explicit"] } }
+        }
+      }
+    },
+    "effectiveOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logging"],
+      "properties": {
+        "logging": {
+          "type": "object", "additionalProperties": false, "required": ["value", "origin"],
+          "properties": { "value": { "enum": ["on", "off"] }, "origin": { "enum": ["default", "explicit"] } }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "application", "verification"],
+        "properties": {
+          "id": { "type": "string" },
+          "application": { "enum": ["not-attempted", "already-satisfied", "applied", "failed"] },
+          "verification": {
+            "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+            "properties": { "status": { "enum": ["unverified", "passed", "failed", "unavailable", "skipped"] }, "reason": { "type": "string" } }
+          },
+          "reason": { "type": "string" },
+          "effectsUncertain": { "type": "boolean" }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": false,
+        "required": ["id", "operationId", "status", "reason"],
+        "properties": { "id": { "type": "string" }, "operationId": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "unavailable", "skipped"] }, "reason": { "type": "string" },
+          "effectsUncertain": { "type": "boolean" }, "terminationUnconfirmed": { "type": "boolean" } }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+        "properties": {
+          "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" },
+          "path": { "type": "string" }, "encountered": { "type": "string" },
+          "supported": { "type": "array", "items": { "type": "string" } },
+          "block": { "type": "integer", "minimum": 1 }, "offset": { "type": "integer", "minimum": 0 },
+          "assessedBlocks": { "type": "integer", "minimum": 0 }, "assessmentLimit": { "type": "string" },
+          "guidance": { "type": "string" }
+        }
+      }
+    },
+    "record": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["status", "reference"],
+          "properties": { "status": { "const": "written" }, "reference": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+          "properties": { "status": { "const": "disabled" }, "reason": { "const": "logging-off" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "reason", "diagnosticId"],
+          "properties": { "status": { "const": "failed" }, "reason": { "enum": ["record-limit", "record-write"] }, "diagnosticId": { "type": "string" } } }
+      ]
+    },
+    "recovery": { "type": "string" },
+    "followUp": { "type": "array", "items": { "type": "string" } },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outputs", "targets"],
+      "properties": {
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["operationId", "path", "format", "sha256", "certificateCount", "status"],
+            "properties": {
+              "operationId": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "format": { "enum": ["pem", "pkcs7-der", "jks"] },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "certificateCount": { "type": "integer", "minimum": 0 },
+              "status": { "enum": ["written", "unchanged"] }
+            }
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "configuration", "verification", "reason", "policyObservationSha256"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+              "configuration": { "enum": ["applied", "already-satisfied", "not-applied", "uncertain"] },
+              "verification": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+              "reason": { "type": "string", "maxLength": 512 },
+              "policyObservationSha256": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] }
+            }
+          }
+        }
+      }
+    },
+    "macosSession": { "$ref": "#/$defs/macosSessionRun" }
+  },
+  "required": ["schema", "runId", "useCase", "completion", "effectiveOptions", "operations", "checks", "diagnostics", "record", "followUp", "trust", "macosSession"],
+  "$defs": {
+    "macosSessionRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "managementId", "selectionId", "configuration", "persistence", "verification", "reason", "applications"],
+      "properties": {
+        "context": { "enum": ["terminal", "desktop", "both"] },
+        "managementId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 256 }] },
+        "selectionId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 128 }] },
+        "configuration": { "enum": ["applied", "already-satisfied", "not-applied", "uncertain"] },
+        "persistence": { "enum": ["not-required", "registered", "disabled", "unavailable", "uncertain"] },
+        "verification": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+        "reason": { "type": "string", "maxLength": 512 },
+        "applications": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clientId", "appPath", "targets", "launch", "configuration", "verification", "reason", "relaunch"],
+            "properties": {
+              "clientId": { "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"] },
+              "appPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "enum": ["node", "npm", "python", "pip", "git", "cargo", "conda", "gradle", "maven"] }
+              },
+              "launch": { "enum": ["finder", "dock"] },
+              "configuration": { "enum": ["applied", "already-satisfied", "not-applied", "uncertain"] },
+              "verification": { "enum": ["passed", "failed", "unavailable", "skipped"] },
+              "reason": { "type": "string", "maxLength": 512 },
+              "relaunch": { "enum": ["none", "quit-app", "logout-login", "unavailable"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

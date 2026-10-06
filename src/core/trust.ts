@@ -17,6 +17,8 @@ import { readOwnership, stateRoot, protectState, writeHistory } from './internal
 import { readTrustCustody, readPendingTrust, pendingEntries, custodyParticipant, type TrustCustodyEntry, type TrustCustodyImage } from './internal/trust-custody.js';
 import { memberKey } from './internal/recipe-lifecycle.js';
 import { resolveTrustPath, type TrustPath } from './internal/trust-path.js';
+import { joinSessionParticipant } from './internal/macos-session-custody.js';
+import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import type { Diagnostic, Recipe } from './types.js';
 import type { TrustRepairRequest, CertificateExportRequest, TrustSources, TrustInputs,
   TrustTargetReview, TrustOutputReview, TrustRunOutput, TrustRunTarget } from './trust-contracts.js';
@@ -146,7 +148,8 @@ function cleanup(material?: TrustState['material']): void {
   try { unlinkSync(material.path); rmdirSync(material.directory); } catch { /* Inert protected work remains for deliberate inspection. */ }
 }
 
-export async function prepareTrust(input: Request, controls: HostControls = {}): Promise<PreparationResult> {
+export async function prepareTrust(input: Request, controls: HostControls = {},
+  sessionParticipant?: (entry: TrustCustodyEntry) => TrustEngineParticipant): Promise<PreparationResult> {
   const runId = randomUUID(); let safeControls: HostControls = { logging: 'off' }; let material: TrustState['material'] | undefined;
   let rawUseCase: Request['useCase'] = 'certificate-export'; let route: 'native'|'file'|'export' = 'export'; let id = 'certificate-export';
   let review = baseReview(rawUseCase, route, id, safeControls);
@@ -358,7 +361,8 @@ export async function prepareTrust(input: Request, controls: HostControls = {}):
         throw new Error(signal?.aborted ? 'cancelled':'review-stale');
       }
     };
-    const participant = custodyParticipant(image,[entry],recheck,[],pending);
+    const custody = custodyParticipant(image,[entry],recheck,[],pending);
+    const participant = sessionParticipant ? joinSessionParticipant(custody, sessionParticipant(entry)) : custody;
     const policyControls: HostControls = { ...controls,logging:'off',materialRoots:{ 'generated-export':directory } };
     const prepared = await preparePolicy({ useCase:'policy',target:{ project:home },policy:{ schema:'urn:aihq:core:execution-policy:1.0.0',mode:'vibe',
       selections:[{ id:selectionId,managementId,scope:'user',configuration,requires:[],recipe:{ inline:recipe } }] },

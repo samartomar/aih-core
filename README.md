@@ -10,7 +10,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
 | `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, document/diagnostic and file-state result types |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
@@ -34,12 +34,19 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/certificate-export-request/1.0.0.json`, `certificate-export-inputs/1.0.0.json` | Standalone certificate export request and CLI input schemas |
 | `@aihq/core/schemas/prepared-work/1.2.0.json`, `run-result/1.2.0.json` | Complete trust review and application result schemas |
 | `@aihq/core/schemas/trust-custody/1.0.0.json` | Protected trust provenance schema |
+| `@aihq/core/schemas/repair-request/1.1.0.json`, `repair-inputs/1.1.0.json`, `prepared-work/1.3.0.json`, `run-result/1.3.0.json` | macOS session selection, review and result schemas |
+| `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
 | `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
+| `@aihq/core/harness/schemas/repair/1.2.0.json`, `macos-session-profiles/1.0.0.json` | macOS metadata; no desktop profile is admitted in this candidate |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
+
+The [macOS session development guide](docs/macos-session-development.md) describes
+the supplied-file terminal path, observation/removal commands and remaining
+desktop admission requirements.
 
 Both modules use `urn:aihq:package-support:1.0.0`: each contract record names its
 `id`, `role` (`accepts`, `produces` or `both`) and resolvable `schemaExport`.

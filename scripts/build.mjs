@@ -21,7 +21,11 @@ mkdirSync(new URL('harness/', dist), { recursive: true });
 cpSync(new URL('../src/harness/schemas/', import.meta.url), new URL('harness/schemas/', dist), { recursive: true });
 cpSync(new URL('../src/harness/native/', import.meta.url), new URL('harness/native/', dist), { recursive: true });
 cpSync(new URL('../src/harness/acceptance/', import.meta.url), new URL('harness/acceptance/', dist), { recursive: true });
-for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.d.mts', 'ca.mjs', 'candidate.mjs', 'github-policy.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs', 'scan-trust.mjs', 'verification-publishers.mjs', 'trust-data.mjs', 'guidance.mjs', 'guidance.d.mts',
+for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.d.mts', 'macos-session.mjs', 'macos-session.d.mts',
+  'macos-session-public.mjs', 'macos-session-public.d.mts',
+  'macos-session-platform.mjs', 'macos-session-platform.d.mts',
+  'macos-session-profiles.mjs', 'macos-session-profiles.d.mts', 'macos-session-definitions.mjs', 'macos-session-definitions.d.mts',
+  'ca.mjs', 'candidate.mjs', 'github-policy.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs', 'scan-trust.mjs', 'verification-publishers.mjs', 'trust-data.mjs', 'guidance.mjs', 'guidance.d.mts',
   'trust-definitions.mjs', 'trust-capabilities.mjs', 'trust-encoding.mjs', 'trust-source.mjs', 'trust-os.mjs', 'trust.mjs', 'trust.d.mts'])
   copyFileSync(new URL(`../src/harness/${name}`, import.meta.url), new URL(`harness/${name}`, dist));
 writeFileSync(new URL('distribution.mjs', dist),

@@ -18,6 +18,8 @@ import { jvmRecipe, renderJvmRepair, prepareJvmRepair } from './jvm-trust.mjs';
 import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 export { readGitHubPolicy } from './github-policy.mjs';
+export { macosSessionBudgets, macosSessionTrustKeys, renderMacosSessionLaunchAgent,
+  observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
 export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,
   canonicalTrustJson, detectTrustPlatform, verifyTrustAdmissionEvidence, buildCertificateExportRecipe,
   trustHelperFiles, trustCellSubjectSha256, trustLibraryPackages, hashTrustLibraries, acceptanceRecordSchema, getTrustFileIntegration } from './trust.mjs';

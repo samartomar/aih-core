@@ -1,0 +1,480 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:repair:1.2.0",
+  "title": "Harness macOS session repair definition 1.2",
+  "description": "Trust repair definitions with explicit joined session profiles; desktop support requires native admission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "description",
+    "schema",
+    "scope",
+    "managementId",
+    "materialName",
+    "variants",
+    "targets",
+    "inputs",
+    "limits",
+    "trustLimits",
+    "offlineVerification"
+  ],
+  "properties": {
+    "id": {
+      "enum": [
+        "node-npm-ca",
+        "user-tools-ca",
+        "jvm-ca"
+      ]
+    },
+    "description": {
+      "$ref": "#/$defs/text"
+    },
+    "schema": {
+      "const": "urn:aihq:harness:repair:1.2.0"
+    },
+    "scope": {
+      "const": "user"
+    },
+    "managementId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "materialName": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/variant"
+      }
+    },
+    "targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier",
+        "not": {
+          "const": "caFile"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/input"
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBytes",
+        "certificateBlocks",
+        "blockBytes"
+      ],
+      "properties": {
+        "sourceBytes": {
+          "const": 1048576
+        },
+        "certificateBlocks": {
+          "const": 256
+        },
+        "blockBytes": {
+          "const": 65536
+        }
+      }
+    },
+    "trustLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateIncidences",
+        "combinedIncidences",
+        "derBytes",
+        "certificateBytes",
+        "suppliedSources",
+        "outputBytes",
+        "custodyBytes"
+      ],
+      "properties": {
+        "candidateIncidences": {
+          "const": 4096
+        },
+        "combinedIncidences": {
+          "const": 4096
+        },
+        "derBytes": {
+          "const": 8388608
+        },
+        "certificateBytes": {
+          "const": 65536
+        },
+        "suppliedSources": {
+          "const": 32
+        },
+        "outputBytes": {
+          "const": 12582912
+        },
+        "custodyBytes": {
+          "const": 1048576
+        }
+      }
+    },
+    "offlineVerification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "operationId",
+          "checkId"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/$defs/text"
+          },
+          "operationId": {
+            "$ref": "#/$defs/text"
+          },
+          "checkId": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "id": {
+            "const": "certificate-export"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "managementId": {
+            "type": "null"
+          },
+          "materialName": {
+            "type": "null"
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "inputs": {
+            "type": "object",
+            "maxProperties": 0
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "route": {
+                  "const": "export"
+                },
+                "targets": {
+                  "type": "array",
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "managementId": {
+            "type": "string"
+          },
+          "materialName": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "minItems": 1
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "route": {
+                  "enum": [
+                    "native",
+                    "file"
+                  ]
+                },
+                "targets": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "identifiers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "segments"
+      ],
+      "properties": {
+        "root": {
+          "const": "userHome"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "literal"
+            ],
+            "properties": {
+              "literal": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "required",
+        "description"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "file",
+            "string",
+            "boolean",
+            "number"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architectures",
+        "targets",
+        "network",
+        "recipeRef",
+        "transformId",
+        "route",
+        "adapterId",
+        "inputIds",
+        "capabilityIds",
+        "sessionProfileIds"
+      ],
+      "properties": {
+        "os": {
+          "enum": [
+            "win32",
+            "darwin",
+            "linux"
+          ]
+        },
+        "architectures": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "x64",
+              "arm64"
+            ]
+          }
+        },
+        "targets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "network": {
+          "enum": [
+            "declared",
+            "off"
+          ]
+        },
+        "recipeRef": {
+          "$ref": "#/$defs/text"
+        },
+        "transformId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "route": {
+          "enum": [
+            "native",
+            "file",
+            "export"
+          ]
+        },
+        "adapterId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "inputIds": {
+          "$ref": "#/$defs/identifiers"
+        },
+        "capabilityIds": {
+          "$ref": "#/$defs/identifiers"
+        },
+        "configFiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operationId",
+              "target",
+              "maxBytes"
+            ],
+            "properties": {
+              "operationId": {
+                "$ref": "#/$defs/text"
+              },
+              "target": {
+                "$ref": "#/$defs/target"
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "executableBindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "pathInput"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/text"
+              },
+              "pathInput": {
+                "$ref": "#/$defs/text"
+              },
+              "kind": {
+                "const": "launcher"
+              }
+            }
+          }
+        },
+        "requiredAbsences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target",
+              "reason",
+              "purpose"
+            ],
+            "properties": {
+              "target": {
+                "$ref": "#/$defs/target"
+              },
+              "reason": {
+                "$ref": "#/$defs/text"
+              },
+              "purpose": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        },
+        "sessionProfileIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "os": {
+                "not": {
+                  "const": "darwin"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sessionProfileIds": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

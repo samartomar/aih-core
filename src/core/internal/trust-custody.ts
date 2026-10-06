@@ -10,6 +10,7 @@ import type { RunResult } from '../host-types.js';
 import { validateTrustCustody } from '../trust-contracts.js';
 import { readRegularFile } from './fsxn.js';
 import { memberKey } from './recipe-lifecycle.js';
+import { guardMacosSessionMember } from './macos-session-custody.js';
 
 export interface TrustCustodySource { id: string; kind: 'os' | 'supplied' | 'node-bundled' | 'jvm-baseline'; fingerprints: string[];
   sourceSha256: string; policySha256: string | null; runtimeVersion: string | null; privateFile: string | null }
@@ -159,7 +160,8 @@ function assertPending(pending:TrustPendingImage,image:TrustCustodyImage) {
   if(!current||!pinsMatch(pending.pins)||current.digest!==pending.digest||current.beforeSha256!==pending.beforeSha256||current.afterSha256!==pending.afterSha256||
     current.liveSha256!==pending.liveSha256||current.contextSha256!==pending.contextSha256) throw new Error('review-stale');
 }
-export function guardTrustMember(root: string, path: string, allowed = false): void {
+export function guardTrustMember(root: string, path: string, allowed = false, sessionAllowed = false): void {
+  guardMacosSessionMember(root, path, sessionAllowed && allowed);
   const home = userHomeRoot(); const target = join(root,...path.split('/'));
   if (target !== home && !target.startsWith(home + (process.platform === 'win32' ? '\\':'/'))) return;
   const image = readTrustCustody(true);

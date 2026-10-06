@@ -5,6 +5,9 @@ import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { snapshotTrustData } from './trust-data.mjs';
 import { buildTrustCapabilities, selectRepairDefinition as selectDefinition } from './trust-definitions.mjs';
 import { trustCellRecords } from './trust-capabilities.mjs';
+import { selectMacosRepairDefinition } from './macos-session-definitions.mjs';
+export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 } from './macos-session-definitions.mjs';
+export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
 export { buildTrustDefinitions, trustRepairIndex, trustLimits, trustAdapters, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
   validateTrustCapabilities, selectTrustCell, buildCertificateExportRecipe, trustProfiles, trustTransformIds, resolveTrustRecipeRef,
@@ -24,6 +27,10 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/repair/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:repair:1.1.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:repair:1.2.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/repair/1.2.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:macos-session-profiles:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/macos-session-profiles/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
@@ -79,7 +86,8 @@ export const repairIndex = Object.freeze([Object.freeze({
   offlineVerification: Object.freeze([])
 }), userToolsRepair, jvmRepair]);
 /** Select by (request schema, repair ID, definition schema); the 1.0 index stays reachable for legacy requests. */
-export const selectRepairDefinition = query => selectDefinition(query, repairIndex);
+export const selectRepairDefinition = query => query?.definitionSchema === 'urn:aihq:harness:repair:1.2.0'
+  ? selectMacosRepairDefinition(query) : selectDefinition(query, repairIndex);
 // Organization keys are selected independently. AIHQ publisher trust is carried
 // by verificationPublishers; test keys never ship in either inventory.
 export const verificationKeys = Object.freeze([]);
