@@ -54,7 +54,7 @@ const guiHost = (over = {}) => fakeHost({ ...over, runs: guiRuns(over.runs) });
 
 const bundleHost = (over = {}) => fakeHost({
   platform: over.platform, uid: over.uid,
-  lstat: { '/': dir(), '/Applications': dir({ mode: 0o755 }), [APP]: dir({ mode: 0o755 }),
+  lstat: { '/': dir(), '/Applications': dir({ mode: 0o775, gid: 80 }), [APP]: dir({ mode: 0o755 }),
     [`${APP}/Contents`]: dir(), [`${APP}/Contents/MacOS`]: dir(),
     [`${APP}/Contents/Info.plist`]: regular(8), [`${APP}/Contents/MacOS/Test`]: regular(6), ...(over.lstat ?? {}) },
   files: {

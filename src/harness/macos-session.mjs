@@ -209,12 +209,16 @@ export async function observeMacosGuiSession(controls = {}, environment) {
 const APP_REQUEST_KEYS = ['clientId', 'appPath', 'targets', 'launch'];
 const cleanString = (value, max = 512) => typeof value === 'string' && value.length >= 1 &&
   value.length <= max && !CONTROL_RE.test(value);
+// Standard users cannot mutate root-owned wheel/admin-group directories such as
+// /Applications (root:admin 0775). World-writable paths are always refused.
+const trustedMode = stat => (Number(stat.mode) & 0o002) === 0 &&
+  ((Number(stat.mode) & 0o020) === 0 || Number(stat.uid) === 0 && [0, 80].includes(Number(stat.gid)));
 
 function safeBundleMember(host, appPath, relativePath, maxBytes) {
   const segments = relativePath.split('/');
   for (let index = 1; index <= segments.length; index++) {
     const stat = host.lstat(`${appPath}/${segments.slice(0, index).join('/')}`);
-    if (!stat || stat.isSymbolicLink() || (Number(stat.mode) & 0o022) !== 0 ||
+    if (!stat || stat.isSymbolicLink() || !trustedMode(stat) ||
       (index < segments.length ? !stat.isDirectory() : typeof stat.isFile !== 'function' || !stat.isFile() ||
         !Number.isSafeInteger(stat.size) || stat.size < 0 || stat.size > maxBytes)) return false;
   }
@@ -240,7 +244,7 @@ export async function observeMacosApplication(request, controls = {}, environmen
     const entry = host.lstat(current);
     if (!entry || typeof entry.isDirectory !== 'function' || !entry.isDirectory() || entry.isSymbolicLink())
       return UNAVAILABLE('app-path-unsafe');
-    if ((Number(entry.mode) & 0o022) !== 0) return UNAVAILABLE('app-path-mutable');
+    if (!trustedMode(entry)) return UNAVAILABLE('app-path-mutable');
     if (index === segments.length) appStat = entry;
   }
   const infoPath = `${appPath}/Contents/Info.plist`;
