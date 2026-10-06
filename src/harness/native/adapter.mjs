@@ -229,7 +229,8 @@ function createNativeRuntime(module, dependencies) {
       const cell = await input.acquireCell();
       checkTime(input);
       if (linuxVendor(definition)) {
-        const resolved = observeFacility(await module.resolveLinuxNativeClient({ definition, input, client, cell, check: () => checkTime(input) }));
+        const resolved = observeFacility(await module.resolveLinuxNativeClient({ definition, input,
+          client: { path: client.path, sha256: client.sha256, byteLength: client.byteLength }, cell, check: () => checkTime(input) }));
         checkTime(input);
         if (resolved.status !== 'resolved') return resolved;
         linuxClients.set(resolved.pin, { platform: resolved.platform, vendor: resolved.vendor, runtime: resolved.runtime });
