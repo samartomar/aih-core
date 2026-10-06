@@ -44,6 +44,7 @@ const helperNames = ['package.json', 'dist/distribution.mjs', 'dist/core/macos-s
   'dist/core/internal/macos-session-custody.js', 'dist/core/macos-session-contracts.js',
   'dist/harness/macos-session.mjs', 'dist/harness/macos-session-public.mjs',
   'dist/harness/macos-session-platform.mjs',
+  'dist/harness/native/canonical.mjs',
   'dist/harness/macos-session-profiles.mjs', 'dist/harness/macos-session-definitions.mjs',
   'dist/core/schemas/repair-request/1.1.0.json', 'dist/core/schemas/repair-inputs/1.1.0.json',
   'dist/core/schemas/prepared-work/1.3.0.json', 'dist/core/schemas/run-result/1.3.0.json',

@@ -177,6 +177,19 @@ test('application observation refuses linked bundle descendants before reading o
 
 /* ---------------------------------------------------- GUI-domain key and login replay */
 
+test('application observation distinguishes size limits from unsafe paths without reading oversized members', async () => {
+  const request = { clientId: 'codex', appPath: APP, targets: ['node'], launch: 'finder' };
+  for (const [path, reason] of [[`${APP}/Contents/Info.plist`, 'app-info-limit'],
+    [`${APP}/Contents/MacOS/Test`, 'app-executable-limit']]) {
+    const host = bundleHost({ lstat: { [path]: regular(65537) } });
+    const reads = [], read = host.readFile;
+    host.readFile = (...args) => { reads.push(args[0]); return read(...args); };
+    const observed = await observeMacosApplication(request, {}, host);
+    assert.equal(observed.status, 'unavailable'); assert.equal(observed.reason, reason);
+    assert.equal(reads.includes(path), false, 'refuse the oversized member before file capture');
+  }
+});
+
 const launchctlHost = (initial = {}, options = {}) => {
   const { uid = 502, getenvStatus = 'ok', disabled = {}, bootstrapStatus = 'ok',
     bootoutStatus = 'ok', now = () => 1_000_000 } = options;

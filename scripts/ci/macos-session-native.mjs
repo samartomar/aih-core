@@ -101,6 +101,18 @@ try {
   writeFileSync(trustPending, '{}', { mode: 0o600 });
   assert.equal((await verifyMacosSession(verificationRequest, { logging: 'off' })).reason, 'session-recovery-required');
   rmSync(trustPending); passed('verification-joins-trust-custody-and-pending-intent');
+  const sharedHelper = fileURLToPath(new URL('./node_modules/@aihq/core/dist/harness/native/canonical.mjs', import.meta.url));
+  const helperBytes = readFileSync(sharedHelper);
+  const helperReview = await prepare(request, { logging: 'off' });
+  assert.equal(helperReview.status, 'ready', JSON.stringify(helperReview));
+  try {
+    writeFileSync(sharedHelper, Buffer.concat([helperBytes, Buffer.from('\n// Rehearsal helper drift fixture.\n')]));
+    const staleHelper = await apply(helperReview.prepared, approve(helperReview), { logging: 'off' });
+    assert.equal(staleHelper.completion, 'rejected');
+    assert.ok(staleHelper.diagnostics.some(row => row.reason === 'review-stale'));
+    assert.deepEqual(staleHelper.operations, []);
+  } finally { writeFileSync(sharedHelper, helperBytes); }
+  passed('shared-helper-drift-rejects-before-effects');
   const repeat = await prepare(request, { logging: 'off' });
   assert.equal(repeat.status, 'ready', JSON.stringify(repeat));
   assert.equal((await apply(repeat.prepared, approve(repeat), { logging: 'off' })).macosSession.configuration, 'already-satisfied'); passed('unchanged-rerun');
