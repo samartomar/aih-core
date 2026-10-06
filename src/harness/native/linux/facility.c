@@ -123,7 +123,7 @@ static void event(const char *type,const char *v) {char *buf=malloc(FRAME);if(!b
 
 typedef struct {char *path;char hash[65];off_t bytes;int fd;dev_t dev;ino_t ino;} Pin;
 typedef struct {char *id,*exe;char hash[65];char *argv[MAX_ARG];int argc;} Entry;
-typedef struct {pid_t pid,ppid;uint64_t birth;uid_t uid;dev_t nsdev;ino_t nsino;dev_t nsdevs[4];ino_t nsinos[4];pid_t nspid;int fd,live,fresh;char state;void *audit_state;} Proc;
+typedef struct {pid_t pid,ppid;uint64_t birth;uid_t uid;dev_t nsdev;ino_t nsino;dev_t nsdevs[4];ino_t nsinos[4];pid_t nspid;int fd,live,fresh,code_unpublished;char state;void *audit_state;} Proc;
 static const char *namespace_files[4]={"pid","mnt","net","user"};
 static const char *namespace_names[4]={"pid","mount","network","user"};
 typedef struct {int fd,id,pipe_id;struct ucred cred;uint64_t birth;int processfd;size_t bytes;} Peer;
@@ -178,14 +178,16 @@ static int read_small(const char *path,char *s,size_t max) {int fd=open(path,O_R
  * records, so no real errno (including EPROTO) is mistaken for an exit race. */
 static int process(pid_t pid,Proc *p) {
   char name[80],buf[65536];int ignored=snprintf(name,sizeof(name),"/proc/%d/stat",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
-  char *q=strrchr(buf,')');if(!q||q[1]!=' '){errno=0;return -2;}q+=2;char *save,*v=strtok_r(q," ",&save);uint64_t birth=0;pid_t pp=0;char state=0;
-  for(int fieldno=3;v;fieldno++,v=strtok_r(NULL," ",&save)){if(fieldno==3)state=*v;else if(fieldno==4)pp=(pid_t)strtol(v,NULL,10);else if(fieldno==22){char *end;errno=0;birth=strtoull(v,&end,10);if(errno||*end){errno=0;return -2;}break;}}
+  char *q=strrchr(buf,')');if(!q||q[1]!=' '){errno=0;return -2;}q+=2;char *save,*v=strtok_r(q," ",&save);uint64_t birth=0;pid_t pp=0;char state=0;int zero_code=0;
+  /* Fields 26/27 (start/end code) read 0 only without an mm or before a new
+   * exec image publishes them; a denied view reads 1. */
+  for(int fieldno=3;v;fieldno++,v=strtok_r(NULL," ",&save)){if(fieldno==3)state=*v;else if(fieldno==4)pp=(pid_t)strtol(v,NULL,10);else if(fieldno==22){char *end;errno=0;birth=strtoull(v,&end,10);if(errno||*end){errno=0;return -2;}}else if(fieldno==26||fieldno==27){if(!strcmp(v,"0"))zero_code++;if(fieldno==27)break;}}
   if(!birth){errno=0;return -2;}ignored=snprintf(name,sizeof(name),"/proc/%d/status",pid);(void)ignored;if(read_small(name,buf,sizeof(buf)-1)<0)return -1;
   char *u=strstr(buf,"\nUid:");if(!u){errno=0;return -2;}unsigned uid;if(sscanf(u,"\nUid:\t%u",&uid)!=1){errno=0;return -2;}
   pid_t ns=pid;char *n=strstr(buf,"\nNSpid:");if(!n){errno=0;return -2;}n+=7;while(*n&&*n!='\n'){while(*n==' '||*n=='\t')n++;if(*n=='\n'||!*n)break;char *end;long id=strtol(n,&end,10);if(end==n||id<=0||id>INT_MAX){errno=0;return -2;}ns=(pid_t)id;n=end;}
   struct stat st[4];
   for(int i=0;i<4;i++){ignored=snprintf(name,sizeof(name),"/proc/%d/ns/%s",pid,namespace_files[i]);(void)ignored;if(stat(name,&st[i]))return -1;}
-  *p=(Proc){.pid=pid,.ppid=pp,.birth=birth,.uid=(uid_t)uid,.nsdev=st[0].st_dev,.nsino=st[0].st_ino,.nspid=ns,.fd=-1,.live=1,.fresh=1,.state=state};
+  *p=(Proc){.pid=pid,.ppid=pp,.birth=birth,.uid=(uid_t)uid,.nsdev=st[0].st_dev,.nsino=st[0].st_ino,.nspid=ns,.fd=-1,.live=1,.fresh=1,.state=state,.code_unpublished=zero_code==2};
   for(int i=0;i<4;i++){p->nsdevs[i]=st[i].st_dev;p->nsinos[i]=st[i].st_ino;}
   return 0;
 }
@@ -527,6 +529,15 @@ static void argv_digest(const Audit *a,char digest[65]) {
   Sha sha;sha_init(&sha);sha_add(&sha,(const unsigned char *)a->argv,a->bytes);
   sha_add(&sha,(const unsigned char *)a->path,strlen(a->path));sha_finish(&sha,digest);
 }
+/* After two complete matching argv reads: does this observation differ from
+ * the retained generation (image, argv/path digest or namespaces), or is a
+ * namespace recapture pending? Death must never discard such an observation. */
+static int observation_changes(const AuditState *s,const Audit *a,const Proc *identity) {
+  char digest[65];argv_digest(a,digest);
+  if(s->retry_pending==RETRY_NAMESPACE||!image_same(&s->image,&a->image)||strcmp(s->digest,digest))return 1;
+  for(int i=0;i<4;i++)if(s->nsdev[i]!=identity->nsdevs[i]||s->nsino[i]!=identity->nsinos[i])return 1;
+  return 0;
+}
 static int capture_audit(Proc *p,int force) {
   if(!p->live||!p->fresh)return 0;
   AuditState *state=p->audit_state;
@@ -535,7 +546,7 @@ static int capture_audit(Proc *p,int force) {
   int slot=-1;for(int i=0;i<MAX_AUDIT;i++)if(!audits[i]){slot=i;break;}
   if(slot<0){state->unobservable=1;coverage_gap=1;return 0;}
   Audit *a=calloc(1,sizeof(*a));if(!a){state->unobservable=1;coverage_gap=1;return 0;}a->fd=-1;
-  Proc before,after;struct stat current;char name[80],verify[65536],*args[MAX_OBS_ARG];int argc=0,teardown=0,exec_window=0,dead=audit_dead(p);
+  Proc before,after;struct stat current;char name[80],verify[65536],*args[MAX_OBS_ARG];int argc=0,teardown=0,exec_window=0,observed=0,moved=0,dead=audit_dead(p);
   if(dead)goto unavailable;
   int result=process(p->pid,&before);if(result==-2)goto inconsistent;if(result)goto read_failed;
   if(before.birth!=p->birth)goto permanent;
@@ -568,6 +579,7 @@ static int capture_audit(Proc *p,int force) {
     if(state->captured&&strcmp(state->digest,digest))goto permanent;
     goto inconsistent;
   }
+  observed=1;
   if(fstat(a->fd,&current))goto read_failed;
   /* A changed held inode is never an exec race. */
   if(!image_same(&current,&a->image))goto permanent;
@@ -586,8 +598,16 @@ static int capture_audit(Proc *p,int force) {
   /* Matching argv reads that straddle a namespace transition are retained and
    * classified, never discarded; coverage then needs a consistent capture in
    * the new namespaces with its own ACK. */
-  int moved=!same_namespaces(&before,&after);
-  dead=audit_dead(p);if(dead)goto unavailable;
+  moved=!same_namespaces(&before,&after);
+  dead=audit_dead(p);
+  if(dead){
+    /* A complete observation that would change coverage state is retained for
+     * classification even though this lifetime can never be recaptured, and
+     * its death is a permanent gap. Only a matching last observation, or one
+     * of an uncaptured identity, stays merely unavailable. */
+    if(dead<0||!state->captured||!(moved||observation_changes(state,a,&before)))goto unavailable;
+    coverage_gap=1;
+  }
   if(operation&&now_ms()>=operation)goto permanent;
   char digest[65];argv_digest(a,digest);
   int same=state->captured&&image_same(&state->image,&a->image)&&!strcmp(state->digest,digest);
@@ -623,7 +643,7 @@ inconsistent:
   /* Nonempty short/inconsistent reads need present death or exec evidence.
    * Only EOF at an already captured EXIT stop can await that terminal death;
    * an unrelated later death cannot pardon an unexplained live observation. */
-  dead=audit_dead(p);if(dead)goto unavailable;
+  dead=audit_dead(p);if(dead)goto died;
   if(a->fd>=0){
     if(stat(name,&current)){if(errno==ESRCH||errno==ENOENT)goto missing;goto permanent;}
     if(current.st_dev!=a->image.st_dev||current.st_ino!=a->image.st_ino){
@@ -646,16 +666,31 @@ inconsistent:
     (state->image.st_dev!=a->image.st_dev||state->image.st_ino!=a->image.st_ino))goto exec_changed;
   /* A same-image exec has no inode evidence. Accept only kernel evidence that
    * the task's mm has not yet published its code range (an unmapped argv area
-   * leaves it published); recovery then still needs the EXEC receipt. */
+   * leaves it published), from this capture's identity read before the EOF or
+   * a reread after it, since the exec may publish both ranges in between;
+   * recovery then still needs the EXEC receipt. */
   if(exec_window&&!state->exiting&&state->captured&&
     (state->retry_pending<RETRY_REPLACEMENT||state->retry_pending==RETRY_NAMESPACE)&&a->fd>=0&&
     state->image.st_dev==a->image.st_dev&&state->image.st_ino==a->image.st_ino&&
-    image_same(&state->image,&a->image)&&exec_mm_unpublished(p->pid)){state->retry_pending=RETRY_EXEC_WINDOW;goto unavailable;}
+    image_same(&state->image,&a->image)&&(before.code_unpublished||exec_mm_unpublished(p->pid))){state->retry_pending=RETRY_EXEC_WINDOW;goto unavailable;}
+  /* The exec can also begin between the two reads: a complete first read that
+   * exactly matches the retained generation (image, argv, namespaces), then
+   * EOF with the same kernel evidence reread after it. Nothing new was seen;
+   * recovery again needs the EXEC receipt, and death before it is a gap. */
+  if(teardown&&!exec_window&&a->argc>0&&!state->exiting&&state->captured&&state->retry_pending<RETRY_REPLACEMENT&&a->fd>=0&&
+    !observation_changes(state,a,&before)&&exec_mm_unpublished(p->pid)){state->retry_pending=RETRY_EXEC_WINDOW;goto unavailable;}
   goto permanent;
 missing:
-  dead=audit_dead(p);if(dead)goto unavailable;
+  dead=audit_dead(p);if(dead)goto died;
   if(state->retry_pending<RETRY_REPLACEMENT){state->retry_pending=RETRY_MISSING;}goto unavailable;
+died:
+  /* Death after a complete observation (e.g. a failed after-identity read)
+   * never discards one that differs from the retained generation. */
+  if(dead>0&&observed&&state->captured&&observation_changes(state,a,&before))goto permanent;
+  goto unavailable;
 exec_changed:
+  /* Nor does a replacement discard a differing complete observation. */
+  if(observed&&state->captured&&observation_changes(state,a,&before))goto permanent;
   state->retry_pending=RETRY_REPLACEMENT;goto unavailable;
 permanent:
   coverage_gap=1;

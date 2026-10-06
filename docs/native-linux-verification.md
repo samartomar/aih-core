@@ -103,7 +103,10 @@ appearing before that capture, or the lifetime ending first, is a permanent gap.
 Matching argument reads that span a namespace change are kept as a generation to
 classify, any earlier acknowledgement stops counting, and coverage returns only
 after a consistent capture in the new namespaces is itself acknowledged; ending
-before that capture is a permanent gap. Capture is sampled at
+before that capture is a permanent gap. A complete argument observation that
+differs from the last retained one, or spans a namespace change, is never
+discarded because the process then exits: it is kept for classification and the
+lifetime is a permanent gap. Capture is sampled at
 kernel stops and audits, so arguments rewritten in place between samples, clones
 created explicitly with `CLONE_UNTRACED` and exec from a non-leader thread are
 outside the claim; the last fails closed.
