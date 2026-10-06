@@ -33,8 +33,8 @@
     },
     {
       "name": "linux-profile.mjs",
-      "byteLength": 5228,
-      "sha256": "421172723f7f2088bb3dc19592056f5e3b7a8a6d2e09434fdcd7ca91c8311633"
+      "byteLength": 5255,
+      "sha256": "786378229fa7ad33d437c92a2c446bdbeac01fb7d368367e4900bb4258bee434"
     },
     {
       "name": "linux-runtime.mjs",

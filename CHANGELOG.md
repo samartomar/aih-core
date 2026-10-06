@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.13 fixes Linux sandbox preparation for npm-installed scoped
+packages: profile paths admit a leading '@' in a path component. This development
+candidate has not been published to npm.
+
 Core 1.0.0-dev.12 integrates the versioned shared trust request with the existing
 Python/pip, Git, Cargo, conda, Gradle and Maven repairs. Supplied-source retention,
 reviewed replacement/removal, configuration and executable binding, and protected
