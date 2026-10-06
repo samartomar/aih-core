@@ -34,7 +34,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
         eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1 },
-      result: { seen: true, isError: true, subtype: 'error_during_execution' }
+      proxy: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
     });
     const inspect = value => {
       assert.ok(Object.isFrozen(value));
@@ -52,19 +52,50 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: records[1].recordId,
       runSha256: null, phase: 'session', index: 1, definition: null,
       collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 } },
-      result: { seen: true, isError: null, subtype: 'other' }
+      proxy: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
     for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
       admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: false, resultSubtype: subtype } });
-      assert.deepEqual(records.at(-1).result, { seen: true, isError: false, subtype });
+      assert.deepEqual(records.at(-1).result, { seen: true, isError: false, subtype, errorClass: 'none' });
     }
     admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: null, resultSubtype: null } });
-    assert.deepEqual(records.at(-1).result, { seen: true, isError: null, subtype: 'other' });
+    assert.deepEqual(records.at(-1).result, { seen: true, isError: null, subtype: 'other', errorClass: 'none' });
     admission.publishNativeDiagnostics({});
     assert.deepEqual(records.at(-1).collector, emptyCollector);
-    assert.deepEqual(records.at(-1).result, { seen: false, isError: null, subtype: 'none' });
+    assert.deepEqual(records.at(-1).result, { seen: false, isError: null, subtype: 'none', errorClass: 'none' });
     admission.publishNativeDiagnostics({ definition: 'claude-win32-x64-2.1.285' });
     assert.equal(records.at(-1).definition, 'claude-win32-x64-2.1.285');
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('session diagnostics clamp and freeze proxy buckets and admit only closed provider error classes', () => {
+  const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
+  stream.subscribe(sink);
+  try {
+    admission.publishNativeDiagnostics({ proxy: { apiAnthropic: { allowed: 1000001, denied: 2, host: 'host-marker' },
+      claudeAi: { allowed: -1, denied: 1.5 }, platformClaude: { allowed: Infinity, denied: NaN },
+      consoleAnthropic: { allowed: 1, denied: 4 }, otherAnthropic: { allowed: 0, denied: 5 },
+      collector: { allowed: 3, denied: 0 }, other: { allowed: 'host-marker', denied: Number.MAX_SAFE_INTEGER },
+      'private-host.invalid': { allowed: 10 } }, result: { errorClass: 'authentication' } });
+    assert.deepEqual(records[0].proxy, {
+      apiAnthropic: { allowed: 1000000, denied: 2 }, claudeAi: { allowed: 0, denied: 0 },
+      platformClaude: { allowed: 0, denied: 0 }, consoleAnthropic: { allowed: 1, denied: 4 },
+      otherAnthropic: { allowed: 0, denied: 5 }, collector: { allowed: 3, denied: 0 }, other: { allowed: 0, denied: 1000000 }
+    });
+    assert.equal(records[0].result.errorClass, 'authentication', 'an assistant error may precede any result');
+    assert.ok(Object.isFrozen(records[0].proxy));
+    for (const pair of Object.values(records[0].proxy)) assert.ok(Object.isFrozen(pair));
+    for (const marker of ['host-marker', 'private-host.invalid']) assert.equal(JSON.stringify(records[0]).includes(marker), false);
+    for (const errorClass of ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other']) {
+      admission.publishNativeDiagnostics({ result: { errorClass } });
+      assert.equal(records.at(-1).result.errorClass, errorClass);
+      assert.equal(records.at(-1).proxy, null);
+    }
+    for (const errorClass of ['secret-marker', null, 403, {}, undefined]) {
+      admission.publishNativeDiagnostics({ proxy: 'secret-marker', result: { errorClass } });
+      assert.equal(records.at(-1).result.errorClass, 'none');
+      assert.equal(records.at(-1).proxy, null);
+    }
   } finally { stream.unsubscribe(sink); }
 });
 

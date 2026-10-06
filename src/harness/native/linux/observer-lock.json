@@ -23,8 +23,8 @@
     },
     {
       "name": "linux-runner.mjs",
-      "byteLength": 6102,
-      "sha256": "4c9c03c26c86f13d14c29029c13221be72e534806aa6645b7e1d0651564f6906"
+      "byteLength": 6901,
+      "sha256": "185a3eef906efb15249239844feb024d9038c8a424372448e1b4ae939676b268"
     },
     {
       "name": "linux-workload.mjs",
@@ -35,6 +35,11 @@
       "name": "linux-profile.mjs",
       "byteLength": 5255,
       "sha256": "786378229fa7ad33d437c92a2c446bdbeac01fb7d368367e4900bb4258bee434"
+    },
+    {
+      "name": "linux-proxy.mjs",
+      "byteLength": 3179,
+      "sha256": "a59a354b26aad50d12e9b3ca58fb610e10330ef256a5fff3ec69edf38eb60724"
     },
     {
       "name": "linux-runtime.mjs",

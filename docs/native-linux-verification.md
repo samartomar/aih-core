@@ -141,8 +141,20 @@ restriction counts and cleanup status. There is no default file or network sink.
 These records accompany acceptance evidence; they do not authorize or admit a cell.
 Subscribers to `aih.native.diagnostics.v1` receive one counts-only record per session:
 collector request, reply-reason, content-type/encoding and event-name counts, plus the
-client result's error flag and a closed subtype. They carry no client strings, never
-change a verdict and have no default sink.
+client result's error flag, closed subtype and provider error class (`none`,
+`authentication`, `forbidden`, `rate-limit`, `overloaded`, `network`, `other`).
+The trusted Linux runner also counts SRT allow/deny decisions in fixed host buckets
+(`apiAnthropic`, `claudeAi`, `platformClaude`, `consoleAnthropic`, `otherAnthropic`,
+`collector`, `other`), each with `allowed` and `denied`; `proxy` is null when
+unobservable or on Windows. Counts include isolation probes and indicate policy
+decisions, not successful requests: an allowed hostname may subsequently be denied
+by SRT's resolved-address guard. `collector` requires its exact loopback host/port;
+`otherAnthropic` covers other names under anthropic.com, claude.com and claude.ai.
+SRT's supported debug logger and violation store are observed only in the outer
+runner; client stderr cannot inject decisions. Numeric API status takes precedence
+over regex classification within a message; the first specific class survives later
+generic failures. They carry no client strings or hostnames, never change a verdict
+and have no default sink.
 
 ## Build records and development checks
 

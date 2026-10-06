@@ -122,7 +122,7 @@ test('session cleanup publishes collector diagnostics and the parsed error resul
   try {
     const { handle, telemetry, stdout, exit, cell } = await session(t, { realParser: true });
     telemetry.stats = { requests: 3, rejected: { auth: 3 } };
-    stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'private-result' }) + '\n');
+    stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: '401 private-result' }) + '\n');
     exit({ code: 1 });
     const observation = await handle.observations;
     assert.equal(observation.authentication, 'missing');
@@ -133,7 +133,8 @@ test('session cleanup publishes collector diagnostics and the parsed error resul
     assert.equal(records[0].runSha256, installed.sha256(cell.path));
     assert.equal(records[0].collector.requests, 3);
     assert.equal(records[0].collector.rejected.auth, 3);
-    assert.deepEqual(records[0].result, { seen: true, isError: true, subtype: 'error_during_execution' });
+    assert.deepEqual(records[0].result, { seen: true, isError: true, subtype: 'success', errorClass: 'authentication' });
+    assert.equal(records[0].proxy, null);
     assert.equal(JSON.stringify(records[0]).includes('private-result'), false);
   } finally { diagnostics.unsubscribe(sink); }
 });
@@ -150,7 +151,8 @@ test('cancelled sessions publish their partial collector diagnostics with no res
     assert.equal(records[0].collector.requests, 1);
     assert.equal(records[0].collector.rejected.contentEncoding, 1);
     assert.equal(records[0].collector.contentEncodings.gzip, 1);
-    assert.deepEqual(records[0].result, { seen: false, isError: null, subtype: 'none' });
+    assert.deepEqual(records[0].result, { seen: false, isError: null, subtype: 'none', errorClass: 'none' });
+    assert.equal(records[0].proxy, null);
   } finally { diagnostics.unsubscribe(sink); }
 });
 

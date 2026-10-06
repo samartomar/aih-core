@@ -2,9 +2,10 @@
 // This is an observation channel, never an input to verification or a public request control.
 import { randomUUID } from 'node:crypto';
 import { channel } from 'node:diagnostics_channel';
-import { canonicalJson } from './canonical.mjs';
+import { canonicalJson, isRecord } from './canonical.mjs';
 import { sha256 } from './digest.mjs';
 import { isolationProbeNames } from './linux-isolation.mjs';
+import { linuxProxyBuckets } from './linux-proxy.mjs';
 
 const stream = channel('aih.native.admission.v1');
 const diagnosticsStream = channel('aih.native.diagnostics.v1');
@@ -45,6 +46,9 @@ export function publishNativeDiagnostics(input) {
   const result = input.result ?? {};
   const seen = result.resultSeen === true;
   const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
+  const errorClass = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'].includes(result.errorClass) ? result.errorClass : 'none';
+  const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
+    [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;
   diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: randomUUID(),
     runSha256: digest(input.runSha256), phase: 'session', index: input.index === 2 ? 2 : 1,
     definition: diagnosticsDefinitions.includes(input.definition) ? input.definition : null,
@@ -55,5 +59,5 @@ export function publishNativeDiagnostics(input) {
       events: boundedCount(source.events), eventNames: counts(source.eventNames, ['apiRequest', 'apiError', 'other']),
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
-    result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype }) }));
+    proxy, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
 }

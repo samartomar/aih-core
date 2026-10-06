@@ -10,6 +10,24 @@ import { sha256 } from './digest.mjs';
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const textOf = content => typeof content === 'string' ? [content]
   : Array.isArray(content) ? content.filter(b => isRecord(b) && b.type === 'text' && typeof b.text === 'string').map(b => b.text) : [];
+const ERROR_PATTERNS = Object.freeze([
+  ['authentication', /\b401\b|authenticat|oauth|token (has )?expired|invalid (api|x-api) key|please run \/login/i],
+  ['forbidden', /\b403\b|forbidden/i],
+  ['rate-limit', /\b429\b|rate.?limit/i],
+  ['overloaded', /\b529\b|overloaded/i],
+  ['network', /ECONN|ENOTFOUND|ETIMEDOUT|fetch failed|network|socket hang up/i]
+]);
+const classifyErrorText = texts => ERROR_PATTERNS.find(([, pattern]) => texts.some(text => pattern.test(text)))?.[0] ?? 'other';
+const classifyError = value => {
+  const error = isRecord(value.error) ? value.error : {};
+  const message = isRecord(value.message) ? value.message : {};
+  const messageError = isRecord(message.error) ? message.error : {};
+  const statuses = [value, error, message, messageError].flatMap(source => [source.status, source.status_code, source.statusCode]);
+  const status = statuses.find(code => Number.isInteger(code) && code >= 400 && code <= 599);
+  if (status !== undefined) return ({ 401: 'authentication', 403: 'forbidden', 429: 'rate-limit', 529: 'overloaded' })[status] ?? 'other';
+  return classifyErrorText([value.result, value.error, error.message, messageError.message, value.message,
+    ...textOf(message.content), ...(Array.isArray(value.errors) ? value.errors : [])].filter(text => typeof text === 'string'));
+};
 
 export function createClaudeStreamParser({ serverName, attestTool, queryTool, expectedAnswer, markerSha256, challenge,
   maxBytes = nativeBounds.childOutputBytes, maxRecordBytes = nativeBounds.childRecordBytes }) {
@@ -17,13 +35,22 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
   const expectedAnswerSha256 = sha256(expectedAnswer);
   const state = { status: 'ok', bytes: 0, records: 0, sessionId: null, ids: new Set(), initSeen: false,
     serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false, answerSha256: null,
-    resultSeen: false, resultSubtype: null, resultIsError: null, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
+    resultSeen: false, resultSubtype: null, resultIsError: null, errorClass: 'none', unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
   const calls = new Map();
   let pending = '';
   const stop = status => { if (state.status === 'ok') state.status = status; };
 
   const record = value => {
     state.records += 1;
+    const errorMessage = value.type === 'result' && (value.is_error === true ||
+      typeof value.subtype === 'string' && value.subtype.startsWith('error_')) ||
+      value.type === 'assistant' && (typeof value.error === 'string' || isRecord(value.error) || value.is_error === true) ||
+      value.type === 'system' && ['api_error', 'error'].includes(value.subtype);
+    if (errorMessage) {
+      const observed = classifyError(value);
+      // A generic terminal failure must not erase the earlier provider classification.
+      if (state.errorClass === 'none' || state.errorClass === 'other') state.errorClass = observed;
+    }
     if (typeof value.session_id === 'string') state.ids.add(value.session_id);
     if (value.type === 'system' && value.subtype === 'init') {
       state.initSeen = true;
@@ -94,7 +121,8 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     serverStatus: state.serverStatus, visibleSelectedTools: state.visible.slice(), toolsListed: state.toolsListed,
     builtinTools: state.builtin.slice(), unselectedTools: state.unselectedTools, permissionMode: state.permissionMode,
     attestationReturned: state.attestationReturned, answerReturned: state.answerReturned, answerSha256: state.answerSha256,
-    resultSeen: state.resultSeen, resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, unselectedToolUses: state.unselected.map(value => ({ ...value })) });
+    resultSeen: state.resultSeen, resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, errorClass: state.errorClass,
+    unselectedToolUses: state.unselected.map(value => ({ ...value })) });
   return {
     snapshot,
     push(chunk) {
