@@ -493,7 +493,6 @@ for (const [profile, stageId, outcome, reason] of [
 for (const interruption of ['cancel', 'budget']) {
   // Snapshot semantics use the controlled budget-stop event above; a short
   // wall-clock window would also test unrelated process/fixture startup speed.
-  const interruptionControls = {};
   for (const [profile, verdict, queryOutcome] of [
     ['pending-receipt', 'unverified', 'unavailable'],
     ['bad-query-pending-receipt', 'failed', 'failed'],
@@ -501,7 +500,7 @@ for (const interruption of ['cancel', 'budget']) {
     ['bad-client-answer', 'failed', 'failed'],
     ['missing-result-bad-client-answer', 'failed', 'failed'],
   ]) test('controlled ' + interruption + ' distinguishes missing query proof from contradiction: ' + profile, async t => {
-    const result = await controlled(t, interruption + '-snapshot-' + profile, interruptionControls);
+    const result = await controlled(t, interruption + '-snapshot-' + profile);
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : verdict === 'failed' ? 'complete' : 'incomplete');
     assert.equal(result.verdict, verdict); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -512,7 +511,7 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a completed query contradiction and prior proof', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query', interruptionControls);
+    const result = await controlled(t, interruption + '-snapshot-bad-query');
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
@@ -522,20 +521,22 @@ for (const interruption of ['cancel', 'budget']) {
     assert.ok(result.limits.observedBytes > 0); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' preserves finished protocol rows while authentication is unfinished', async t => {
-    const result = await controlled(t, interruption + '-snapshot-unfinished-auth', interruptionControls);
+    const result = await controlled(t, interruption + '-snapshot-unfinished-auth');
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'incomplete');
     assert.equal(result.verdict, 'unverified'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
+    if (interruption === 'budget') assert.ok(stages.some(row => row.reason === 'budget-exhausted'), JSON.stringify(stages));
     assert.ok(stages.some(row => row.id === 'provider-authentication' && row.outcome === 'unavailable'));
     assert.ok(stages.some(row => row.id === 'read-only-query' && row.outcome === 'passed'));
     assert.ok(stages.some(row => row.id === 'isolation' && row.outcome === 'unavailable'));
     assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
   });
   test('controlled ' + interruption + ' retains a query failure after unfinished authentication', async t => {
-    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth', interruptionControls);
+    const result = await controlled(t, interruption + '-snapshot-bad-query-unfinished-auth');
     assert.equal(result.status, interruption === 'cancel' ? 'cancelled' : 'complete');
     assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
     const stages = result.sessions[0].stages;
+    if (interruption === 'budget') assert.ok(stages.some(row => row.reason === 'budget-exhausted'), JSON.stringify(stages));
     assert.ok(stages.some(row => row.id === 'provider-authentication' && row.outcome === 'unavailable'));
     assert.ok(stages.some(row => row.id === 'read-only-query' && row.outcome === 'failed' && row.reason === 'query-answer-mismatch'));
     assert.equal(result.cleanup.files, 'removed');
