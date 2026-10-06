@@ -4,12 +4,12 @@ import { canonicalJson } from './internal/canonical.js';
 import { sha256, userHomeRoot } from './internal/host-files.js';
 import { cloneJsonValueStructureV1, deepFreezeStrictJsonV1 } from './internal/strict-json.js';
 import { dataObject, validateControls } from './recipe-engine.js';
-import { contractSupport as harnessSupport } from '../harness/contracts.mjs';
 import { selectMacosRepairDefinition } from '../harness/macos-session-definitions.mjs';
 import { observeMacosSessionPlatform } from '../harness/macos-session-platform.mjs';
 import { prepareTrust, applyTrust, disposeTrustHandle } from './trust.js';
-import { readMacosCustody, macosCustodyParticipant, sessionFileLocation, sessionFilesMatch } from './internal/macos-session-custody.js';
-import { distributionManifest } from './internal/installed-distribution.js';
+import { readMacosCustody, readPendingMacos, macosCustodyParticipant, sessionFileLocation, sessionFilesMatch,
+  sessionTrustMatches, sessionConfiguration } from './internal/macos-session-custody.js';
+import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { writeHistory } from './internal/state.js';
 import { apply as applyPolicy } from './recipe-engine.js';
@@ -29,6 +29,13 @@ const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const hash = (value: unknown) => sha256(canonicalJson(value));
 const diagnostic = (code: string, reason: string): Diagnostic => ({ code, reason,
   message: 'Review the macOS session prerequisite and the required relaunch guidance.' });
+const loggingOption = (controls: HostControls) => ({ value: controls.logging ?? 'on',
+  origin: controls.logging === undefined ? 'default' as const : 'explicit' as const });
+const reasonCodes: Readonly<Record<string, string>> = {
+  'invalid-session-selection': 'INPUT_INVALID', 'review-stale': 'REVIEW_STALE',
+  'session-custody-unavailable': 'STATE_CONFLICT', 'session-ownership-conflict': 'STATE_CONFLICT',
+  'session-recovery-required': 'STATE_CONFLICT', 'trust-custody-pending': 'STATE_CONFLICT', 'trust-custody-conflict': 'STATE_CONFLICT'
+};
 interface SessionState { inner: PreparedHandle; innerDigest: string; review: PreparedReview; entry: MacosSessionCustodyEntry;
   helperSha256: string; removal?: true; recheck(): void }
 const handles = new WeakMap<PreparedHandle, SessionState>();
@@ -89,8 +96,8 @@ function blockedReview(request: MacosRepairRequest, reason: string, controls: Ho
   const inputs: MacosPreparedInputs = {
     trust: { route: request.route,
       definition: { id: request.repairs[0].id, schema: 'urn:aihq:harness:repair:1.2.0' },
-      helperSha256: '0'.repeat(64), package: { name: '@aihq/core', version: harnessSupport.package.version },
-      bindingSha256: hash(request), sourceSetSha256: request.route === 'native' ? null : '0'.repeat(64),
+      helperSha256: installedSessionHelper(), package: { name: '@aihq/core', version: installedDistribution().version },
+      bindingSha256: hash(request), sourceSetSha256: request.route === 'native' ? null : sha256('aih.trust.sources.v1\0[]'),
       targets: request.repairs[0].targets.map(id => ({ id, route: request.route, admission: 'unavailable', reason,
         cellId: null, client: null, policy: null, configurationSha256: null, secondarySources: [],
         verification: { status: 'unavailable', reason, checkIds: [] } })), sources: [], certificates: [], outputs: [] },
@@ -99,8 +106,7 @@ function blockedReview(request: MacosRepairRequest, reason: string, controls: Ho
   const content = { schema: PREPARED, useCase: 'repair' as const, mode: 'standalone' as const,
     target: { scope: 'user' as const, project: userHomeRoot() }, inputs, operations: [],
     observations: [], conflicts: [], omissions: [diagnostic('PREREQUISITE_UNAVAILABLE', reason)],
-    effectiveOptions: { logging: { value: controls.logging ?? 'on',
-      origin: controls.logging === undefined ? 'default' as const : 'explicit' as const }, inputs: {} } };
+    effectiveOptions: { logging: loggingOption(controls), inputs: {} } };
   return deepFreezeStrictJsonV1({ ...content, reviewDigest: hash(content) });
 }
 
@@ -126,7 +132,8 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
     if (!selectMacosRepairDefinition({ requestSchema: request.schema, repairId: request.repairs[0].id,
       definitionSchema: 'urn:aihq:harness:repair:1.2.0' })) return result('invalid', [diagnostic('SCHEMA_UNSUPPORTED', 'schema-unsupported')]);
     const helperSha256 = installedSessionHelper();
-    const image = readMacosCustody();
+    installedDistribution();
+    const image = readMacosCustody(true), pending = readPendingMacos(image);
     const originalSha256 = hash(request);
     const innerRequest: TrustRepairRequest = { ...request, schema: 'urn:aihq:core:repair-request:1.0.0' };
     delete (innerRequest as TrustRepairRequest & { macosSession?: unknown }).macosSession;
@@ -137,17 +144,18 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
     };
     const prepared = await prepareTrust(innerRequest, { ...controls, logging: 'off' }, trustEntry => {
       const prior = image.value.entries.find(row => row.managementId === trustEntry.managementId);
-      if (prior && !sessionFilesMatch(prior)) throw new Error('session-ownership-conflict');
+      if (pending && pending.intent.managementId !== trustEntry.managementId) throw new Error('session-recovery-required');
+      if (!pending && prior && !sessionFilesMatch(prior)) throw new Error('session-ownership-conflict');
       entry = { managementId: trustEntry.managementId, selectionId: trustEntry.selectionId, recipeIdentity: trustEntry.recipeIdentity,
         bindingSha256: hash({ request, helperSha256, custody: image.digest }), context: 'terminal', request,
         files: prior?.files ?? [], keys: [], profileIds: [], appBindingSha256: helperSha256, appliedAt: new Date().toISOString() };
-      return macosCustodyParticipant(image, entry, null, recheck);
+      return macosCustodyParticipant(image, entry, null, recheck, [], pending);
     });
     inner = prepared.prepared;
     if (!prepared.review || !('trust' in prepared.review.inputs)) return result(prepared.status, prepared.diagnostics);
     const trust = (prepared.review.inputs as TrustInputs).trust;
     const session = sessionReview(request, 'terminal-configuration');
-    session.bindingSha256 = hash({ request, helperSha256, trust: trust.bindingSha256, custody: image.digest, files: entry?.files ?? [] });
+    session.bindingSha256 = hash({ request, helperSha256, trust: trust.bindingSha256, custody: image.digest, pending: pending?.digest ?? null, files: entry?.files ?? [] });
     if (entry) entry.bindingSha256 = session.bindingSha256;
     if (entry) session.effects = entry.files.filter(file => file.operationId !== 'material').map(file => {
       const location = sessionFileLocation(file.pathKey), before = readRegularFile(location.absolute, { maxBytes: 12 * 1024 * 1024 });
@@ -157,8 +165,10 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
         effect: operation?.effects === 'already-satisfied' ? 'unchanged' as const : before ? 'replace' as const : 'create' as const,
         persistent: true, key: null };
     });
-    const content = { ...prepared.review, schema: PREPARED, effectiveOptions: { ...prepared.review.effectiveOptions,
-      logging: { value: controls.logging ?? 'on', origin: controls.logging === undefined ? 'default' as const : 'explicit' as const } }, inputs: { trust: { ...trust,
+    const content = { ...prepared.review, schema: PREPARED,
+      observations: [...prepared.review.observations, ...(pending ? [{ id: 'pending-session-reconciliation', reason: `pending-intent:${pending.digest}` }] : [])],
+      effectiveOptions: { ...prepared.review.effectiveOptions,
+      logging: loggingOption(controls) }, inputs: { trust: { ...trust,
       definition: { id: request.repairs[0].id, schema: 'urn:aihq:harness:repair:1.2.0' as const } }, macosSession: session }, reviewDigest: '' };
     const review = deepFreezeStrictJsonV1({ ...content, reviewDigest: hash({ review: content, innerDigest: prepared.review.reviewDigest }) });
     if (!inner || !entry || prepared.status !== 'ready') return result(prepared.status, prepared.diagnostics, review);
@@ -170,7 +180,7 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
     if (inner) disposeTrustHandle(inner);
     const reason = error instanceof Error && /^[a-z-]{1,64}$/.test(error.message) ? error.message : 'invalid-session-selection';
     return result(reason === 'invalid-session-selection' ? 'invalid' : 'blocked',
-      [diagnostic(reason.includes('custody') || reason.includes('ownership') || reason.includes('recovery') ? 'STATE_CONFLICT' : 'PREREQUISITE_UNAVAILABLE', reason)]);
+      [diagnostic(reasonCodes[reason] ?? 'PREREQUISITE_UNAVAILABLE', reason)]);
   }
 }
 
@@ -204,7 +214,7 @@ export async function applyMacosSession(handle: PreparedHandle, authorization: A
     selectionId: state?.entry.selectionId ?? null, configuration: 'not-applied', persistence: 'not-required',
     verification: 'unavailable', reason: 'session-custody-unavailable', applications: [] };
   const rejected = (reason: string, code: string): RunResult => ({ schema: RESULT, runId: randomUUID(), useCase: 'repair', completion: 'rejected',
-    ...(state ? { inputs: state.review.inputs } : {}), effectiveOptions: { logging: { value: safeControls.logging ?? 'on', origin: safeControls.logging === undefined ? 'default' : 'explicit' } },
+    ...(state ? { inputs: state.review.inputs } : {}), effectiveOptions: { logging: loggingOption(safeControls) },
     operations: [], checks: [], diagnostics: [diagnostic(code, reason)], record: disabled, followUp: [], trust: { outputs: [], targets: [] }, macosSession: baseSession });
   try { controls = sessionControls(controls); safeControls = controls; dataObject(authorization, ['approved', 'origin', 'reviewDigest', 'allowPartial']); }
   catch { return rejected('invalid-session-selection', 'INPUT_INVALID'); }
@@ -215,21 +225,23 @@ export async function applyMacosSession(handle: PreparedHandle, authorization: A
   const result = state.removal ? await applyPolicy(state.inner, { ...authorization, reviewDigest: state.innerDigest }, { ...controls, logging: 'off' }) :
     await applyTrust(state.inner, { ...authorization, reviewDigest: state.innerDigest }, { ...controls, logging: 'off' });
   handles.delete(handle);
-  let configuration: MacosSessionRun['configuration'] = result.operations.some(row => row.effectsUncertain) ? 'uncertain' :
-    result.completion === 'complete' ? result.operations.some(row => row.application === 'applied') ? 'applied' : 'already-satisfied' : 'not-applied';
-  if (result.completion === 'complete') {
+  const effectIds = (state.review.inputs as MacosPreparedInputs).macosSession.effects.map(effect => effect.operationId);
+  let configuration = sessionConfiguration(result.operations, effectIds);
+  const wroteConfiguration = result.operations.some(row => effectIds.includes(row.id) && row.application === 'applied');
+  if (configuration === 'applied' || configuration === 'already-satisfied') {
     try {
       const entry = readMacosCustody().value.entries.find(row => row.managementId === state.entry.managementId);
-      if (state.removal ? !!entry : !entry || entry.bindingSha256 !== state.entry.bindingSha256 || !sessionFilesMatch(entry!)) throw new Error();
-    } catch { configuration = 'uncertain'; result.completion = 'incomplete'; result.diagnostics.push(diagnostic('STATE_CONFLICT', 'session-custody-unavailable')); }
+      if (state.removal ? !!entry : !entry || entry.bindingSha256 !== state.entry.bindingSha256 || !sessionFilesMatch(entry!) || !sessionTrustMatches(entry!)) throw new Error();
+    } catch { configuration = 'uncertain'; if (result.completion === 'complete') result.completion = 'incomplete';
+      result.diagnostics.push(diagnostic('STATE_CONFLICT', 'session-recovery-required')); }
   }
   const verification = state.removal || state.entry.request.network === 'off' ? 'skipped' : result.trust?.targets.some(row => row.verification === 'failed') ? 'failed' :
     result.trust?.targets.length && result.trust.targets.every(row => row.verification === 'passed') ? 'passed' : 'unavailable';
   const reason = configuration === 'uncertain' ? 'session-recovery-required' : state.removal ? 'managed-removal' :
     verification === 'skipped' ? 'network-off' : verification === 'passed' ? 'terminal-checks-passed' : verification === 'failed' ? 'terminal-trust-failed' : 'terminal-trust-unobservable';
   return record({ ...result, schema: RESULT, useCase: 'repair', inputs: state.review.inputs, trust: result.trust ?? { outputs: [], targets: [] },
-    effectiveOptions: { logging: { value: controls.logging ?? 'on', origin: controls.logging === undefined ? 'default' : 'explicit' } },
-    macosSession: { ...baseSession, configuration, verification, reason }, followUp: configuration === 'applied' || configuration === 'already-satisfied'
+    effectiveOptions: { logging: loggingOption(controls) },
+    macosSession: { ...baseSession, configuration, verification, reason }, followUp: wroteConfiguration || configuration === 'already-satisfied'
       ? [...result.followUp, 'Start a new login shell so it reads the managed terminal configuration.'] : result.followUp }, controls);
 }
 
@@ -259,18 +271,23 @@ export async function verifyMacosSession(input: MacosSessionVerificationRequest,
     if (host.status !== 'observed') return record(finish('incomplete', 'PREREQUISITE_UNAVAILABLE', host.reason), controls);
     platform = host.platform;
     if (controls.signal?.aborted) return record(finish('cancelled', 'CANCELLED', 'cancelled'), controls);
+    const installed = installedDistribution();
     const entry = readMacosCustody().value.entries.find(row => row.managementId === managementId);
     if (!entry) return record(finish('incomplete', 'STATE_CONFLICT', 'session-custody-unavailable'), controls);
-    const matched = sessionFilesMatch(entry) && installedSessionHelper() === entry.appBindingSha256;
+    if (!sessionTrustMatches(entry)) return record(finish('incomplete', 'STATE_CONFLICT', 'session-custody-unavailable'), controls);
+    const filesMatched = sessionFilesMatch(entry), helpersMatched = installedSessionHelper() === entry.appBindingSha256;
+    const matched = filesMatched && helpersMatched;
     const result = finish('incomplete', matched ? 'PREREQUISITE_UNAVAILABLE' : 'STATE_CONFLICT',
-      matched ? entry.request.network === 'off' ? 'network-off' : 'terminal-trust-unobservable' : 'session-config-drift');
-    result.package = { name: '@aihq/core', version: harnessSupport.package.version }; result.selectionId = entry.selectionId; result.bindingSha256 = entry.bindingSha256;
+      matched ? entry.request.network === 'off' ? 'network-off' : 'terminal-trust-unobservable' : !filesMatched ? 'session-config-drift' : 'session-binding-changed');
+    result.package = installed as MacosSessionVerificationResult['package']; result.selectionId = entry.selectionId;
+    result.bindingSha256 = matched ? entry.bindingSha256 : null;
     result.configuration = matched ? 'already-satisfied' : 'uncertain';
     result.verification = matched && entry.request.network === 'off' ? 'skipped' : 'unavailable';
     return record(result, controls);
   } catch (error) {
     if (!managementId) return finish('invalid', 'INPUT_INVALID', 'invalid-session-selection');
-    const reason = error instanceof Error && error.message === 'session-recovery-required' ? error.message : 'session-custody-unavailable';
+    const reason = error instanceof Error && ['session-recovery-required', 'trust-custody-pending'].includes(error.message)
+      ? 'session-recovery-required' : 'session-custody-unavailable';
     return record(finish('incomplete', 'STATE_CONFLICT', reason), controls);
   }
 }

@@ -37,8 +37,11 @@ cancellation.
 
 Session custody is keyed by management ID in
 `~/.aih/core/macos-session-custody.json`. An unfinished transaction blocks new
-mutation with `session-recovery-required`; inspect protected before/after
-snapshots and ordinary recovery before reconciliation. Foreign file changes
+mutation of the recorded members with `session-recovery-required`. Unrelated
+files remain usable. Prepare the same management family and affected targets
+again with explicit current sources and any exact replacement resolutions,
+review the pending-intent binding, then authorize that fresh review. Original
+before/after evidence stays protected until reconciliation completes. Foreign file changes
 block session removal. Restoring the exact reviewed bytes allows a fresh removal
 review. The runtime never silently clears foreign GUI environment keys or
 restarts applications.

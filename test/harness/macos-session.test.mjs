@@ -1,15 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, realpathSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { renderMacosSessionLaunchAgent, macosSessionTrustKeys, macosSessionBudgets,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey, applyMacosGuiDomainKey,
   macosSessionBootstrap, macosSessionBootout, runMacosSessionLoginReplay,
-  createMacosSessionRecoveryContext, evaluateMacosSessionVerification }
+  createMacosSessionRecoveryContext, evaluateMacosSessionVerification, readMacosSessionFile }
   from '../../src/harness/macos-session.mjs';
 
 const BOOT_UUID = '5D3C1A2B-0000-4000-8000-000000000073';
 const APP = '/Applications/Test.app';
 const dir = (over = {}) => ({ mode: 0o755, uid: 0, gid: 0, dev: 1, ino: 7, size: 0,
   isDirectory: () => true, isSymbolicLink: () => false, ...over });
+const regular = (size, over = {}) => ({ ...dir(), isDirectory: () => false, isFile: () => true, size, ...over });
+
+test('the native app reader bounds descriptor reads and refuses links', () => {
+  const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-app-reader-'));
+  try {
+    const file = join(root, 'member');
+    writeFileSync(file, 'bounded');
+    assert.equal(readMacosSessionFile(file, 7).toString(), 'bounded');
+    assert.equal(readMacosSessionFile(file, 6), undefined);
+    const link = join(root, 'linked');
+    symlinkSync(file, link, 'file');
+    assert.equal(readMacosSessionFile(link, 7), undefined);
+    writeFileSync(file, Buffer.alloc(65537));
+    assert.equal(readMacosSessionFile(file), undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 const fakeHost = ({ platform = 'darwin', uid = 502, lstat = {}, files = {}, runs = {} } = {}) => ({
   platform, arch: 'arm64', release: '25.0.0',
@@ -35,14 +54,16 @@ const guiHost = (over = {}) => fakeHost({ ...over, runs: guiRuns(over.runs) });
 
 const bundleHost = (over = {}) => fakeHost({
   platform: over.platform, uid: over.uid,
-  lstat: { '/': dir(), '/Applications': dir({ mode: 0o755 }), [APP]: dir({ mode: 0o755 }), ...(over.lstat ?? {}) },
+  lstat: { '/': dir(), '/Applications': dir({ mode: 0o755 }), [APP]: dir({ mode: 0o755 }),
+    [`${APP}/Contents`]: dir(), [`${APP}/Contents/MacOS`]: dir(),
+    [`${APP}/Contents/Info.plist`]: regular(8), [`${APP}/Contents/MacOS/Test`]: regular(6), ...(over.lstat ?? {}) },
   files: {
     [`${APP}/Contents/Info.plist`]: '<plist/>',
     [`${APP}/Contents/MacOS/Test`]: 'binary',
     ...(over.files ?? {})
   },
   runs: {
-    [`/usr/bin/plutil -convert json -o - -- ${APP}/Contents/Info.plist`]: { status: 'ok', code: 0,
+    '/usr/bin/plutil -convert json -o - -- -': { status: 'ok', code: 0,
       stdout: JSON.stringify({ CFBundleIdentifier: 'com.example.test', CFBundleShortVersionString: '1.2.3',
         CFBundleVersion: '456', CFBundleExecutable: 'Test' }) },
     [`/usr/bin/codesign --display --verbose=4 -- ${APP}`]: { status: 'ok', code: 0, stdout: '',
@@ -100,7 +121,7 @@ test('application observation requires a no-link, non-mutable .app and rejects e
   const mutable = await observeMacosApplication(request, {}, bundleHost({ lstat: { [APP]: dir({ mode: 0o777, uid: 502 }) } }));
   assert.deepEqual([mutable.status, mutable.reason], ['unavailable', 'app-path-mutable']);
   const noInfo = await observeMacosApplication(request, {}, bundleHost({
-    runs: { [`/usr/bin/plutil -convert json -o - -- ${APP}/Contents/Info.plist`]: { status: 'timeout' } }
+    runs: { '/usr/bin/plutil -convert json -o - -- -': { status: 'timeout' } }
   }));
   assert.deepEqual([noInfo.status, noInfo.reason], ['unavailable', 'app-info-unavailable']);
   const noSignatureChannel = await observeMacosApplication(request, {}, bundleHost({
@@ -131,6 +152,20 @@ test('application observation captures bundle identity, signature facts and byte
   }));
   assert.equal(invalid.status, 'observed');
   assert.equal(invalid.signatureVerified, false, 'an observed invalid signature is not an unavailable channel');
+});
+
+test('application observation refuses linked bundle descendants before reading or invoking tools', async () => {
+  const request = { clientId: 'codex', appPath: APP, targets: ['node'], launch: 'finder' };
+  for (const path of [`${APP}/Contents`, `${APP}/Contents/Info.plist`, `${APP}/Contents/MacOS/Test`]) {
+    const host = bundleHost({ lstat: { [path]: dir({ isSymbolicLink: () => true }) } });
+    const reads = [], commands = [];
+    const read = host.readFile, run = host.run;
+    host.readFile = (...args) => { reads.push(args[0]); return read(...args); };
+    host.run = spec => { commands.push(spec); return run(spec); };
+    assert.equal((await observeMacosApplication(request, {}, host)).status, 'unavailable', path);
+    assert.equal(reads.includes(path), false, 'never read a linked member');
+    assert.equal(commands.some(spec => spec.args.includes(path)), false, 'never hand a linked input to a tool');
+  }
 });
 
 /* ---------------------------------------------------- GUI-domain key and login replay */

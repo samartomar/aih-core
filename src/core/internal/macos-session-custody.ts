@@ -2,18 +2,25 @@ import { existsSync } from 'node:fs';
 import { dirname, join, relative, isAbsolute } from 'node:path';
 import { canonicalJson } from './canonical.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { pathPins, sha256, userHomeRoot } from './host-files.js';
+import { pathPins, pinsMatch, sha256, userHomeRoot, type PathPin } from './host-files.js';
 import { stateFiles, stateRoot, protectState, readOwnership } from './state.js';
 import { memberBytes } from './recipe-lifecycle.js';
 import { readRegularFile } from './fsxn.js';
 import { validateMacosSessionCustody, type MacosSessionCustody,
   type MacosSessionCustodyEntry, type MacosSessionEffect } from '../macos-session-contracts.js';
 import type { TrustEngineParticipant, TrustEngineStep } from './trust-participant.js';
+import { readTrustCustody } from './trust-custody.js';
+import type { OperationResult } from '../host-types.js';
+import type { MacosSessionRun } from '../macos-session-contracts.js';
 
 const FILE = 'macos-session-custody.json';
 const PENDING = 'macos-session-pending.json';
 const LIMIT = 1_048_576;
 export interface MacosCustodyImage { value: MacosSessionCustody; digest: string | null }
+interface SessionIntent { schema: string; runId: string; managementId: string; before: string; after: string;
+  beforeSha256: string; afterSha256: string; recovery: string | null }
+export interface MacosPendingImage { intent: SessionIntent; digest: string; before: MacosSessionCustody;
+  after: MacosSessionCustody; pins: PathPin[] }
 const empty = (): MacosSessionCustody => ({ schema: 'urn:aihq:core:macos-session-custody:1.0.0', entries: [] });
 
 function encode(value: MacosSessionCustody): Buffer {
@@ -23,11 +30,11 @@ function encode(value: MacosSessionCustody): Buffer {
 }
 
 /** Reads protected metadata only; an unfinished transaction requires deliberate reconciliation. */
-export function readMacosCustody(): MacosCustodyImage {
+export function readMacosCustody(allowPending = false): MacosCustodyImage {
   if (!existsSync(stateRoot())) return { value: empty(), digest: null };
   try {
     pathPins(join(stateRoot(), FILE)); pathPins(join(stateRoot(), PENDING));
-    if (existsSync(join(stateRoot(), PENDING))) { protectState([PENDING]); throw new Error('session-recovery-required'); }
+    if (!allowPending && existsSync(join(stateRoot(), PENDING))) { protectState([PENDING]); throw new Error('session-recovery-required'); }
     if (!existsSync(join(stateRoot(), FILE))) return { value: empty(), digest: null };
     protectState([FILE]);
     const bytes = stateFiles().read(FILE);
@@ -45,6 +52,65 @@ export function readMacosCustody(): MacosCustodyImage {
     if (error instanceof Error && error.message === 'session-recovery-required') throw error;
     throw new Error('session-custody-unavailable');
   }
+}
+
+/** Pending snapshots name affected members; they never authorize current bytes. */
+export function readPendingMacos(image: MacosCustodyImage): MacosPendingImage | undefined {
+  if (!existsSync(join(stateRoot(), PENDING))) return;
+  try {
+    protectState([PENDING]);
+    const bytes = stateFiles().read(PENDING);
+    if (!bytes || bytes.length > LIMIT) throw new Error();
+    const intent = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'session intent') as unknown as SessionIntent;
+    const keys = ['schema', 'runId', 'managementId', 'before', 'after', 'beforeSha256', 'afterSha256', 'recovery'];
+    if (Object.keys(intent).length !== keys.length || keys.some(key => !Object.hasOwn(intent, key)) ||
+      intent.schema !== 'urn:aihq:core:macos-session-intent:1.0.0' ||
+      !/^[a-f0-9-]{36}$/.test(intent.runId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(intent.managementId) ||
+      intent.before !== `recovery/${intent.runId}/macos-session-before.json` ||
+      intent.after !== `recovery/${intent.runId}/macos-session-after.json` ||
+      !/^[a-f0-9]{64}$/.test(intent.beforeSha256) || !/^[a-f0-9]{64}$/.test(intent.afterSha256) ||
+      intent.recovery !== null && (typeof intent.recovery !== 'string' || intent.recovery.length > 4096)) throw new Error();
+    const snapshots = [intent.before, intent.after].map((reference, index) => {
+      protectState([reference]);
+      const snapshot = stateFiles().read(reference);
+      if (!snapshot || sha256(snapshot) !== [intent.beforeSha256, intent.afterSha256][index]) throw new Error();
+      const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(snapshot), 'session snapshot') as unknown as MacosSessionCustody;
+      encode(value);
+      for (const entry of value.entries) for (const file of entry.files) sessionFileLocation(file.pathKey);
+      return value;
+    });
+    // Session metadata publishes only at finalization; unrelated metadata may not drift.
+    if (image.digest !== null && image.digest !== intent.beforeSha256 && image.digest !== intent.afterSha256 ||
+      image.digest === null && snapshots[0]!.entries.length !== 0) throw new Error();
+    const withoutManaged = (value: MacosSessionCustody) => canonicalJson(value.entries.filter(entry => entry.managementId !== intent.managementId));
+    if (withoutManaged(snapshots[0]!) !== withoutManaged(snapshots[1]!)) throw new Error();
+    if (![...snapshots[0]!.entries, ...snapshots[1]!.entries].some(entry => entry.managementId === intent.managementId && entry.files.length > 0)) throw new Error();
+    return { intent, digest: sha256(bytes), before: snapshots[0]!, after: snapshots[1]!,
+      pins: [PENDING, intent.before, intent.after].flatMap(reference => pathPins(join(stateRoot(), reference))) };
+  } catch { throw new Error('session-custody-unavailable'); }
+}
+
+function assertPendingMacos(image: MacosCustodyImage, pending: MacosPendingImage): void {
+  const current = readPendingMacos(image);
+  if (!current || current.digest !== pending.digest || !pinsMatch(pending.pins)) throw new Error('review-stale');
+}
+
+/** A session file list alone cannot establish the material's trust provenance. */
+export function sessionTrustMatches(entry: MacosSessionCustodyEntry): boolean {
+  const material = entry.files.find(file => file.operationId === 'material');
+  const trust = readTrustCustody().value.entries.filter(row => row.managementId === entry.managementId);
+  return !!material && trust.length === 1 && trust[0]!.selectionId === entry.selectionId &&
+    trust[0]!.operationId === material.operationId && trust[0]!.pathKey === material.pathKey &&
+    trust[0]!.outputSha256 === material.sha256 && trust[0]!.recipeIdentity === entry.recipeIdentity;
+}
+
+/** Verification/completion does not erase configuration operations that already ran. */
+export function sessionConfiguration(operations: OperationResult[], effectIds: string[]): MacosSessionRun['configuration'] {
+  const selected = operations.filter(operation => effectIds.includes(operation.id));
+  if (selected.some(operation => operation.effectsUncertain)) return 'uncertain';
+  if (selected.some(operation => operation.application === 'applied')) return 'applied';
+  return selected.length === effectIds.length && selected.length > 0 && selected.every(operation => operation.application === 'already-satisfied')
+    ? 'already-satisfied' : 'not-applied';
 }
 
 /** A custody path is a canonical current-home member identity, never an executable path. */
@@ -86,7 +152,9 @@ export function guardMacosSessionMember(root: string, path: string, allowed: boo
   const home = userHomeRoot();
   const local = relative(home, target);
   if (local.startsWith('..') || isAbsolute(local)) return;
-  const image = readMacosCustody();
+  const image = readMacosCustody(true), pending = readPendingMacos(image);
+  if (pending && [...pending.before.entries, ...pending.after.entries].some(entry => entry.managementId === pending.intent.managementId &&
+    entry.files.some(file => sessionFileLocation(file.pathKey).absolute === target))) throw new Error('session-recovery-required');
   if (image.value.entries.some(entry => entry.files.some(file => sessionFileLocation(file.pathKey).absolute === target)))
     throw new Error('session-ownership-conflict');
 }
@@ -110,8 +178,9 @@ export function joinSessionParticipant(trust: TrustEngineParticipant, session: T
 
 /** Only complete, read-back-matching ordinary custody can publish session metadata. */
 export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosSessionCustodyEntry | null,
-  removal: MacosSessionCustodyEntry | null, recheck: () => void, effects: MacosSessionEffect[] = []): TrustEngineParticipant {
+  removal: MacosSessionCustodyEntry | null, recheck: () => void, effects: MacosSessionEffect[] = [], pending?: MacosPendingImage): TrustEngineParticipant {
   const managementId = (update ?? removal)!.managementId;
+  if (pending && (removal || pending.intent.managementId !== managementId)) throw new Error('session-recovery-required');
   let expected = image.digest;
   let prefix = '';
   let intentDigest: string | null = null;
@@ -124,9 +193,10 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
   const currentDigest = () => { const bytes = stateFiles().read(FILE); return bytes ? sha256(bytes) : null; };
   return {
     macosSession: true, exactReplacement: true, lockRoot: join(stateRoot(), 'trust-custody'),
-    reviewBinding: sha256(canonicalJson({ custody: image.digest, managementId, update: update?.bindingSha256 ?? null, removal })),
+    reviewBinding: sha256(canonicalJson({ custody: image.digest, pending: pending?.digest ?? null, managementId, update: update?.bindingSha256 ?? null, removal })),
     allows: affected,
-    recheck() { if (readMacosCustody().digest !== image.digest) throw new Error('review-stale'); recheck(); },
+    recheck() { if (readMacosCustody(!!pending).digest !== image.digest) throw new Error('review-stale');
+      if (pending) assertPendingMacos(image, pending); recheck(); },
     preflight(steps) {
       if (update) {
         const files = steps.filter(step => step.managementId === managementId && step.review.id.startsWith(`${update.selectionId}/`) && step.root && step.path && step.after);
@@ -146,19 +216,30 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
           beforeSha256: step.before ? sha256(step.before) : null, afterSha256: step.after ? sha256(step.after) : null,
           effect: step.review.effects === 'already-satisfied' ? 'unchanged' : 'remove', persistent: true, key: null });
       }
+      if (pending && update) {
+        const paths = (entries: MacosSessionCustodyEntry[]) => [...new Set(entries.filter(entry => entry.managementId === managementId)
+          .flatMap(entry => entry.files.map(file => file.pathKey)))].sort();
+        if (canonicalJson(paths([update])) !== canonicalJson(paths([...pending.before.entries, ...pending.after.entries])))
+          throw new Error('session-recovery-required');
+      }
       encode(next());
     },
     stage(runId, recovery) {
       if (currentDigest() !== expected) throw new Error('review-stale');
+      if (pending) assertPendingMacos(image, pending);
       prefix = `recovery/${runId}/macos-session`;
       protectState([FILE, PENDING, `recovery/${runId}`]);
       const files = stateFiles();
+      if (update) update.appliedAt = new Date().toISOString();
       const before = encode(image.value), after = encode(next());
       files.writeAtomic(`${prefix}-before.json`, before, 0o600, true);
       files.writeAtomic(`${prefix}-after.json`, after, 0o600, true);
       const intent = Buffer.from(canonicalJson({ schema: 'urn:aihq:core:macos-session-intent:1.0.0', runId, managementId,
         before: `${prefix}-before.json`, after: `${prefix}-after.json`, beforeSha256: sha256(before), afterSha256: sha256(after), recovery: recovery ?? null }));
-      files.writeAtomic(PENDING, intent, 0o600, true); intentDigest = sha256(intent);
+      // Keep the original intent throughout a fresh reconciliation. A crash must
+      // not forget its affected members or before/after evidence.
+      if (pending) intentDigest = pending.digest;
+      else { files.writeAtomic(PENDING, intent, 0o600, true); intentDigest = sha256(intent); }
     },
     committed(step: TrustEngineStep) { if (step.root && step.path && affected(step.root, step.path)) begun = true; },
     finish(result) {
@@ -178,9 +259,12 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
             Object.entries(readOwnership(location.root).value.members).some(([key, owner]) =>
               (owner.descriptor?.path ?? key) === location.path && owner.managementId === managementId);
         })) throw new Error('session-ownership-conflict');
+        if (pending) assertPendingMacos(image, pending);
         const bytes = encode(next()); files.writeAtomic(FILE, bytes, 0o600); expected = sha256(bytes);
       }
-      files.remove(PENDING); files.remove(`${prefix}-before.json`); files.remove(`${prefix}-after.json`);
+      if (!pending || result.completion === 'complete') files.remove(PENDING);
+      files.remove(`${prefix}-before.json`); files.remove(`${prefix}-after.json`);
+      if (pending && result.completion === 'complete') { files.remove(pending.intent.before); files.remove(pending.intent.after); }
     }
   };
 }
