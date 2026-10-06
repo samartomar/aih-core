@@ -8,7 +8,7 @@ import { selectMacosRepairDefinition } from '../harness/macos-session-definition
 import { observeMacosSessionPlatform } from '../harness/macos-session-platform.mjs';
 import { prepareTrust, applyTrust, disposeTrustHandle } from './trust.js';
 import { readMacosCustody, readPendingMacos, macosCustodyParticipant, sessionFileLocation, sessionFilesMatch,
-  sessionTrustMatches, sessionConfiguration } from './internal/macos-session-custody.js';
+  sessionTrustMatches, sessionConfiguration, sessionRecoveryFiles } from './internal/macos-session-custody.js';
 import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { writeHistory } from './internal/state.js';
@@ -148,7 +148,7 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
       if (!pending && prior && !sessionFilesMatch(prior)) throw new Error('session-ownership-conflict');
       entry = { managementId: trustEntry.managementId, selectionId: trustEntry.selectionId, recipeIdentity: trustEntry.recipeIdentity,
         bindingSha256: hash({ request, helperSha256, custody: image.digest }), context: 'terminal', request,
-        files: prior?.files ?? [], keys: [], profileIds: [], appBindingSha256: helperSha256, appliedAt: new Date().toISOString() };
+        files: sessionRecoveryFiles(image, trustEntry.managementId, pending), keys: [], profileIds: [], appBindingSha256: helperSha256, appliedAt: new Date().toISOString() };
       return macosCustodyParticipant(image, entry, null, recheck, [], pending);
     });
     inner = prepared.prepared;

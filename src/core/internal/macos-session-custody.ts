@@ -18,7 +18,8 @@ const PENDING = 'macos-session-pending.json';
 const LIMIT = 1_048_576;
 export interface MacosCustodyImage { value: MacosSessionCustody; digest: string | null }
 interface SessionIntent { schema: string; runId: string; managementId: string; before: string; after: string;
-  beforeSha256: string; afterSha256: string; recovery: string | null }
+  beforeSha256: string; afterSha256: string; recovery: string | null;
+  previousIntent?: { reference: string; sha256: string } }
 export interface MacosPendingImage { intent: SessionIntent; digest: string; before: MacosSessionCustody;
   after: MacosSessionCustody; pins: PathPin[] }
 const empty = (): MacosSessionCustody => ({ schema: 'urn:aihq:core:macos-session-custody:1.0.0', entries: [] });
@@ -63,13 +64,22 @@ export function readPendingMacos(image: MacosCustodyImage): MacosPendingImage | 
     if (!bytes || bytes.length > LIMIT) throw new Error();
     const intent = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'session intent') as unknown as SessionIntent;
     const keys = ['schema', 'runId', 'managementId', 'before', 'after', 'beforeSha256', 'afterSha256', 'recovery'];
-    if (Object.keys(intent).length !== keys.length || keys.some(key => !Object.hasOwn(intent, key)) ||
+    if (Object.keys(intent).length !== keys.length + (intent.previousIntent === undefined ? 0 : 1) || keys.some(key => !Object.hasOwn(intent, key)) ||
       intent.schema !== 'urn:aihq:core:macos-session-intent:1.0.0' ||
       !/^[a-f0-9-]{36}$/.test(intent.runId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(intent.managementId) ||
       intent.before !== `recovery/${intent.runId}/macos-session-before.json` ||
       intent.after !== `recovery/${intent.runId}/macos-session-after.json` ||
       !/^[a-f0-9]{64}$/.test(intent.beforeSha256) || !/^[a-f0-9]{64}$/.test(intent.afterSha256) ||
       intent.recovery !== null && (typeof intent.recovery !== 'string' || intent.recovery.length > 4096)) throw new Error();
+    if (intent.previousIntent !== undefined) {
+      const prior = intent.previousIntent;
+      if (!prior || Object.keys(prior).length !== 2 || typeof prior.reference !== 'string' ||
+        !/^recovery\/[a-f0-9-]{36}\/macos-session-original-intent\.json$/.test(prior.reference) ||
+        typeof prior.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(prior.sha256)) throw new Error();
+      protectState([prior.reference]);
+      const old = stateFiles().read(prior.reference);
+      if (!old || sha256(old) !== prior.sha256) throw new Error();
+    }
     const snapshots = [intent.before, intent.after].map((reference, index) => {
       protectState([reference]);
       const snapshot = stateFiles().read(reference);
@@ -86,8 +96,18 @@ export function readPendingMacos(image: MacosCustodyImage): MacosPendingImage | 
     if (withoutManaged(snapshots[0]!) !== withoutManaged(snapshots[1]!)) throw new Error();
     if (![...snapshots[0]!.entries, ...snapshots[1]!.entries].some(entry => entry.managementId === intent.managementId && entry.files.length > 0)) throw new Error();
     return { intent, digest: sha256(bytes), before: snapshots[0]!, after: snapshots[1]!,
-      pins: [PENDING, intent.before, intent.after].flatMap(reference => pathPins(join(stateRoot(), reference))) };
+      pins: [PENDING, intent.before, intent.after, ...(intent.previousIntent ? [intent.previousIntent.reference] : [])]
+        .flatMap(reference => pathPins(join(stateRoot(), reference))) };
   } catch { throw new Error('session-custody-unavailable'); }
+}
+
+/** Provisional guard eligibility comes from protected metadata, before engine preflight. */
+export function sessionRecoveryFiles(image: MacosCustodyImage, managementId: string, pending?: MacosPendingImage): MacosSessionCustodyEntry['files'] {
+  if (!pending) return image.value.entries.find(entry => entry.managementId === managementId)?.files ?? [];
+  if (pending.intent.managementId !== managementId) throw new Error('session-recovery-required');
+  return [...new Map([...pending.before.entries, ...pending.after.entries].filter(entry => entry.managementId === managementId)
+    .flatMap(entry => entry.files.map(file => [file.pathKey, { ...file }] as const))).values()]
+    .sort((a, b) => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0);
 }
 
 function assertPendingMacos(image: MacosCustodyImage, pending: MacosPendingImage): void {
@@ -184,6 +204,7 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
   let expected = image.digest;
   let prefix = '';
   let intentDigest: string | null = null;
+  let successorIntent: Buffer | undefined;
   let begun = false;
   const removalDigests = new Map<string, string | null>();
   const affected = (root: string, path: string) => (update?.files ?? removal?.files ?? []).some(file =>
@@ -231,11 +252,12 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
       protectState([FILE, PENDING, `recovery/${runId}`]);
       const files = stateFiles();
       if (update) update.appliedAt = new Date().toISOString();
-      const before = encode(image.value), after = encode(next());
+      const before = files.read(FILE) ?? encode(image.value), after = encode(next());
       files.writeAtomic(`${prefix}-before.json`, before, 0o600, true);
       files.writeAtomic(`${prefix}-after.json`, after, 0o600, true);
       const intent = Buffer.from(canonicalJson({ schema: 'urn:aihq:core:macos-session-intent:1.0.0', runId, managementId,
         before: `${prefix}-before.json`, after: `${prefix}-after.json`, beforeSha256: sha256(before), afterSha256: sha256(after), recovery: recovery ?? null }));
+      successorIntent = intent;
       // Keep the original intent throughout a fresh reconciliation. A crash must
       // not forget its affected members or before/after evidence.
       if (pending) intentDigest = pending.digest;
@@ -248,7 +270,10 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
       const intent = files.read(PENDING);
       if (!intent || sha256(intent) !== intentDigest || currentDigest() !== expected) throw new Error('session-recovery-required');
       if (result.completion !== 'complete') {
-        if (begun || result.operations.some(operation => operation.application !== 'not-attempted')) return;
+        if (begun || result.operations.some(operation => operation.application !== 'not-attempted')) {
+          if (pending) { files.remove(`${prefix}-before.json`); files.remove(`${prefix}-after.json`); }
+          return;
+        }
       } else {
         if (update && !sessionFilesMatch(update)) throw new Error('session-ownership-conflict');
         if (removal && removal.files.some(file => {
@@ -260,6 +285,15 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
               (owner.descriptor?.path ?? key) === location.path && owner.managementId === managementId);
         })) throw new Error('session-ownership-conflict');
         if (pending) assertPendingMacos(image, pending);
+        if (pending) {
+          // Advance the journal before metadata publication so either side of a
+          // crash has a matching before/after digest. Retain the original proof.
+          const reference = `${prefix}-original-intent.json`;
+          files.writeAtomic(reference, intent, 0o600, true);
+          const successor = Buffer.from(canonicalJson({ ...JSON.parse(successorIntent!.toString('utf8')),
+            previousIntent: { reference, sha256: pending.digest } }));
+          files.writeAtomic(PENDING, successor, 0o600); intentDigest = sha256(successor);
+        }
         const bytes = encode(next()); files.writeAtomic(FILE, bytes, 0o600); expected = sha256(bytes);
       }
       if (!pending || result.completion === 'complete') files.remove(PENDING);

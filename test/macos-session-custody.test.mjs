@@ -4,12 +4,14 @@ import { mkdtempSync, realpathSync, rmSync, existsSync, writeFileSync, readFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { macosCustodyParticipant, guardMacosSessionMember, readMacosCustody, readPendingMacos,
-  sessionConfiguration, sessionTrustMatches } from '../dist/core/internal/macos-session-custody.js';
+  sessionConfiguration, sessionTrustMatches, sessionRecoveryFiles } from '../dist/core/internal/macos-session-custody.js';
 import { protectState, stateFiles, ownershipPath } from '../dist/core/internal/state.js';
 import { sha256 } from '../dist/core/internal/host-files.js';
 import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
+import { OwnedFileTransaction } from '../dist/core/internal/owned-file-transaction.js';
+import { prepare as prepareEngine } from '../dist/core/recipe-engine.js';
 
-test('a protected session participant can execute its own staged intent while an ordinary request is blocked', () => {
+test('a protected session participant can execute and reconcile its intent while unrelated requests remain usable', async () => {
   const root = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-session-intent-')));
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   process.env.HOME = root; process.env.USERPROFILE = root;
@@ -31,6 +33,18 @@ test('a protected session participant can execute its own staged intent while an
     assert.doesNotThrow(() => guardMacosSessionMember(root, 'unrelated/project.txt', false));
     const image = readMacosCustody(true), pending = readPendingMacos(image);
     assert.equal(pending.intent.managementId, entry.managementId);
+    assert.equal(image.value.entries.length, 0, 'first install has no published entry');
+    const provisional = { ...entry, files: sessionRecoveryFiles(image, entry.managementId, pending) };
+    const planning = macosCustodyParticipant(image, provisional, null, () => {}, [], pending);
+    const policy = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{ id: 'trust',
+      managementId: entry.managementId, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
+        schema: 'urn:aihq:core:recipe:1.0.0', id: 'node-session-fixture', description: 'Session recovery fixture',
+        inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'node-config',
+          purpose: 'Restore reviewed session file', kind: 'file.write', scope: 'user', requires: [], checks: [],
+          target: { root: 'userHome', segments: [{ literal: '.zprofile' }] }, content: { literal: 'reviewed fixture' } }] } } }] };
+    const planned = await prepareEngine({ useCase: 'policy', policy, target: { project: root } }, { logging: 'off' },
+      undefined, undefined, planning);
+    assert.equal(planned.status, 'ready', JSON.stringify(planned));
     const original = readFileSync(join(root, '.aih/core/macos-session-pending.json'));
     assert.throws(() => macosCustodyParticipant(image, { ...entry, managementId: 'user-tools-trust' }, null, () => {}, [], pending), /session-recovery-required/);
     // Fresh reviewed work may reconcile only the original affected members.
@@ -46,7 +60,21 @@ test('a protected session participant can execute its own staged intent while an
     reconciled.recheck();
     reconciled.stage('00000000-0000-4000-8000-000000000003', undefined);
     assert.deepEqual(readFileSync(join(root, '.aih/core/macos-session-pending.json')), original, 'retain original recovery evidence through reconciliation');
-    reconciled.finish({ completion: 'complete', operations: [] });
+    const originalRemove = OwnedFileTransaction.prototype.remove;
+    try {
+      OwnedFileTransaction.prototype.remove = function (path) {
+        if (path === 'macos-session-pending.json') throw new Error('fixture-crash-after-publish');
+        return originalRemove.call(this, path);
+      };
+      assert.throws(() => reconciled.finish({ completion: 'complete', operations: [] }), /fixture-crash-after-publish/);
+    } finally { OwnedFileTransaction.prototype.remove = originalRemove; }
+    const published = readMacosCustody(true), advanced = readPendingMacos(published);
+    assert.equal(published.value.entries[0].files[0].sha256, sha256(bytes));
+    assert.equal(advanced.intent.previousIntent.sha256, pending.digest);
+    const finish = macosCustodyParticipant(published, { ...entry, files: sessionRecoveryFiles(published, entry.managementId, advanced) },
+      null, () => {}, [], advanced);
+    finish.recheck(); finish.stage('00000000-0000-4000-8000-000000000004', undefined);
+    finish.finish({ completion: 'complete', operations: [] });
     assert.equal(readMacosCustody().value.entries[0].files[0].sha256, sha256(bytes));
     assert.equal(existsSync(join(root, '.aih/core/macos-session-pending.json')), false);
   } finally {
