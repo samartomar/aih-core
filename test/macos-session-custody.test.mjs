@@ -45,7 +45,6 @@ test('a protected session participant can execute and reconcile its intent while
     const planned = await prepareEngine({ useCase: 'policy', policy, target: { project: root } }, { logging: 'off' },
       undefined, undefined, planning);
     assert.equal(planned.status, 'ready', JSON.stringify(planned));
-    const original = readFileSync(join(root, '.aih/core/macos-session-pending.json'));
     assert.throws(() => macosCustodyParticipant(image, { ...entry, managementId: 'user-tools-trust' }, null, () => {}, [], pending), /session-recovery-required/);
     // Fresh reviewed work may reconcile only the original affected members.
     const bytes = Buffer.from('export NODE_EXTRA_CA_CERTS=fixture\n');
@@ -54,26 +53,48 @@ test('a protected session participant can execute and reconcile its intent while
     stateFiles().writeAtomic(ownershipPath(root), Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:ownership:1.0.0', target: root,
       members: { [memberKey({ kind: 'file', path: '.zprofile' })]: {
         managementId: entry.managementId, recipeIdentity: entry.recipeIdentity, sha256: sha256(bytes), mode: 0o600 } } })), 0o600);
-    const reconciled = macosCustodyParticipant(image, entry, null, () => {}, [], pending);
-    reconciled.preflight([{ managementId: entry.managementId, root, path: '.zprofile', after: bytes,
-      recipeIdentity: entry.recipeIdentity, review: { id: 'trust/node-config' } }]);
-    reconciled.recheck();
-    reconciled.stage('00000000-0000-4000-8000-000000000003', undefined);
-    assert.deepEqual(readFileSync(join(root, '.aih/core/macos-session-pending.json')), original, 'retain original recovery evidence through reconciliation');
-    const originalRemove = OwnedFileTransaction.prototype.remove;
-    try {
-      OwnedFileTransaction.prototype.remove = function (path) {
-        if (path === 'macos-session-pending.json') throw new Error('fixture-crash-after-publish');
-        return originalRemove.call(this, path);
-      };
-      assert.throws(() => reconciled.finish({ completion: 'complete', operations: [] }), /fixture-crash-after-publish/);
-    } finally { OwnedFileTransaction.prototype.remove = originalRemove; }
-    const published = readMacosCustody(true), advanced = readPendingMacos(published);
+    let published = image, advanced = pending;
+    for (const [index, boundary] of ['before-publish', 'after-publish', 'before-clear'].entries()) {
+      const previousPending = advanced;
+      const reconciled = macosCustodyParticipant(published, { ...entry }, null, () => {}, [], advanced);
+      reconciled.preflight([{ managementId: entry.managementId, root, path: '.zprofile', after: bytes,
+        recipeIdentity: entry.recipeIdentity, review: { id: 'trust/node-config' } }]);
+      reconciled.recheck();
+      reconciled.stage(`00000000-0000-4000-8000-00000000000${index + 3}`, undefined);
+      assert.equal(sha256(readFileSync(join(root, '.aih/core/macos-session-pending.json'))), previousPending.digest,
+        'retain original recovery evidence through reconciliation');
+      const originalWrite = OwnedFileTransaction.prototype.writeAtomic;
+      const originalRemove = OwnedFileTransaction.prototype.remove;
+      try {
+        OwnedFileTransaction.prototype.writeAtomic = function (path, ...args) {
+          if (path === 'macos-session-custody.json' && boundary === 'before-publish') throw new Error('fixture-crash');
+          const result = originalWrite.call(this, path, ...args);
+          if (path === 'macos-session-custody.json' && boundary === 'after-publish') throw new Error('fixture-crash');
+          return result;
+        };
+        OwnedFileTransaction.prototype.remove = function (path) {
+          if (path === 'macos-session-pending.json' && boundary === 'before-clear') throw new Error('fixture-crash');
+          return originalRemove.call(this, path);
+        };
+        assert.throws(() => reconciled.finish({ completion: 'complete', operations: [] }), /fixture-crash/, boundary);
+      } finally {
+        OwnedFileTransaction.prototype.writeAtomic = originalWrite;
+        OwnedFileTransaction.prototype.remove = originalRemove;
+      }
+      // The real engine retries incomplete finalization after an exception. If
+      // publication itself threw after writing, the old in-memory digest is
+      // stale; it may refuse that retry but must preserve a readable journal.
+      try { reconciled.finish({ completion: 'incomplete', operations: [{ application: 'applied' }] }); }
+      catch (error) { assert.equal(boundary, 'after-publish'); assert.match(error.message, /session-recovery-required/); }
+      published = readMacosCustody(true); advanced = readPendingMacos(published);
+      assert.equal(advanced.intent.previousIntent.sha256, previousPending.digest, boundary);
+      assert.throws(() => guardMacosSessionMember(root, '.zprofile', false), /session-recovery-required/);
+      assert.doesNotThrow(() => guardMacosSessionMember(root, 'unrelated/project.txt', false));
+    }
     assert.equal(published.value.entries[0].files[0].sha256, sha256(bytes));
-    assert.equal(advanced.intent.previousIntent.sha256, pending.digest);
     const finish = macosCustodyParticipant(published, { ...entry, files: sessionRecoveryFiles(published, entry.managementId, advanced) },
       null, () => {}, [], advanced);
-    finish.recheck(); finish.stage('00000000-0000-4000-8000-000000000004', undefined);
+    finish.recheck(); finish.stage('00000000-0000-4000-8000-000000000006', undefined);
     finish.finish({ completion: 'complete', operations: [] });
     assert.equal(readMacosCustody().value.entries[0].files[0].sha256, sha256(bytes));
     assert.equal(existsSync(join(root, '.aih/core/macos-session-pending.json')), false);

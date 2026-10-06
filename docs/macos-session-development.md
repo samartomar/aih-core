@@ -46,6 +46,16 @@ block session removal. Restoring the exact reviewed bytes allows a fresh removal
 review. The runtime never silently clears foreign GUI environment keys or
 restarts applications.
 
+Successful reconciliation removes the active pending journal and its current
+snapshots. Original-intent archives and older recovery snapshots remain protected
+as diagnostic evidence in this candidate. These retained records do not authorize
+file changes; automatic pruning is deferred.
+
+This candidate keeps the selected terminal target set fixed while a session is
+managed. To change targets or adopt a changed installed helper binding, review
+and apply managed removal first, then prepare the new selection. In-place target
+transitions and recovery that retires a previous target remain deferred.
+
 Schemas include other existing trust families, but their versioned file route
 remains unavailable where the installed integration is absent. OS/native trust
 admission is independent of this supplied-file path. Desktop and both-context
