@@ -33,7 +33,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
-    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
+    // Installing the packed artifact fetches its registry dependencies; slower runners need more than the default.
+    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer, 300_000);
   };
   const run = (file, extraEnv = {}, timeout = 30_000) => execFileSync(process.execPath, [file],
     { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout });
