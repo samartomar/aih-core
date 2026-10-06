@@ -41,6 +41,8 @@ const CONTROL_RE = /[\p{Cc}\p{Cf}]/u;
 const SHELL_RE = /(?:^|\/)(?:ba|da|z|k|c|t)?sh$/;
 const MAX_PATH = 4096;
 const MAX_VALUE = 4096;
+// File capture has its own finite budget; command-output limits are separate.
+const APP_MEMBER_BYTES = 65536;
 
 const invalid = reason => ({ status: 'invalid', code: 'INPUT_INVALID', reason });
 
@@ -216,15 +218,16 @@ const trustedMode = stat => (Number(stat.mode) & 0o022) === 0;
 const trustedApplicationsRoot = (path, stat, host) => path === '/Applications' && Number(stat.uid) === 0 && Number(stat.gid) === 80 &&
   (Number(stat.mode) & 0o002) === 0 && typeof host.groups === 'function' && !host.groups().includes(80);
 
-function safeBundleMember(host, appPath, relativePath, maxBytes) {
+function safeBundleMember(host, appPath, relativePath, maxBytes, limitReason) {
   const segments = relativePath.split('/');
   for (let index = 1; index <= segments.length; index++) {
     const stat = host.lstat(`${appPath}/${segments.slice(0, index).join('/')}`);
     if (!stat || stat.isSymbolicLink() || !trustedMode(stat) ||
       (index < segments.length ? !stat.isDirectory() : typeof stat.isFile !== 'function' || !stat.isFile() ||
-        !Number.isSafeInteger(stat.size) || stat.size < 0 || stat.size > maxBytes)) return false;
+        !Number.isSafeInteger(stat.size) || stat.size < 0)) return 'app-path-unsafe';
+    if (index === segments.length && stat.size > maxBytes) return limitReason;
   }
-  return true;
+  return null;
 }
 
 export async function observeMacosApplication(request, controls = {}, environment) {
@@ -250,8 +253,9 @@ export async function observeMacosApplication(request, controls = {}, environmen
     if (index === segments.length) appStat = entry;
   }
   const infoPath = `${appPath}/Contents/Info.plist`;
-  if (!safeBundleMember(host, appPath, 'Contents/Info.plist', macosSessionBudgets.commandBytes)) return UNAVAILABLE('app-path-unsafe');
-  const infoBytes = host.readFile(infoPath, macosSessionBudgets.commandBytes);
+  const infoReason = safeBundleMember(host, appPath, 'Contents/Info.plist', APP_MEMBER_BYTES, 'app-info-limit');
+  if (infoReason) return UNAVAILABLE(infoReason);
+  const infoBytes = host.readFile(infoPath, APP_MEMBER_BYTES);
   if (!infoBytes) return UNAVAILABLE('app-info-unavailable');
   const info = await fixedRun(host, '/usr/bin/plutil',
     ['-convert', 'json', '-o', '-', '--', '-'], controls, macosSessionBudgets.commandBytes, infoBytes);
@@ -279,8 +283,9 @@ export async function observeMacosApplication(request, controls = {}, environmen
   if (!['ok', 'error'].includes(verify.status)) return UNAVAILABLE('app-signature-unavailable');
   let executableSha256 = null;
   if (executableName && /^[A-Za-z0-9._ -]{1,255}$/.test(executableName)) {
-    if (!safeBundleMember(host, appPath, `Contents/MacOS/${executableName}`, macosSessionBudgets.commandBytes)) return UNAVAILABLE('app-path-unsafe');
-    const executableBytes = host.readFile(`${appPath}/Contents/MacOS/${executableName}`, macosSessionBudgets.commandBytes);
+    const executableReason = safeBundleMember(host, appPath, `Contents/MacOS/${executableName}`, APP_MEMBER_BYTES, 'app-executable-limit');
+    if (executableReason) return UNAVAILABLE(executableReason);
+    const executableBytes = host.readFile(`${appPath}/Contents/MacOS/${executableName}`, APP_MEMBER_BYTES);
     if (!executableBytes) return UNAVAILABLE('app-executable-unavailable');
     executableSha256 = sha256Hex(executableBytes);
   }

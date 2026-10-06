@@ -65,6 +65,11 @@ GUI registration, environment mutation and login replay require protected
 custody and a distinct native login identity and are not exposed by the public
 runtime entry or activated through Core in this candidate.
 
+Read-only application observation has a separate 64 KiB capture limit per plist
+or executable. Larger files return `app-info-limit` or `app-executable-limit`
+without being read; this candidate does not claim those applications observable
+or admitted. Command output has its own independent bound.
+
 The macOS 26 arm64 CI workflow installs a packed consumer and exercises real
 terminal configuration, a fresh login shell against a temporary private CA,
 negative checks before repair and after removal, custody, drift and cancellation.
