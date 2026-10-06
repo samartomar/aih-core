@@ -67,6 +67,7 @@ import { createNativeRuntime as installedHarness } from './adapter.mjs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
+import { NativeStop } from '../../core/internal/native-input.js';
 let recordCleanup;
 const hash = v => createHash('sha256').update(v).digest('hex');
 const canonical = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? '['+v.map(canonical).join(',')+']' : '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
@@ -165,7 +166,16 @@ export async function startNativeSession(input){
   const closePromise=new Promise(resolve=>ended=resolve);child.once('close',()=>{closed=true;ended();});
   let timer; let abort;
   const accepted=new Promise((resolve,reject)=>{
-    child.stdout.on('data',part=>{output+=part.toString();if(partial){try{snapshot=JSON.parse(output);snapshot.counts.observedBytes=Buffer.byteLength(output);snapshot.completed=['session-freshness','loading-mode','tool-restrictions','tool-discovery','instruction-loading','read-only-query'];if(!scenario.endsWith('-unfinished-auth'))snapshot.completed.push('provider-authentication');snapshotReadyResolve();}catch{}}});
+    child.stdout.on('data',part=>{output+=part.toString();if(partial){try{
+      snapshot=JSON.parse(output);snapshot.counts.observedBytes=Buffer.byteLength(output);
+      snapshot.completed=['session-freshness','loading-mode','tool-restrictions','tool-discovery','instruction-loading','read-only-query'];
+      if(!scenario.endsWith('-unfinished-auth'))snapshot.completed.push('provider-authentication');
+      snapshotReadyResolve();
+      // This controlled adapter tests retention at a budget stop after real
+      // child proof, independently of startup speed. The real-deadline case
+      // below still exercises the verifier's actual timer and process cleanup.
+      if(scenario.startsWith('budget-snapshot-'))reject(new NativeStop('budget-exhausted'));
+    }catch{}}});
     child.once('error',reject);
     abort=()=>{child.stdin.destroy();child.kill();reject(Error('controlled cancellation'));};
     if(input.signal)input.signal.addEventListener('abort',abort,{once:true});
@@ -481,7 +491,9 @@ for (const [profile, stageId, outcome, reason] of [
   assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
 });
 for (const interruption of ['cancel', 'budget']) {
-  const interruptionControls = interruption === 'budget' ? { budgetMs: 4000 } : {};
+  // Snapshot semantics use the controlled budget-stop event above; a short
+  // wall-clock window would also test unrelated process/fixture startup speed.
+  const interruptionControls = {};
   for (const [profile, verdict, queryOutcome] of [
     ['pending-receipt', 'unverified', 'unavailable'],
     ['bad-query-pending-receipt', 'failed', 'failed'],
