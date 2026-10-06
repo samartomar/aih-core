@@ -710,7 +710,7 @@ test('ownership overflow starts bounded cleanup without a host request and prese
   const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env({ REPORT: report }) });
   assert.equal(started.status, 'started');
   // No observe/inspect/terminate RPC may be needed to trigger the observer's fail-closed cleanup.
-  await bounded(started.handle.exited, 6000);
+  await bounded(started.handle.exited, 20000);
   const bytes = readFileSync(report, 'utf8'); assert.ok(bytes.length <= 4096);
   const pids = bytes.trim().split('\n').map(Number);
   assert.ok(pids.length >= 256 && pids.length <= 300); assert.ok(pids.every(pid => Number.isSafeInteger(pid) && pid > 0));

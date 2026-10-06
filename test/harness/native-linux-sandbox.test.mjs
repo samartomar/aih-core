@@ -175,6 +175,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 // Only this disposable process substitutes the unavailable OS prerequisites.
 Object.defineProperty(process, 'platform', { value: 'linux' });
+Object.defineProperty(process, 'arch', { value: 'x64' });
 Object.defineProperty(process, 'getuid', { value: () => 1000 });
 const { composeLinuxSandbox } = await import(target);
 class Peer extends Duplex {
