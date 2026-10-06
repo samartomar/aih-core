@@ -409,8 +409,11 @@ function createNativeRuntime(module, dependencies) {
       const publishDiagnostics = () => {
         if (diagnosticsPublished) return;
         diagnosticsPublished = true;
-        publishNativeDiagnostics({ phase: 'session', index: input.index, definition: input.definition.id,
-          runSha256: sha256(input.cell.path), ...diagnosticsSnapshot() });
+        // Diagnostics are evidence-free; a failure here must never affect cleanup or admission publication.
+        try {
+          publishNativeDiagnostics({ phase: 'session', index: input.index, definition: input.definition.id,
+            runSha256: sha256(input.cell.path), ...diagnosticsSnapshot() });
+        } catch { /* diagnostics are best-effort */ }
       };
       let restrictionCounts;
       let snapshot = () => ({ ...incomplete(stopped ?? "native-internal"), completed: [] });

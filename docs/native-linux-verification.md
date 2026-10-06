@@ -139,6 +139,10 @@ Optional process-local subscribers to `aih.native.admission.v1` through Node's
 `diagnostics_channel` receive profile/argv digests, closed proof booleans, fixed
 restriction counts and cleanup status. There is no default file or network sink.
 These records accompany acceptance evidence; they do not authorize or admit a cell.
+Subscribers to `aih.native.diagnostics.v1` receive one counts-only record per session:
+collector request, reply-reason, content-type/encoding and event-name counts, plus the
+client result's error flag and a closed subtype. They carry no client strings, never
+change a verdict and have no default sink.
 
 ## Build records and development checks
 
