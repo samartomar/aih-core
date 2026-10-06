@@ -4,7 +4,7 @@ import { canonicalJson, hasExactKeys, parseStrictJson } from './canonical.mjs';
 
 const bases = new WeakMap();
 const PROVIDERS = Object.freeze(['api.anthropic.com:443', 'claude.ai:443', 'platform.claude.com:443']);
-const PATH = /^\/[A-Za-z0-9._/+:-]+$/;
+const PATH = /^\/@?[A-Za-z0-9._+:-]+(?:\/@?[A-Za-z0-9._+:-]+)*$/;
 const ARG = /^[A-Za-z0-9._/@:+-]*$/;
 const fail = () => { throw new Error('isolation-unobserved'); };
 const freeze = value => {

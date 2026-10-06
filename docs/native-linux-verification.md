@@ -154,3 +154,15 @@ the installed resource bytes, schema 1.1, portable contracts and public API/CLI
 failure behavior. Kernel facility tests and controlled synthetic sessions remain
 distinct from real native account/configuration acceptance. Admission requires
 the latter evidence for the exact packed distribution.
+
+The host-only installed-package preparation gate in
+`test/harness/native-linux-installed.test.mjs` needs a non-root Linux x64 WSL2 host
+with the pinned runtime and an npm-installed `@aihq/core` package. Set
+`AIHQ_TEST_LINUX_INSTALLED_CORE` to its absolute package directory under
+`node_modules/@aihq/core` and `AIHQ_TEST_LINUX_CLIENT_PIN` to a JSON
+`{path, sha256, byteLength}` pin for the client, then run
+`node --test test/harness/native-linux-installed.test.mjs`. The gate prepares and
+terminates the real sandbox without executing the client; CI skips it because
+these variables are unset.
+The same gate also re-reads every merged runtime pin except the client through
+Core's pinned-file reader and checks its SHA-256 without executing the client.

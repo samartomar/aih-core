@@ -77,6 +77,21 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
+    if (process.platform === 'linux') {
+      const { linuxSafePath, createLinuxBaseProfile } = await import(pathToFileURL(join(installed, 'dist/harness/native/linux-profile.mjs')).href);
+      const workload = realpathSync(join(installed, 'dist/harness/native/linux-workload.mjs'));
+      const facility = realpathSync(join(installed, 'dist/harness/native/linux/facility'));
+      assert.equal(linuxSafePath(workload), true);
+      assert.equal(linuxSafePath(facility), true);
+      const cell = join(root, 'linux-cell');
+      const profile = createLinuxBaseProfile({
+        cell: { path: cell, home: `${cell}/home`, project: `${cell}/project`, scratch: `${cell}/scratch`, observations: `${cell}/observations` },
+        runtime: { node: process.execPath, client: process.execPath, bash: '/usr/bin/bash', env: '/usr/bin/env',
+          bwrap: '/usr/bin/bwrap', socat: '/usr/bin/socat', rg: '/usr/bin/rg', libraries: [], readFiles: [facility] },
+        workload, plan: `${cell}/observations/workload.json`, selectedPaths: [`${cell}/project/CLAUDE.md`]
+      });
+      for (const path of [workload, facility]) assert.equal(profile.filesystem.allowRead.includes(path), true);
+    }
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
     const packedSupport = (await import(pathToFileURL(join(installed, 'dist/core/contracts.js')).href)).contractSupport;
     const packedSchemas = new Ajv2020({ strict: true });

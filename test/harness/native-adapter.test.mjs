@@ -24,6 +24,22 @@ import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
 import { nativeParserIds } from '../../src/harness/native/contracts.mjs';
 
+test('the Linux branch delegates exactly the platform client pin shape', async () => {
+  let delegated;
+  const client = { status: 'pinned', path: process.execPath, sha256: 'a'.repeat(64), byteLength: 123 };
+  const module = { ...installed, pinExecutable: async () => client,
+    lifecycleAvailability: async () => ({ status: 'available' }),
+    resolveLinuxNativeClient: async input => { delegated = input.client; return { status: 'resolved', pin: {}, platform: {}, vendor: {}, runtime: {} }; } };
+  const runtime = installed.createNativeRuntime(module, { readPinned: () => Buffer.from('synthetic'), Stop: class extends Error {} });
+  await runtime.resolveNativeClient({ client: 'claude', parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
+    platform: { os: 'linux', execution: 'wsl2' }, lifecycleId: 'linux-srt.v1', executableNames: ['claude'],
+    versionArgv: ['--version'], sessionArgv: ['-p'], isolation: { mechanism: 'vendor-runtime' } },
+    { deadline: performance.now() + 5000, acquireCell: async () => ({ home: '/tmp/owned/home', scratch: '/tmp/owned/scratch', project: '/tmp/owned/project' }) });
+  assert.deepEqual(Object.keys(delegated).sort(), ['byteLength', 'path', 'sha256']);
+  assert.deepEqual(delegated, { path: process.execPath, sha256: 'a'.repeat(64), byteLength: 123 });
+  assert.equal(Object.hasOwn(delegated, 'status'), false);
+});
+
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
 async function session(t, { query = 'answered', receipt = false, realParser = false, track } = {}) {

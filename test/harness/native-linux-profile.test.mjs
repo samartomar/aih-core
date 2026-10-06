@@ -30,6 +30,23 @@ test('fixed profile denies the host root and permits only owned writable roots a
   assert.equal(Object.isFrozen(base.filesystem.allowRead), true);
 });
 
+test('an installed scoped package layout is an accepted workload and read path', () => {
+  const value = input();
+  value.workload = '/home/u/app/node_modules/@aihq/core/dist/harness/native/linux-workload.mjs';
+  value.runtime.readFiles = ['/home/u/app/node_modules/@aihq/core/dist/harness/native/linux/facility'];
+  const base = createLinuxBaseProfile(value);
+  for (const path of [value.workload, ...value.runtime.readFiles]) assert.equal(base.filesystem.allowRead.includes(path), true);
+});
+
+test('profile refuses scope-like injection and shell metacharacters in workload and read paths', () => {
+  for (const path of ['/x/node_modules/@(x)/y', '/x/a@b', '/x/@', '/x/@/y', '/x/*', "/x/'", '/x/!', '/x/{a}', '/x/[a]']) {
+    const workload = input(); workload.workload = path;
+    assert.throws(() => createLinuxBaseProfile(workload), /isolation-unobserved/);
+    const read = input(); read.runtime.readFiles = [path];
+    assert.throws(() => createLinuxBaseProfile(read), /isolation-unobserved/);
+  }
+});
+
 test('session derivation permits only the exact collector and individually owned sockets', () => {
   const base = createLinuxBaseProfile(input()), before = JSON.stringify(base);
   const profile = deriveLinuxSessionProfile(base, slots());
