@@ -164,3 +164,5 @@ with the pinned runtime and an npm-installed `@aihq/core` package. Set
 `node --test test/harness/native-linux-installed.test.mjs`. The gate prepares and
 terminates the real sandbox without executing the client; CI skips it because
 these variables are unset.
+The same gate also re-reads every merged runtime pin except the client through
+Core's pinned-file reader and checks its SHA-256 without executing the client.

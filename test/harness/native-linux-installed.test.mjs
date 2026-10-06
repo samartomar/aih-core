@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -10,7 +11,7 @@ const INSTALLED = process.env.AIHQ_TEST_LINUX_INSTALLED_CORE;
 let client;
 function enabled() {
   if (process.platform !== 'linux' || process.arch !== 'x64' || process.getuid() === 0 ||
-      !INSTALLED || !isAbsolute(INSTALLED) || !INSTALLED.includes('/node_modules/@aihq/core')) return false;
+      !INSTALLED || !isAbsolute(INSTALLED) || !INSTALLED.endsWith('/node_modules/@aihq/core')) return false;
   try {
     client = JSON.parse(process.env.AIHQ_TEST_LINUX_CLIENT_PIN ?? '');
     return lstatSync(INSTALLED).isDirectory() && JSON.parse(readFileSync(join(INSTALLED, 'package.json'), 'utf8')).name === '@aihq/core' &&
@@ -45,7 +46,7 @@ test('an installed scoped package prepares the real pinned sandbox without start
   const pins = [...new Map([...platform.pins, ...vendor.pins, ...linuxObserverPins()].map(pin => [pin.path, pin])).values()];
   const runtime = { ...platform.runtime, libraryClosure: platform.libraryClosure, ldLibraryPath: platform.ldLibraryPath };
   const collector = createClaudeCollector({ expected: { accountUuid: '', organizationId: '' } });
-  let cell, marker, context;
+  let cell, marker, context, cleanupError;
   try {
     const telemetry = await collector.start(); check();
     cell = { path: realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-native-installed-'))) };
@@ -65,15 +66,41 @@ test('an installed scoped package prepares the real pinned sandbox without start
     await collector.cancel();
     assert.equal(receipt.processes, 'confirmed'); assert.deepEqual(receipt.survivors, []);
   } finally {
-    try { await context?.terminate({ graceMs: 0, deadlineMs: 10000 }); }
-    finally {
-      try { await collector.cancel(); }
+    try {
+      try { await context?.terminate({ graceMs: 0, deadlineMs: 10000 }); }
       finally {
-        try { if (marker && existsSync(marker)) unlinkSync(marker); }
+        try { await collector.cancel(); }
         finally {
-          if (cell) { rmSync(cell.path, { recursive: true, force: true }); assert.equal(existsSync(cell.path), false); }
+          try { if (marker && existsSync(marker)) unlinkSync(marker); }
+          finally { if (cell) rmSync(cell.path, { recursive: true, force: true }); }
         }
       }
-    }
+    } catch (error) { cleanupError = error; }
   }
+  assert.ifError(cleanupError);
+  if (cell) assert.equal(existsSync(cell.path), false);
+});
+
+test('installed Linux runtime pins pass the core pinned re-read', {
+  skip: enabled() ? false : 'Linux x64 host with the pinned runtime and an installed @aihq/core package only', timeout: 120_000
+}, async () => {
+  const installed = name => import(pathToFileURL(join(INSTALLED, 'dist/harness/native', name)).href);
+  const { resolveLinuxPlatform } = await installed('linux-platform.mjs');
+  const { verifyLinuxVendorClosure } = await installed('linux-runtime.mjs');
+  const { linuxObserverPins } = await installed('linux-sandbox.mjs');
+  const { nativeReadPinned } = await import(pathToFileURL(join(INSTALLED, 'dist/core/internal/native-material.js')).href);
+  const platform = await resolveLinuxPlatform({ client });
+  assert.equal(platform.status, 'ready', platform.reason);
+  const vendor = verifyLinuxVendorClosure();
+  assert.equal(vendor.status, 'ready', vendor.reason);
+  const pins = [...new Map([...platform.pins, ...vendor.pins, ...linuxObserverPins()].map(pin => [pin.path, pin])).values()]
+    .filter(pin => pin.path !== client.path);
+  const refusals = [];
+  for (const pin of pins) {
+    try {
+      const bytes = nativeReadPinned(pin.path, 256 * 1024 * 1024, () => {});
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), pin.sha256, pin.path);
+    } catch { refusals.push(pin.path); }
+  }
+  assert.deepEqual(refusals, [], `Core pinned re-read refused paths:\n${refusals.join('\n')}`);
 });

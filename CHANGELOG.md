@@ -3,9 +3,11 @@
 ## Unreleased
 
 Core 1.0.0-dev.13 fixes Linux sandbox preparation for npm-installed scoped
-packages: profile paths admit a leading '@' in a path component. This development
-candidate has not been published to npm.
-Linux native client resolution now delegates the exact platform executable pin shape.
+packages: profile paths admit a leading '@' in a path component. Linux API/CLI
+runs that were refused as isolation-unobserved before the client started now
+pass the platform executable pins to sandbox preparation in the required shape.
+The Linux platform record refreshes the pinned glibc 2.43-2ubuntu2.4 library bytes.
+This development candidate has not been published to npm.
 
 Core 1.0.0-dev.12 integrates the versioned shared trust request with the existing
 Python/pip, Git, Cargo, conda, Gradle and Maven repairs. Supplied-source retention,
