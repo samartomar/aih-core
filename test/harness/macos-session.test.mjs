@@ -33,6 +33,7 @@ test('the native app reader bounds descriptor reads and refuses links', () => {
 const fakeHost = ({ platform = 'darwin', uid = 502, lstat = {}, files = {}, runs = {} } = {}) => ({
   platform, arch: 'arm64', release: '25.0.0',
   uid: () => uid,
+  groups: () => [],
   lstat: path => lstat[path],
   readFile: (path, maxBytes) => {
     const value = files[path];
@@ -120,6 +121,12 @@ test('application observation requires a no-link, non-mutable .app and rejects e
   assert.deepEqual([linked.status, linked.reason], ['unavailable', 'app-path-unsafe']);
   const mutable = await observeMacosApplication(request, {}, bundleHost({ lstat: { [APP]: dir({ mode: 0o777, uid: 502 }) } }));
   assert.deepEqual([mutable.status, mutable.reason], ['unavailable', 'app-path-mutable']);
+  const groupBundle = await observeMacosApplication(request, {}, bundleHost({ lstat: { [APP]: dir({ mode: 0o775, uid: 0, gid: 80 }) } }));
+  assert.equal(groupBundle.reason, 'app-path-mutable');
+  const groupContents = await observeMacosApplication(request, {}, bundleHost({ lstat: { [`${APP}/Contents`]: dir({ mode: 0o775, uid: 0, gid: 80 }) } }));
+  assert.equal(groupContents.reason, 'app-path-unsafe');
+  const admin = bundleHost(); admin.groups = () => [80];
+  assert.equal((await observeMacosApplication(request, {}, admin)).reason, 'app-path-mutable');
   const noInfo = await observeMacosApplication(request, {}, bundleHost({
     runs: { '/usr/bin/plutil -convert json -o - -- -': { status: 'timeout' } }
   }));

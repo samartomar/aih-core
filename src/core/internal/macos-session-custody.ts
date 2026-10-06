@@ -23,6 +23,7 @@ interface SessionIntent { schema: string; runId: string; managementId: string; b
 export interface MacosPendingImage { intent: SessionIntent; digest: string; before: MacosSessionCustody;
   after: MacosSessionCustody; pins: PathPin[] }
 const empty = (): MacosSessionCustody => ({ schema: 'urn:aihq:core:macos-session-custody:1.0.0', entries: [] });
+const byPathKey = (a: { pathKey: string }, b: { pathKey: string }): number => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0;
 
 function encode(value: MacosSessionCustody): Buffer {
   const bytes = Buffer.from(canonicalJson(value));
@@ -107,7 +108,7 @@ export function sessionRecoveryFiles(image: MacosCustodyImage, managementId: str
   if (pending.intent.managementId !== managementId) throw new Error('session-recovery-required');
   return [...new Map([...pending.before.entries, ...pending.after.entries].filter(entry => entry.managementId === managementId)
     .flatMap(entry => entry.files.map(file => [file.pathKey, { ...file }] as const))).values()]
-    .sort((a, b) => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0);
+    .sort(byPathKey);
 }
 
 function assertPendingMacos(image: MacosCustodyImage, pending: MacosPendingImage): void {
@@ -204,7 +205,7 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
   let expected = image.digest;
   let prefix = '';
   let intentDigest: string | null = null;
-  let successorIntent: Buffer | undefined;
+  let successorIntent: SessionIntent | undefined;
   let begun = false;
   const removalDigests = new Map<string, string | null>();
   const affected = (root: string, path: string) => (update?.files ?? removal?.files ?? []).some(file =>
@@ -229,7 +230,7 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
           if (path.startsWith('..') || isAbsolute(path)) throw new Error('session-custody-unavailable');
           return { operationId: step.review.id.split('/').slice(1).join('/'),
             pathKey: canonicalJson({ home: userHomeRoot(), segments: path.split(process.platform === 'win32' ? '\\' : '/') }), sha256: sha256(step.after!) };
-        }).sort((a, b) => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0);
+        }).sort(byPathKey);
       } else if (removal) for (const step of steps.filter(step => step.managementId === managementId && step.root && step.path && affected(step.root, step.path))) {
         const absolute = join(step.root!, ...step.path!.split('/'));
         removalDigests.set(absolute, step.after ? sha256(step.after) : null);
@@ -255,9 +256,9 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
       const before = files.read(FILE) ?? encode(image.value), after = encode(next());
       files.writeAtomic(`${prefix}-before.json`, before, 0o600, true);
       files.writeAtomic(`${prefix}-after.json`, after, 0o600, true);
-      const intent = Buffer.from(canonicalJson({ schema: 'urn:aihq:core:macos-session-intent:1.0.0', runId, managementId,
-        before: `${prefix}-before.json`, after: `${prefix}-after.json`, beforeSha256: sha256(before), afterSha256: sha256(after), recovery: recovery ?? null }));
-      successorIntent = intent;
+      successorIntent = { schema: 'urn:aihq:core:macos-session-intent:1.0.0', runId, managementId,
+        before: `${prefix}-before.json`, after: `${prefix}-after.json`, beforeSha256: sha256(before), afterSha256: sha256(after), recovery: recovery ?? null };
+      const intent = Buffer.from(canonicalJson(successorIntent));
       // Keep the original intent throughout a fresh reconciliation. A crash must
       // not forget its affected members or before/after evidence.
       if (pending) intentDigest = pending.digest;
@@ -270,6 +271,10 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
       const intent = files.read(PENDING);
       if (!intent || sha256(intent) !== intentDigest || currentDigest() !== expected) throw new Error('session-recovery-required');
       if (result.completion !== 'complete') {
+        // Engine finalization can be retried after an exception. Once the active
+        // journal advanced, it references these snapshots; they are no longer
+        // disposable staging even when the retry reports incomplete.
+        if (pending && sha256(intent) !== pending.digest) return;
         if (begun || result.operations.some(operation => operation.application !== 'not-attempted')) {
           if (pending) { files.remove(`${prefix}-before.json`); files.remove(`${prefix}-after.json`); }
           return;
@@ -290,7 +295,7 @@ export function macosCustodyParticipant(image: MacosCustodyImage, update: MacosS
           // crash has a matching before/after digest. Retain the original proof.
           const reference = `${prefix}-original-intent.json`;
           files.writeAtomic(reference, intent, 0o600, true);
-          const successor = Buffer.from(canonicalJson({ ...JSON.parse(successorIntent!.toString('utf8')),
+          const successor = Buffer.from(canonicalJson({ ...successorIntent!,
             previousIntent: { reference, sha256: pending.digest } }));
           files.writeAtomic(PENDING, successor, 0o600); intentDigest = sha256(successor);
         }

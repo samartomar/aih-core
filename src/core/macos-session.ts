@@ -129,11 +129,19 @@ export async function prepareMacosSession(input: MacosRepairRequest, controls: H
     const reason = host.status !== 'observed' ? host.reason :
       request.macosSession.context !== 'terminal' ? 'app-session-unsupported' : null;
     if (reason) return result('blocked', [diagnostic('PREREQUISITE_UNAVAILABLE', reason)], blockedReview(request, reason, controls));
-    if (!selectMacosRepairDefinition({ requestSchema: request.schema, repairId: request.repairs[0].id,
-      definitionSchema: 'urn:aihq:harness:repair:1.2.0' })) return result('invalid', [diagnostic('SCHEMA_UNSUPPORTED', 'schema-unsupported')]);
+    const definition = selectMacosRepairDefinition({ requestSchema: request.schema, repairId: request.repairs[0].id,
+      definitionSchema: 'urn:aihq:harness:repair:1.2.0' });
+    if (!definition) return result('invalid', [diagnostic('SCHEMA_UNSUPPORTED', 'schema-unsupported')]);
     const helperSha256 = installedSessionHelper();
     installedDistribution();
     const image = readMacosCustody(true), pending = readPendingMacos(image);
+    const active = image.value.entries.find(row => row.managementId === definition.managementId);
+    // This development candidate keeps one exact target footprint per managed
+    // session. A reviewed removal precedes target-set or installed-binding changes.
+    if (!pending && active && hash([...active.request.repairs[0]!.targets].sort()) !== hash([...request.repairs[0].targets].sort()))
+      return result('blocked', [diagnostic('PREREQUISITE_UNAVAILABLE', 'session-selection-change-unsupported')]);
+    if (!pending && active && active.appBindingSha256 !== helperSha256)
+      return result('blocked', [diagnostic('REVIEW_STALE', 'session-binding-changed')]);
     const originalSha256 = hash(request);
     const innerRequest: TrustRepairRequest = { ...request, schema: 'urn:aihq:core:repair-request:1.0.0' };
     delete (innerRequest as TrustRepairRequest & { macosSession?: unknown }).macosSession;
@@ -236,7 +244,7 @@ export async function applyMacosSession(handle: PreparedHandle, authorization: A
       result.diagnostics.push(diagnostic('STATE_CONFLICT', 'session-recovery-required')); }
   }
   const verification = state.removal || state.entry.request.network === 'off' ? 'skipped' : result.trust?.targets.some(row => row.verification === 'failed') ? 'failed' :
-    result.trust?.targets.length && result.trust.targets.every(row => row.verification === 'passed') ? 'passed' : 'unavailable';
+    result.completion === 'complete' && result.trust?.targets.length && result.trust.targets.every(row => row.verification === 'passed') ? 'passed' : 'unavailable';
   const reason = configuration === 'uncertain' ? 'session-recovery-required' : state.removal ? 'managed-removal' :
     verification === 'skipped' ? 'network-off' : verification === 'passed' ? 'terminal-checks-passed' : verification === 'failed' ? 'terminal-trust-failed' : 'terminal-trust-unobservable';
   return record({ ...result, schema: RESULT, useCase: 'repair', inputs: state.review.inputs, trust: result.trust ?? { outputs: [], targets: [] },

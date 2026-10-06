@@ -114,6 +114,7 @@ function hostEnvironment(overrides = {}) {
     platform: hostPlatform(), arch: hostArch(), release: hostRelease(),
     uid: () => (typeof process.getuid === 'function' && typeof process.geteuid === 'function' &&
       process.getuid() === process.geteuid() ? process.geteuid() : -1),
+    groups: () => typeof process.getgroups === 'function' ? process.getgroups() : [],
     lstat: path => { try { return lstatSync(path); } catch { return undefined; } },
     readFile: readMacosSessionFile,
     run: spec => runCommand(spec),
@@ -209,10 +210,11 @@ export async function observeMacosGuiSession(controls = {}, environment) {
 const APP_REQUEST_KEYS = ['clientId', 'appPath', 'targets', 'launch'];
 const cleanString = (value, max = 512) => typeof value === 'string' && value.length >= 1 &&
   value.length <= max && !CONTROL_RE.test(value);
-// Standard users cannot mutate root-owned wheel/admin-group directories such as
-// /Applications (root:admin 0775). World-writable paths are always refused.
-const trustedMode = stat => (Number(stat.mode) & 0o002) === 0 &&
-  ((Number(stat.mode) & 0o020) === 0 || Number(stat.uid) === 0 && [0, 80].includes(Number(stat.gid)));
+const trustedMode = stat => (Number(stat.mode) & 0o022) === 0;
+// A narrow system-directory exception for a standard user. It never applies to
+// the selected bundle or any member, and admin-group callers cannot use it.
+const trustedApplicationsRoot = (path, stat, host) => path === '/Applications' && Number(stat.uid) === 0 && Number(stat.gid) === 80 &&
+  (Number(stat.mode) & 0o002) === 0 && typeof host.groups === 'function' && !host.groups().includes(80);
 
 function safeBundleMember(host, appPath, relativePath, maxBytes) {
   const segments = relativePath.split('/');
@@ -244,7 +246,7 @@ export async function observeMacosApplication(request, controls = {}, environmen
     const entry = host.lstat(current);
     if (!entry || typeof entry.isDirectory !== 'function' || !entry.isDirectory() || entry.isSymbolicLink())
       return UNAVAILABLE('app-path-unsafe');
-    if (!trustedMode(entry)) return UNAVAILABLE('app-path-mutable');
+    if (!trustedMode(entry) && !trustedApplicationsRoot(current, entry, host)) return UNAVAILABLE('app-path-mutable');
     if (index === segments.length) appStat = entry;
   }
   const infoPath = `${appPath}/Contents/Info.plist`;

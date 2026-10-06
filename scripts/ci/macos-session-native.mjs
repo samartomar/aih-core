@@ -77,6 +77,10 @@ try {
   const custody = JSON.parse(readFileSync(join(home, '.aih/core/macos-session-custody.json'), 'utf8'));
   assert.equal(validateMacosSessionCustody(custody).valid, true, JSON.stringify(validateMacosSessionCustody(custody)));
   assert.equal(existsSync(join(home, '.aih/core/history')), false); passed('protected-custody-survives-no-log');
+  const changedSelection = await prepare({ ...request, repairs: [{ id: 'node-npm-ca', targets: ['npm'], inputs: {} }] }, { logging: 'off' });
+  assert.equal(changedSelection.status, 'blocked');
+  assert.ok(changedSelection.diagnostics.some(row => row.reason === 'session-selection-change-unsupported'));
+  passed('target-transition-requires-reviewed-removal');
   const legacyRequest = { ...request, schema: 'urn:aihq:core:repair-request:1.0.0' };
   delete legacyRequest.macosSession;
   const ownedProfile = readFileSync(join(home, '.zprofile'), 'utf8');
