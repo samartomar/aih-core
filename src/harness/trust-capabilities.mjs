@@ -1,4 +1,5 @@
 // Exact tested supplied-format/profile admission; OS/native repair remains unavailable.
+// This data is excluded from its own evidence subject. Records contain only executed outcomes.
 export const trustCellRecords = Object.freeze([
   {
     "id": "export-pem-win32-declared",

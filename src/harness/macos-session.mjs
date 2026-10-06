@@ -7,7 +7,8 @@
 // tests (the same pattern as trust-os.mjs). It is NOT a Core public control and must never be
 // forwarded from a caller's {signal, logging} object.
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, openSync, closeSync, readSync, fstatSync, constants as fsConstants } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { arch as hostArch, platform as hostPlatform, release as hostRelease } from 'node:os';
 import { spawn } from 'node:child_process';
 import { canonicalJson } from './native/canonical.mjs';
@@ -74,6 +75,39 @@ const UNAVAILABLE = (reason, code = 'PREREQUISITE_UNAVAILABLE') => ({ status: 'u
 
 /* ------------------------------------------------------------------- OS boundary --- */
 
+/** Internal file boundary; descriptor bytes are bounded and every named ancestor stays pinned. */
+export function readMacosSessionFile(path, maxBytes = macosSessionBudgets.commandBytes) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > macosSessionBudgets.commandBytes) return;
+  let fd;
+  try {
+    const pins = [];
+    for (let current = resolve(path); ; current = dirname(current)) {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || (pins.length ? !stat.isDirectory() : !stat.isFile())) return;
+      pins.push({ path: current, dev: stat.dev, ino: stat.ino });
+      if (dirname(current) === current) break;
+    }
+    fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.size > maxBytes || before.dev !== pins[0].dev || before.ino !== pins[0].ino) return;
+    const chunks = []; let total = 0;
+    while (total <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(65536, maxBytes - total + 1));
+      const count = readSync(fd, chunk, 0, chunk.length, null);
+      if (!count) break;
+      total += count;
+      if (total > maxBytes) return;
+      chunks.push(chunk.subarray(0, count));
+    }
+    const after = fstatSync(fd);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || pins.some(pin => {
+      const current = lstatSync(pin.path);
+      return current.isSymbolicLink() || current.dev !== pin.dev || current.ino !== pin.ino;
+    })) return;
+    return Buffer.concat(chunks, total);
+  } catch { return; } finally { if (fd !== undefined) closeSync(fd); }
+}
+
 /** Real host boundary. `overrides` is the internal deterministic test seam only. */
 function hostEnvironment(overrides = {}) {
   return {
@@ -81,18 +115,13 @@ function hostEnvironment(overrides = {}) {
     uid: () => (typeof process.getuid === 'function' && typeof process.geteuid === 'function' &&
       process.getuid() === process.geteuid() ? process.geteuid() : -1),
     lstat: path => { try { return lstatSync(path); } catch { return undefined; } },
-    readFile: (path, maxBytes = macosSessionBudgets.commandBytes) => {
-      try {
-        const bytes = readFileSync(path);
-        return bytes.byteLength > maxBytes ? undefined : bytes;
-      } catch { return undefined; }
-    },
+    readFile: readMacosSessionFile,
     run: spec => runCommand(spec),
     ...overrides
   };
 }
 
-function runCommand({ executable, args, timeoutMs = macosSessionBudgets.commandMs,
+function runCommand({ executable, args, input, timeoutMs = macosSessionBudgets.commandMs,
   maxOutputBytes = macosSessionBudgets.commandBytes }) {
   return new Promise(resolveResult => {
     let child; let timer; let cleanup; let done = false; let timedOut = false;
@@ -102,7 +131,8 @@ function runCommand({ executable, args, timeoutMs = macosSessionBudgets.commandM
       resolveResult(value);
     };
     try {
-      child = spawn(executable, args, { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(executable, args, { shell: false, windowsHide: true, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+      if (input) { child.stdin.on('error', () => {}); child.stdin.end(input); }
     } catch { finish({ status: 'unavailable', reason: 'probe-invocation' }); return; }
     const chunks = { stdout: [], stderr: [] };
     let bytes = 0; let overflow = false;
@@ -127,11 +157,11 @@ function runCommand({ executable, args, timeoutMs = macosSessionBudgets.commandM
 }
 
 // One fixed literal command with the shared command budget; never a shell or caller argv.
-async function fixedRun(environment, executable, args, controls, maxOutputBytes = macosSessionBudgets.commandBytes) {
+async function fixedRun(environment, executable, args, controls, maxOutputBytes = macosSessionBudgets.commandBytes, input) {
   if (controls?.signal?.aborted) return { status: 'cancelled' };
   let result;
   try {
-    result = await environment.run({ executable, args, timeoutMs: macosSessionBudgets.commandMs, maxOutputBytes });
+    result = await environment.run({ executable, args, timeoutMs: macosSessionBudgets.commandMs, maxOutputBytes, ...(input ? { input } : {}) });
   } catch { return { status: 'unavailable', reason: 'command-unavailable' }; }
   if (!result || !['ok', 'error', 'timeout', 'output-limit'].includes(result.status))
     return { status: 'unavailable', reason: result?.reason ?? 'command-unavailable' };
@@ -180,6 +210,17 @@ const APP_REQUEST_KEYS = ['clientId', 'appPath', 'targets', 'launch'];
 const cleanString = (value, max = 512) => typeof value === 'string' && value.length >= 1 &&
   value.length <= max && !CONTROL_RE.test(value);
 
+function safeBundleMember(host, appPath, relativePath, maxBytes) {
+  const segments = relativePath.split('/');
+  for (let index = 1; index <= segments.length; index++) {
+    const stat = host.lstat(`${appPath}/${segments.slice(0, index).join('/')}`);
+    if (!stat || stat.isSymbolicLink() || (Number(stat.mode) & 0o022) !== 0 ||
+      (index < segments.length ? !stat.isDirectory() : typeof stat.isFile !== 'function' || !stat.isFile() ||
+        !Number.isSafeInteger(stat.size) || stat.size < 0 || stat.size > maxBytes)) return false;
+  }
+  return true;
+}
+
 export async function observeMacosApplication(request, controls = {}, environment) {
   if (!hasExactKeys(request, APP_REQUEST_KEYS) || !validControls(controls))
     return UNAVAILABLE('app-request-invalid');
@@ -199,14 +240,15 @@ export async function observeMacosApplication(request, controls = {}, environmen
     const entry = host.lstat(current);
     if (!entry || typeof entry.isDirectory !== 'function' || !entry.isDirectory() || entry.isSymbolicLink())
       return UNAVAILABLE('app-path-unsafe');
-    if ((Number(entry.mode) & 0o022) !== 0 && Number(entry.uid) !== 0) return UNAVAILABLE('app-path-mutable');
+    if ((Number(entry.mode) & 0o022) !== 0) return UNAVAILABLE('app-path-mutable');
     if (index === segments.length) appStat = entry;
   }
   const infoPath = `${appPath}/Contents/Info.plist`;
+  if (!safeBundleMember(host, appPath, 'Contents/Info.plist', macosSessionBudgets.commandBytes)) return UNAVAILABLE('app-path-unsafe');
   const infoBytes = host.readFile(infoPath, macosSessionBudgets.commandBytes);
   if (!infoBytes) return UNAVAILABLE('app-info-unavailable');
   const info = await fixedRun(host, '/usr/bin/plutil',
-    ['-convert', 'json', '-o', '-', '--', infoPath], controls);
+    ['-convert', 'json', '-o', '-', '--', '-'], controls, macosSessionBudgets.commandBytes, infoBytes);
   if (info.status === 'cancelled') return UNAVAILABLE('cancelled');
   if (info.status !== 'ok') return UNAVAILABLE('app-info-unavailable');
   let plist;
@@ -231,8 +273,10 @@ export async function observeMacosApplication(request, controls = {}, environmen
   if (!['ok', 'error'].includes(verify.status)) return UNAVAILABLE('app-signature-unavailable');
   let executableSha256 = null;
   if (executableName && /^[A-Za-z0-9._ -]{1,255}$/.test(executableName)) {
+    if (!safeBundleMember(host, appPath, `Contents/MacOS/${executableName}`, macosSessionBudgets.commandBytes)) return UNAVAILABLE('app-path-unsafe');
     const executableBytes = host.readFile(`${appPath}/Contents/MacOS/${executableName}`, macosSessionBudgets.commandBytes);
-    if (executableBytes) executableSha256 = sha256Hex(executableBytes);
+    if (!executableBytes) return UNAVAILABLE('app-executable-unavailable');
+    executableSha256 = sha256Hex(executableBytes);
   }
   const infoPlistSha256 = sha256Hex(infoBytes);
   const device = Number(appStat?.dev);

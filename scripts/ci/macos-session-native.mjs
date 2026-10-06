@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, watch } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,6 +88,15 @@ try {
   assert.equal(verified.configuration, 'already-satisfied', JSON.stringify(verified));
   assert.equal(verified.status, 'incomplete'); assert.equal(verified.verification, 'skipped');
   assert.equal(validateMacosSessionVerificationResult(verified).valid, true, JSON.stringify(validateMacosSessionVerificationResult(verified))); passed('offline-observation-is-not-a-pass');
+  const trustPath = join(home, '.aih/core/trust-custody.json'), trustBytes = readFileSync(trustPath);
+  writeFileSync(trustPath, JSON.stringify({ schema: 'urn:aihq:core:trust-custody:1.0.0', entries: [] }));
+  const absentTrust = await verifyMacosSession(verificationRequest, { logging: 'off' });
+  assert.equal(absentTrust.configuration, 'not-applied'); assert.equal(absentTrust.bindingSha256, null);
+  writeFileSync(trustPath, trustBytes);
+  const trustPending = join(home, '.aih/core/trust-custody-pending.json');
+  writeFileSync(trustPending, '{}', { mode: 0o600 });
+  assert.equal((await verifyMacosSession(verificationRequest, { logging: 'off' })).reason, 'session-recovery-required');
+  rmSync(trustPending); passed('verification-joins-trust-custody-and-pending-intent');
   const repeat = await prepare(request, { logging: 'off' });
   assert.equal(repeat.status, 'ready', JSON.stringify(repeat));
   assert.equal((await apply(repeat.prepared, approve(repeat), { logging: 'off' })).macosSession.configuration, 'already-satisfied'); passed('unchanged-rerun');
@@ -111,6 +120,37 @@ try {
   assert.match(readFileSync(join(home, '.zprofile'), 'utf8'), /AIHQ_UNRELATED=preserve/);
   assert.notEqual((await loginProbe()).code, 0); passed('owned-removal-and-private-ca-negative-after');
   assert.deepEqual(JSON.parse(readFileSync(join(home, '.aih/core/macos-session-custody.json'), 'utf8')).entries, []);
+  const afterWriteAbort = new AbortController();
+  const online = await prepare({ ...request, network: 'declared' }, { logging: 'off' });
+  assert.equal(online.status, 'ready', JSON.stringify(online));
+  const watcher = watch(home, (_event, name) => {
+    if (String(name) === '.zprofile') {
+      try { if (/NODE_EXTRA_CA_CERTS/.test(readFileSync(join(home, '.zprofile'), 'utf8'))) afterWriteAbort.abort(); } catch {}
+    }
+  });
+  let interrupted;
+  try { interrupted = await apply(online.prepared, approve(online), { logging: 'off', signal: afterWriteAbort.signal }); }
+  finally { watcher.close(); }
+  assert.ok(interrupted.operations.some(row => row.application === 'applied'));
+  assert.ok(['incomplete', 'cancelled'].includes(interrupted.completion), JSON.stringify(interrupted));
+  assert.equal(interrupted.macosSession.configuration, 'uncertain');
+  assert.ok(interrupted.followUp.some(text => text.includes('new login shell')));
+  assert.equal(existsSync(join(home, '.aih/core/macos-session-pending.json')), true); passed('abort-after-writes-retains-effects-and-recovery');
+  let freshRequest = structuredClone(request);
+  let recovered = await prepare(freshRequest, { logging: 'off' });
+  if (recovered.status === 'blocked' && recovered.resolutionInputs?.length) {
+    freshRequest.resolutions = recovered.resolutionInputs.map(row => {
+      assert.ok(row.availableChoices.includes('replace'));
+      return { selectionId: row.selectionId, operationId: row.operationId, choice: 'replace', observedSha256: row.observedSha256 };
+    });
+    recovered = await prepare(freshRequest, { logging: 'off' });
+  }
+  assert.equal(recovered.status, 'ready', JSON.stringify(recovered));
+  assert.equal((await apply(recovered.prepared, approve(recovered), { logging: 'off' })).completion, 'complete');
+  assert.equal(existsSync(join(home, '.aih/core/macos-session-pending.json')), false); passed('fresh-review-reconciles-same-session');
+  const finalRemoval = await prepareManagedRemoval(removalRequest, { logging: 'off' });
+  assert.equal(finalRemoval.disposition, 'prepared', JSON.stringify(finalRemoval));
+  assert.equal((await apply(finalRemoval.preparation.prepared, approve(finalRemoval.preparation), { logging: 'off' })).completion, 'complete');
   const cancelled = new AbortController(); cancelled.abort();
   assert.equal((await prepare(request, { logging: 'off', signal: cancelled.signal })).status, 'cancelled'); passed('abort-before-effects');
   const cli = new URL('./node_modules/@aihq/core/dist/core/cli.js', import.meta.url);
