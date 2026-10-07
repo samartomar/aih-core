@@ -11,7 +11,8 @@ const ORG = '22222222-2222-4222-8222-222222222222';
 const EMAIL = 'someone@example.com';
 const expected = { accountUuid: ACCOUNT, organizationId: ORG };
 const emptyEventNames = { apiRequest: 0, apiError: 0, userPrompt: 0, assistantResponse: 0, toolResult: 0, toolDecision: 0, other: 0 };
-const emptyApiRequestRejected = { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0, identityMismatch: 0, outsideWindow: 0 };
+const emptyApiRequestRejected = { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0,
+  accountMissing: 0, accountDifferent: 0, organizationMissing: 0, organizationDifferent: 0, outsideWindow: 0 };
 
 const attr = (key, value) => ({ key, value: typeof value === 'number' ? { intValue: String(value) } : { stringValue: value } });
 const event = ({ name = 'api_request', session = SID, request = 'req_1', account = ACCOUNT, org = ORG, at = Date.now() } = {}) => ({
@@ -34,6 +35,96 @@ function post(collector, { path = '/v1/logs', method = 'POST', headers = {}, pay
 const times = () => ({ launchedAtMs: Date.now() - 5000, closedAtMs: Date.now() + 5000 });
 const make = (options = {}) => createClaudeCollector({ sessionId: SID, expected, ...options });
 
+test('missing API request identity attributes have separate counts and still conflict', async t => {
+  const c = make(); await c.start(); t.after(() => c.cancel());
+  const missing = event();
+  missing.attributes = missing.attributes.filter(a => !['user.account_uuid', 'organization.id'].includes(a.key));
+  await post(c, { payload: body(missing) });
+  const result = c.snapshot(times());
+  assert.equal(result.reason, 'identity-conflict');
+  assert.equal(result.outcome, 'unavailable');
+  assert.deepEqual(result.stats.apiRequestRejected, {
+    missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0,
+    accountMissing: 1, accountDifferent: 0, organizationMissing: 1, organizationDifferent: 0, outsideWindow: 0
+  });
+  assert.deepEqual(c.snapshot(times()).stats, result.stats);
+  const final = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(final.reason, 'identity-conflict');
+  assert.deepEqual(final.stats, result.stats);
+});
+
+test('a later matching user prompt diagnoses identity timing without clearing the API conflict', async t => {
+  const c = make({ sessionId: null }); await c.start(); t.after(() => c.cancel());
+  const missing = event();
+  missing.attributes = missing.attributes.filter(a => !['user.account_uuid', 'organization.id'].includes(a.key));
+  const noSession = event({ name: 'user_prompt' });
+  noSession.attributes = noSession.attributes.filter(a => a.key !== 'session.id');
+  await post(c, { payload: body(event({ session: OTHER }), missing, noSession,
+    event({ name: 'user_prompt', session: OTHER }), event({ name: 'user_prompt' })) });
+  const unbound = c.snapshot(times());
+  assert.deepEqual(unbound.stats.identityByEvent, {
+    accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0
+  });
+  assert.equal(unbound.stats.firstMatchingEventIndex, null);
+  c.bindSession(SID);
+  const partial = c.snapshot(times());
+  assert.equal(partial.reason, 'identity-conflict');
+  assert.equal(partial.outcome, 'unavailable');
+  assert.equal(partial.counts.matched, 0);
+  assert.deepEqual(partial.stats.apiRequestRejected, { ...emptyApiRequestRejected, accountMissing: 1, organizationMissing: 1, wrongSession: 1 });
+  assert.deepEqual(partial.stats.identityByEvent, {
+    accountPresent: 1, accountMatches: 1, organizationPresent: 1, organizationMatches: 1
+  });
+  assert.equal(partial.stats.firstMatchingEventIndex, 2, 'only bound-session events occupy positions');
+  assert.deepEqual(c.snapshot(times()).stats, partial.stats);
+  const final = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(final.reason, 'identity-conflict');
+  assert.equal(final.outcome, 'unavailable');
+  assert.deepEqual(final.stats, partial.stats);
+  for (const value of [ACCOUNT, ORG, SID, OTHER, EMAIL, 'secret-model'])
+    assert.equal(JSON.stringify(final.stats).includes(value), false);
+});
+
+test('empty API identity values count as missing while present unequal values count as different', async t => {
+  const c = make(); await c.start(); t.after(() => c.cancel());
+  await post(c, { payload: body(event({ account: '', org: '' }),
+    event({ request: 'different', account: 'wrong-account', org: 'wrong-organization' })) });
+  const partial = c.snapshot(times());
+  assert.equal(partial.reason, 'identity-conflict');
+  assert.equal(partial.outcome, 'unavailable');
+  assert.deepEqual(partial.stats.apiRequestRejected, { ...emptyApiRequestRejected,
+    accountMissing: 1, accountDifferent: 1, organizationMissing: 1, organizationDifferent: 1 });
+  assert.deepEqual(partial.stats.identityByEvent, { accountPresent: 1, accountMatches: 0, organizationPresent: 1, organizationMatches: 0 });
+  assert.equal(partial.stats.firstMatchingEventIndex, null);
+  assert.deepEqual(c.snapshot(times()).stats, partial.stats);
+  const final = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(final.reason, 'identity-conflict');
+  assert.equal(final.outcome, 'unavailable');
+  assert.deepEqual(final.stats, partial.stats);
+  for (const value of ['wrong-account', 'wrong-organization']) assert.equal(JSON.stringify(final.stats).includes(value), false);
+});
+
+test('all bound-session event buckets diagnose identity without granting authentication', async t => {
+  const c = make(); await c.start(); t.after(() => c.cancel());
+  const failed = event({ request: 'failed' }); failed.attributes.push(attr('success', 'false'));
+  await post(c, { payload: body(event({ request: '', account: '', org: '' }),
+    event({ name: 'api_error', account: 'wrong-account' }), event({ name: 'user_prompt', org: 'wrong-organization' }),
+    event({ name: 'assistant_response', at: Date.now() - 60000 }), event({ name: 'tool_result' }),
+    event({ name: 'tool_decision' }), event({ name: 'unknown-event' }), failed) });
+  const partial = c.snapshot(times());
+  assert.equal(partial.reason, 'authentication-unavailable');
+  assert.equal(partial.outcome, 'unavailable');
+  assert.equal(partial.counts.matched, 0);
+  assert.equal(partial.stats.conflict, false);
+  assert.deepEqual(partial.stats.apiRequestRejected, { ...emptyApiRequestRejected, missingRequestId: 1, notSuccess: 1 });
+  assert.deepEqual(partial.stats.identityByEvent, { accountPresent: 7, accountMatches: 6, organizationPresent: 7, organizationMatches: 6 });
+  assert.equal(partial.stats.firstMatchingEventIndex, 4, 'diagnostic timing is independent of API request eligibility');
+  const final = await c.drain({ ...times(), timeoutMs: 0 });
+  assert.equal(final.reason, 'authentication-unavailable');
+  assert.equal(final.outcome, 'unavailable');
+  assert.deepEqual(final.stats, partial.stats);
+});
+
 test('diagnostics count HTTP rejection reasons and ignored and matched events without retaining content', async t => {
   const c = make();
   await c.start();
@@ -52,6 +143,7 @@ test('diagnostics count HTTP rejection reasons and ignored and matched events wi
     contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
     events: 2, eventNames: { ...emptyEventNames, apiRequest: 1, toolResult: 1 },
     apiRequestRejected: emptyApiRequestRejected, ignored: 1, matched: 1,
+    identityByEvent: { accountPresent: 2, accountMatches: 2, organizationPresent: 2, organizationMatches: 2 }, firstMatchingEventIndex: 1,
     duplicates: 0, wrongSession: 0, conflict: false
   });
   assert.deepEqual(c.snapshot(times()).stats, result.stats);
@@ -175,7 +267,8 @@ test('a wrong account or organization conflicts even beside a good event', async
     assert.equal(result.reason, 'identity-conflict');
     assert.equal(result.outcome, 'unavailable');
     assert.equal(result.stats.conflict, true);
-    assert.deepEqual(result.stats.apiRequestRejected, { ...emptyApiRequestRejected, identityMismatch: 1 });
+    assert.deepEqual(result.stats.apiRequestRejected, { ...emptyApiRequestRejected,
+      ...(bad.account ? { accountDifferent: 1 } : { organizationDifferent: 1 }) });
   }
 });
 
@@ -194,7 +287,7 @@ test('identical duplicates count once and conflicting duplicates invalidate', as
   await post(d, { payload: body(event(), event({ account: '33333333-3333-4333-8333-333333333333' })) });
   const conflict = await d.drain({ ...times(), timeoutMs: 50 });
   assert.equal(conflict.reason, 'identity-conflict');
-  assert.deepEqual(conflict.stats.apiRequestRejected, { ...emptyApiRequestRejected, identityMismatch: 1 });
+  assert.deepEqual(conflict.stats.apiRequestRejected, { ...emptyApiRequestRejected, accountDifferent: 1 });
 });
 
 test('only api_request events inside the launch-to-close window count', async () => {
@@ -300,7 +393,7 @@ test('identity conflicts outside the window retain both rejection diagnostics', 
   await post(c, { payload: body(event({ account: 'wrong-account', at: Date.now() - 60000 })) });
   const result = await c.drain({ ...times(), timeoutMs: 0 });
   assert.equal(result.reason, 'identity-conflict');
-  assert.deepEqual(result.stats.apiRequestRejected, { ...emptyApiRequestRejected, identityMismatch: 1, outsideWindow: 1 });
+  assert.deepEqual(result.stats.apiRequestRejected, { ...emptyApiRequestRejected, accountDifferent: 1, outsideWindow: 1 });
 });
 
 test('request ID rejection precedes success and unbound candidates are reevaluated after binding', async t => {
