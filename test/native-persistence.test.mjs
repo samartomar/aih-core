@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { linkSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { linkSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { checkNativePersistence } from '../dist/core/internal/native-cell.js';
 import { createPersistenceDiagnosticClassifier } from '../src/harness/native/persistence-diagnostics.mjs';
-import { inspectClaudeGlobalState } from '../src/harness/native/claude-state.mjs';
+import { claudeStatePaths, inspectClaudeGlobalState } from '../src/harness/native/claude-state.mjs';
 import { pathPins, sha256 } from '../dist/core/internal/host-files.js';
 import { NativeStop } from '../dist/core/internal/native-input.js';
 
@@ -17,6 +18,112 @@ function cellFixture(t) {
   return { path, home, project, pins: [], configurationPins: [], configurationFacts: [], tree: [], bytes: new Map() };
 }
 const planFixture = () => ({ home: [], project: [], classify: createPersistenceDiagnosticClassifier().entry });
+
+const cachePath = '.cache/claude-cli-nodejs';
+const claudePlan = () => ({ ...claudeStatePaths, classify: createPersistenceDiagnosticClassifier().entry });
+function cacheFixture(t) {
+  const cell = cellFixture(t), cache = join(cell.home, ...cachePath.split('/'));
+  mkdirSync(cache, { recursive: true });
+  return { cell, cache, plan: claudePlan() };
+}
+function refused(cell, plan, failureClass, expectedItem) {
+  const records = [];
+  assert.equal(checkNativePersistence(cell, plan, () => {}, record => records.push(record)), false);
+  assert.equal(records.length, 1); assert.equal(records[0].class, failureClass);
+  if (expectedItem) assert.deepEqual(records[0].items[0], expectedItem);
+  assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
+  assert.equal(records[0].truncated, true);
+}
+
+test('Claude log cache accepts inert configuration-looking names without inspecting their bytes', t => {
+  const { cell, cache, plan } = cacheFixture(t);
+  mkdirSync(join(cache, 'privacy-canary-cwd', 'mcp-logs-privacy-canary-server'), { recursive: true });
+  for (const name of ['settings.json', 'CLAUDE.md']) {
+    writeFileSync(join(cache, name), 'privacy-canary-unparsed-input');
+    writeFileSync(join(cache, 'privacy-canary-cwd', 'mcp-logs-privacy-canary-server', name), 'privacy-canary-content');
+  }
+  plan.inspect = () => { throw Error('Uninspected cache must not read contents'); };
+  const records = [];
+  assert.equal(checkNativePersistence(cell, plan, () => {}, record => records.push(record)), true);
+  assert.deepEqual(records, []);
+  rmSync(cache, { recursive: true });
+  // The retained rule accepts an ordinary single-link file at this exact uninspected root.
+  writeFileSync(cache, 'privacy-canary-inert-file');
+  assert.equal(checkNativePersistence(cell, plan, () => {}), true);
+});
+
+for (const [root, path, depth, token] of [
+  ['home', '.cache/other', 2, 'unknown-1'],
+  ['home', '.cache/claude-cli-nodejs2', 2, 'unknown-1'],
+  ['home', '.cache/claude-cli', 2, 'unknown-1'],
+  ['home', '.Cache/claude-cli-nodejs', 1, 'unknown-1'],
+  ['home', '.cache/privacy-canary-sibling', 2, 'unknown-1'],
+  ['project', '.cache/claude-cli-nodejs', 1, 'unknown-1'],
+]) test(`Claude log cache refuses undeclared ${root} ${path}`, t => {
+  const { cell, plan } = cacheFixture(t);
+  // Keep the alternate parent spelling observable on case-insensitive Windows filesystems.
+  if (path.startsWith('.Cache/')) rmSync(join(cell.home, '.cache'), { recursive: true });
+  mkdirSync(join(cell[root], ...path.split('/')), { recursive: true });
+  refused(cell, plan, 'unexpected-entry', { root, depth, kind: 'dir', token });
+});
+
+for (const [position, failureClass, depth, token] of [
+  ['parent', 'unexpected-entry', 1, '.cache'],
+  ['root', 'state-tree-entry', 2, 'claude-cli-nodejs'],
+  ['descendant', 'state-tree-entry', 3, 'unknown-1'],
+]) test(`Claude log cache refuses a symlink at its ${position}`, t => {
+  const { cell, cache, plan } = cacheFixture(t);
+  const target = join(cell.path, 'privacy-canary-link-target'); mkdirSync(target);
+  const link = position === 'parent' ? join(cell.home, '.cache') : position === 'root' ? cache : join(cache, 'privacy-canary-link');
+  if (position !== 'descendant') rmSync(link, { recursive: true });
+  symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+  refused(cell, plan, failureClass, { root: 'home', depth, kind: 'other', token });
+});
+
+for (const position of ['root', 'descendant']) test(`Claude log cache refuses hard-linked files at its ${position}`, t => {
+  const { cell, cache, plan } = cacheFixture(t);
+  const source = join(cell.path, 'privacy-canary-hardlink-source'); writeFileSync(source, 'privacy-canary-stderr');
+  if (position === 'root') rmSync(cache, { recursive: true });
+  linkSync(source, position === 'root' ? cache : join(cache, 'privacy-canary-log.jsonl'));
+  refused(cell, plan, 'state-tree-entry', { root: 'home', depth: position === 'root' ? 2 : 3,
+    kind: 'file', token: position === 'root' ? 'claude-cli-nodejs' : 'unknown-1' });
+});
+
+for (const position of ['root', 'descendant']) test(`Claude log cache refuses special-file metadata at its ${position}`, t => {
+  const { cell, cache, plan } = cacheFixture(t);
+  const special = position === 'root' ? cache : join(cache, 'privacy-canary-special');
+  if (position === 'descendant') writeFileSync(special, '');
+  // Windows cannot create POSIX special files. Supply that shape only at the filesystem syscall boundary.
+  const original = fs.lstatSync;
+  const mock = t.mock.method(fs, 'lstatSync', (path, options) => path === special ?
+    { isSymbolicLink: () => false, isFile: () => false, isDirectory: () => false } : original(path, options));
+  syncBuiltinESMExports();
+  try {
+    refused(cell, plan, 'state-tree-entry', { root: 'home', depth: position === 'root' ? 2 : 3,
+      kind: 'other', token: position === 'root' ? 'claude-cli-nodejs' : 'unknown-1' });
+  } finally { mock.mock.restore(); syncBuiltinESMExports(); }
+});
+
+for (const limit of ['depth', 'entries']) test(`Claude log cache retains the ${limit} limit and opaque diagnostics`, t => {
+  const { cell, cache, plan } = cacheFixture(t), records = [];
+  if (limit === 'depth') mkdirSync(join(cache, ...Array(32).fill('privacy-canary-deep')), { recursive: true });
+  else for (let i = 0; i < 4096; i++) writeFileSync(join(cache, `privacy-canary-${i}`), '');
+  assert.throws(() => checkNativePersistence(cell, plan, () => {}, record => records.push(record)), error => error.reason === 'limit-exceeded');
+  assert.equal(records.length, 1); assert.equal(records[0].class, 'limit');
+  assert.match(records[0].items[0].token, /^unknown-\d+$/);
+  assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
+});
+
+for (const [root, path] of [['home', '.claude/settings.json'], ['project', 'CLAUDE.md']]) {
+  test(`Claude log cache does not permit mutation of selected ${root} configuration`, t => {
+    const { cell, plan } = cacheFixture(t), file = join(cell[root], ...path.split('/'));
+    mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, 'selected');
+    cell.tree = [{ root, path, member: { byteLength: 8, sha256: sha256('selected') } }];
+    assert.equal(checkNativePersistence(cell, plan, () => {}), true);
+    writeFileSync(file, 'privacy-canary-mutated-configuration');
+    refused(cell, plan, 'selected-member');
+  });
+}
 
 test('the first failed walk collects at most 16 cheap sibling offenders and marks them partial', t => {
   const cell = cellFixture(t), records = [], plan = planFixture();

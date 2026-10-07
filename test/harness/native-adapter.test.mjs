@@ -451,7 +451,7 @@ test('native state paths enumerate only fixed client-owned state, never loading 
   }
   assert.deepEqual(seen[0], seen[1], 'both platform definitions share the same fixed state enumeration');
   assert.deepEqual(seen[0].home.map(entry => entry.path), ['.claude/projects', '.claude/.claude.json', '.claude/.claude.json.lock',
-    '.claude/backups', '.claude/history.jsonl', '.claude/history.jsonl.lock', '.claude/telemetry']);
+    '.claude/backups', '.claude/history.jsonl', '.claude/history.jsonl.lock', '.claude/telemetry', '.cache/claude-cli-nodejs']);
   assert.deepEqual(seen[0].project, []);
   assert.deepEqual(runtime.nativeStatePaths({ client: 'codex', parserId: 'other.v1' }), { home: [], project: [] });
 });

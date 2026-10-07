@@ -117,8 +117,30 @@ including provider feature-gate and experiment caches in its global state file
 `cachedExperiment*` keys). Those caches can change how the second session starts.
 This is an accepted limitation: the second session's loading, restriction,
 tool-discovery and authentication evidence is still observed independently, and
-new instruction, settings, MCP, memory or managed-policy files remain configuration
-changes.
+new instruction, settings, MCP, memory or managed-policy files outside uninspected
+state remain configuration changes.
+
+The fixed home state paths additionally admit exactly `.cache/claude-cli-nodejs`;
+`XDG_CACHE_HOME` stays `<home>/.cache`. Static tracing of the pinned Claude Code
+2.1.285 executable identifies output-only JSONL logs at
+`<cache>/<sanitized cwd>/errors/<timestamp>.jsonl` and
+`<cache>/<sanitized cwd>/mcp-logs-<sanitized server>/<timestamp>.jsonl`. The only
+consumers are the writer and age-based cleanup; no configuration or instruction
+loader uses this subtree in that version. This is a version-specific rationale,
+not a loading guarantee for another client version.
+
+The walker permits an ordinary single-link file or a directory at this exact
+uninspected state root. `.cache` itself must be a directory parent, and its other
+children, near-match names and project-root equivalents remain unexpected entries.
+Names such as `settings.json` and `CLAUDE.md` within the tree are accepted as inert
+state. This proves allowance only; the no-loader conclusion comes from the static
+trace. Links, hard links, special files and the existing depth/entry limits still
+fail closed. Selected configuration bytes remain immutable.
+
+Logs may retain MCP server stderr. Verification never reads, ingests or exports
+their contents. Successful whole-cell cleanup deletes the logs; failed cleanup
+retains the cell under the existing opaque recovery-name reporting. Deletion is
+conditional on cleanup success and does not rely on the client's own pruning.
 
 The vendor places a fresh local proxy capability in its bubblewrap environment
 arguments and shell command. This is an acknowledged argv exposure: local readers

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.21 admits exactly the home `.cache/claude-cli-nodejs` client-state
+root for the pinned Claude Code 2.1.285 candidate. Version-specific static tracing
+identifies output-only error/MCP JSONL logs with no configuration or instruction
+loader. Other cache children and project equivalents remain refused; existing
+link, special-file, walk-limit and selected-configuration checks are unchanged.
+The uninspected root permits an ordinary single-link file or directory. Log
+contents, which may include MCP server stderr, are never read, ingested or
+exported by verification. Successful whole-cell cleanup deletes them; failed
+cleanup retains the cell. Retention does not rely on client pruning. This
+development candidate has not been published to npm.
+
 Core 1.0.0-dev.20 adds optional native persistence diagnostics identifying the
 first failed check before or after the second session. Records contain closed
 failure classes, bounded structural counts and reviewed tokens, with opaque
