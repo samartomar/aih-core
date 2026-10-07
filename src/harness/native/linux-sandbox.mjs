@@ -28,7 +28,7 @@ const WSL_MOUNT_FILES = Object.freeze(['/mnt/c/Windows/System32/cmd.exe', '/mnt/
 const WSL_INTEROP_FILES = Object.freeze(['/init', '/run/WSL', '/proc/sys/fs/binfmt_misc/WSLInterop']);
 // Files loaded by processes in the owned tree outside the sandbox profile's own runtime pins.
 export const linuxObserverSources = Object.freeze(['canonical.mjs', 'contracts.mjs', 'fixture-data.mjs', 'fixture-metadata.mjs',
-  'linux-runner.mjs', 'linux-workload.mjs', 'linux-forwarder.mjs', 'linux-profile.mjs', 'linux-proxy.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
+  'linux-runner.mjs', 'linux-workload.mjs', 'linux-profile.mjs', 'linux-proxy.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
   'linux/interop-canary.cs', 'linux/interop-canary.exe', 'linux/interop-build-record.json', 'linux/facility', 'linux/build-record.json']);
 // Host paths the pinned SRT 0.0.78 can leave when its runner is killed before reset(): bwrap's empty
 // read-only mount points for absent mandatory-deny names in the working directory. Deepest first.

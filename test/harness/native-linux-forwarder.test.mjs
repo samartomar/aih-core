@@ -6,8 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { startCollectorForwarder } from '../../src/harness/native/linux-forwarder.mjs';
-import { runProbes } from '../../src/harness/native/linux-workload.mjs';
+import { runProbes, startCollectorForwarder } from '../../src/harness/native/linux-workload.mjs';
 
 const listen = async (server, host, port = 0) => {
   server.listen(port, host); await once(server, 'listening'); return server.address().port;
@@ -189,4 +188,13 @@ test('directLoopbackDenied probes a distinct canary port while the collector bri
     assert.deepEqual(forwarder.snapshot(), { accepted: 0, connected: 0, refused: 0, capped: 0 },
       'probe requests still go directly through the proxy');
   } finally { if (previous === undefined) delete process.env.HTTP_PROXY; else process.env.HTTP_PROXY = previous; }
+});
+
+test('the workload is self-contained: it imports only node built-ins, because the profile exposes no sibling module', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../../src/harness/native/linux-workload.mjs', import.meta.url), 'utf8');
+  const specifiers = [...source.matchAll(/^\s*import\s[^;]*?from\s+'([^']+)'|^\s*import\s+'([^']+)'|\bimport\(\s*'([^']+)'/gm)]
+    .map(match => match[1] ?? match[2] ?? match[3]);
+  assert.ok(specifiers.length > 0);
+  assert.deepEqual(specifiers.filter(specifier => !specifier.startsWith('node:')), []);
 });
