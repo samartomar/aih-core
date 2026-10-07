@@ -154,10 +154,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
   };
 
-  const evaluate = ({ launchedAtMs, closedAtMs }, closeMono) => {
-    const skew = nativeBounds.telemetrySkewMs;
-    const seen = new Map();
-    const apiRequestRejected = { ...stats.apiRequestRejected };
+  // Bound-session identity timing from the tagged history, or the aggregate kept once the collector closed.
+  let closedIdentityTiming = null;
+  const identityTiming = () => {
+    if (closedIdentityTiming) return closedIdentityTiming;
     const identityByEvent = { accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0 };
     let firstMatchingEventIndex = null, sessionEvents = 0;
     const boundTag = attribution(boundSession);
@@ -168,6 +168,21 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       if (firstMatchingEventIndex === null && event.accountMatches && event.organizationMatches)
         firstMatchingEventIndex = Math.min(1000000, sessionEvents);
     }
+    return { identityByEvent, firstMatchingEventIndex };
+  };
+  // At closure keep only the aggregate; discard the tagged history and wipe the attribution key.
+  const closeIdentityTiming = () => {
+    if (closedIdentityTiming) return;
+    closedIdentityTiming = identityTiming();
+    state.identityEvents.length = 0;
+    attributionKey.fill(0);
+  };
+
+  const evaluate = ({ launchedAtMs, closedAtMs }, closeMono) => {
+    const skew = nativeBounds.telemetrySkewMs;
+    const seen = new Map();
+    const apiRequestRejected = { ...stats.apiRequestRejected };
+    const { identityByEvent, firstMatchingEventIndex } = identityTiming();
     let matched = 0, duplicates = 0, ignored = state.ignored, conflict = false;
     const mine = boundSession === null ? [] : state.candidates.filter(candidate => candidate.session === boundSession);
     const wrongSession = state.candidates.length - mine.length;
@@ -221,7 +236,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
           matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes,
         stats: diagnostics(result) };
     },
-    async cancel() { state.cancelled = true; await shut(); },
+    async cancel() { state.cancelled = true; closeIdentityTiming(); await shut(); },
     async drain({ launchedAtMs, closedAtMs, timeoutMs = nativeBounds.telemetryDrainMs }) {
       const deadline = performance.now() + timeoutMs;
       while (!state.cancelled && !state.violation && performance.now() < deadline) {
@@ -234,6 +249,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       const wasCancelled = state.cancelled;
       await shut();
       const closeMono = performance.now();
+      closeIdentityTiming();
       const result = evaluate({ launchedAtMs, closedAtMs }, closeMono);
       const counts = { requests: state.requests, events: Math.min(state.events, nativeBounds.collectorEvents),
         matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored };

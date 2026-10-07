@@ -483,3 +483,19 @@ test('timing diagnostics attribute events by a keyed tag and never keep the raw 
   assert.match(push, /tag: attribution\(attrs\.get\('session\.id'\)\)/);
   assert.doesNotMatch(push, /session:/);
 });
+
+test('closure keeps only the identity timing aggregate and discards the tagged history', async () => {
+  for (const close of [c => c.drain({ ...times(), timeoutMs: 0 }), async c => { await c.cancel(); return c.snapshot(times()); }]) {
+    const c = make();
+    await c.start();
+    await post(c, { payload: body(event({ name: 'user_prompt' }), event({ name: 'user_prompt', session: OTHER, account: '' })) });
+    const closed = await close(c);
+    assert.deepEqual(closed.stats.identityByEvent, { accountPresent: 1, accountMatches: 1, organizationPresent: 1, organizationMatches: 1 });
+    assert.equal(closed.stats.firstMatchingEventIndex, 1);
+    // A rebinding after closure cannot re-attribute history that no longer exists.
+    c.bindSession(OTHER);
+    const after = c.snapshot(times()).stats;
+    assert.deepEqual(after.identityByEvent, closed.stats.identityByEvent);
+    assert.equal(after.firstMatchingEventIndex, 1);
+  }
+});
