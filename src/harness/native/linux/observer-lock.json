@@ -28,8 +28,8 @@
     },
     {
       "name": "linux-workload.mjs",
-      "byteLength": 11442,
-      "sha256": "6c07f0f32697288478f53b4beb546489db3ddb383bc13f3f295a5b8d5eb42a31"
+      "byteLength": 16451,
+      "sha256": "ef9338ecaa057d2beffa697b329c9356864ec3ca5101e708c49e3c90199118f6"
     },
     {
       "name": "linux-profile.mjs",

@@ -88,6 +88,22 @@ test('authenticated transcript reaches the client only after kernel identity, pr
   assert.equal(text.includes(TOKEN), false); assert.equal(text.includes(CHALLENGE), false);
 });
 
+test('the end frame retains only exact counts-only forwarder diagnostics without changing proof', async () => {
+  const stats = { accepted: 2, connected: 1, refused: 1, capped: 0 };
+  for (const forwarder of [stats, null, { ...stats, payload: 'payload-marker' }, { ...stats, accepted: -1 },
+    { ...stats, capped: 1000001 }, { ...stats, refused: 1.5 }, 'payload-marker']) {
+    const { session, socket } = await authenticated();
+    socket.send(probes()); await waitFor(() => socket.sent.length === 2, 'start');
+    socket.send({ type: 'client', pid: 9 }); await waitFor(() => socket.sent.length === 3, 'resume');
+    socket.send({ type: 'end', code: 0, forwarder });
+    await waitFor(() => socket.sent.length === 4, 'finish');
+    assert.equal(session.state.ended, true);
+    assert.deepEqual(session.state.forwarder, forwarder === stats ? stats : null);
+    if (forwarder === stats) assert.ok(Object.isFrozen(session.state.forwarder));
+    assert.equal(JSON.stringify(session.state).includes('payload-marker'), false);
+  }
+});
+
 test('a forged or replayed hello never reaches kernel identity or a challenge', async () => {
   for (const forged of [hello({ token: 'd'.repeat(64) }), hello({ token: 'a'.repeat(63) }), hello({ extra: true }),
     hello({ version: 2 }), hello({ pid: 0 }), hello({ pid: '3' })]) {

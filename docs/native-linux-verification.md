@@ -150,6 +150,17 @@ unobservable or on Windows. Counts include isolation probes and indicate policy
 decisions, not successful requests: an allowed hostname may subsequently be denied
 by SRT's resolved-address guard. `collector` requires its exact loopback host/port;
 `otherAnthropic` covers other names under anthropic.com, claude.com and claude.ai.
+The `forwarder` block is null when absent or on non-Linux platforms; otherwise it
+contains only `accepted`, `connected`, `refused` and `capped` counts (clamped to
+1,000,000). After isolation probes finish, the trusted workload listens only on
+the collector's literal 127.0.0.1 authority and tunnels through authenticated SRT
+CONNECT, preserving the proxy allowlist. It admits at most 32 concurrent and 256
+total tunnels, caps each direction at 4 MiB, expires idle sockets after 3 seconds,
+and destroys all sockets before sending the end frame. `accepted` counts admitted
+connections, `connected` counts 200 CONNECT replies, `refused` counts failures
+before establishment, and `capped` counts limit rejections or byte/idle closures.
+Payload bytes are streamed without parsing or retention. The direct-loopback
+denial probe continues to target a separate host canary port.
 SRT's supported debug logger and violation store are observed only in the outer
 runner; client stderr cannot inject decisions. Numeric API status takes precedence
 over regex classification within a message; the first specific class survives later
