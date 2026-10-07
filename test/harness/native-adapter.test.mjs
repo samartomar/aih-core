@@ -464,7 +464,7 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
   const inspect = (value, path = '.claude/.claude.json', root = 'home') =>
     runtime.inspectNativeState(definition, { root, path, bytes: Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)) });
   const project = extra => ({ numStartups: 3, installMethod: 'native', autoUpdates: false, firstStartTime: '2026-10-05T00:00:00.000Z',
-    firstStartVersion: { VERSION: '2.1.285' }, userID: 'a'.repeat(64), machineID: 'b'.repeat(64), summonSidKey: 'c'.repeat(64),
+    firstStartVersion: '2.1.285', userID: 'a'.repeat(64), machineID: 'b'.repeat(64), summonSidKey: 'c'.repeat(64),
     hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.285', tipsHistory: { 'new-user-warmup': 1 }, seenNotifications: {},
     cachedGrowthBookFeatures: { flag: true }, cachedGrowthBookFeaturesAt: 1, cachedDynamicConfigs: {}, cachedExperimentFeatures: [],
     cachedExperimentData: {}, startupPrefetchedAt: 1, claudeCodeFirstTokenDate: null, cachedExtraUsageDisabledReason: null,
@@ -531,7 +531,7 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
     'non-string install method': { installMethod: { path: '/x' } },
     'non-boolean onboarding': { hasCompletedOnboarding: 'yes' },
     'non-string first start': { firstStartTime: { at: 1 } },
-    'first start version with object': { firstStartVersion: { VERSION: { nested: 'x' } } },
+    'first start version with object': { firstStartVersion: { VERSION: '2.1.285' } },
     'tip counter object': { tipsHistory: { tip: { load: 'x' } } },
     'usage map with a grant': { skillUsage: { skill: { usageCount: 1, permissions: { allow: ['Bash'] } } } },
     'non-numeric session metric': project({ lastCost: 'free' }),

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.24 accepts Claude's first-start version as bounded text and its
+artifact-roster denial metadata as a shallow record of bounded scalar values.
+Record-valued first-start versions, nested grants and other unsupported shapes
+remain refused. This development candidate has not been published to npm.
+
 Core 1.0.0-dev.23 disables Claude auto-memory in both session environments on
 all platforms and refuses managed auto-memory setting/environment keys with
 any value as managed restrictions. Known restrictions retain precedence over
