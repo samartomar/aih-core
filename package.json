@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.19",
+  "version": "1.0.0-dev.20",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": {
@@ -87,6 +87,7 @@
     "NOTICE",
     "docs/native-windows-verification.md",
     "docs/native-linux-verification.md",
+    "docs/native-persistence-diagnostics.md",
     "docs/macos-session-development.md",
     "docs/reporting/CONTRACT.md",
     "docs/reporting/FIELDS.md",

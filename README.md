@@ -178,6 +178,10 @@ unadmitted until packed API/CLI acceptance and dedicated identity evidence pass.
 See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 Controlled facility and synthetic session checks do not establish native acceptance.
 
+Optional [persistence diagnostics](docs/native-persistence-diagnostics.md) report
+closed failure classes and bounded reviewed tokens on `aih.native.diagnostics.v1`
+without exporting state values, raw names or project paths.
+
 Portable validators `validateNativeVerificationRequest`,
 `validateNativeVerificationResult` and `validateNativeVerificationBundle` are
 exported from `@aihq/core/contracts`. The five version 1.0.0 schema exports cover

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.20 adds optional native persistence diagnostics identifying the
+first failed check before or after the second session. Records contain closed
+failure classes, bounded structural counts and reviewed tokens, with opaque
+per-run ordinals for unknown names and keys. Inspected client state reports a
+closed diagnosis without exporting values or project paths. Evidence that stops
+early is marked partial. Admission, public verdicts and reasons, cancellation,
+budgets and limit handling are unchanged. This development candidate has not
+been published to npm.
+
 Core 1.0.0-dev.19 accepts absent account or organization attributes on successful
 Claude API requests bound to a freshly provisioned native session. Present
 identities must match; empty, malformed or repeated identity attributes and

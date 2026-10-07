@@ -25,6 +25,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
 import { nativeParserIds } from '../../src/harness/native/contracts.mjs';
+import { sha256 } from '../../src/harness/native/digest.mjs';
+
+test('persistence diagnostics use the runtime run binding and one shared per-run ordinal sequence', () => {
+  const definition = { client: 'claude', parserId: 'claude-stream-json.v1' };
+  const runtime = installed.createNativeRuntime(installed, { readPinned() {}, Stop: Error });
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const fact = { root: 'home', segments: ['privacy-canary-name'], depth: 1, kind: 'file' };
+    assert.equal(runtime.classifyNativePersistence(definition, fact), 'unknown-1');
+    const diagnoses = [];
+    assert.equal(runtime.inspectNativeState(definition, { root: 'home', path: '.claude/.claude.json',
+      bytes: Buffer.from('{"privacy-canary-key":"privacy-canary-value"}'), diagnose: value => diagnoses.push(value) }), false);
+    assert.deepEqual(diagnoses, [{ reason: 'unknown-global-key', token: 'unknown-2' }]);
+    for (const stage of ['before-session-2', 'after-session-2']) runtime.publishNativePersistence({
+      cell: { path: '/owned/privacy-canary-cell' }, stage, diagnostics: { class: 'inspected-state',
+        items: [{ root: 'home', depth: 2, kind: 'file', token: '.claude.json' }], truncated: true, inspectedDiagnosis: diagnoses[0] } });
+    assert.equal(records.length, 2); assert.notEqual(records[0].recordId, records[1].recordId);
+    assert.equal(records[0].runSha256, sha256('/owned/privacy-canary-cell'));
+    assert.equal(records[0].runSha256, records[1].runSha256);
+    assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
+    const fresh = installed.createNativeRuntime(installed, { readPinned() {}, Stop: Error });
+    assert.equal(fresh.classifyNativePersistence(definition, fact), 'unknown-1');
+    assert.match(fresh.classifyNativePersistence({ client: 'other', parserId: 'claude-stream-json.v1' },
+      { root: 'home', segments: ['.claude'], depth: 1, kind: 'dir' }), /^unknown-/);
+  } finally { stream.unsubscribe(sink); }
+});
 
 test('the Linux branch delegates exactly the platform client pin shape', async () => {
   let delegated;

@@ -174,7 +174,10 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     // Fixed client-owned state, validated before any write; inspection stays in the installed adapter.
     const inspector = runtime.inspectNativeState?.bind(runtime);
     const statePlan = nativeStatePlan(runtime.nativeStatePaths(definition), [...material.outputTree, ...definition.guardrails],
-      definition.credentialDestination.path, inspector ? (root, path, bytes) => inspector(definition, { root, path, bytes }) : undefined);
+      definition.credentialDestination.path, inspector ? (root, path, bytes, diagnose) => inspector(definition, { root, path, bytes, diagnose }) : undefined,
+      runtime.classifyNativePersistence ? fact => runtime.classifyNativePersistence!(definition, fact) : undefined);
+    const persistence = (stage: 'before-session-2' | 'after-session-2') => checkNativePersistence(cell!, statePlan, check,
+      diagnostics => runtime.publishNativePersistence?.({ cell: cell!, stage, diagnostics }));
     const stagedConfigurationDigest = stageNativeCell(cell, material, definition.guardrails, guardrailBytes, definition.guardrailsSha256,
       { destination: definition.credentialDestination.path, bytes: identity.credential }, check);
     result.content = { bundleId: material.id, manifestSha256: material.manifestSha256, archiveSha256: material.archiveSha256,
@@ -184,7 +187,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       check();
       if (index === 2) {
         activeStage = 'configuration-unchanged';
-        if (!checkNativePersistence(cell, statePlan, check)) throw new NativeStop('configuration-changed', 'failed');
+        if (!persistence('before-session-2')) throw new NativeStop('configuration-changed', 'failed');
         row('configuration-unchanged', 'passed', 'before-session-2', 2, { kind: 'digest', sha256: stagedConfigurationDigest });
       }
       activeStage = 'session-start';
@@ -252,7 +255,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       if (!confirmed) break;
       if (index === 2) {
         activeStage = 'configuration-unchanged';
-        if (!checkNativePersistence(cell, statePlan, check)) throw new NativeStop('configuration-changed', 'failed');
+        if (!persistence('after-session-2')) throw new NativeStop('configuration-changed', 'failed');
         row('configuration-unchanged', 'passed', 'after-session-2', 2, { kind: 'digest', sha256: stagedConfigurationDigest });
       }
       if (sessionDecisive) break;
