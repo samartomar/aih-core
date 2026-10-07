@@ -58,7 +58,9 @@ export function publishNativeDiagnostics(input) {
       rejected: counts(source.rejected, ['auth', 'method', 'path', 'contentType', 'contentEncoding', 'size', 'parse', 'other']),
       contentTypes: counts(source.contentTypes, ['json', 'protobuf', 'other', 'none']),
       contentEncodings: counts(source.contentEncodings, ['none', 'gzip', 'other']),
-      events: boundedCount(source.events), eventNames: counts(source.eventNames, ['apiRequest', 'apiError', 'other']),
+      events: boundedCount(source.events),
+      eventNames: counts(source.eventNames, ['apiRequest', 'apiError', 'userPrompt', 'assistantResponse', 'toolResult', 'toolDecision', 'other']),
+      apiRequestRejected: counts(source.apiRequestRejected, ['missingRequestId', 'notSuccess', 'missingSession', 'wrongSession', 'identityMismatch', 'outsideWindow']),
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
     proxy, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));

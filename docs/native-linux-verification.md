@@ -143,6 +143,31 @@ Subscribers to `aih.native.diagnostics.v1` receive one counts-only record per se
 collector request, reply-reason, content-type/encoding and event-name counts, plus the
 client result's error flag, closed subtype and provider error class (`none`,
 `authentication`, `forbidden`, `rate-limit`, `overloaded`, `network`, `other`).
+Collector `eventNames` contains only `apiRequest`, `apiError`, `userPrompt`,
+`assistantResponse`, `toolResult`, `toolDecision` and `other`. The first six
+classify the log attribute `event.name` values `api_request`, `api_error`,
+`user_prompt`, `assistant_response`, `tool_result` and `tool_decision`, accepting
+each with or without the `claude_code.` prefix. Log bodies and other attributes
+never select an event type. As described in the
+[Claude monitoring documentation](https://code.claude.com/docs/en/monitoring-usage#api-request-event),
+an API request event need not carry a `success` attribute; absence or `true`
+is accepted, while every other present value is ignored. Session, nonempty request
+ID, expected account/organization, time-window and duplicate checks still apply.
+
+Collector `apiRequestRejected` contains only `missingRequestId`, `notSuccess`,
+`missingSession`, `wrongSession`, `identityMismatch` and `outsideWindow` counts.
+Request ID rejection precedes the success check. Remaining candidates are
+classified by session: absent/empty IDs count as `missingSession`, other IDs
+(including a candidate awaiting a bound session) as `wrongSession`. The existing
+top-level `wrongSession` count includes both. Bound-session identity mismatches
+are counted even for duplicate requests or events outside the window and still
+invalidate authentication. `outsideWindow` counts only nonduplicate bound-session
+candidates with missing/invalid event time or event/receipt time outside the
+window; it can overlap `identityMismatch`. Duplicates retain their separate count,
+and limit-exceeded events retain the existing ignored count. Repeated snapshots
+recompute evaluation counts without accumulating them. Every count is clamped to
+1,000,000; diagnostic fields retain no event strings or identity values.
+
 The trusted Linux runner also counts SRT allow/deny decisions in fixed host buckets
 (`apiAnthropic`, `claudeAi`, `platformClaude`, `consoleAnthropic`, `otherAnthropic`,
 `collector`, `other`), each with `allowed` and `denied`; `proxy` is null when

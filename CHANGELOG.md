@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.17 matches Claude API request telemetry using the documented
+`event.name` attribute and accepts success events without an explicit success
+flag, while preserving explicit failure rejection and session, identity, time
+and duplicate checks. Optional counts-only diagnostics classify documented event
+names and expose fixed API request rejection counts. This development candidate
+has not been published to npm.
+
 Core 1.0.0-dev.16 sets the generic OTLP protocol while retaining the authoritative
 per-signal logs endpoint. Linux native workloads bridge direct collector
 connections through authenticated, allowlisted sandbox proxy tunnels with fixed
