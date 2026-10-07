@@ -1,4 +1,13 @@
 export type NativeForwarderDiagnostics = Readonly<{ accepted: number; connected: number; refused: number; capped: number }>;
+export type NativePersistenceDiagnostics = Readonly<{
+  schema: 'aih.native.diagnostics.v1'; event: 'native-persistence-diagnostics'; recordId: string;
+  runSha256: string | null; phase: 'persistence'; stage: 'before-session-2' | 'after-session-2';
+  class: 'pins' | 'configuration-facts' | 'selected-member' | 'unexpected-entry' | 'state-tree-entry' | 'inspected-state' | 'read-failure' | 'limit';
+  items: readonly Readonly<{ root: 'home' | 'project'; depth: number; kind: 'file' | 'dir' | 'other'; token: string }>[];
+  truncated: boolean;
+  inspectedDiagnosis: Readonly<{ reason: 'unknown-global-key' | 'unknown-project-key' | 'grant-content' | 'value-shape' | 'malformed-json' | 'oversized' | 'not-record' | 'read-failure'; token: string | null }> | null;
+}>;
+export function publishNativePersistenceDiagnostics(input: Record<string, unknown>): void;
 export type NativeAuthenticationProofKind = 'telemetry-identity' | 'provisioning-bound-session';
 export type NativeSessionDiagnostics = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-session-diagnostics'; recordId: string;

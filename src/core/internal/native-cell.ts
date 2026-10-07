@@ -1,4 +1,4 @@
-import { mkdirSync, lstatSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, lstatSync, readdirSync, realpathSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { join, resolve, relative, parse, basename } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -79,8 +79,19 @@ export function stageNativeCell(cell: NativeCell, material: NativeMaterial, guar
     return sha256(canonicalJson({ outputTreeSha256: cell.outputTreeSha256, guardrailsSha256: cell.guardrailsSha256 }));
   } catch (error) { if (error instanceof NativeStop) throw error; throw new NativeStop('staging-unavailable'); }
 }
-export type NativeStateInspector = (root: 'home' | 'project', path: string, bytes: Buffer) => boolean;
-export interface NativeStatePlan { home: NativeStateEntry[]; project: NativeStateEntry[]; inspect?: NativeStateInspector }
+export type NativePersistenceClass = 'pins' | 'configuration-facts' | 'selected-member' | 'unexpected-entry' |
+  'state-tree-entry' | 'inspected-state' | 'read-failure' | 'limit';
+export type NativeInspectedDiagnosis = { reason: 'unknown-global-key' | 'unknown-project-key' | 'grant-content' |
+  'value-shape' | 'malformed-json' | 'oversized' | 'not-record' | 'read-failure'; token: string | null };
+export interface NativePersistenceFact { root: 'home' | 'project'; segments: readonly string[]; depth: number; kind: 'file' | 'dir' | 'other' }
+export interface NativePersistenceDiagnostics {
+  class: NativePersistenceClass;
+  items: { root: 'home' | 'project'; depth: number; kind: 'file' | 'dir' | 'other'; token: string }[];
+  truncated: boolean; inspectedDiagnosis: NativeInspectedDiagnosis | null;
+}
+export type NativeStateInspector = (root: 'home' | 'project', path: string, bytes: Buffer, diagnose?: (value: NativeInspectedDiagnosis) => void) => boolean;
+export interface NativeStatePlan { home: NativeStateEntry[]; project: NativeStateEntry[]; inspect?: NativeStateInspector;
+  classify?: (fact: NativePersistenceFact) => string }
 const STATE_ENTRIES = 16, STATE_EXCLUSIONS = 8, STATE_SEGMENTS = 16, STATE_DEPTH = 32, INSPECTED_STATE_BYTES = 1024 * 1024;
 const aliasOverlap = (a: string, b: string): boolean => {
   const x = a.toLowerCase(), y = b.toLowerCase();
@@ -92,10 +103,11 @@ const plainRecord = (value: unknown): value is Record<string, unknown> => typeof
  * Validate the runtime's fixed client-state contract before staging and append the staged credential. A malformed
  * contract is an adapter defect; state that overlaps selected configuration or the credential is a path conflict.
  */
-export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], credential: string | undefined, inspect?: NativeStateInspector): NativeStatePlan {
+export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], credential: string | undefined, inspect?: NativeStateInspector,
+  classify?: NativeStatePlan['classify']): NativeStatePlan {
   const invalid = () => new NativeStop('native-internal');
   if (!plainRecord(value) || Object.keys(value).sort().join() !== 'home,project') throw invalid();
-  const plan: NativeStatePlan = { home: [], project: [], ...(inspect ? { inspect } : {}) };
+  const plan: NativeStatePlan = { home: [], project: [], ...(inspect ? { inspect } : {}), ...(classify ? { classify } : {}) };
   for (const root of ['home', 'project'] as const) {
     const list = value[root];
     if (!Array.isArray(list) || list.length > STATE_ENTRIES) throw invalid();
@@ -124,59 +136,133 @@ export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], cred
  * Selected bytes must be unchanged and every other cell path must be fixed client state. State trees may change,
  * except links, non-regular files and paths under their loading exclusions; inspected files must pass inspection.
  */
-export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, check: () => void): boolean {
-  check(); if (!pinsMatch(cell.pins) || !cell.configurationPins.every(pinsMatch)) return false;
+export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, check: () => void,
+  diagnose?: (value: NativePersistenceDiagnostics) => void): boolean {
+  let failure: NativePersistenceDiagnostics | undefined;
+  let current: NativePersistenceFact | undefined; let ordinal = 0; let readingInspected = false;
+  const fact = (root: 'home' | 'project', path: string, kind: NativePersistenceFact['kind'] = 'other'): NativePersistenceFact => {
+    const segments = path ? path.split('/') : [];
+    return { root, segments, depth: segments.length, kind };
+  };
+  const absoluteFact = (path: string): NativePersistenceFact | undefined => {
+    for (const root of ['home', 'project'] as const) if (inside(cell[root], path)) return fact(root, relative(cell[root], path).split(/[\\/]/).join('/'));
+    return undefined;
+  };
+  const item = (value: NativePersistenceFact) => {
+    let token: string | undefined;
+    try { token = plan.classify?.(value); } catch { /* Observation only. */ }
+    return { root: value.root, depth: Math.min(value.depth, 64), kind: value.kind, token: token ?? `unknown-${++ordinal}` };
+  };
+  const fail = (reason: NativePersistenceClass, value = current, inspectedDiagnosis: NativeInspectedDiagnosis | null = null): false => {
+    // No recursive diagnostic traversal: all short-circuit evidence is explicitly partial.
+    failure ??= { class: reason, items: value ? [item(value)] : [], truncated: true, inspectedDiagnosis };
+    return false;
+  };
+  // At most 15 more lstat calls in the directory listing already obtained by the failed walk.
+  // Never recurse, read contents, invoke the budget/cancellation gate again, or replace the first failure.
+  const siblings = (rootName: 'home' | 'project', root: string, paths: string[], offender: (path: string, stat: Stats) => boolean) => {
+    if (!diagnose || !failure) return;
+    for (const path of paths.slice(0, 15)) {
+      try {
+        const stat = lstatSync(join(root, ...path.split('/')));
+        if (offender(path, stat)) failure.items.push(item(fact(rootName, path,
+          stat.isSymbolicLink() ? 'other' : stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'other')));
+      } catch { /* Incomplete diagnostic evidence does not change the first failure. */ }
+    }
+  };
   try {
-    if (!cell.configurationFacts.every(file => configurationIdentity(file.path) === file.identity)) return false;
+    check(); if (!pinsMatch(cell.pins)) return fail('pins', undefined);
+    for (const pins of cell.configurationPins) if (!pinsMatch(pins)) return fail('pins', absoluteFact(pins.at(-1)?.path ?? cell.path));
+    for (const file of cell.configurationFacts) {
+      current = absoluteFact(file.path);
+      if (current) current.kind = 'file';
+      if (configurationIdentity(file.path) !== file.identity) return fail('configuration-facts');
+    }
     for (const file of cell.tree) {
+      current = fact(file.root, file.path, 'file');
       const path = join(file.root === 'home' ? cell.home : cell.project, ...file.path.split('/'));
       const pins = pathPins(path); const captured = readRegularFileWithStats(path, { maxBytes: 8 * 1024 * 1024 });
-      if (!captured || captured.identity.nlink !== 1n || !pinsMatch(pins) || captured.contents.length !== file.member.byteLength || sha256(captured.contents) !== file.member.sha256) return false;
+      if (!captured) return fail('read-failure');
+      if (captured.identity.nlink !== 1n || !pinsMatch(pins) || captured.contents.length !== file.member.byteLength || sha256(captured.contents) !== file.member.sha256) return fail('selected-member');
     }
     let seen = 0;
     const inspected: { root: 'home' | 'project'; path: string; absolute: string }[] = [];
-    const entry = (root: string, path: string) => {
+    const entry = (rootName: 'home' | 'project', root: string, path: string) => {
+      current = fact(rootName, path);
       check(); if (++seen > 4096) throw new NativeStop('limit-exceeded');
       const stat = lstatSync(join(root, ...path.split('/')));
+      current.kind = stat.isSymbolicLink() ? 'other' : stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'other';
       return stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isDirectory() && !stat.isFile() ? undefined : stat;
     };
     const excluded = (state: NativeStateEntry, relative: string[]) => state.exclusions.some(exclusion => {
       const parts = exclusion.split('/');
       return parts.length <= relative.length && parts.every((part, index) => part === '*' || part === relative[index]?.toLowerCase());
     });
-    const walkState = (root: string, state: NativeStateEntry, relative: string[]): boolean => {
+    const walkState = (rootName: 'home' | 'project', root: string, state: NativeStateEntry, relative: string[]): boolean => {
+      current = fact(rootName, [state.path, ...relative].join('/'), 'dir');
       if (relative.length >= STATE_DEPTH) throw new NativeStop('limit-exceeded');
-      for (const name of readdirSync(join(root, ...state.path.split('/'), ...relative))) {
-        const next = [...relative, name]; const stat = entry(root, [state.path, ...next].join('/'));
-        if (!stat || excluded(state, next) || stat.isDirectory() && !walkState(root, state, next)) return false;
+      const names = readdirSync(join(root, ...state.path.split('/'), ...relative));
+      for (const [index, name] of names.entries()) {
+        const next = [...relative, name]; const stat = entry(rootName, root, [state.path, ...next].join('/'));
+        if (!stat || excluded(state, next)) {
+          fail('state-tree-entry');
+          siblings(rootName, root, names.slice(index + 1, index + 16).map(name => [state.path, ...relative, name].join('/')),
+            (path, stat) => stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isFile() && !stat.isDirectory() ||
+              excluded(state, path.split('/').slice(state.path.split('/').length)));
+          return false;
+        }
+        if (stat.isDirectory() && !walkState(rootName, root, state, next)) return false;
       }
       return true;
     };
     const walk = (rootName: 'home' | 'project', root: string, selected: string[], state: readonly NativeStateEntry[], prefix = ''): boolean => {
-      for (const name of readdirSync(join(root, prefix))) {
-        const path = prefix ? `${prefix}/${name}` : name; const stat = entry(root, path);
-        if (!stat) return false;
-        if (selected.includes(path)) { if (!stat.isFile()) return false; continue; }
+      current = fact(rootName, prefix, 'dir');
+      const names = readdirSync(join(root, prefix));
+      const declared = [...selected, ...state.map(value => value.path)];
+      for (const [index, name] of names.entries()) {
+        const path = prefix ? `${prefix}/${name}` : name; const stat = entry(rootName, root, path);
         const owned = state.find(value => value.path === path);
-        if (owned?.inspected) { if (!stat.isFile()) return false; inspected.push({ root: rootName, path, absolute: join(root, ...path.split('/')) }); continue; }
-        if (owned) { if (stat.isDirectory() && !walkState(root, owned, [])) return false; continue; }
-        if (!stat.isDirectory() || ![...selected, ...state.map(value => value.path)].some(file => file.startsWith(`${path}/`)) ||
-          !walk(rootName, root, selected, state, path)) return false;
+        if (!stat) return fail(owned?.inspected ? 'inspected-state' : owned ? 'state-tree-entry' : selected.includes(path) ? 'selected-member' : 'unexpected-entry',
+          current, owned?.inspected ? { reason: 'value-shape', token: null } : null);
+        if (selected.includes(path)) { if (!stat.isFile()) return fail('selected-member'); continue; }
+        if (owned?.inspected) { if (!stat.isFile()) return fail('inspected-state', current, { reason: 'not-record', token: null }); inspected.push({ root: rootName, path, absolute: join(root, ...path.split('/')) }); continue; }
+        if (owned) { if (stat.isDirectory() && !walkState(rootName, root, owned, [])) return false; continue; }
+        if (!stat.isDirectory() || !declared.some(file => file.startsWith(`${path}/`))) {
+          fail('unexpected-entry');
+          siblings(rootName, root, names.slice(index + 1, index + 16).map(name => prefix ? `${prefix}/${name}` : name),
+            (path, stat) => !declared.includes(path) && (!stat.isDirectory() || !declared.some(file => file.startsWith(`${path}/`))));
+          return false;
+        }
+        if (!walk(rootName, root, selected, state, path)) return false;
       }
       return true;
     };
     if (!walk('home', cell.home, cell.tree.filter(file => file.root === 'home').map(file => file.path), plan.home) ||
       !walk('project', cell.project, cell.tree.filter(file => file.root === 'project').map(file => file.path), plan.project)) return false;
     for (const file of inspected) {
+      current = fact(file.root, file.path, 'file');
+      readingInspected = true;
       check();
       const captured = readRegularFileWithStats(file.absolute, { maxBytes: INSPECTED_STATE_BYTES });
-      if (!captured || captured.identity.nlink !== 1n) return false;
+      if (!captured) {
+        if (lstatSync(file.absolute).size > INSPECTED_STATE_BYTES) return fail('inspected-state', current, { reason: 'oversized', token: null });
+        return fail('read-failure', current, { reason: 'read-failure', token: null });
+      }
+      if (captured.identity.nlink !== 1n) return fail('inspected-state', current, { reason: 'value-shape', token: null });
       let accepted = false;
-      try { accepted = plan.inspect?.(file.root, file.path, captured.contents) === true; } catch { accepted = false; }
-      if (!accepted) return false;
+      let inspection: NativeInspectedDiagnosis | null = null;
+      try { accepted = plan.inspect?.(file.root, file.path, captured.contents, value => { inspection ??= value; }) === true; }
+      catch { inspection = { reason: 'read-failure', token: null }; }
+      if (!accepted) return fail('inspected-state', current, inspection ?? { reason: 'value-shape', token: null });
+      readingInspected = false;
     }
     return true;
-  } catch (error) { if (error instanceof NativeStop) throw error; return false; }
+  } catch (error) {
+    if (error instanceof NativeStop) { if (error.reason === 'limit-exceeded') fail('limit'); throw error; }
+    return fail('read-failure', current, readingInspected ? { reason: 'read-failure', token: null } : null);
+  } finally {
+    if (failure) try { diagnose?.(failure); } catch { /* Observation cannot change a verdict or stop. */ }
+  }
 }
 export function removeNativeCell(cell: NativeCell, check: () => void): boolean {
   try {

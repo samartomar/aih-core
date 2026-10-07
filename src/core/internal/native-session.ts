@@ -1,6 +1,6 @@
 import type { NativeVerificationResult, NativeVerificationBundle } from '../native-contracts.js';
 import type { NativeTreeFile, NativeMaterial } from './native-material.js';
-import type { NativeCell } from './native-cell.js';
+import type { NativeCell, NativePersistenceFact, NativePersistenceDiagnostics, NativeInspectedDiagnosis } from './native-cell.js';
 import type { NativeVerificationControls } from '../native-verification.js';
 import { addNativeDiagnostic, type NativeStage } from './native-result.js';
 import { sha256 } from './host-files.js';
@@ -72,7 +72,12 @@ export interface NativeRuntime {
   /** Fixed client-owned state for a definition; see {@link NativeStateEntry}. */
   nativeStatePaths(definition: NativeDefinition): NativeStatePaths;
   /** Separate precedence check for an inspected state file: true only when its content cannot change loading or permissions. */
-  inspectNativeState?(definition: NativeDefinition, input: { root: 'home' | 'project'; path: string; bytes: Buffer }): boolean;
+  inspectNativeState?(definition: NativeDefinition, input: { root: 'home' | 'project'; path: string; bytes: Buffer;
+    diagnose?: (value: NativeInspectedDiagnosis) => void }): boolean;
+  /** Installed client disclosure dictionary; no raw path is returned. */
+  classifyNativePersistence?(definition: NativeDefinition, fact: NativePersistenceFact): string;
+  /** Optional observation through the same installed runtime seam as session diagnostics. */
+  publishNativePersistence?(input: { cell: NativeCell; stage: 'before-session-2' | 'after-session-2'; diagnostics: NativePersistenceDiagnostics }): void;
 }
 /**
  * One client-owned state path under a cell root. A tree entry may change between sessions, except any path that

@@ -6,6 +6,7 @@ import { canonicalJson, isRecord } from './canonical.mjs';
 import { sha256 } from './digest.mjs';
 import { isolationProbeNames } from './linux-isolation.mjs';
 import { linuxProxyBuckets } from './linux-proxy.mjs';
+import { persistenceFailureClasses, inspectedStateDiagnoses, safePersistenceDiagnosticToken } from './persistence-diagnostics.mjs';
 
 const stream = channel('aih.native.admission.v1');
 const diagnosticsStream = channel('aih.native.diagnostics.v1');
@@ -17,6 +18,26 @@ const argvDigest = value => Array.isArray(value) && value.length <= 512 && value
   Buffer.byteLength(canonicalJson(value)) <= 65536 ? sha256(canonicalJson(value)) : null;
 const proofFlags = ['compared', 'authenticated', 'clientBound', 'serverBound', 'namespaceSeparated', 'argumentsClean', 'ended'];
 const restrictionCounts = ['listedBuiltins', 'listedUnselected', 'permittedUnselected', 'unrequestedCalls', 'rejectedQueryCalls'];
+
+// Exact closed fields only; bounded to 16 entries, depth 64 and less than 4096 serialized bytes.
+export function publishNativePersistenceDiagnostics(input) {
+  if (!diagnosticsStream.hasSubscribers) return;
+  if (!persistenceFailureClasses.includes(input.class) || !['before-session-2', 'after-session-2'].includes(input.stage)) return;
+  const source = Array.isArray(input.items) ? input.items : [];
+  const items = Object.freeze(source.slice(0, 16).map(item => Object.freeze({
+    root: item.root === 'project' ? 'project' : 'home',
+    depth: Number.isSafeInteger(item.depth) && item.depth >= 0 ? Math.min(item.depth, 64) : 0,
+    kind: ['file', 'dir', 'other'].includes(item.kind) ? item.kind : 'other',
+    token: safePersistenceDiagnosticToken(item.token) ?? 'unknown-1'
+  })));
+  const diagnosis = input.inspectedDiagnosis;
+  const inspectedDiagnosis = diagnosis && inspectedStateDiagnoses.includes(diagnosis.reason)
+    ? Object.freeze({ reason: diagnosis.reason, token: safePersistenceDiagnosticToken(diagnosis.token) }) : null;
+  diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-persistence-diagnostics',
+    recordId: randomUUID(), runSha256: digest(input.runSha256), phase: 'persistence', stage: input.stage,
+    class: input.class, items, truncated: input.truncated === true || source.length > 16 ||
+      source.slice(0, 16).some(item => item.depth > 64), inspectedDiagnosis }));
+}
 
 export function publishNativeAdmission(input) {
   if (!stream.hasSubscribers) return;

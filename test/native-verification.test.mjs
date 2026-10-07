@@ -5,10 +5,48 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { channel } from 'node:diagnostics_channel';
 import { verifyNativeClient } from '@aihq/core';
 import { validateNativeVerificationBundle, validateNativeVerificationResult } from '@aihq/core/contracts';
 
 const request = { schema: 'urn:aihq:core:native-verification-request:1.0.0', client: 'claude' };
+test('controlled selected configuration mutation emits persistence diagnosis with unchanged verdict', async t => {
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const result = await controlled(t, 'changed-config');
+    assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 1);
+    assert.ok(result.stages.some(row => row.reason === 'configuration-changed' && row.outcome === 'failed'));
+    const persistence = records.filter(record => record.event === 'native-persistence-diagnostics');
+    assert.equal(persistence.length, 1);
+    assert.equal(persistence[0].class, 'configuration-facts');
+    assert.equal(persistence[0].stage, 'before-session-2');
+    assert.deepEqual(persistence[0].items, [{ root: 'project', depth: 1, kind: 'file', token: 'unknown-1' }]);
+    assert.equal(persistence[0].truncated, true); assert.equal(persistence[0].inspectedDiagnosis, null);
+  } finally { stream.unsubscribe(sink); }
+});
+for (const [scenario, failureClass, token, stage, verdict] of [
+  ['client-state-diagnostic-todos', 'unexpected-entry', 'todos', 'before-session-2', 'failed'],
+  ['client-state-after-session-2', 'unexpected-entry', 'todos', 'after-session-2', 'failed'],
+  ['client-state-diagnostic-unknown', 'unexpected-entry', 'unknown-1', 'before-session-2', 'failed'],
+  ['client-state-diagnostic-key', 'inspected-state', '.claude.json', 'before-session-2', 'failed'],
+  ['client-state-diagnostic-limit', 'limit', 'unknown-1', 'before-session-2', 'unverified'],
+]) test(`controlled ${scenario} emits exactly one persistence record and preserves verdict`, async t => {
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const result = await controlled(t, scenario);
+    assert.equal(result.verdict, verdict); assert.equal(result.sessions.length, stage === 'after-session-2' ? 2 : 1);
+    assert.ok(result.stages.some(row => row.reason === (failureClass === 'limit' ? 'limit-exceeded' : 'configuration-changed')));
+    const persistence = records.filter(record => record.event === 'native-persistence-diagnostics');
+    assert.equal(persistence.length, 1); const record = persistence[0];
+    assert.equal(record.class, failureClass); assert.equal(record.stage, stage);
+    assert.equal(record.items[0].token, token); assert.equal(record.truncated, true);
+    assert.match(record.runSha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(record).includes('privacy-canary'), false);
+    if (failureClass === 'inspected-state') assert.deepEqual(record.inspectedDiagnosis, { reason: 'unknown-global-key', token: 'unknown-1' });
+  } finally { stream.unsubscribe(sink); }
+});
 test('invalid native requests never create a session or cell', async () => {
   let accessed = false;
   const result = await verifyNativeClient({ ...request, get command() { accessed = true; return 'secret'; } });
@@ -106,15 +144,22 @@ const contracts = {
 };
 export function nativeStatePaths(){return contracts[scenario] ?? harness.nativeStatePaths(harnessClient);}
 export function inspectNativeState(_definition, input){return harness.inspectNativeState(harnessClient, input);}
+export function classifyNativePersistence(_definition, input){return harness.classifyNativePersistence(harnessClient, input);}
+export function publishNativePersistence(input){return harness.publishNativePersistence(input);}
 const writeState=(root,path,bytes)=>{const target=join(root,...path.split('/'));mkdirSync(join(target,'..'),{recursive:true});writeFileSync(target,bytes);};
 const globalState=(project={})=>JSON.stringify({numStartups:2,firstStartTime:'2026-10-05T00:00:00.000Z',userID:'0'.repeat(64),hasCompletedOnboarding:true,
   projects:{'/cell/project':{allowedTools:[],mcpServers:{},enabledMcpjsonServers:[],disabledMcpjsonServers:[],hasTrustDialogAccepted:false,projectOnboardingSeenCount:1,lastSessionId:'00000000-0000-4000-8000-000000000000',lastCost:0,...project}}});
 function clientWrites(cell,index){
-  if(index!==1||!scenario.startsWith('client-state'))return;
+  if(index!==(scenario==='client-state-after-session-2'?2:1)||!scenario.startsWith('client-state'))return;
   writeState(cell.home,'.claude/projects/cell-project/session-1.jsonl','{"transcript":true}');
   writeState(cell.home,'.claude/.claude.json',globalState());
   const dir=(root,path)=>mkdirSync(join(root,...path.split('/')),{recursive:true});
   ({
+    'client-state-diagnostic-todos':()=>dir(cell.home,'.claude/todos'),
+    'client-state-after-session-2':()=>dir(cell.home,'.claude/todos'),
+    'client-state-diagnostic-unknown':()=>writeState(cell.home,'.claude/privacy-canary-name','privacy-canary-value'),
+    'client-state-diagnostic-key':()=>writeState(cell.home,'.claude/.claude.json','{"privacy-canary-key":"privacy-canary-value"}'),
+    'client-state-diagnostic-limit':()=>dir(cell.home,'.claude/projects/'+Array(32).fill('deep').join('/')),
     'client-state-full':()=>{writeState(cell.home,'.claude/projects/cell-project/session-1/tool-results/r.txt','result');
       writeState(cell.home,'.claude/backups/.claude.json.backup.1759622400000',globalState());dir(cell.home,'.claude/.claude.json.lock');
       writeState(cell.home,'.claude/history.jsonl','{"display":"prompt"}');dir(cell.home,'.claude/history.jsonl.lock');
@@ -138,7 +183,7 @@ function clientWrites(cell,index){
     'client-state-root-global':()=>writeState(cell.home,'.claude.json',globalState()),
   })[scenario]?.();
 }
-export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,...(scenario==='state-inspector-missing'?{}:{inspectNativeState}),startNativeSession};}
+export function createNativeRuntime(_module,dependencies){recordCleanup=dependencies.recordCleanup;return {nativeDefinitions,nativeBundledFixture,nativeCapabilities,nativeManagedRestriction,nativeServerEvidenceAvailable,resolveNativeClient,revalidateNativeClient,captureNativeIdentity,revalidateNativeIdentity,protectNativeCell,nativeStatePaths,classifyNativePersistence,publishNativePersistence,...(scenario==='state-inspector-missing'?{}:{inspectNativeState}),startNativeSession};}
 const childScript = ${JSON.stringify(`let raw='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>raw+=v);process.stdin.on('end',()=>{const x=JSON.parse(raw);if(x.ready)process.stdout.write(JSON.stringify({ready:true}));if(!x.wait||x.partial)process.stdout.write(JSON.stringify(x.observations));if(x.wait)return setTimeout(()=>{},60000);});`)};
 export async function startNativeSession(input){
   if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};

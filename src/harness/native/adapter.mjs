@@ -5,7 +5,8 @@ import { claudeConfigDirectory } from "./claude.mjs";
 import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
-import { publishNativeAdmission, publishNativeDiagnostics } from './admission.mjs';
+import { publishNativeAdmission, publishNativeDiagnostics, publishNativePersistenceDiagnostics } from './admission.mjs';
+import { createPersistenceDiagnosticClassifier } from './persistence-diagnostics.mjs';
 const sameWindowsPath = (a, b) => typeof a === "string" && typeof b === "string" && win32.isAbsolute(a) && win32.isAbsolute(b) && win32.normalize(a).toLowerCase() === win32.normalize(b).toLowerCase();
 const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
 const linuxVendor = definition => definition.platform.os === 'linux' && definition.lifecycleId === 'linux-srt.v1' && definition.isolation?.mechanism === 'vendor-runtime';
@@ -28,6 +29,7 @@ async function terminateBounded(handle, deadline, graceMs) {
   }
 }
 function createNativeRuntime(module, dependencies) {
+  const persistenceClassifier = createPersistenceDiagnosticClassifier();
   const { readPinned: nativeReadPinned, Stop: NativeStop } = dependencies;
   const observeFacility = result => {
     if (result?.cleanup) dependencies.recordCleanup?.(result.cleanup, result.cleanupStartedAt);
@@ -725,7 +727,15 @@ function createNativeRuntime(module, dependencies) {
     },
     // Separate precedence check for the one inspected state file.
     inspectNativeState(definition, input) {
-      return definition?.client === "claude" && adapters.has(definition.parserId) && input?.root === "home" && input.path === claudeGlobalStatePath && inspectClaudeGlobalState(input.bytes);
+      return definition?.client === "claude" && adapters.has(definition.parserId) && input?.root === "home" && input.path === claudeGlobalStatePath &&
+        inspectClaudeGlobalState(input.bytes, { diagnose: input.diagnose, classifyKey: persistenceClassifier.key });
+    },
+    classifyNativePersistence(definition, fact) {
+      return definition?.client === 'claude' && adapters.has(definition.parserId)
+        ? persistenceClassifier.entry(fact) : persistenceClassifier.key('unknown', null);
+    },
+    publishNativePersistence({ cell, stage, diagnostics }) {
+      publishNativePersistenceDiagnostics({ ...diagnostics, stage, runSha256: sha256(cell.path) });
     }
   };
   return runtime;

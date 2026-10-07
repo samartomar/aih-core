@@ -119,22 +119,50 @@ function acceptedGlobal(key, value) {
 }
 const acceptedProject = (key, value) => GRANTS.has(key) ? empty(value) : PROJECT_STATE.has(key) && PROJECT_STATE.get(key)(value);
 
+// Diagnosis only, after admission already rejected. Bound work independently of JSON's byte/depth caps.
+function rejectedShapeReason(value) {
+  let remaining = 1024;
+  const grant = value => {
+    if (--remaining < 0 || !value || typeof value !== 'object') return false;
+    for (const [key, field] of Object.entries(value)) {
+      if (remaining <= 0) return false;
+      if (!Array.isArray(value) && NESTED_GRANTS.has(key) && !empty(field) || grant(field)) return true;
+    }
+    return false;
+  };
+  return grant(value) ? 'grant-content' : 'value-shape';
+}
+
 // Separate precedence check (not selected-byte persistence). Fail closed: malformed, oversized or too-deep JSON,
 // any grant-capable key with content, and any key not recognised as client bookkeeping are refused, because an
 // unrecognised key could be a loading, permission, preference or behaviour input the inspector cannot classify.
-export function inspectClaudeGlobalState(bytes) {
+export function inspectClaudeGlobalState(bytes, diagnostics = {}) {
+  // The optional observer cannot affect the existing boolean admission result.
+  let ordinal = 0;
+  const fail = (reason, scope, key) => {
+    try { diagnostics.diagnose?.({ reason, token: key === undefined ? null :
+      diagnostics.classifyKey?.(scope, key) ?? `unknown-${++ordinal}` }); } catch { /* Observation only. */ }
+    return false;
+  };
   try {
-    if (!(bytes instanceof Uint8Array) || bytes.length > claudeGlobalStateBytes) return false;
+    if (!(bytes instanceof Uint8Array)) return fail('read-failure');
+    if (bytes.length > claudeGlobalStateBytes) return fail('oversized');
     const value = parseStrictJson(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), DEPTH);
-    if (!isRecord(value)) return false;
+    if (!isRecord(value)) return fail('not-record');
     for (const [key, entry] of Object.entries(value)) {
       if (key === 'projects') {
-        if (!isRecord(entry)) return false;
+        if (!isRecord(entry)) return fail('not-record', 'global', key);
         for (const project of Object.values(entry)) {
-          if (!isRecord(project) || !Object.entries(project).every(([name, field]) => acceptedProject(name, field))) return false;
+          // Project-map keys are paths: never classify or export them.
+          if (!isRecord(project)) return fail('not-record', 'global', key);
+          for (const [name, field] of Object.entries(project)) {
+            if (!acceptedProject(name, field)) return fail(GRANTS.has(name) ? 'grant-content' :
+              PROJECT_STATE.has(name) ? rejectedShapeReason(field) : 'unknown-project-key', 'project', name);
+          }
         }
-      } else if (!acceptedGlobal(key, entry)) return false;
+      } else if (!acceptedGlobal(key, entry)) return fail(GRANTS.has(key) ? 'grant-content' :
+        GLOBAL_STATE.has(key) || IDENTIFIERS.has(key) || MIGRATIONS.has(key) ? rejectedShapeReason(entry) : 'unknown-global-key', 'global', key);
     }
     return true;
-  } catch { return false; }
+  } catch { return fail('malformed-json'); }
 }
