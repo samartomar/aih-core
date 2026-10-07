@@ -3,6 +3,27 @@ import assert from 'node:assert/strict';
 import { inspectClaudeGlobalState } from '../../src/harness/native/claude-state.mjs';
 import { createPersistenceDiagnosticClassifier } from '../../src/harness/native/persistence-diagnostics.mjs';
 
+test('reviewed client children disclose only at the exact immediate home location', () => {
+  const entry = (root, ...segments) => createPersistenceDiagnosticClassifier().entry({ root, segments, depth: segments.length, kind: 'dir' });
+  for (const [parent, names] of [
+    ['.claude', ['sessions', '.last-cleanup', 'stats-cache.json', 'active-time.json', 'policy-limits.json',
+      'remote-settings.json', 'remote-settings-consent.json', 'remote-settings-helper-consent', 'mcp-needs-auth-cache.json',
+      'cache', 'image-cache', 'uploads', 'tasks', 'teams', 'jobs', 'state', 'startup-perf', 'traces', 'usage-data', '.config.json',
+      '.update.lock', '.last-update-result.json', '.deep-link-register-failed', 'keybindings.json', 'themes', 'workflows',
+      'rules', 'cowork_plugins', 'loop.md', 'daemon.json', 'scheduled_tasks.json', 'launch.json', 'memory', 'agent-memory',
+      'mcp-skill-archives', 'mcp-discovery-cache', 'file-transfers', 'shares', 'feedback-bundles', 'feedback', 'dump-prompts',
+      'chrome', 'seed-admin', 'daemon', 'remote-control', 'gh-pr-status-cache.json', 'hfi-auth.json', 'ccr']],
+    ['.config', ['anthropic', 'git', 'gh', 'gcloud', 'glab-cli']], ['.local', ['bin']]
+  ]) for (const name of names) {
+    assert.equal(entry('home', parent, name), name);
+    for (const parts of [[parent.toUpperCase(), name], [parent, name.toUpperCase()], [parent, 'nested', name]])
+      assert.match(entry('home', ...parts), /^unknown-/);
+    assert.match(entry('project', parent, name), /^unknown-/);
+  }
+  for (const [parent, name] of [['.local', 'anthropic'], ['.config', 'bin'], ['.claude', 'anthropic'], ['.cache', 'sessions']])
+    assert.match(entry('home', parent, name), /^unknown-/);
+});
+
 test('inspected JSON diagnoses unknown keys without values or dynamic project names', () => {
   const classifier = createPersistenceDiagnosticClassifier();
   const diagnoses = [];

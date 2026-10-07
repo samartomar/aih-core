@@ -4,6 +4,27 @@ import { channel } from 'node:diagnostics_channel';
 import { publishNativeAdmission } from '../../src/harness/native/admission.mjs';
 import * as admission from '../../src/harness/native/admission.mjs';
 
+test('persistence publisher closes parent tokens and enforces the serialized byte cap', () => {
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    admission.publishNativePersistenceDiagnostics({ class: 'unexpected-entry', stage: 'before-session-2',
+      items: [{ root: 'home', depth: 2, kind: 'dir', token: 'sessions', parent: '.claude' },
+        { root: 'home', depth: 4, kind: 'file', token: 'unknown-12', parent: 'privacy-canary-parent' },
+        { root: 'project', depth: 1, kind: 'file', token: 'CLAUDE.md', parent: 'privacy-canary-root' }] });
+    assert.equal(records[0].items[0].parent, '.claude');
+    assert.match(records[0].items[1].parent, /^unknown-/);
+    assert.equal(records[0].items[2].parent, null);
+    assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
+    admission.publishNativePersistenceDiagnostics({ class: 'unexpected-entry', stage: 'after-session-2',
+      runSha256: 'a'.repeat(64), items: Array.from({ length: 16 }, () => ({ root: 'project', depth: 64,
+        kind: 'other', token: 'hasClaudeMdExternalIncludesWarningShown', parent: 'hasClaudeMdExternalIncludesWarningShown' })),
+      inspectedDiagnosis: { reason: 'unknown-project-key', token: 'hasClaudeMdExternalIncludesWarningShown' } });
+    assert.ok(Buffer.byteLength(JSON.stringify(records[1])) < 4096);
+    assert.equal(records[1].items.length, 16);
+  } finally { stream.unsubscribe(sink); }
+});
+
 test('persistence diagnostics publish one bounded frozen counts/tokens-only record', () => {
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
   stream.subscribe(sink);
@@ -11,7 +32,7 @@ test('persistence diagnostics publish one bounded frozen counts/tokens-only reco
     assert.equal(typeof admission.publishNativePersistenceDiagnostics, 'function');
     admission.publishNativePersistenceDiagnostics({ runSha256: 'a'.repeat(64), stage: 'before-session-2',
       class: 'unexpected-entry', items: Array.from({ length: 20 }, () => ({ root: 'home', depth: 2, kind: 'dir',
-        token: 'todos', path: 'privacy-canary-path', contents: 'privacy-canary-value' })), truncated: false,
+        token: 'todos', parent: '.claude', path: 'privacy-canary-path', contents: 'privacy-canary-value' })), truncated: false,
       inspectedDiagnosis: { reason: 'unknown-global-key', token: 'unknown-1', value: 'privacy-canary-value' } });
     const record = records[0];
     assert.deepEqual(Object.keys(record).sort(), ['class', 'event', 'inspectedDiagnosis', 'items', 'phase',
@@ -20,7 +41,7 @@ test('persistence diagnostics publish one bounded frozen counts/tokens-only reco
     assert.equal(record.stage, 'before-session-2'); assert.equal(record.class, 'unexpected-entry');
     assert.equal(record.runSha256, 'a'.repeat(64)); assert.match(record.recordId, /^[a-f0-9-]{36}$/);
     assert.equal(record.items.length, 16); assert.equal(record.truncated, true);
-    assert.deepEqual(record.items[0], { root: 'home', depth: 2, kind: 'dir', token: 'todos' });
+    assert.deepEqual(record.items[0], { root: 'home', depth: 2, kind: 'dir', token: 'todos', parent: '.claude' });
     assert.deepEqual(record.inspectedDiagnosis, { reason: 'unknown-global-key', token: 'unknown-1' });
     for (const value of [record, record.items, ...record.items, record.inspectedDiagnosis]) assert.ok(Object.isFrozen(value));
     assert.ok(Buffer.byteLength(JSON.stringify(record)) <= 4096);
@@ -38,7 +59,7 @@ test('persistence publisher rejects open classes and redacts non-dictionary toke
     admission.publishNativePersistenceDiagnostics({ class: 'limit', stage: 'after-session-2', runSha256: 'privacy-canary',
       items: [{ root: 'privacy-canary', depth: 1000000, kind: 'privacy-canary', token: 'privacy-canary' }],
       inspectedDiagnosis: { reason: 'read-failure', token: 'privacy-canary', value: 'privacy-canary' } });
-    assert.deepEqual(records[0].items, [{ root: 'home', depth: 64, kind: 'other', token: 'unknown-1' }]);
+    assert.deepEqual(records[0].items, [{ root: 'home', depth: 64, kind: 'other', token: 'unknown-1', parent: 'unknown-2' }]);
     assert.deepEqual(records[0].inspectedDiagnosis, { reason: 'read-failure', token: null });
     assert.equal(records[0].runSha256, null); assert.equal(records[0].truncated, true);
     assert.equal(JSON.stringify(records).includes('privacy-canary'), false);

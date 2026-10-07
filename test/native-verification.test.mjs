@@ -21,7 +21,7 @@ test('controlled selected configuration mutation emits persistence diagnosis wit
     assert.equal(persistence.length, 1);
     assert.equal(persistence[0].class, 'configuration-facts');
     assert.equal(persistence[0].stage, 'before-session-2');
-    assert.deepEqual(persistence[0].items, [{ root: 'project', depth: 1, kind: 'file', token: 'unknown-1' }]);
+    assert.deepEqual(persistence[0].items, [{ root: 'project', depth: 1, kind: 'file', token: 'unknown-1', parent: null }]);
     assert.equal(persistence[0].truncated, true); assert.equal(persistence[0].inspectedDiagnosis, null);
   } finally { stream.unsubscribe(sink); }
 });

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.22 adds parent observation tokens to persistence diagnostics and
+collects metadata offenders across branches after the original failure. The
+walk remains bounded, never follows links or reads rejected contents, and
+preserves the original verdict, failure class and cancellation/budget behavior.
+The disclosure dictionary names additional reviewed immediate children of
+home `.claude`, `.config` and `.local` at exact case and location. Admission is
+unchanged, including refusal of `sessions` and `.last-cleanup`. Published
+records remain closed, frozen and below 4096 serialized bytes.
+
 Core 1.0.0-dev.21 admits exactly the home `.cache/claude-cli-nodejs` client-state
 root for the pinned Claude Code 2.1.285 candidate. A version-specific enumerated static
 trace identifies error/MCP JSONL log writers and age-based cleanup there and identified no

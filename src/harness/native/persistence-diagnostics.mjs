@@ -5,8 +5,17 @@ export const persistenceDiagnosticDictionary = Object.freeze({
   claude: Object.freeze(['todos', 'session-env', 'shell-snapshots', 'statsig', 'file-history', 'plans', 'paste-cache',
     'debug', 'ide', '.oauth_refresh.lock', 'projects', 'backups', 'telemetry', 'history.jsonl', '.claude.json',
     '.credentials.json', 'settings.json', 'settings.local.json', 'CLAUDE.md', 'agents', 'commands', 'skills',
-    'plugins', 'hooks', 'output-styles', 'local']),
+    'plugins', 'hooks', 'output-styles', 'local',
+    'sessions', '.last-cleanup', 'stats-cache.json', 'active-time.json', 'policy-limits.json',
+    'remote-settings.json', 'remote-settings-consent.json', 'remote-settings-helper-consent', 'mcp-needs-auth-cache.json',
+    'cache', 'image-cache', 'uploads', 'tasks', 'teams', 'jobs', 'state', 'startup-perf', 'traces', 'usage-data', '.config.json',
+    '.update.lock', '.last-update-result.json', '.deep-link-register-failed', 'keybindings.json', 'themes', 'workflows',
+    'rules', 'cowork_plugins', 'loop.md', 'daemon.json', 'scheduled_tasks.json', 'launch.json', 'memory', 'agent-memory',
+    'mcp-skill-archives', 'mcp-discovery-cache', 'file-transfers', 'shares', 'feedback-bundles', 'feedback', 'dump-prompts',
+    'chrome', 'seed-admin', 'daemon', 'remote-control', 'gh-pr-status-cache.json', 'hfi-auth.json', 'ccr']),
   userData: Object.freeze(['claude', 'claude-cli-nodejs', 'state', 'share']),
+  config: Object.freeze(['anthropic', 'git', 'gh', 'gcloud', 'glab-cli']),
+  local: Object.freeze(['bin']),
   project: Object.freeze(['.claude', '.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md']),
   // Global-state key names the pinned Claude Code client defines (its default global configuration and its
   // user-settable configuration keys), plus the state keys this package already classifies. Naming a key
@@ -60,7 +69,11 @@ export function createPersistenceDiagnosticClassifier() {
       if (depth === 1 && segments.length === 1) dictionary = persistenceDiagnosticDictionary[root] ?? [];
       if (root === 'home' && depth === 2 && segments.length === 2) {
         if (segments[0] === '.claude') dictionary = persistenceDiagnosticDictionary.claude;
-        else if (['.config', '.cache', '.local'].includes(segments[0])) dictionary = persistenceDiagnosticDictionary.userData;
+        else if (['.config', '.cache', '.local'].includes(segments[0])) {
+          dictionary = [...persistenceDiagnosticDictionary.userData,
+            ...(segments[0] === '.config' ? persistenceDiagnosticDictionary.config :
+              segments[0] === '.local' ? persistenceDiagnosticDictionary.local : [])];
+        }
       }
       return dictionary.includes(name) ? name : unknown();
     },
