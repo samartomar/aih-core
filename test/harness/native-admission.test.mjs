@@ -8,7 +8,9 @@ const emptyCollector = {
   requests: 0, accepted: 0,
   rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
   contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
-  events: 0, eventNames: { apiRequest: 0, apiError: 0, other: 0 }, ignored: 0, matched: 0,
+  events: 0, eventNames: { apiRequest: 0, apiError: 0, userPrompt: 0, assistantResponse: 0, toolResult: 0, toolDecision: 0, other: 0 },
+  apiRequestRejected: { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0, identityMismatch: 0, outsideWindow: 0 },
+  ignored: 0, matched: 0,
   duplicates: 0, wrongSession: 0, conflict: false
 };
 
@@ -21,7 +23,9 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       runSha256: 'a'.repeat(64), collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
         rejected: { ...emptyCollector.rejected, auth: 1, contentType: 1, contentEncoding: 1, private: 'header-marker' },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
-        eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1, secret: 'attribute-marker' },
+        eventNames: { ...emptyCollector.eventNames, apiRequest: 1, userPrompt: 1, private: 'event-marker' },
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1, private: 'reason-marker' },
+        ignored: 1, matched: 1, secret: 'attribute-marker' },
       result: { resultSeen: true, resultIsError: true, resultSubtype: 'error_during_execution', text: 'result-marker' },
       token: 'token-marker' });
     assert.equal(records.length, 1);
@@ -33,7 +37,8 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
         rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
-        eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1 },
+        eventNames: { ...emptyCollector.eventNames, apiRequest: 1, userPrompt: 1 },
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1 }, ignored: 1, matched: 1 },
       proxy: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
     });
     const inspect = value => {
@@ -41,17 +46,23 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       for (const nested of Object.values(value)) if (nested !== null && typeof nested === 'object') inspect(nested);
     };
     inspect(record);
-    for (const secret of ['header-marker', 'attribute-marker', 'result-marker', 'token-marker'])
+    for (const secret of ['header-marker', 'attribute-marker', 'event-marker', 'reason-marker', 'result-marker', 'token-marker'])
       assert.equal(JSON.stringify(record).includes(secret), false);
 
     admission.publishNativeDiagnostics({ index: 'secret', definition: 'secret', runSha256: 'secret',
       collector: { requests: 1000001, accepted: -1, events: Infinity, matched: 1.5, ignored: 'secret', conflict: 'true',
-        rejected: { auth: Number.MAX_SAFE_INTEGER, parse: NaN } },
+        rejected: { auth: Number.MAX_SAFE_INTEGER, parse: NaN },
+        eventNames: { apiRequest: 1000001, apiError: -1, userPrompt: Number.MAX_SAFE_INTEGER,
+          assistantResponse: Infinity, toolResult: 1.5, toolDecision: 4, other: 'secret' },
+        apiRequestRejected: { missingRequestId: 1000001, notSuccess: -1, missingSession: Number.MAX_SAFE_INTEGER,
+          wrongSession: NaN, identityMismatch: 1.5, outsideWindow: 3 } },
       result: { resultSeen: true, resultIsError: 'true', resultSubtype: 'secret' } });
     assert.deepEqual(records[1], {
       schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: records[1].recordId,
       runSha256: null, phase: 'session', index: 1, definition: null,
-      collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 } },
+      collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 },
+        eventNames: { ...emptyCollector.eventNames, apiRequest: 1000000, userPrompt: 1000000, toolDecision: 4 },
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, missingRequestId: 1000000, missingSession: 1000000, outsideWindow: 3 } },
       proxy: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
     for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
