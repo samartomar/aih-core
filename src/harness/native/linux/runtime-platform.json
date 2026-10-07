@@ -127,12 +127,12 @@
     },
     {
       "path": "/usr/lib/x86_64-linux-gnu/libssl.so.3",
-      "sha256": "ff0b0a6978bd1d9289d31e008af29214993cfa9ae1d927e9bb1cd6a7de21d571",
-      "byteLength": 1106088
+      "sha256": "63b47f444efa588e291e9b650a5ba2ab02f856356f2d50f13a2e477db9119e09",
+      "byteLength": 1114280
     },
     {
       "path": "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
-      "sha256": "23265e4027cb6439687be04311a0f37e27f29a23bfa4c750c49725da14f986bb",
+      "sha256": "5385f0436ac2e284ba8c5fb1488874057c29c04be72dea32add832694f381e28",
       "byteLength": 6386528
     },
     {

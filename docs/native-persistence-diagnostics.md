@@ -82,8 +82,9 @@ matches still fail as `unexpected-entry`.
 
 Static tracing of the pinned Claude Code 2.1.285 executable identifies JSONL error
 and MCP logs under sanitized cwd names, in `errors/` and `mcp-logs-<sanitized server>/`.
-Only the output writer and age-based cleanup consume this subtree; no configuration
-or instruction loader uses it in that version. This rationale is version-specific.
+For that executable and the admitted invocation, the enumerated static trace
+identifies the log writers and age-based cleanup beneath this tree; no configuration
+or instruction reader was identified in that trace. This rationale is version-specific.
 The walker accepts an ordinary single-link file or a directory at the uninspected
 root and regular files/directories beneath it. Even `settings.json` and `CLAUDE.md`
 are allowed there as inert state: a passing walk proves allowance, while the loading

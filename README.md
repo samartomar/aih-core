@@ -155,11 +155,11 @@ plugin, MCP, memory, shell-snapshot, session-environment or managed-policy file
 is `configuration-changed`, as are links and other non-regular files in state.
 
 Claude's home state also includes exactly `.cache/claude-cli-nodejs`, with
-`XDG_CACHE_HOME` remaining `<home>/.cache`. Static tracing of the pinned Claude
-Code 2.1.285 executable identifies output-only JSONL error and MCP logs under
-sanitized working-directory names; its only consumers are the log writer and
-age-based cleanup, with no configuration or instruction loader. That conclusion
-is version-specific. `.cache` is accepted only as the directory parent of this
+`XDG_CACHE_HOME` remaining `<home>/.cache`. For the pinned Claude Code 2.1.285
+executable and admitted invocation, the enumerated static trace identifies JSONL
+error/MCP log writers and age-based cleanup beneath this tree, under sanitized
+working-directory names; no configuration or instruction reader was identified in
+that trace. That conclusion is version-specific. `.cache` is accepted only as the directory parent of this
 tree; other children, near matches and project-root equivalents are refused.
 The uninspected root may be an ordinary single-link file or a directory. Files
 named `settings.json` or `CLAUDE.md` within it are accepted as inert state; the

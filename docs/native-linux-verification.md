@@ -124,9 +124,10 @@ The fixed home state paths additionally admit exactly `.cache/claude-cli-nodejs`
 `XDG_CACHE_HOME` stays `<home>/.cache`. Static tracing of the pinned Claude Code
 2.1.285 executable identifies output-only JSONL logs at
 `<cache>/<sanitized cwd>/errors/<timestamp>.jsonl` and
-`<cache>/<sanitized cwd>/mcp-logs-<sanitized server>/<timestamp>.jsonl`. The only
-consumers are the writer and age-based cleanup; no configuration or instruction
-loader uses this subtree in that version. This is a version-specific rationale,
+`<cache>/<sanitized cwd>/mcp-logs-<sanitized server>/<timestamp>.jsonl`. For that
+executable and the admitted invocation, the enumerated static trace identifies the
+log writers and age-based cleanup beneath this tree; no configuration or instruction
+reader was identified in that trace. This is a version-specific rationale,
 not a loading guarantee for another client version.
 
 The walker permits an ordinary single-link file or a directory at this exact

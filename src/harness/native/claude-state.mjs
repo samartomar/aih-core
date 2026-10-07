@@ -18,8 +18,8 @@ export const claudeStatePaths = Object.freeze({
     tree('.claude/history.jsonl'),
     tree('.claude/history.jsonl.lock'),
     tree('.claude/telemetry'),
-    // Claude Code 2.1.285's pinned-client trace identifies output-only error/MCP JSONL logs here;
-    // only the writer and age-based cleanup consume this subtree, with no configuration/instruction loader.
+    // For the pinned Claude Code 2.1.285 executable, the enumerated static trace identifies error/MCP JSONL
+    // log writers and age-based cleanup here; no configuration or instruction reader was identified in it.
     // This rationale is version-specific. The ordinary uninspected-root file-or-directory rule applies.
     tree('.cache/claude-cli-nodejs')
   ]),
