@@ -1,6 +1,6 @@
 // Session-local in-memory OTLP HTTP/JSON logs listener for Claude's client-reported identity evidence.
 // Evidence is client-reported, not provider-signed. Everything except counts and match flags is discarded.
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import { performance } from 'node:perf_hooks';
 import { isRecord, parseStrictJson } from './canonical.mjs';
@@ -38,6 +38,9 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
   const token = randomBytes(32).toString('hex');
   const probeToken = randomBytes(32).toString('hex');
   let boundSession = sessionId;
+  // Timing diagnostics attribute events by a keyed tag, never the raw session ID; the key never leaves this collector.
+  const attributionKey = randomBytes(32);
+  const attribution = id => typeof id === 'string' && id !== '' ? createHmac('sha256', attributionKey).update(id).digest('base64') : null;
   const state = { requests: 0, events: 0, bytes: 0, violation: false, cancelled: false, candidates: [], identityEvents: [], ignored: 0 };
   const stats = { requests: 0, accepted: 0,
     rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
@@ -124,7 +127,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
             if (state.violation || !isRecord(record)) { increment(stats, 'ignored'); continue; }
             // Keep only attribution and identity flags for timing diagnostics across all event buckets.
             // Binding is deferred until the client's init record supplies the native session ID.
-            state.identityEvents.push({ session: attrs.get('session.id') ?? null,
+            state.identityEvents.push({ tag: attribution(attrs.get('session.id')),
               accountPresent: !!attrs.get('user.account_uuid'), accountMatches: attrs.get('user.account_uuid') === expected.accountUuid,
               organizationPresent: !!attrs.get('organization.id'), organizationMatches: attrs.get('organization.id') === expected.organizationId });
             if (bucket !== 'apiRequest') { state.ignored += 1; continue; }
@@ -157,8 +160,9 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     const apiRequestRejected = { ...stats.apiRequestRejected };
     const identityByEvent = { accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0 };
     let firstMatchingEventIndex = null, sessionEvents = 0;
+    const boundTag = attribution(boundSession);
     for (const event of state.identityEvents) {
-      if (boundSession === null || event.session !== boundSession) continue;
+      if (boundTag === null || event.tag !== boundTag) continue;
       sessionEvents += 1;
       for (const key of Object.keys(identityByEvent)) if (event[key]) increment(identityByEvent, key);
       if (firstMatchingEventIndex === null && event.accountMatches && event.organizationMatches)

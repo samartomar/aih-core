@@ -475,3 +475,11 @@ test('the listener is closed after drain', async () => {
   await c.drain({ ...times(), timeoutMs: 20 });
   await assert.rejects(post(c));
 });
+
+test('timing diagnostics attribute events by a keyed tag and never keep the raw session ID', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../../src/harness/native/collector.mjs', import.meta.url), 'utf8');
+  const push = /state\.identityEvents\.push\(\{([^}]*)\}/.exec(source)?.[1] ?? '';
+  assert.match(push, /tag: attribution\(attrs\.get\('session\.id'\)\)/);
+  assert.doesNotMatch(push, /session:/);
+});
