@@ -74,7 +74,14 @@ ordinary rejection remains `configuration-changed`, limits still throw
 
 This dictionary permits disclosure only. It is independent of the state admission
 allowlist. Matching is exact and case-sensitive; entry kind does not widen a
-token's location. All unlisted or misplaced entries receive an ordinal.
+token's location. The complete, authoritative dictionary is the exported
+`persistenceDiagnosticDictionary` in `dist/harness/native/persistence-diagnostics.mjs`.
+The table lists every entry location in full; for the two key locations it shows
+representative tokens. The key lists also contain the configuration key names the
+supported client version defines in its default global configuration and its
+user-settable configuration keys, plus the state keys this package already
+classifies. Every name absent from that dictionary, or found at a different
+location, receives an ordinal.
 
 | Location | Fixed tokens |
 | --- | --- |
@@ -82,8 +89,8 @@ token's location. All unlisted or misplaced entries receive an ordinal.
 | Immediate children of `home/.claude` (depth 2) | `todos`, `session-env`, `shell-snapshots`, `statsig`, `file-history`, `plans`, `paste-cache`, `debug`, `ide`, `.oauth_refresh.lock`, `projects`, `backups`, `telemetry`, `history.jsonl`, `.claude.json`, `.credentials.json`, `settings.json`, `settings.local.json`, `CLAUDE.md`, `agents`, `commands`, `skills`, `plugins`, `hooks`, `output-styles`, `local` |
 | Immediate children of `home/.config`, `home/.cache`, `home/.local` (depth 2) | `claude`, `claude-cli-nodejs`, `state`, `share` |
 | `project` top level (depth 1) | `.claude`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md` |
-| Top-level keys of inspected `home/.claude/.claude.json` | `projects`, `numStartups`, `firstStartTime`, `userID`, `machineID`, `oauthAccount`, `hasCompletedOnboarding`, `lastOnboardingVersion`, `lastReleaseNotesSeen`, `installMethod`, `autoUpdates`, `cachedGrowthBookFeatures`, `cachedDynamicConfigs`, `theme`, `preferredNotifChannel`, `hasSeenTasksHint`, `mcpServers`, `allowedTools`, `permissions`, `hooks`, `env`, `apiKeyHelper` |
-| Keys immediately inside each record in that JSON file's `projects` map | `allowedTools`, `mcpServers`, `mcpContextUris`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `enableAllProjectMcpServers`, `hasTrustDialogAccepted`, `hasClaudeMdExternalIncludesApproved`, `ignorePatterns`, `projectOnboardingSeenCount`, `lastSessionId`, `lastCost`, `lastDuration`, `lastModelUsage`, `history`, `permissions`, `hooks`, `env` |
+| Top-level keys of inspected `home/.claude/.claude.json` (representative; see the exported dictionary) | `projects`, `numStartups`, `firstStartTime`, `userID`, `machineID`, `oauthAccount`, `hasCompletedOnboarding`, `lastOnboardingVersion`, `lastReleaseNotesSeen`, `installMethod`, `autoUpdates`, `cachedGrowthBookFeatures`, `cachedDynamicConfigs`, `theme`, `preferredNotifChannel`, `hasSeenTasksHint`, `mcpServers`, `allowedTools`, `permissions`, `hooks`, `env`, `apiKeyHelper` |
+| Keys immediately inside each record in that JSON file's `projects` map (representative; see the exported dictionary) | `allowedTools`, `mcpServers`, `mcpContextUris`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `enableAllProjectMcpServers`, `hasTrustDialogAccepted`, `hasClaudeMdExternalIncludesApproved`, `ignorePatterns`, `projectOnboardingSeenCount`, `lastSessionId`, `lastCost`, `lastDuration`, `lastModelUsage`, `history`, `permissions`, `hooks`, `env` |
 
 For example, a file named `todos` beneath `projects/` receives an ordinal. Project
 map path keys are never classified. A malformed project map or project record is
