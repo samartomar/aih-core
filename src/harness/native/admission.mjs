@@ -24,19 +24,25 @@ export function publishNativePersistenceDiagnostics(input) {
   if (!diagnosticsStream.hasSubscribers) return;
   if (!persistenceFailureClasses.includes(input.class) || !['before-session-2', 'after-session-2'].includes(input.stage)) return;
   const source = Array.isArray(input.items) ? input.items : [];
-  const items = Object.freeze(source.slice(0, 16).map(item => Object.freeze({
+  let ordinal = 0;
+  const token = value => safePersistenceDiagnosticToken(value) ?? `unknown-${++ordinal}`;
+  const items = source.slice(0, 16).map(item => Object.freeze({
     root: item.root === 'project' ? 'project' : 'home',
     depth: Number.isSafeInteger(item.depth) && item.depth >= 0 ? Math.min(item.depth, 64) : 0,
     kind: ['file', 'dir', 'other'].includes(item.kind) ? item.kind : 'other',
-    token: safePersistenceDiagnosticToken(item.token) ?? 'unknown-1'
-  })));
+    token: token(item.token),
+    parent: Number.isSafeInteger(item.depth) && item.depth > 1 ? token(item.parent) : null
+  }));
   const diagnosis = input.inspectedDiagnosis;
   const inspectedDiagnosis = diagnosis && inspectedStateDiagnoses.includes(diagnosis.reason)
     ? Object.freeze({ reason: diagnosis.reason, token: safePersistenceDiagnosticToken(diagnosis.token) }) : null;
-  diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-persistence-diagnostics',
+  const record = { schema: 'aih.native.diagnostics.v1', event: 'native-persistence-diagnostics',
     recordId: randomUUID(), runSha256: digest(input.runSha256), phase: 'persistence', stage: input.stage,
     class: input.class, items, truncated: input.truncated === true || source.length > 16 ||
-      source.slice(0, 16).some(item => item.depth > 64), inspectedDiagnosis }));
+      source.slice(0, 16).some(item => item.depth > 64), inspectedDiagnosis };
+  while (Buffer.byteLength(JSON.stringify(record)) >= 4096 && items.length) { items.pop(); record.truncated = true; }
+  Object.freeze(items);
+  diagnosticsStream.publish(Object.freeze(record));
 }
 
 export function publishNativeAdmission(input) {

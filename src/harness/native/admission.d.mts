@@ -3,7 +3,7 @@ export type NativePersistenceDiagnostics = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-persistence-diagnostics'; recordId: string;
   runSha256: string | null; phase: 'persistence'; stage: 'before-session-2' | 'after-session-2';
   class: 'pins' | 'configuration-facts' | 'selected-member' | 'unexpected-entry' | 'state-tree-entry' | 'inspected-state' | 'read-failure' | 'limit';
-  items: readonly Readonly<{ root: 'home' | 'project'; depth: number; kind: 'file' | 'dir' | 'other'; token: string }>[];
+  items: readonly Readonly<{ root: 'home' | 'project'; depth: number; kind: 'file' | 'dir' | 'other'; token: string; parent: string | null }>[];
   truncated: boolean;
   inspectedDiagnosis: Readonly<{ reason: 'unknown-global-key' | 'unknown-project-key' | 'grant-content' | 'value-shape' | 'malformed-json' | 'oversized' | 'not-record' | 'read-failure'; token: string | null }> | null;
 }>;
