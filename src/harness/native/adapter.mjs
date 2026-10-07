@@ -443,7 +443,8 @@ function createNativeRuntime(module, dependencies) {
           publishNativeAdmission({ phase: 'session', index: input.index, definition: input.definition.id,
             runSha256: sha256(input.cell.path), vendorTreeSha256: linuxClient.vendor.treeSha256,
             innerArgv: [input.pin.executable, ...input.definition.sessionArgv], outerArgv: lifecycle?.argv,
-            isolation: context.isolationRecord(), restrictions: restrictionCounts, cleanupConfirmed: receipt.confirmed });
+            isolation: context.isolationRecord(), restrictions: restrictionCounts, cleanupConfirmed: receipt.confirmed,
+            authenticationProofKind: telemetryFinal?.outcome === 'passed' ? telemetryFinal.stats?.authenticationProofKind : null });
         }
         return receipt;
       };

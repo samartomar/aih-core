@@ -88,9 +88,10 @@ export function nativeManagedRestriction(){return scenario==='known-managed';}
 export function nativeServerEvidenceAvailable(){return scenario!=='missing-client-and-server';}
 export async function resolveNativeClient(){if(scenario==='missing-client-and-server')return {outcome:'unavailable',reason:'client-absent'};return {executable:process.execPath,observedVersion:'1.0.0',argv:[],sha256:hash(readFileSync(process.execPath)),runtime:[]};}
 export function revalidateNativeClient(pin){return hash(readFileSync(pin.executable))===pin.sha256;}
-export async function captureNativeIdentity(binding){return {credential:Buffer.from('{}'),expected:binding.expected,sourceIdentity:null};}
-export function revalidateNativeIdentity(){return true;}
-export async function protectNativeCell(){if(scenario==='protect-helper-cleanup-unresolved'){recordCleanup({confirmed:false,survivors:[{pid:65001,role:'helper'}]},performance.now());return false;}return true;}
+export async function captureNativeIdentity(binding){if(scenario==='identity-capture-refused')return {outcome:'unavailable',reason:'identity-binding-invalid'};return {credential:Buffer.from('{}'),expected:binding.expected,sourceIdentity:null};}
+let identityChecks=0;
+export function revalidateNativeIdentity(){identityChecks++;return scenario==='identity-recheck-refused'?false:scenario==='identity-pre-staging-refused'?identityChecks<2:true;}
+export async function protectNativeCell(){if(scenario==='staging-refused')return false;if(scenario==='protect-helper-cleanup-unresolved'){recordCleanup({confirmed:false,survivors:[{pid:65001,role:'helper'}]},performance.now());return false;}return true;}
 // Ordinary client state comes from the installed Harness enumeration and its separate inspector.
 const harness = installedHarness({ nativeVerificationDefinitions: [] }, { readPinned(){ throw Error('unused'); }, Stop: Error });
 const harnessClient = { client:'claude', parserId:'claude-stream-json.v1' };
@@ -358,6 +359,31 @@ test('controlled supplied pins acquire and stage the exact archived output for b
   assert.equal(result.content.bundleId, 'fixture.supplied'); assert.match(result.content.archiveSha256, /^[a-f0-9]{64}$/);
   assert.equal(result.sessions.length, 2); assert.equal(result.cleanup.files, 'removed');
 });
+test('provider authentication requires passed identity binding and exact staging in the same verification run', async t => {
+  for (const [scenario, stage, reason] of [
+    ['identity-capture-refused', 'identity-binding', 'identity-binding-invalid'],
+    ['identity-recheck-refused', 'identity-binding', 'identity-binding-invalid'],
+    ['identity-pre-staging-refused', 'cell-staging', 'identity-binding-invalid'],
+    ['staging-refused', 'cell-staging', 'staging-unavailable']
+  ]) {
+    const result = await controlled(t, scenario);
+    assert.ok(result.stages.some(row => row.id === stage && row.outcome === 'unavailable' && row.reason === reason), JSON.stringify(result.stages));
+    assert.equal(result.sessions.length, 0, scenario);
+    assert.equal(result.verdict, 'unverified');
+    assert.equal(result.stages.some(row => row.id === 'provider-authentication' && row.outcome === 'passed'), false);
+    assert.equal(result.stages.some(row => row.id === 'cell-staging' && row.outcome === 'passed'), false);
+  }
+  const passed = await controlled(t, 'healthy');
+  assert.equal(passed.sessions.length, 2);
+  assert.ok(passed.stages.some(row => row.id === 'identity-binding' && row.outcome === 'passed'));
+  assert.ok(passed.stages.some(row => row.id === 'cell-staging' && row.outcome === 'passed' &&
+    row.evidence.kind === 'digest' && row.evidence.sha256 === passed.content.stagedConfigurationDigest));
+  for (const session of passed.sessions) {
+    assert.equal(session.stagedConfigurationDigest, passed.content.stagedConfigurationDigest);
+    assert.ok(session.stages.some(row => row.id === 'provider-authentication' && row.outcome === 'passed'));
+  }
+});
+
 test('controlled evidence channel challenge replaces the unused initial challenge digest', async t => {
   const result = await controlled(t, 'alternate-challenge');
   assert.equal(result.verdict, 'verified');

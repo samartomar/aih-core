@@ -18,6 +18,7 @@ test('registered Linux client resolution delegates its version execution to the 
 });
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
+import http from 'node:http';
 import { channel } from 'node:diagnostics_channel';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,7 +44,7 @@ test('the Linux branch delegates exactly the platform client pin shape', async (
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
-async function session(t, { query = 'answered', receipt = false, realParser = false, track } = {}) {
+async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
   const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
   for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
@@ -52,11 +53,12 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const telemetry = { outcome: 'unavailable', reason: 'authentication-unavailable',
     counts: { events: 0, matched: 0 }, bytes: 0 };
   let terminationCount = 0;
+  let collector;
   const stdout = new PassThrough();
   let exit;
   const exited = new Promise(resolve => { exit = resolve; });
   let nativeFailure = null;
-  const stream = { status: 'complete', sessionId: 'controlled-session', sessionIdConsistent: true,
+  const stream = { status: 'complete', sessionId: index === 1 ? 'controlled-session' : 'controlled-session-2', sessionIdConsistent: true,
     serverStatus: 'connected', toolsListed: true, visibleSelectedTools: ['attest', 'query'],
     builtinTools: [], unselectedTools: 0, unselectedToolUses: [], attestationReturned: true,
     answerReturned: receipt, answerSha256: receipt ? installed.sha256('leaf') : null };
@@ -83,7 +85,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const module = { ...installed,
     lifecycleAvailability: async () => ({ status: 'available' }),
     observeClaudeManagedSettings: () => ({ outcome: 'clear' }),
-    createClaudeCollector: () => ({ start: async () => ({ endpoint: 'controlled', token: 'controlled' }),
+    createClaudeCollector: realCollector ? input => (collector = installed.createClaudeCollector(input)) : () => ({ start: async () => ({ endpoint: 'controlled', token: 'controlled' }),
       bindSession() {}, snapshot: () => telemetry, drain: async () => telemetry, cancel: async () => {} }),
     startEvidenceChannel: async () => ({ endpoint: 'controlled', token: 'controlled', challenge: 'a'.repeat(64),
       snapshot: () => evidence, close: async () => evidence }),
@@ -100,9 +102,10 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const definition = { client: 'claude', parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
     platform: { os: 'win32' }, lifecycleId: 'windows-job.v1', sessionArgv: [],
     credentialDestination: { root: 'home', path: '.claude/.credentials.json' } };
-  const handle = await runtime.startNativeSession({ definition, index: 1, signal: controller.signal,
+  const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
     deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {},
-    pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] }, identity: { expected: {} },
+    pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] },
+    identity: { expected: { accountUuid: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' } },
     cell,
     material: { server: { name: 'controlled', evidenceAdapterId: 'controlled', toolNames: ['attest', 'query'],
       queryTool: 'query', expectedAnswer: 'leaf', expectedResultSha256: 'c'.repeat(64), runtime: [member] },
@@ -112,9 +115,70 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   assert.equal(typeof handle.snapshot, 'function');
   t.after(async () => { controller.abort(); await handle.observations;
     await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 }); });
-  return { handle, telemetry, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount,
+  return { handle, telemetry, collector, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount,
     setNativeFailure(value) { nativeFailure = value; } };
 }
+
+test('an authenticated non-API collector conflict immediately stops the adapter after a matching request', async t => {
+  const { handle, collector, terminationCount } = await session(t, { realCollector: true });
+  const attribute = (key, stringValue) => ({ key, value: { stringValue } });
+  const record = (name, account) => ({ timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes: [
+    attribute('event.name', name), attribute('session.id', 'controlled-session'), attribute('request_id', name),
+    attribute('user.account_uuid', account), attribute('organization.id', '22222222-2222-4222-8222-222222222222')
+  ] });
+  const post = records => new Promise((resolve, reject) => {
+    const request = http.request(collector.endpoint + '/v1/logs', { method: 'POST', headers: {
+      authorization: 'Bearer ' + collector.token, 'content-type': 'application/json'
+    } }, response => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
+    request.on('error', reject);
+    request.end(JSON.stringify({ resourceLogs: [{ scopeLogs: [{ logRecords: records }] }] }));
+  });
+  assert.equal(await post([record('api_request', '11111111-1111-4111-8111-111111111111')]), 200);
+  assert.equal(handle.snapshot().authentication, 'missing', 'a success awaits drain');
+  assert.equal(await post([record('user_prompt', 'wrong-account')]), 200);
+  const observation = await Promise.race([handle.observations, new Promise((_, reject) => {
+    const timer = setTimeout(() => reject(Error('non-API conflict did not stop the adapter')), 1000); timer.unref();
+  })]);
+  assert.equal(terminationCount(), 1);
+  assert.equal(observation.authentication, 'conflict');
+  assert.equal(observation.failure.reason, 'identity-conflict');
+});
+
+test('adapter diagnostics bind final authentication proof kind to each passing run and session', async t => {
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = record => records.push(record);
+  stream.subscribe(sink);
+  try {
+    for (const index of [1, 2]) {
+      const { handle, collector, stream: client, exit, cell } = await session(t, { realCollector: true, index });
+      const attr = (key, stringValue) => ({ key, value: { stringValue } });
+      const attributes = [attr('event.name', 'api_request'), attr('session.id', client.sessionId), attr('request_id', 'request')];
+      if (index === 2) attributes.push(attr('user.account_uuid', '11111111-1111-4111-8111-111111111111'),
+        attr('organization.id', '22222222-2222-4222-8222-222222222222'));
+      await new Promise((resolve, reject) => {
+        const request = http.request(collector.endpoint + '/v1/logs', { method: 'POST', headers: {
+          authorization: 'Bearer ' + collector.token, 'content-type': 'application/json'
+        } }, response => { response.resume(); response.on('end', resolve); });
+        request.on('error', reject);
+        request.end(JSON.stringify({ resourceLogs: [{ scopeLogs: [{ logRecords: [
+          { timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes }
+        ] }] }] }));
+      });
+      assert.equal(handle.snapshot().authentication, 'missing');
+      exit({ code: 0 });
+      const result = await handle.observations;
+      assert.equal(result.authentication, 'matched');
+      assert.equal(Object.hasOwn(result, 'authenticationProofKind'), false, 'closed verifier observations stay unchanged');
+      await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 });
+      const record = records.at(-1);
+      assert.equal(record.runSha256, installed.sha256(cell.path));
+      assert.equal(record.index, index);
+      assert.equal(record.collector.authenticationProofKind, index === 1 ? 'provisioning-bound-session' : 'telemetry-identity');
+      assert.deepEqual(record.collector.qualifyingSuccesses, index === 1
+        ? { telemetryIdentity: 0, provisioningBound: 1 } : { telemetryIdentity: 1, provisioningBound: 0 });
+    }
+    assert.equal(records.length, 2);
+  } finally { stream.unsubscribe(sink); }
+});
 
 test('session cleanup publishes collector diagnostics and the parsed error result exactly once', async t => {
   const records = [], sink = value => records.push(value), diagnostics = channel('aih.native.diagnostics.v1');

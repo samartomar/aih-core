@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.19 accepts absent account or organization attributes on successful
+Claude API requests bound to a freshly provisioned native session. Present
+identities must match; empty, malformed or repeated identity attributes and
+contradictory identities on any bound-session event invalidate authentication.
+Optional diagnostics and Linux admission evidence record the per-session proof
+kind (`telemetry-identity` or `provisioning-bound-session`); diagnostics separate
+accepted absence from rejection and count deduplicated qualifying successes.
+Public verification result schemas are unchanged. Provisioning-bound proof loses
+the runtime wrong-account/refresh cross-check and is not provider-signed evidence.
+This development candidate has not been published to npm.
+
 Core 1.0.0-dev.18 splits optional native API request identity rejection counts
 into missing and different account and organization attributes. Counts across
 all bound-session event types and the first matching event's position help

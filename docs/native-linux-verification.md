@@ -152,37 +152,67 @@ never select an event type. As described in the
 [Claude monitoring documentation](https://code.claude.com/docs/en/monitoring-usage#api-request-event),
 an API request event need not carry a `success` attribute; absence or `true`
 is accepted, while every other present value is ignored. Session, nonempty request
-ID, expected account/organization, time-window and duplicate checks still apply.
+ID, time-window and duplicate checks still apply. Each present account or
+organization attribute must equal its independently provisioned expectation;
+either may be absent. This requires this verification run's successful identity
+binding, pre-staging identity recheck and exact credential/configuration staging
+from an owner-verified dedicated login. Empty strings, non-string OTLP identity
+values, malformed value objects and repeated identity keys within a record are
+invalid, even when repeated values match. Invalid or contradictory identity on
+any authenticated bound-session event is a sticky `identity-conflict`; subsequent
+matches cannot clear it. Wrong-session events never count or create a conflict.
+Matching identities on non-API events alone cannot authenticate a session.
 
 Collector `apiRequestRejected` contains only `missingRequestId`, `notSuccess`,
-`missingSession`, `wrongSession`, `accountMissing`, `accountDifferent`,
-`organizationMissing`, `organizationDifferent` and `outsideWindow` counts.
-Request ID rejection precedes the success check. Remaining candidates are
-classified by session: absent/empty IDs count as `missingSession`, other IDs
-(including a candidate awaiting a bound session) as `wrongSession`. The existing
-top-level `wrongSession` count includes both. For bound-session candidates,
-identity rejection counts distinguish absent/empty account or organization
-attributes from present values unequal to the corresponding expectation. They
-are counted per candidate, even for duplicate requests or events outside the
-window, and still invalidate authentication. `outsideWindow` counts only nonduplicate bound-session
-candidates with missing/invalid event time or event/receipt time outside the
-window; it can overlap any identity rejection count. Duplicates retain their
-separate count, and limit-exceeded events retain the existing ignored count. Repeated snapshots
-recompute evaluation counts without accumulating them. Every count is clamped to
-1,000,000; diagnostic fields retain no event strings or identity values.
+`missingSession`, `wrongSession` and `outsideWindow`. Request ID rejection
+precedes the success check. Remaining candidates are classified by session:
+absent/empty IDs count as `missingSession`, other IDs (including a candidate
+awaiting binding) as `wrongSession`. The top-level `wrongSession` count includes
+both. `outsideWindow` counts nonduplicate bound-session candidates with
+missing/invalid event time or event/receipt time outside the window.
+
+Collector `apiRequestIdentity` contains only `accountAbsent`, `organizationAbsent`,
+`accountDifferent`, `organizationDifferent` and `invalidAttribute`. Absence is a
+non-rejection count. Differences count valid present attributes unequal to their
+expectation; `invalidAttribute` counts candidates with one or more invalid identity
+attributes, never treating them as absent. These counts cover bound-session API
+candidates after request ID/success checks, including duplicates and events
+outside the window. Repeated snapshots recompute counts without accumulating them.
+
+Collector `qualifyingSuccesses` contains only `telemetryIdentity` and
+`provisioningBound`, counting deduplicated qualifying API successes with both
+matching identities or with at least one absent identity respectively.
+`authenticationProofKind` is null until final drain passes, then
+`telemetry-identity` if at least one qualifying success carries both matching IDs,
+otherwise `provisioning-bound-session`. Any conflict makes the kind null even if
+qualifying-success counts are nonzero. A matching non-API event cannot upgrade
+the proof kind. `boundSessionEvents` counts all bounded authenticated events
+attributed to the session, including non-API and rejected events. Every count is
+clamped to 1,000,000; no event strings or identity values are retained.
+
+Proof kind is bound to the same cell run digest and session index in both the
+optional diagnostics record (`collector.authenticationProofKind`) and Linux
+admission record (`authenticationProofKind`). These observation channels do not
+change the closed public request/result schemas and have no default sink.
+Neither kind is provider-signed attestation. `provisioning-bound-session` relies
+on owner verification of the actual login and its independently trusted identity
+expectations, with pinned manifest and credential bytes. It loses the runtime
+wrong-account/refresh cross-check; promotion evidence must record this limitation
+and the owner's acceptance. These observations alone do not admit a cell.
 
 Collector `identityByEvent` contains only `accountPresent`, `accountMatches`,
 `organizationPresent` and `organizationMatches` counts. It considers every
 bounded received event attributed to the bound session, in any event-name bucket,
 including API events rejected for request ID or success and events outside the
-authentication time window. Presence means a nonempty attribute value; matches
+authentication time window. Presence means the identity key occurs, including an invalid value; matches
 use the same expected account and organization equality as authentication.
 `firstMatchingEventIndex` is null until one such event matches both identities,
 then holds its 1-based position among that session's received events, clamped to
 1,000,000. Other-session and missing-session events do not count or occupy a
 position. These fields are recomputed after session binding and on each snapshot
 or drain. They diagnose identity timing only: a matching non-API event cannot
-authenticate the session or clear an API identity conflict. The publisher freezes
+authenticate the session or clear an identity conflict. Contradictory or invalid
+identity on these events invalidates authentication independently of API eligibility. The publisher freezes
 the fixed keys and defaults malformed counts to zero and malformed indexes to
 null. No account or organization ID string is retained in diagnostics.
 

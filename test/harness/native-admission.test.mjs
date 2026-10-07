@@ -4,13 +4,42 @@ import { channel } from 'node:diagnostics_channel';
 import { publishNativeAdmission } from '../../src/harness/native/admission.mjs';
 import * as admission from '../../src/harness/native/admission.mjs';
 
+test('authentication diagnostics use exact clamped counts and closed proof kinds in both channels', () => {
+  const diagnostics = [], evidence = [];
+  const ds = channel('aih.native.diagnostics.v1'), es = channel('aih.native.admission.v1');
+  const d = record => diagnostics.push(record), e = record => evidence.push(record);
+  ds.subscribe(d); es.subscribe(e);
+  try {
+    for (const authenticationProofKind of ['telemetry-identity', 'provisioning-bound-session', null, 'secret-marker']) {
+      const input = { authenticationProofKind, collector: { authenticationProofKind, boundSessionEvents: 1000001,
+        qualifyingSuccesses: { telemetryIdentity: 1000001, provisioningBound: -1, secret: 'secret-marker' },
+        apiRequestIdentity: { accountAbsent: 1000001, organizationAbsent: 3, accountDifferent: 1.5,
+          organizationDifferent: Infinity, invalidAttribute: 2, secret: 'secret-marker' } } };
+      admission.publishNativeDiagnostics(input); admission.publishNativeAdmission(input);
+      const record = diagnostics.at(-1).collector;
+      const expected = authenticationProofKind === 'secret-marker' ? null : authenticationProofKind;
+      assert.equal(record.authenticationProofKind, expected);
+      assert.equal(evidence.at(-1).authenticationProofKind, expected);
+      assert.equal(record.boundSessionEvents, 1000000);
+      assert.deepEqual(record.qualifyingSuccesses, { telemetryIdentity: 1000000, provisioningBound: 0 });
+      assert.deepEqual(record.apiRequestIdentity, { accountAbsent: 1000000, organizationAbsent: 3,
+        accountDifferent: 0, organizationDifferent: 0, invalidAttribute: 2 });
+      assert.ok(Object.isFrozen(record.qualifyingSuccesses));
+      assert.ok(Object.isFrozen(record.apiRequestIdentity));
+      assert.equal(JSON.stringify(diagnostics.at(-1)).includes('secret-marker'), false);
+    }
+  } finally { ds.unsubscribe(d); es.unsubscribe(e); }
+});
+
 const emptyCollector = {
   requests: 0, accepted: 0,
   rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
   contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
   events: 0, eventNames: { apiRequest: 0, apiError: 0, userPrompt: 0, assistantResponse: 0, toolResult: 0, toolDecision: 0, other: 0 },
   apiRequestRejected: { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0,
-    accountMissing: 0, accountDifferent: 0, organizationMissing: 0, organizationDifferent: 0, outsideWindow: 0 },
+    outsideWindow: 0 },
+  apiRequestIdentity: { accountAbsent: 0, organizationAbsent: 0, accountDifferent: 0, organizationDifferent: 0, invalidAttribute: 0 },
+  qualifyingSuccesses: { telemetryIdentity: 0, provisioningBound: 0 }, boundSessionEvents: 0, authenticationProofKind: null,
   identityByEvent: { accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0 }, firstMatchingEventIndex: null,
   ignored: 0, matched: 0,
   duplicates: 0, wrongSession: 0, conflict: false
@@ -26,7 +55,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         rejected: { ...emptyCollector.rejected, auth: 1, contentType: 1, contentEncoding: 1, private: 'header-marker' },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
         eventNames: { ...emptyCollector.eventNames, apiRequest: 1, userPrompt: 1, private: 'event-marker' },
-        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1, accountMissing: 1, organizationDifferent: 1,
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1,
           identityMismatch: 9, private: 'reason-marker' },
         identityByEvent: { accountPresent: 2, accountMatches: 1, organizationPresent: 3, organizationMatches: 2, accountUuid: 'identity-marker' },
         firstMatchingEventIndex: 4,
@@ -43,7 +72,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
         eventNames: { ...emptyCollector.eventNames, apiRequest: 1, userPrompt: 1 },
-        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1, accountMissing: 1, organizationDifferent: 1 },
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1 },
         identityByEvent: { accountPresent: 2, accountMatches: 1, organizationPresent: 3, organizationMatches: 2 }, firstMatchingEventIndex: 4,
         ignored: 1, matched: 1 },
       proxy: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
@@ -71,7 +100,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       runSha256: null, phase: 'session', index: 1, definition: null,
       collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 },
         eventNames: { ...emptyCollector.eventNames, apiRequest: 1000000, userPrompt: 1000000, toolDecision: 4 },
-        apiRequestRejected: { ...emptyCollector.apiRequestRejected, missingRequestId: 1000000, missingSession: 1000000, accountDifferent: 1000000, outsideWindow: 3 },
+        apiRequestRejected: { ...emptyCollector.apiRequestRejected, missingRequestId: 1000000, missingSession: 1000000, outsideWindow: 3 },
         identityByEvent: { ...emptyCollector.identityByEvent, accountPresent: 1000000 }, firstMatchingEventIndex: 1000000 },
       proxy: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });

@@ -74,7 +74,17 @@ exact client/configuration/runtime bytes and dedicated host bindings. The packed
 API and CLI must observe initial instructions, MCP discovery and a fixed read-only
 query in two fresh sessions without reapplying configuration. Authentication needs
 same-session successful API telemetry; a protected credential file alone is not
-account proof. Managed policy remains effective, and unobserved policy sources
+account proof. After this run's identity binding and exact credential/configuration
+staging pass, account and organization telemetry attributes may be absent; every
+present value must match the provisioned expectation. Empty, malformed or repeated
+identity attributes and contradictory identity on any authenticated bound-session
+event invalidate authentication. Optional session diagnostics record
+`telemetry-identity` when a qualifying API success carries both matching IDs,
+otherwise `provisioning-bound-session`. The latter loses the runtime
+wrong-account/refresh cross-check; promotion evidence must record this limitation
+and the owner's acceptance. Neither kind is provider-signed attestation. See the
+[collector diagnostics contract](native-linux-verification.md) for the shared
+counts-only record. Managed policy remains effective, and unobserved policy sources
 remain limitations.
 
 This Claude candidate has no whole-client isolation mechanism. The documented
