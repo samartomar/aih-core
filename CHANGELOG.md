@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.23 disables Claude auto-memory in both session environments on
+all platforms and refuses managed auto-memory setting/environment keys with
+any value as managed restrictions. Known restrictions retain precedence over
+unreadable observations. Exact `.claude/sessions` state is accepted only as an
+empty ordinary directory after descendant quiescence; any child or enumeration
+failure is refused. Exact `.claude/.last-cleanup` state is accepted only as a
+single-link regular file: housekeeping control metadata whose contents are not
+inspected. Core adds optional generic `empty-directory` and `file` state kinds.
+Memory exclusions, selected-byte binding, link checks and diagnostics verdicts
+are preserved. The rationale is pinned to Claude Code 2.1.285 and executable
+SHA-256 `33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29`.
+Native acceptance of the changed packed distribution remains pending. This
+candidate has not been published.
+
+Core 1.0.0-dev.23 also keeps ordinary session-1 process cleanup within the run
+budget, preserving the final cleanup allowance after a long second session.
+
 Core 1.0.0-dev.22 adds parent observation tokens to persistence diagnostics and
 collects metadata offenders across branches after the original failure. The
 walk remains bounded, never follows links or reads rejected contents, and

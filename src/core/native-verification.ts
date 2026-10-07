@@ -74,13 +74,20 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
   const cleanupCheck = () => { if (performance.now() >= cleanupEnd()) throw new NativeStop('cleanup-unresolved'); };
   const cleanupHandle = async (current: NativeSessionHandle, duringOrdinary = false): Promise<boolean> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let cleanupStartedAt: number | undefined;
+    const bindCleanupStart = () => {
+      if (cleanupStartedAt !== undefined) cleanupDeadline = Math.min(cleanupDeadline ?? Infinity, cleanupStartedAt + 10000);
+    };
     try {
-      if (current.cleanupStartedAt !== undefined) cleanupDeadline = Math.min(cleanupDeadline ?? Infinity, current.cleanupStartedAt + 10000);
+      cleanupStartedAt = current.cleanupStartedAt;
+      const ordinary = duringOrdinary && !host.signal?.aborted && performance.now() < deadline;
+      if (!ordinary) bindCleanupStart();
       // Session-1 cleanup remains ordinary work; the one extra allowance starts at stop.
-      const end = duringOrdinary && !host.signal?.aborted && performance.now() < deadline ? deadline : cleanupEnd();
+      const end = ordinary ? deadline : cleanupEnd();
       const cleanup = await Promise.race([current.cleanup({ deadline: end, graceMs: Math.min(1000, Math.max(0, end - performance.now())) }),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new NativeStop('termination-unresolved')), Math.max(1, end - performance.now())); })]);
       if (!cleanup.confirmed || cleanup.survivors.length) {
+        bindCleanupStart();
         processesConfirmed = false;
         result.survivingProcesses = [...result.survivingProcesses, ...cleanup.survivors].slice(0, 32);
         if (cleanup.survivors.length > 32) result.limits.evidenceTruncated = true;
@@ -88,6 +95,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       }
       return true;
     } catch {
+      bindCleanupStart();
       processesConfirmed = false;
       if (!result.survivingProcesses.some(value => value.pid === current.pid) && result.survivingProcesses.length < 32) result.survivingProcesses.push({ pid: current.pid, role: 'client' });
       return false;

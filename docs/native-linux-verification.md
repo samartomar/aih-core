@@ -120,6 +120,31 @@ tool-discovery and authentication evidence is still observed independently, and
 new instruction, settings, MCP, memory or managed-policy files outside uninspected
 state remain configuration changes.
 
+The verifier sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in the environment built
+from scratch for both sessions on every platform. This disables auto-memory
+creation, background extraction and next-session instruction loading. A managed
+`autoMemoryEnabled` key or managed `env.CLAUDE_CODE_DISABLE_AUTO_MEMORY` key,
+with any value, is a `restricted` / `managed-restriction` outcome. A known
+restriction takes precedence over unreadable sibling keys or sources; malformed
+or unreadable policy alone remains unreadable. Verification never overrides
+managed policy, and unobserved managed sources remain an evidence limitation.
+
+The exact home `.claude/sessions` path is admitted only as an ordinary empty
+directory at each persistence checkpoint, after descendant quiescence. Absence
+is also accepted. Any child (including a PID record, socket-path record, nested
+directory or link) or enumeration failure is refused; this is not a recursive
+state tree. The exact home `.claude/.last-cleanup` path is admitted only as an
+ordinary regular file with link count one. It is housekeeping control metadata
+whose contents are not inspected; the client reads back only its mtime. Links,
+reparse points, hard links, wrong shapes and case/path near-matches are refused.
+Per-project `*/memory` remains excluded whether empty or populated, and selected
+configuration bytes remain immutable.
+
+This rationale is specific to Claude Code 2.1.285, executable SHA-256
+`33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29`.
+Native acceptance of the changed packed distribution is pending; controlled
+checks do not establish native acceptance.
+
 The fixed home state paths additionally admit exactly `.cache/claude-cli-nodejs`;
 `XDG_CACHE_HOME` stays `<home>/.cache`. Static tracing of the pinned Claude Code
 2.1.285 executable identifies output-only JSONL logs at

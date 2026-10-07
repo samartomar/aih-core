@@ -722,7 +722,7 @@ function createNativeRuntime(module, dependencies) {
     // Only the fixed ordinary state of a supported Claude definition; never configuration or instruction surfaces.
     nativeStatePaths(definition) {
       const supported = definition?.client === "claude" && adapters.has(definition.parserId);
-      const copy = (entries) => supported ? entries.map((entry) => ({ path: entry.path, exclusions: [...entry.exclusions], inspected: entry.inspected })) : [];
+      const copy = (entries) => supported ? entries.map((entry) => ({ path: entry.path, exclusions: [...entry.exclusions], inspected: entry.inspected, ...(entry.kind ? { kind: entry.kind } : {}) })) : [];
       return { home: copy(claudeStatePaths.home), project: copy(claudeStatePaths.project) };
     },
     // Separate precedence check for the one inspected state file.
