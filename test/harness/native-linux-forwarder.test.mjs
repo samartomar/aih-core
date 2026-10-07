@@ -8,6 +8,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { runProbes, startCollectorForwarder } from '../../src/harness/native/linux-workload.mjs';
 
+// The fake collector shares the bridge's port on a second loopback address; macOS routes only 127.0.0.1 by default.
+// The bridge itself runs only inside the Linux sandbox namespace.
+const aliasLoopback = { skip: process.platform === 'darwin' ? 'second loopback address unavailable on macOS' : false };
+
 const listen = async (server, host, port = 0) => {
   server.listen(port, host); await once(server, 'listening'); return server.address().port;
 };
@@ -46,7 +50,7 @@ async function fixture(t, status = 200) {
   return { port, requests, connects, openSockets: () => sockets.size, proxyUrl: 'http://user%3Aname:p%40ss@localhost:3128' };
 }
 
-test('a direct collector POST crosses CONNECT with the proxy capability and exact counts only', async t => {
+test('a direct collector POST crosses CONNECT with the proxy capability and exact counts only', aliasLoopback, async t => {
   const fx = await fixture(t);
   const forwarder = await startCollectorForwarder({ collector: `http://127.0.0.1:${fx.port}/v1/logs`, proxyUrl: fx.proxyUrl });
   t.after(() => forwarder.close());
@@ -80,7 +84,7 @@ const bridge = async (t, fx, limits) => {
   assert.ok(forwarder); t.after(() => forwarder.close()); return forwarder;
 };
 
-test('non-200 CONNECT is refused without sending a payload to the collector', async t => {
+test('non-200 CONNECT is refused without sending a payload to the collector', aliasLoopback, async t => {
   const fx = await fixture(t, 403), forwarder = await bridge(t, fx);
   const client = await dial(fx.port); client.write('synthetic payload');
   await disconnected(client);
@@ -100,7 +104,7 @@ test('only the literal collector authority and fixed authenticated proxy can cre
   }
 });
 
-test('concurrent connections stop at 32 even when a test asks for a higher limit', async t => {
+test('concurrent connections stop at 32 even when a test asks for a higher limit', aliasLoopback, async t => {
   const fx = await fixture(t), forwarder = await bridge(t, fx, { maxActive: 33 });
   const clients = [];
   t.after(() => clients.forEach(client => client.destroy()));
@@ -112,14 +116,14 @@ test('concurrent connections stop at 32 even when a test asks for a higher limit
   await Promise.all(clients.map(disconnected));
 });
 
-test('total connections stop at 256 even when a test asks for a higher limit', async t => {
+test('total connections stop at 256 even when a test asks for a higher limit', aliasLoopback, async t => {
   const fx = await fixture(t, 403), forwarder = await bridge(t, fx, { maxTotal: 257 });
   for (let i = 0; i < 257; i += 1) { const client = await dial(fx.port); await disconnected(client); }
   assert.equal(fx.connects.length, 256);
   assert.deepEqual(await forwarder.close(), { accepted: 256, connected: 0, refused: 256, capped: 1 });
 });
 
-test('each tunnel direction has its own byte cap', async t => {
+test('each tunnel direction has its own byte cap', aliasLoopback, async t => {
   const fx = await fixture(t), forwarder = await bridge(t, fx, { maxBytes: 64 });
   const client = await dial(fx.port);
   await waitFor(() => forwarder.snapshot().connected === 1);
@@ -128,7 +132,7 @@ test('each tunnel direction has its own byte cap', async t => {
   assert.deepEqual(await forwarder.close(), { accepted: 1, connected: 1, refused: 0, capped: 1 });
 });
 
-test('response bytes are capped independently of request bytes', async t => {
+test('response bytes are capped independently of request bytes', aliasLoopback, async t => {
   const fx = await fixture(t), forwarder = await bridge(t, fx, { maxBytes: 64 });
   const client = await dial(fx.port);
   let bytes = 0; client.on('data', chunk => { bytes += chunk.length; });
@@ -138,7 +142,7 @@ test('response bytes are capped independently of request bytes', async t => {
   assert.deepEqual(await forwarder.close(), { accepted: 1, connected: 1, refused: 0, capped: 1 });
 });
 
-test('idle tunnels expire and cleanup closes live client sockets without changing final counters', { timeout: 5000 }, async t => {
+test('idle tunnels expire and cleanup closes live client sockets without changing final counters', { ...aliasLoopback, timeout: 5000 }, async t => {
   const fx = await fixture(t), forwarder = await bridge(t, fx, { idleMs: 80 });
   const idle = await dial(fx.port); await disconnected(idle);
   assert.deepEqual(forwarder.snapshot(), { accepted: 1, connected: 1, refused: 0, capped: 1 });
@@ -150,7 +154,7 @@ test('idle tunnels expire and cleanup closes live client sockets without changin
   assert.deepEqual(await forwarder.close(), stats); assert.ok(Object.isFrozen(stats));
 });
 
-test('a stalled CONNECT handshake expires and cleanup destroys pending proxy sockets', { timeout: 5000 }, async t => {
+test('a stalled CONNECT handshake expires and cleanup destroys pending proxy sockets', { ...aliasLoopback, timeout: 5000 }, async t => {
   const fx = await fixture(t, null), forwarder = await bridge(t, fx, { idleMs: 80 });
   const idle = await dial(fx.port); idle.write('synthetic payload'); await disconnected(idle);
   assert.equal(fx.requests.length, 0);
@@ -161,7 +165,7 @@ test('a stalled CONNECT handshake expires and cleanup destroys pending proxy soc
   await disconnected(pending); await waitFor(() => fx.openSockets() === 0);
 });
 
-test('directLoopbackDenied probes a distinct canary port while the collector bridge is reachable', async t => {
+test('directLoopbackDenied probes a distinct canary port while the collector bridge is reachable', aliasLoopback, async t => {
   const fx = await fixture(t), forwarder = await bridge(t, fx);
   const canary = net.createServer(socket => socket.end());
   const canaryPort = await listen(canary, '127.0.0.1');
