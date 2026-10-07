@@ -70,6 +70,34 @@ verification. Public result schemas, verdicts and reasons are unchanged:
 ordinary rejection remains `configuration-changed`, limits still throw
 `limit-exceeded`, and cancellation/budget stops do not publish failure records.
 
+## Claude client-state boundary
+
+The installed Claude plan admits home state at `.claude/projects` (with its fixed
+loading exclusions), inspected `.claude/.claude.json`, `.claude/.claude.json.lock`,
+`.claude/backups`, `.claude/history.jsonl`, `.claude/history.jsonl.lock`,
+`.claude/telemetry`, and exactly `.cache/claude-cli-nodejs`. It admits no project
+state paths. `XDG_CACHE_HOME` remains `<home>/.cache`; `.cache` is permitted only
+as the directory parent of the exact cache state root, so other children and near
+matches still fail as `unexpected-entry`.
+
+Static tracing of the pinned Claude Code 2.1.285 executable identifies JSONL error
+and MCP logs under sanitized cwd names, in `errors/` and `mcp-logs-<sanitized server>/`.
+For that executable and the admitted invocation, the enumerated static trace
+identifies the log writers and age-based cleanup beneath this tree; no configuration
+or instruction reader was identified in that trace. No configuration or instruction discovery into this subtree was established for the traced local inputs; unobserved server-managed policy may alter loader roots. This rationale is version-specific.
+The walker accepts an ordinary single-link file or a directory at the uninspected
+root and regular files/directories beneath it. Even `settings.json` and `CLAUDE.md`
+are allowed there as inert state: a passing walk proves allowance, while the loading
+conclusion rests on that static trace. Parent/root/descendant links, hard links,
+special files, and depth/entry-limit violations remain refused; selected
+configuration mutations still fail.
+
+Logs may contain MCP server stderr. Verification never reads, ingests or exports
+their contents or dynamic names. Successful whole-cell cleanup deletes them, but
+failed cleanup retains the cell and reports its opaque recovery name. Deletion
+is conditional and does not rely on client pruning. The disclosure dictionary
+below does not admit additional state.
+
 ## Disclosure dictionary and structural locations
 
 This dictionary permits disclosure only. It is independent of the state admission

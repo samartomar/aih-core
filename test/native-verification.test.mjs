@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -100,11 +100,12 @@ test('every roster member has an explicit unsupported or unadmitted native outco
 const fixtureRuntime = scenario => `
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, unlinkSync, lstatSync, mkdirSync, linkSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync, unlinkSync, lstatSync, mkdirSync, linkSync, rmSync } from 'node:fs';
 import { createNativeRuntime as installedHarness } from './adapter.mjs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
+const cleanupUnresolved = scenario==='cleanup-unresolved'||scenario==='client-state-log-cache-retained';
 import { NativeStop } from '../../core/internal/native-input.js';
 let recordCleanup;
 const hash = v => createHash('sha256').update(v).digest('hex');
@@ -150,6 +151,19 @@ const writeState=(root,path,bytes)=>{const target=join(root,...path.split('/'));
 const globalState=(project={})=>JSON.stringify({numStartups:2,firstStartTime:'2026-10-05T00:00:00.000Z',userID:'0'.repeat(64),hasCompletedOnboarding:true,
   projects:{'/cell/project':{allowedTools:[],mcpServers:{},enabledMcpjsonServers:[],disabledMcpjsonServers:[],hasTrustDialogAccepted:false,projectOnboardingSeenCount:1,lastSessionId:'00000000-0000-4000-8000-000000000000',lastCost:0,...project}}});
 function clientWrites(cell,index){
+  if(scenario.startsWith('client-state-log-cache')){
+    const cache='.cache/claude-cli-nodejs/-cell-project/';
+    if(index===1){
+      writeState(cell.home,cache+'errors/2026-10-07T00-00-00.jsonl','{"error":"privacy-canary-error"}'+String.fromCharCode(10));
+      writeState(cell.home,cache+'mcp-logs-fixture/2026-10-07T00-00-00.jsonl','{"stderr":"privacy-canary-stderr"}'+String.fromCharCode(10));
+    }else if(scenario==='client-state-log-cache-removed'){
+      rmSync(join(cell.home,'.cache'),{recursive:true});
+    }else{
+      appendFileSync(join(cell.home,cache+'errors/2026-10-07T00-00-00.jsonl'),'{"error":"privacy-canary-appended"}'+String.fromCharCode(10));
+      rmSync(join(cell.home,cache+'mcp-logs-fixture'),{recursive:true});
+      writeState(cell.home,cache+'mcp-logs-fixture/2026-10-07T01-00-00.jsonl','{"stderr":"privacy-canary-new"}'+String.fromCharCode(10));
+    }
+  }
   if(index!==(scenario==='client-state-after-session-2'?2:1)||!scenario.startsWith('client-state'))return;
   writeState(cell.home,'.claude/projects/cell-project/session-1.jsonl','{"transcript":true}');
   writeState(cell.home,'.claude/.claude.json',globalState());
@@ -229,7 +243,7 @@ export async function startNativeSession(input){
     child.once('close',()=>{clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(scenario==='partial-spawn')return resolve({...observations,completed:[],failure:{reason:'native-internal',outcome:'unavailable'}});try{const value=JSON.parse(output);value.counts.observedBytes=Buffer.byteLength(output);if(scenario==='changed-config'&&input.index===1)writeFileSync(join(input.cell.project,'INSTRUCTIONS.md'),'changed');if(scenario==='replaced-config'&&input.index===1){const p=join(input.cell.project,'INSTRUCTIONS.md');unlinkSync(p);writeFileSync(p,fixture);}clientWrites(input.cell,input.index);if(scenario==='conflicting-loading-source'&&input.index===1)writeFileSync(join(input.cell.home,'.claude','settings.local.json'),'{}');resolve(value);}catch{reject(Error('controlled output unavailable'));}});
   });
   child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial,ready:scenario==='deadline'}));
-  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:scenario!=='cleanup-unresolved',survivors:scenario==='cleanup-unresolved'?[{pid:child.pid,role:'client'}]:[]};}};
+  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:!cleanupUnresolved,survivors:cleanupUnresolved?[{pid:child.pid,role:'client'}]:[]};}};
   return scenario==='partial-spawn'?{outcome:'unavailable',reason:'native-internal',partial:handle}:handle;
 }
 `;
@@ -332,6 +346,11 @@ async function controlled(t, scenario, controls = {}) {
   }
   const result = await pending;
   assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
+  if (scenario === 'client-state-log-cache-retained') {
+    assert.equal(existsSync(join(sandboxRoot, result.cleanup.retainedCell, 'home', '.cache', 'claude-cli-nodejs',
+      '-cell-project', 'mcp-logs-fixture', '2026-10-07T00-00-00.jsonl')), true);
+  }
+  if (scenario === 'client-state-log-cache-removed') assert.equal(result.cleanup.files, 'removed');
   return result;
 }
 test('controlled processes exercise two fresh sessions, fixed configuration and full result aggregation', async t => {
@@ -356,6 +375,28 @@ test('controlled ordinary client-owned state is preserved into the second sessio
   assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'passed']);
   assert.equal(result.cleanup.files, 'removed');
 });
+for (const scenario of ['client-state-log-cache', 'client-state-log-cache-removed']) {
+test(`controlled client log cache ${scenario} passes both persistence checkpoints and is cleaned up`, async t => {
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const result = await controlled(t, scenario);
+    assert.equal(result.verdict, 'verified'); assert.equal(result.sessions.length, 2);
+    assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'passed']);
+    assert.equal(result.cleanup.files, 'removed');
+    assert.equal(records.some(record => record.event === 'native-persistence-diagnostics'), false);
+    assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
+  } finally { stream.unsubscribe(sink); }
+});
+}
+
+test('controlled client log cache is retained when process cleanup fails', async t => {
+  const result = await controlled(t, 'client-state-log-cache-retained');
+  assert.equal(result.status, 'incomplete'); assert.equal(result.cleanup.processes, 'unresolved');
+  assert.equal(result.cleanup.files, 'retained'); assert.match(result.cleanup.retainedCell, /^aih-native-[a-f0-9]{32}$/);
+  assert.equal(JSON.stringify(result).includes('privacy-canary'), false);
+});
+
 test('controlled full ordinary client state set is preserved into the second session', async t => {
   const result = await controlled(t, 'client-state-full');
   assert.equal(result.status, 'complete', JSON.stringify(result.stages)); assert.equal(result.verdict, 'verified');

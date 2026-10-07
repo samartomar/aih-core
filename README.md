@@ -149,9 +149,27 @@ its fixed loading exclusions; for Claude, per-project memory and the client's ot
 reserved non-transcript names stay excluded. The client's global state file is
 accepted only when a separate inspection finds bounded bookkeeping, without MCP
 servers, tool or permission grants, trust or approval entries, credentials,
-environment values or unrecognized keys. Any new instruction, settings, hook,
+environment values or unrecognized keys. Outside uninspected client state, any
+new instruction, settings, hook,
 plugin, MCP, memory, shell-snapshot, session-environment or managed-policy file
 is `configuration-changed`, as are links and other non-regular files in state.
+
+Claude's home state also includes exactly `.cache/claude-cli-nodejs`, with
+`XDG_CACHE_HOME` remaining `<home>/.cache`. For the pinned Claude Code 2.1.285
+executable and admitted invocation, the enumerated static trace identifies JSONL
+error/MCP log writers and age-based cleanup beneath this tree, under sanitized
+working-directory names; no configuration or instruction reader was identified in
+that trace. No configuration or instruction discovery into this subtree was established for the traced local inputs; unobserved server-managed policy may alter loader roots. That conclusion is version-specific. `.cache` is accepted only as the directory parent of this
+tree; other children, near matches and project-root equivalents are refused.
+The uninspected root may be an ordinary single-link file or a directory. Files
+named `settings.json` or `CLAUDE.md` within it are accepted as inert state; the
+walker checks structure, not log content or loading behavior.
+
+Logs may contain MCP server stderr. Verification never reads, ingests or exports
+their contents. Successful whole-cell cleanup deletes them; failed cleanup
+retains the cell and reports its opaque recovery name. Retention does not rely
+on the client's own pruning. See [persistence diagnostics](docs/native-persistence-diagnostics.md)
+for the state boundary and privacy-safe failure records.
 
 Accepted limitation: provider feature-gate and experiment caches recorded by the
 client, such as `cachedGrowthBookFeatures`, `cachedDynamicConfigs` and the
