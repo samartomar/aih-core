@@ -159,7 +159,7 @@ Claude's home state also includes exactly `.cache/claude-cli-nodejs`, with
 executable and admitted invocation, the enumerated static trace identifies JSONL
 error/MCP log writers and age-based cleanup beneath this tree, under sanitized
 working-directory names; no configuration or instruction reader was identified in
-that trace. That conclusion is version-specific. `.cache` is accepted only as the directory parent of this
+that trace. No configuration or instruction discovery into this subtree was established for the traced local inputs; unobserved server-managed policy may alter loader roots. That conclusion is version-specific. `.cache` is accepted only as the directory parent of this
 tree; other children, near matches and project-root equivalents are refused.
 The uninspected root may be an ordinary single-link file or a directory. Files
 named `settings.json` or `CLAUDE.md` within it are accepted as inert state; the

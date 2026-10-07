@@ -127,7 +127,7 @@ The fixed home state paths additionally admit exactly `.cache/claude-cli-nodejs`
 `<cache>/<sanitized cwd>/mcp-logs-<sanitized server>/<timestamp>.jsonl`. For that
 executable and the admitted invocation, the enumerated static trace identifies the
 log writers and age-based cleanup beneath this tree; no configuration or instruction
-reader was identified in that trace. This is a version-specific rationale,
+reader was identified in that trace. No configuration or instruction discovery into this subtree was established for the traced local inputs; unobserved server-managed policy may alter loader roots. This is a version-specific rationale,
 not a loading guarantee for another client version.
 
 The walker permits an ordinary single-link file or a directory at this exact
