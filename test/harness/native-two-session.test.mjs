@@ -63,6 +63,7 @@ const attr = (key, value) => ({ key, value: { stringValue: value } });
 const event = { timeUnixNano: String(BigInt(Date.now()) * 1000000n), attributes: [attr('event.name', 'api_request'),
   attr('session.id', mode === 'wrong-session' ? '2f8fad5b-d9cb-469f-a165-70867728950e' : session), attr('request_id', 'req_' + session),
   attr('user.account_uuid', process.env.FAKE_ACCOUNT), attr('organization.id', process.env.FAKE_ORG)] };
+if (mode === 'no-identity') event.attributes = event.attributes.filter(a => !['user.account_uuid', 'organization.id'].includes(a.key));
 if (mode !== 'no-telemetry') {
   await new Promise(resolve => {
     const req = http.request(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, { method: 'POST',
@@ -124,10 +125,28 @@ test('two fresh sessions over one staged cell pass every observation row; isolat
   assert.notEqual(first.challenge, second.challenge, 'a fresh challenge per session');
   assert.equal(observeCellConfiguration(fx.cell, fx.expectation).status, 'unchanged');
   for (const r of [first, second]) {
+    assert.equal(r.drained.stats.authenticationProofKind, 'telemetry-identity');
     for (const row of r.rows.filter(entry => entry.id !== 'isolation')) assert.deepEqual([row.outcome, row.reason], ['passed', 'observed'], row.id);
     assert.deepEqual(pair(r, 'isolation'), ['unavailable', 'isolation-unobserved']);
   }
   assert.equal(second.rows[0].session, 2);
+});
+
+test('two fresh sessions with omitted telemetry identity pass using provisioning-bound-session proof', async t => {
+  const fx = setup(t);
+  const first = await session({ ...fx, index: 1, previousSessionId: null, fakeSession: FIRST, mode: 'no-identity' });
+  assert.equal(observeCellConfiguration(fx.cell, fx.expectation).status, 'unchanged');
+  const second = await session({ ...fx, index: 2, previousSessionId: first.stream.sessionId, fakeSession: SECOND, mode: 'no-identity' });
+  for (const result of [first, second]) {
+    assert.equal(result.proceed, true, JSON.stringify(result.rows));
+    assert.deepEqual(pair(result, 'provider-authentication'), ['passed', 'observed']);
+    assert.equal(result.drained.stats.authenticationProofKind, 'provisioning-bound-session');
+    assert.deepEqual(result.drained.stats.qualifyingSuccesses, { telemetryIdentity: 0, provisioningBound: 1 });
+    assert.equal(result.drained.stats.boundSessionEvents, 1);
+  }
+  assert.notEqual(first.stream.sessionId, second.stream.sessionId);
+  assert.notEqual(first.challenge, second.challenge);
+  assert.equal(observeCellConfiguration(fx.cell, fx.expectation).status, 'unchanged');
 });
 
 test('a reused client session id fails freshness even in a new process', async t => {

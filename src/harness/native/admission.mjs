@@ -12,6 +12,7 @@ const diagnosticsStream = channel('aih.native.diagnostics.v1');
 const diagnosticsDefinitions = ['claude-win32-x64-2.1.285', 'claude-linux-x64-wsl2-srt-2.1.285'];
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null;
 const count = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
+const authenticationProofKind = value => ['telemetry-identity', 'provisioning-bound-session'].includes(value) ? value : null;
 const argvDigest = value => Array.isArray(value) && value.length <= 512 && value.every(v => typeof v === 'string') &&
   Buffer.byteLength(canonicalJson(value)) <= 65536 ? sha256(canonicalJson(value)) : null;
 const proofFlags = ['compared', 'authenticated', 'clientBound', 'serverBound', 'namespaceSeparated', 'argumentsClean', 'ended'];
@@ -34,6 +35,7 @@ export function publishNativeAdmission(input) {
     innerArgvSha256: argvDigest(input.innerArgv), outerArgvSha256: argvDigest(input.outerArgv), isolation,
     restrictions: Object.freeze(Object.fromEntries(restrictionCounts.map(name => [name, count(input.restrictions?.[name])]))),
     cleanupConfirmed: input.cleanupConfirmed === true,
+    authenticationProofKind: input.phase === 'version' ? null : authenticationProofKind(input.authenticationProofKind),
     acceptedLimitation: 'vendor-local-proxy-capability-in-argv' }));
 }
 
@@ -61,7 +63,11 @@ export function publishNativeDiagnostics(input) {
       events: boundedCount(source.events),
       eventNames: counts(source.eventNames, ['apiRequest', 'apiError', 'userPrompt', 'assistantResponse', 'toolResult', 'toolDecision', 'other']),
       apiRequestRejected: counts(source.apiRequestRejected, ['missingRequestId', 'notSuccess', 'missingSession', 'wrongSession',
-        'accountMissing', 'accountDifferent', 'organizationMissing', 'organizationDifferent', 'outsideWindow']),
+        'outsideWindow']),
+      apiRequestIdentity: counts(source.apiRequestIdentity, ['accountAbsent', 'organizationAbsent', 'accountDifferent', 'organizationDifferent', 'invalidAttribute']),
+      qualifyingSuccesses: counts(source.qualifyingSuccesses, ['telemetryIdentity', 'provisioningBound']),
+      boundSessionEvents: boundedCount(source.boundSessionEvents),
+      authenticationProofKind: authenticationProofKind(source.authenticationProofKind),
       identityByEvent: counts(source.identityByEvent, ['accountPresent', 'accountMatches', 'organizationPresent', 'organizationMatches']),
       firstMatchingEventIndex: Number.isSafeInteger(source.firstMatchingEventIndex) && source.firstMatchingEventIndex > 0
         ? Math.min(source.firstMatchingEventIndex, 1000000) : null,

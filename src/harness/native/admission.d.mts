@@ -1,4 +1,5 @@
 export type NativeForwarderDiagnostics = Readonly<{ accepted: number; connected: number; refused: number; capped: number }>;
+export type NativeAuthenticationProofKind = 'telemetry-identity' | 'provisioning-bound-session';
 export type NativeSessionDiagnostics = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-session-diagnostics'; recordId: string;
   runSha256: string | null; phase: 'session'; index: 1 | 2;
@@ -10,7 +11,11 @@ export type NativeSessionDiagnostics = Readonly<{
     contentEncodings: Readonly<Record<'none' | 'gzip' | 'other', number>>;
     events: number; eventNames: Readonly<Record<'apiRequest' | 'apiError' | 'userPrompt' | 'assistantResponse' | 'toolResult' | 'toolDecision' | 'other', number>>;
     apiRequestRejected: Readonly<Record<'missingRequestId' | 'notSuccess' | 'missingSession' | 'wrongSession' |
-      'accountMissing' | 'accountDifferent' | 'organizationMissing' | 'organizationDifferent' | 'outsideWindow', number>>;
+      'outsideWindow', number>>;
+    apiRequestIdentity: Readonly<Record<'accountAbsent' | 'organizationAbsent' | 'accountDifferent' | 'organizationDifferent' | 'invalidAttribute', number>>;
+    qualifyingSuccesses: Readonly<Record<'telemetryIdentity' | 'provisioningBound', number>>;
+    boundSessionEvents: number;
+    authenticationProofKind: NativeAuthenticationProofKind | null;
     identityByEvent: Readonly<Record<'accountPresent' | 'accountMatches' | 'organizationPresent' | 'organizationMatches', number>>;
     firstMatchingEventIndex: number | null;
     ignored: number; matched: number; duplicates: number; wrongSession: number; conflict: boolean;

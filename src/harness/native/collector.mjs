@@ -17,6 +17,13 @@ function attributesOf(record) {
   if (!Array.isArray(record.attributes)) return map;
   for (const item of record.attributes) {
     if (!isRecord(item) || typeof item.key !== 'string') continue;
+    if (item.key === 'user.account_uuid' || item.key === 'organization.id') {
+      // Null is present-but-invalid, never absence. Repeated keys stay invalid even if values match.
+      const valid = !map.has(item.key) && isRecord(item.value) && Object.keys(item.value).length === 1 &&
+        typeof item.value.stringValue === 'string' && item.value.stringValue !== '';
+      map.set(item.key, valid ? item.value.stringValue : null);
+      continue;
+    }
     // An unsupported value is still a present success flag and must fail closed.
     if (item.key === 'success') map.set(item.key, null);
     if (!isRecord(item.value)) continue;
@@ -47,9 +54,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
     events: 0, eventNames: { apiRequest: 0, apiError: 0, userPrompt: 0, assistantResponse: 0, toolResult: 0, toolDecision: 0, other: 0 },
     apiRequestRejected: { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0,
-      accountMissing: 0, accountDifferent: 0, organizationMissing: 0, organizationDifferent: 0, outsideWindow: 0 }, ignored: 0 };
+      outsideWindow: 0 }, ignored: 0 };
   let startedMono = 0;
   let closed = false;
+  let authenticationPassed = false;
 
   const server = http.createServer((req, res) => {
     const probe = req.method === 'GET' && req.url === '/aih-native-probe';
@@ -128,8 +136,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
             // Keep only attribution and identity flags for timing diagnostics across all event buckets.
             // Binding is deferred until the client's init record supplies the native session ID.
             state.identityEvents.push({ tag: attribution(attrs.get('session.id')),
-              accountPresent: !!attrs.get('user.account_uuid'), accountMatches: attrs.get('user.account_uuid') === expected.accountUuid,
-              organizationPresent: !!attrs.get('organization.id'), organizationMatches: attrs.get('organization.id') === expected.organizationId });
+              conflict: (attrs.has('user.account_uuid') && attrs.get('user.account_uuid') !== expected.accountUuid) ||
+                (attrs.has('organization.id') && attrs.get('organization.id') !== expected.organizationId),
+              accountPresent: attrs.has('user.account_uuid'), accountMatches: attrs.get('user.account_uuid') === expected.accountUuid,
+              organizationPresent: attrs.has('organization.id'), organizationMatches: attrs.get('organization.id') === expected.organizationId });
             if (bucket !== 'apiRequest') { state.ignored += 1; continue; }
             const request = attrs.get('request_id');
             if (!request) { increment(stats.apiRequestRejected, 'missingRequestId'); state.ignored += 1; continue; }
@@ -138,7 +148,9 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
             }
             // The native session ID is only known after the client's init record, so binding is deferred.
             state.candidates.push({ session: attrs.get('session.id') ?? null, request, account: attrs.get('user.account_uuid') ?? null,
-              org: attrs.get('organization.id') ?? null, atMs: eventMs(record), received });
+              org: attrs.get('organization.id') ?? null, accountPresent: attrs.has('user.account_uuid'), organizationPresent: attrs.has('organization.id'),
+              invalidAttribute: (attrs.has('user.account_uuid') && attrs.get('user.account_uuid') === null) ||
+                (attrs.has('organization.id') && attrs.get('organization.id') === null), atMs: eventMs(record), received });
           }
         }
       }
@@ -159,16 +171,17 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
   const identityTiming = () => {
     if (closedIdentityTiming) return closedIdentityTiming;
     const identityByEvent = { accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0 };
-    let firstMatchingEventIndex = null, sessionEvents = 0;
+    let firstMatchingEventIndex = null, sessionEvents = 0, conflict = false;
     const boundTag = attribution(boundSession);
     for (const event of state.identityEvents) {
       if (boundTag === null || event.tag !== boundTag) continue;
       sessionEvents += 1;
+      conflict ||= event.conflict;
       for (const key of Object.keys(identityByEvent)) if (event[key]) increment(identityByEvent, key);
       if (firstMatchingEventIndex === null && event.accountMatches && event.organizationMatches)
         firstMatchingEventIndex = Math.min(1000000, sessionEvents);
     }
-    return { identityByEvent, firstMatchingEventIndex };
+    return { identityByEvent, firstMatchingEventIndex, boundSessionEvents: Math.min(1000000, sessionEvents), conflict };
   };
   // At closure keep only the aggregate; discard the tagged history and wipe the attribution key.
   const closeIdentityTiming = () => {
@@ -182,8 +195,10 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     const skew = nativeBounds.telemetrySkewMs;
     const seen = new Map();
     const apiRequestRejected = { ...stats.apiRequestRejected };
-    const { identityByEvent, firstMatchingEventIndex } = identityTiming();
-    let matched = 0, duplicates = 0, ignored = state.ignored, conflict = false;
+    const apiRequestIdentity = { accountAbsent: 0, organizationAbsent: 0, accountDifferent: 0, organizationDifferent: 0, invalidAttribute: 0 };
+    const qualifyingSuccesses = { telemetryIdentity: 0, provisioningBound: 0 };
+    const { identityByEvent, firstMatchingEventIndex, boundSessionEvents, conflict: identityConflict } = identityTiming();
+    let matched = 0, duplicates = 0, ignored = state.ignored, conflict = identityConflict;
     const mine = boundSession === null ? [] : state.candidates.filter(candidate => candidate.session === boundSession);
     const wrongSession = state.candidates.length - mine.length;
     for (const candidate of state.candidates) {
@@ -191,29 +206,41 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
         increment(apiRequestRejected, candidate.session ? 'wrongSession' : 'missingSession');
     }
     for (const candidate of mine) {
-      const identityOk = candidate.account === expected.accountUuid && candidate.org === expected.organizationId;
+      const identityOk = !candidate.invalidAttribute && (candidate.account === null || candidate.account === expected.accountUuid) &&
+        (candidate.org === null || candidate.org === expected.organizationId);
       if (!identityOk) conflict = true;
-      if (!candidate.account) increment(apiRequestRejected, 'accountMissing');
-      else if (candidate.account !== expected.accountUuid) increment(apiRequestRejected, 'accountDifferent');
-      if (!candidate.org) increment(apiRequestRejected, 'organizationMissing');
-      else if (candidate.org !== expected.organizationId) increment(apiRequestRejected, 'organizationDifferent');
+      if (!candidate.accountPresent) increment(apiRequestIdentity, 'accountAbsent');
+      else if (candidate.account !== null && candidate.account !== expected.accountUuid) increment(apiRequestIdentity, 'accountDifferent');
+      if (!candidate.organizationPresent) increment(apiRequestIdentity, 'organizationAbsent');
+      else if (candidate.org !== null && candidate.org !== expected.organizationId) increment(apiRequestIdentity, 'organizationDifferent');
+      if (candidate.invalidAttribute) increment(apiRequestIdentity, 'invalidAttribute');
       const key = candidate.request;
+      const identitySignature = JSON.stringify([candidate.account, candidate.org, candidate.invalidAttribute]);
       if (seen.has(key)) {
         duplicates += 1;
-        if (seen.get(key) !== `${candidate.account}/${candidate.org}`) conflict = true;
+        if (seen.get(key) !== identitySignature) conflict = true;
         continue;
       }
-      seen.set(key, `${candidate.account}/${candidate.org}`);
+      seen.set(key, identitySignature);
       const inWindow = candidate.atMs !== null && candidate.atMs >= launchedAtMs - skew && candidate.atMs <= closedAtMs + skew &&
         candidate.received >= startedMono && candidate.received <= closeMono;
       if (!inWindow) { increment(apiRequestRejected, 'outsideWindow'); ignored += 1; continue; }
-      if (identityOk) matched += 1;
+      if (identityOk) {
+        matched += 1;
+        increment(qualifyingSuccesses, candidate.account === expected.accountUuid && candidate.org === expected.organizationId
+          ? 'telemetryIdentity' : 'provisioningBound');
+      }
     }
-    return { matched, duplicates, ignored, conflict, wrongSession, apiRequestRejected, identityByEvent, firstMatchingEventIndex };
+    return { matched, duplicates, ignored, conflict, wrongSession, apiRequestRejected, apiRequestIdentity, qualifyingSuccesses,
+      identityByEvent, firstMatchingEventIndex, boundSessionEvents };
   };
   const diagnostics = result => ({ requests: stats.requests, accepted: stats.accepted, rejected: { ...stats.rejected },
     contentTypes: { ...stats.contentTypes }, contentEncodings: { ...stats.contentEncodings }, events: stats.events,
     eventNames: { ...stats.eventNames }, apiRequestRejected: { ...result.apiRequestRejected },
+    apiRequestIdentity: { ...result.apiRequestIdentity }, qualifyingSuccesses: { ...result.qualifyingSuccesses },
+    boundSessionEvents: result.boundSessionEvents,
+    authenticationProofKind: authenticationPassed && !result.conflict && result.matched > 0
+      ? result.qualifyingSuccesses.telemetryIdentity > 0 ? 'telemetry-identity' : 'provisioning-bound-session' : null,
     identityByEvent: { ...result.identityByEvent }, firstMatchingEventIndex: result.firstMatchingEventIndex,
     ignored: Math.min(1000000, stats.ignored + result.ignored),
     matched: result.matched, duplicates: result.duplicates, wrongSession: result.wrongSession, conflict: result.conflict });
@@ -258,6 +285,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       else if (state.violation) reason = 'limit-exceeded';
       else if (result.conflict) reason = 'identity-conflict';
       else if (result.matched === 0) reason = result.wrongSession > 0 ? 'identity-session-mismatch' : 'authentication-unavailable';
+      authenticationPassed = reason === 'observed';
       return { outcome: reason === 'observed' ? 'passed' : 'unavailable', reason, counts, bytes: state.bytes, stats: diagnostics(result) };
     }
   };
