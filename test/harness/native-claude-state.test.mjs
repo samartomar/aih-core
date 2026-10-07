@@ -3,6 +3,43 @@ import assert from 'node:assert/strict';
 import { inspectClaudeGlobalState } from '../../src/harness/native/claude-state.mjs';
 import { createPersistenceDiagnosticClassifier } from '../../src/harness/native/persistence-diagnostics.mjs';
 
+test('first start version accepts the version string written by the client', () => {
+  assert.equal(inspectClaudeGlobalState(Buffer.from(JSON.stringify({
+    firstStartTime: '2026-10-07T00:00:00.000Z', firstStartVersion: '2.1.285'
+  }))), true);
+});
+
+test('artifact roster denial accepts the record written by the client', () => {
+  assert.equal(inspectClaudeGlobalState(Buffer.from(JSON.stringify({
+    artifactRosterDenied: { status: 403, deniedAt: 1000, tokenExpiresAt: 2000 }
+  }))), true);
+});
+
+test('first start version refuses records and non-text or oversized values', () => {
+  for (const value of [{ VERSION: '2.1.285' }, {}, null, 285, true, ['2.1.285'], 'x'.repeat(65537)])
+    assert.equal(inspectClaudeGlobalState(Buffer.from(JSON.stringify({ firstStartVersion: value }))), false);
+});
+
+test('version and denial bookkeeping refuse grants at every nested location', () => {
+  const inspect = value => inspectClaudeGlobalState(Buffer.from(JSON.stringify(value)));
+  for (const key of ['allowedTools', 'mcpServers', 'permissions', 'hooks', 'env', 'apiKeyHelper']) {
+    const grant = { [key]: { allow: ['Bash'] } };
+    for (const value of [grant, { entry: grant }, { entry: [grant] }]) {
+      assert.equal(inspect({ firstStartVersion: value }), false, `firstStartVersion/${key}`);
+      assert.equal(inspect({ artifactRosterDenied: value }), false, `artifactRosterDenied/${key}`);
+    }
+    assert.equal(inspect({ artifactRosterDenied: { [key]: 'grant' } }), false, `scalar grant/${key}`);
+    assert.equal(inspect({ firstStartVersion: '2.1.285', skillUsage: { entry: [grant] } }), false, `skillUsage/${key}`);
+  }
+});
+
+test('artifact roster denial retains scalar admission and refuses arrays or deeper records', () => {
+  const inspect = value => inspectClaudeGlobalState(Buffer.from(JSON.stringify({ artifactRosterDenied: value })));
+  for (const value of [null, false, 403, 'denied']) assert.equal(inspect(value), true);
+  for (const value of [[], [{ status: 403 }], { status: { code: 403 } }, { status: [403] }, { status: 'x'.repeat(65537) }])
+    assert.equal(inspect(value), false);
+});
+
 test('reviewed client children disclose only at the exact immediate home location', () => {
   const entry = (root, ...segments) => createPersistenceDiagnosticClassifier().entry({ root, segments, depth: segments.length, kind: 'dir' });
   for (const [parent, names] of [
