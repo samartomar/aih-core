@@ -1,6 +1,6 @@
 // Session-local in-memory OTLP HTTP/JSON logs listener for Claude's client-reported identity evidence.
 // Evidence is client-reported, not provider-signed. Everything except counts and match flags is discarded.
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import { performance } from 'node:perf_hooks';
 import { isRecord, parseStrictJson } from './canonical.mjs';
@@ -38,12 +38,16 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
   const token = randomBytes(32).toString('hex');
   const probeToken = randomBytes(32).toString('hex');
   let boundSession = sessionId;
-  const state = { requests: 0, events: 0, bytes: 0, violation: false, cancelled: false, candidates: [], ignored: 0 };
+  // Timing diagnostics attribute events by a keyed tag, never the raw session ID; the key never leaves this collector.
+  const attributionKey = randomBytes(32);
+  const attribution = id => typeof id === 'string' && id !== '' ? createHmac('sha256', attributionKey).update(id).digest('base64') : null;
+  const state = { requests: 0, events: 0, bytes: 0, violation: false, cancelled: false, candidates: [], identityEvents: [], ignored: 0 };
   const stats = { requests: 0, accepted: 0,
     rejected: { auth: 0, method: 0, path: 0, contentType: 0, contentEncoding: 0, size: 0, parse: 0, other: 0 },
     contentTypes: { json: 0, protobuf: 0, other: 0, none: 0 }, contentEncodings: { none: 0, gzip: 0, other: 0 },
     events: 0, eventNames: { apiRequest: 0, apiError: 0, userPrompt: 0, assistantResponse: 0, toolResult: 0, toolDecision: 0, other: 0 },
-    apiRequestRejected: { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0, identityMismatch: 0, outsideWindow: 0 }, ignored: 0 };
+    apiRequestRejected: { missingRequestId: 0, notSuccess: 0, missingSession: 0, wrongSession: 0,
+      accountMissing: 0, accountDifferent: 0, organizationMissing: 0, organizationDifferent: 0, outsideWindow: 0 }, ignored: 0 };
   let startedMono = 0;
   let closed = false;
 
@@ -121,6 +125,11 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
             state.events += 1;
             if (state.events > nativeBounds.collectorEvents) { state.violation = true; increment(stats, 'ignored'); continue; }
             if (state.violation || !isRecord(record)) { increment(stats, 'ignored'); continue; }
+            // Keep only attribution and identity flags for timing diagnostics across all event buckets.
+            // Binding is deferred until the client's init record supplies the native session ID.
+            state.identityEvents.push({ tag: attribution(attrs.get('session.id')),
+              accountPresent: !!attrs.get('user.account_uuid'), accountMatches: attrs.get('user.account_uuid') === expected.accountUuid,
+              organizationPresent: !!attrs.get('organization.id'), organizationMatches: attrs.get('organization.id') === expected.organizationId });
             if (bucket !== 'apiRequest') { state.ignored += 1; continue; }
             const request = attrs.get('request_id');
             if (!request) { increment(stats.apiRequestRejected, 'missingRequestId'); state.ignored += 1; continue; }
@@ -145,10 +154,35 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
   };
 
+  // Bound-session identity timing from the tagged history, or the aggregate kept once the collector closed.
+  let closedIdentityTiming = null;
+  const identityTiming = () => {
+    if (closedIdentityTiming) return closedIdentityTiming;
+    const identityByEvent = { accountPresent: 0, accountMatches: 0, organizationPresent: 0, organizationMatches: 0 };
+    let firstMatchingEventIndex = null, sessionEvents = 0;
+    const boundTag = attribution(boundSession);
+    for (const event of state.identityEvents) {
+      if (boundTag === null || event.tag !== boundTag) continue;
+      sessionEvents += 1;
+      for (const key of Object.keys(identityByEvent)) if (event[key]) increment(identityByEvent, key);
+      if (firstMatchingEventIndex === null && event.accountMatches && event.organizationMatches)
+        firstMatchingEventIndex = Math.min(1000000, sessionEvents);
+    }
+    return { identityByEvent, firstMatchingEventIndex };
+  };
+  // At closure keep only the aggregate; discard the tagged history and wipe the attribution key.
+  const closeIdentityTiming = () => {
+    if (closedIdentityTiming) return;
+    closedIdentityTiming = identityTiming();
+    state.identityEvents.length = 0;
+    attributionKey.fill(0);
+  };
+
   const evaluate = ({ launchedAtMs, closedAtMs }, closeMono) => {
     const skew = nativeBounds.telemetrySkewMs;
     const seen = new Map();
     const apiRequestRejected = { ...stats.apiRequestRejected };
+    const { identityByEvent, firstMatchingEventIndex } = identityTiming();
     let matched = 0, duplicates = 0, ignored = state.ignored, conflict = false;
     const mine = boundSession === null ? [] : state.candidates.filter(candidate => candidate.session === boundSession);
     const wrongSession = state.candidates.length - mine.length;
@@ -158,7 +192,11 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
     }
     for (const candidate of mine) {
       const identityOk = candidate.account === expected.accountUuid && candidate.org === expected.organizationId;
-      if (!identityOk) { conflict = true; increment(apiRequestRejected, 'identityMismatch'); }
+      if (!identityOk) conflict = true;
+      if (!candidate.account) increment(apiRequestRejected, 'accountMissing');
+      else if (candidate.account !== expected.accountUuid) increment(apiRequestRejected, 'accountDifferent');
+      if (!candidate.org) increment(apiRequestRejected, 'organizationMissing');
+      else if (candidate.org !== expected.organizationId) increment(apiRequestRejected, 'organizationDifferent');
       const key = candidate.request;
       if (seen.has(key)) {
         duplicates += 1;
@@ -171,11 +209,12 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       if (!inWindow) { increment(apiRequestRejected, 'outsideWindow'); ignored += 1; continue; }
       if (identityOk) matched += 1;
     }
-    return { matched, duplicates, ignored, conflict, wrongSession, apiRequestRejected };
+    return { matched, duplicates, ignored, conflict, wrongSession, apiRequestRejected, identityByEvent, firstMatchingEventIndex };
   };
   const diagnostics = result => ({ requests: stats.requests, accepted: stats.accepted, rejected: { ...stats.rejected },
     contentTypes: { ...stats.contentTypes }, contentEncodings: { ...stats.contentEncodings }, events: stats.events,
     eventNames: { ...stats.eventNames }, apiRequestRejected: { ...result.apiRequestRejected },
+    identityByEvent: { ...result.identityByEvent }, firstMatchingEventIndex: result.firstMatchingEventIndex,
     ignored: Math.min(1000000, stats.ignored + result.ignored),
     matched: result.matched, duplicates: result.duplicates, wrongSession: result.wrongSession, conflict: result.conflict });
 
@@ -197,7 +236,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
           matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored }, bytes: state.bytes,
         stats: diagnostics(result) };
     },
-    async cancel() { state.cancelled = true; await shut(); },
+    async cancel() { state.cancelled = true; closeIdentityTiming(); await shut(); },
     async drain({ launchedAtMs, closedAtMs, timeoutMs = nativeBounds.telemetryDrainMs }) {
       const deadline = performance.now() + timeoutMs;
       while (!state.cancelled && !state.violation && performance.now() < deadline) {
@@ -210,6 +249,7 @@ export function createClaudeCollector({ sessionId = null, expected, bodyTimeoutM
       const wasCancelled = state.cancelled;
       await shut();
       const closeMono = performance.now();
+      closeIdentityTiming();
       const result = evaluate({ launchedAtMs, closedAtMs }, closeMono);
       const counts = { requests: state.requests, events: Math.min(state.events, nativeBounds.collectorEvents),
         matched: result.matched, wrongSession: result.wrongSession, duplicates: result.duplicates, ignored: result.ignored };

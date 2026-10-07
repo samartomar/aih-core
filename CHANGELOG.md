@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.18 splits optional native API request identity rejection counts
+into missing and different account and organization attributes. Counts across
+all bound-session event types and the first matching event's position help
+diagnose when identity metadata appears, without retaining identity values.
+Authentication matching, verification verdicts and adapter conflict handling
+remain unchanged. This development candidate has not been published to npm.
+
 Core 1.0.0-dev.17 matches Claude API request telemetry using the documented
 `event.name` attribute and accepts success events without an explicit success
 flag, while preserving explicit failure rejection and session, identity, time

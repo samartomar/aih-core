@@ -60,7 +60,11 @@ export function publishNativeDiagnostics(input) {
       contentEncodings: counts(source.contentEncodings, ['none', 'gzip', 'other']),
       events: boundedCount(source.events),
       eventNames: counts(source.eventNames, ['apiRequest', 'apiError', 'userPrompt', 'assistantResponse', 'toolResult', 'toolDecision', 'other']),
-      apiRequestRejected: counts(source.apiRequestRejected, ['missingRequestId', 'notSuccess', 'missingSession', 'wrongSession', 'identityMismatch', 'outsideWindow']),
+      apiRequestRejected: counts(source.apiRequestRejected, ['missingRequestId', 'notSuccess', 'missingSession', 'wrongSession',
+        'accountMissing', 'accountDifferent', 'organizationMissing', 'organizationDifferent', 'outsideWindow']),
+      identityByEvent: counts(source.identityByEvent, ['accountPresent', 'accountMatches', 'organizationPresent', 'organizationMatches']),
+      firstMatchingEventIndex: Number.isSafeInteger(source.firstMatchingEventIndex) && source.firstMatchingEventIndex > 0
+        ? Math.min(source.firstMatchingEventIndex, 1000000) : null,
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
     proxy, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));

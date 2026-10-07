@@ -9,7 +9,10 @@ export type NativeSessionDiagnostics = Readonly<{
     contentTypes: Readonly<Record<'json' | 'protobuf' | 'other' | 'none', number>>;
     contentEncodings: Readonly<Record<'none' | 'gzip' | 'other', number>>;
     events: number; eventNames: Readonly<Record<'apiRequest' | 'apiError' | 'userPrompt' | 'assistantResponse' | 'toolResult' | 'toolDecision' | 'other', number>>;
-    apiRequestRejected: Readonly<Record<'missingRequestId' | 'notSuccess' | 'missingSession' | 'wrongSession' | 'identityMismatch' | 'outsideWindow', number>>;
+    apiRequestRejected: Readonly<Record<'missingRequestId' | 'notSuccess' | 'missingSession' | 'wrongSession' |
+      'accountMissing' | 'accountDifferent' | 'organizationMissing' | 'organizationDifferent' | 'outsideWindow', number>>;
+    identityByEvent: Readonly<Record<'accountPresent' | 'accountMatches' | 'organizationPresent' | 'organizationMatches', number>>;
+    firstMatchingEventIndex: number | null;
     ignored: number; matched: number; duplicates: number; wrongSession: number; conflict: boolean;
   }>;
   proxy: Readonly<Record<'apiAnthropic' | 'claudeAi' | 'platformClaude' | 'consoleAnthropic' | 'otherAnthropic' | 'collector' | 'other',

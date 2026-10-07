@@ -155,18 +155,36 @@ is accepted, while every other present value is ignored. Session, nonempty reque
 ID, expected account/organization, time-window and duplicate checks still apply.
 
 Collector `apiRequestRejected` contains only `missingRequestId`, `notSuccess`,
-`missingSession`, `wrongSession`, `identityMismatch` and `outsideWindow` counts.
+`missingSession`, `wrongSession`, `accountMissing`, `accountDifferent`,
+`organizationMissing`, `organizationDifferent` and `outsideWindow` counts.
 Request ID rejection precedes the success check. Remaining candidates are
 classified by session: absent/empty IDs count as `missingSession`, other IDs
 (including a candidate awaiting a bound session) as `wrongSession`. The existing
-top-level `wrongSession` count includes both. Bound-session identity mismatches
-are counted even for duplicate requests or events outside the window and still
-invalidate authentication. `outsideWindow` counts only nonduplicate bound-session
+top-level `wrongSession` count includes both. For bound-session candidates,
+identity rejection counts distinguish absent/empty account or organization
+attributes from present values unequal to the corresponding expectation. They
+are counted per candidate, even for duplicate requests or events outside the
+window, and still invalidate authentication. `outsideWindow` counts only nonduplicate bound-session
 candidates with missing/invalid event time or event/receipt time outside the
-window; it can overlap `identityMismatch`. Duplicates retain their separate count,
-and limit-exceeded events retain the existing ignored count. Repeated snapshots
+window; it can overlap any identity rejection count. Duplicates retain their
+separate count, and limit-exceeded events retain the existing ignored count. Repeated snapshots
 recompute evaluation counts without accumulating them. Every count is clamped to
 1,000,000; diagnostic fields retain no event strings or identity values.
+
+Collector `identityByEvent` contains only `accountPresent`, `accountMatches`,
+`organizationPresent` and `organizationMatches` counts. It considers every
+bounded received event attributed to the bound session, in any event-name bucket,
+including API events rejected for request ID or success and events outside the
+authentication time window. Presence means a nonempty attribute value; matches
+use the same expected account and organization equality as authentication.
+`firstMatchingEventIndex` is null until one such event matches both identities,
+then holds its 1-based position among that session's received events, clamped to
+1,000,000. Other-session and missing-session events do not count or occupy a
+position. These fields are recomputed after session binding and on each snapshot
+or drain. They diagnose identity timing only: a matching non-API event cannot
+authenticate the session or clear an API identity conflict. The publisher freezes
+the fixed keys and defaults malformed counts to zero and malformed indexes to
+null. No account or organization ID string is retained in diagnostics.
 
 The trusted Linux runner also counts SRT allow/deny decisions in fixed host buckets
 (`apiAnthropic`, `claudeAi`, `platformClaude`, `consoleAnthropic`, `otherAnthropic`,
