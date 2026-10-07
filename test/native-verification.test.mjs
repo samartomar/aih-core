@@ -108,6 +108,8 @@ const scenario = ${JSON.stringify(scenario)};
 const cleanupUnresolved = scenario==='cleanup-unresolved'||scenario==='client-state-log-cache-retained';
 import { NativeStop } from '../../core/internal/native-input.js';
 let recordCleanup;
+export let cleanupClock;
+export function setCleanupClock(clock){cleanupClock=clock;}
 const hash = v => createHash('sha256').update(v).digest('hex');
 const canonical = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ? '['+v.map(canonical).join(',')+']' : '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';
 const fixture = Buffer.from('Initial controlled instruction.'); const guardrail = Buffer.from('Controlled deny rules.');
@@ -248,7 +250,16 @@ export async function startNativeSession(input){
     child.once('close',()=>{clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(scenario==='partial-spawn')return resolve({...observations,completed:[],failure:{reason:'native-internal',outcome:'unavailable'}});try{const value=JSON.parse(output);value.counts.observedBytes=Buffer.byteLength(output);if(scenario==='changed-config'&&input.index===1)writeFileSync(join(input.cell.project,'INSTRUCTIONS.md'),'changed');if(scenario==='replaced-config'&&input.index===1){const p=join(input.cell.project,'INSTRUCTIONS.md');unlinkSync(p);writeFileSync(p,fixture);}clientWrites(input.cell,input.index);if(scenario==='conflicting-loading-source'&&input.index===1)writeFileSync(join(input.cell.home,'.claude','settings.local.json'),'{}');resolve(value);}catch{reject(Error('controlled output unavailable'));}});
   });
   child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial,ready:scenario==='deadline'}));
-  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:accepted,snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(){clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:!cleanupUnresolved,survivors:cleanupUnresolved?[{pid:child.pid,role:'client'}]:[]};}};
+  let cleanupStartedAt;
+  const timedObservations=accepted.then(value=>{
+    if(cleanupClock){
+      cleanupClock.now+=input.index===2||scenario==='cleanup-clock-decisive'?20000:1000;
+      cleanupStartedAt=cleanupClock.now;
+      if(scenario==='cleanup-clock-decisive')value.query.answerSha256=hash('wrong-answer');
+    }
+    return value;
+  });
+  const handle={pid:child.pid,argv:[process.execPath,'-e',childScript],...(scenario==='alternate-challenge'?{challenge:hash('controlled-challenge-'+input.index)}:{}),observations:timedObservations,get cleanupStartedAt(){return cleanupStartedAt;},snapshot(){return snapshot??{...observations,completed:[],counts:{observedBytes:Buffer.byteLength(output),telemetryEvents:0,rpcMessages:0}};},async cleanup(options){if(cleanupClock)cleanupClock.calls.push({index:input.index,startedAt:cleanupStartedAt,...options});clearTimeout(timer);if(input.signal)input.signal.removeEventListener('abort',abort);if(!closed){child.stdin.destroy();child.kill();await closePromise;}return {confirmed:!cleanupUnresolved,survivors:cleanupUnresolved?[{pid:child.pid,role:'client'}]:[]};}};
   return scenario==='partial-spawn'?{outcome:'unavailable',reason:'native-internal',partial:handle}:handle;
 }
 `;
@@ -269,7 +280,7 @@ function archiveMembers(entries) {
   }
   return Buffer.concat([...chunks, Buffer.alloc(1024)]);
 }
-async function controlled(t, scenario, controls = {}) {
+async function controlled(t, scenario, controls = {}, clock) {
   const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-controlled-native-')));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -280,8 +291,12 @@ async function controlled(t, scenario, controls = {}) {
   writeFileSync(join(native, 'runtime.mjs'), fixtureRuntime(scenario));
   const requestedRoot = join(directory, 'cells'); mkdirSync(requestedRoot);
   const sandboxRoot = realpathSync.native(requestedRoot);
-  writeFileSync(join(directory, 'entry.mjs'), "export { verifyNativeClient } from '@aihq/core';\nexport { snapshotReady } from './dist/harness/native/runtime.mjs';\n");
+  writeFileSync(join(directory, 'entry.mjs'), "export { verifyNativeClient } from '@aihq/core';\nexport { snapshotReady, setCleanupClock } from './dist/harness/native/runtime.mjs';\n");
   const api = await import(pathToFileURL(join(directory, 'entry.mjs')).href);
+  if (clock) {
+    api.setCleanupClock(clock);
+    t.mock.method(performance, 'now', () => clock.now);
+  }
   let selected = request;
   if (scenario === 'supplied-healthy') {
     const instruction = Buffer.from('Initial controlled instruction.');
@@ -358,6 +373,76 @@ async function controlled(t, scenario, controls = {}) {
   if (scenario === 'client-state-log-cache-removed') assert.equal(result.cleanup.files, 'removed');
   return result;
 }
+test('ordinary session-1 cleanup leaves the final allowance available after a long session 2', async t => {
+  const clock = { now: 0, calls: [] };
+  const result = await controlled(t, 'cleanup-clock-healthy', {}, clock);
+  assert.equal(result.status, 'complete', JSON.stringify(result.stages));
+  assert.equal(result.verdict, 'verified');
+  assert.equal(result.cleanup.files, 'removed');
+  assert.ok(result.stages.some(row => row.id === 'cleanup' && row.outcome === 'passed'));
+  assert.ok(result.sessions[1].stages.some(row => row.id === 'cleanup' && row.outcome === 'passed'));
+  assert.equal(result.limits.elapsedMs, 21000);
+  assert.deepEqual(clock.calls, [
+    { index: 1, startedAt: 1000, deadline: 180000, graceMs: 1000 },
+    { index: 2, startedAt: 21000, deadline: 31000, graceMs: 1000 },
+  ]);
+});
+
+for (const [scenario, reason, stopTime, verdict] of [
+  ['cleanup-clock-decisive', 'query-answer-mismatch', 20000, 'failed'],
+  ['completed-invalid-counts', 'native-internal', 1000, 'unverified'],
+]) test(`session-1 stop starts the cleanup allowance: ${reason}`, async t => {
+  const clock = { now: 0, calls: [] };
+  const result = await controlled(t, scenario, {}, clock);
+  assert.equal(result.verdict, verdict);
+  assert.equal(result.sessions.length, 1);
+  assert.ok([...result.stages, ...result.sessions[0].stages].some(row => row.reason === reason));
+  assert.equal(result.cleanup.files, 'removed');
+  assert.ok(result.sessions[0].stages.some(row => row.id === 'cleanup' && row.outcome === 'passed'));
+  assert.deepEqual(clock.calls, [{ index: 1, startedAt: stopTime, deadline: stopTime + 10000, graceMs: 1000 }]);
+});
+
+test('verified-only validation accepts the full two-session native stage list', () => {
+  const stagedConfigurationDigest = digest('selected configuration');
+  const passed = (id, session = null, evidence = { kind: 'none' }, reason = 'observed') =>
+    ({ id, session, outcome: 'passed', reason, evidence });
+  const configurationEvidence = { kind: 'digest', sha256: stagedConfigurationDigest };
+  const match = { kind: 'match', matched: true };
+  // Synthetic Linux observations, including the nine run rows and both nine-row sessions.
+  const result = {
+    schema: 'urn:aihq:core:native-verification-result:1.0.0',
+    package: { name: '@aihq/core', version: '1.0.0-dev.23' },
+    status: 'complete', verdict: 'verified', proofScope: 'bundled-mechanism', admission: 'candidate-smoke',
+    client: { id: 'claude', observedVersion: '2.1.285' },
+    adapter: { id: 'claude-linux.v1', sha256: digest('adapter bytes') },
+    platform: { os: 'linux', arch: 'x64', osRelease: '6.8.0', execution: 'native' },
+    content: { bundleId: 'aihq.native-fixture.v1', manifestSha256: digest('manifest'), archiveSha256: null,
+      outputTreeSha256: digest('output tree'), guardrailsSha256: digest('guardrails'), stagedConfigurationDigest },
+    sessions: [1, 2].map(index => ({
+      index, process: { pid: 1000 + index, clientSessionId: `native-session-${index}` },
+      launchArgvDigest: digest('launch argv'), stagedConfigurationDigest, challengeSha256: digest(`challenge-${index}`),
+      stages: [passed('session-freshness', index, match), passed('loading-mode', index, match),
+        passed('tool-restrictions', index, match), passed('provider-authentication', index, match),
+        passed('tool-discovery', index, { kind: 'counts', count: 2 }), passed('instruction-loading', index, match),
+        passed('read-only-query', index, { kind: 'digest', sha256: digest('leaf') }),
+        passed('isolation', index, match), passed('cleanup', index)],
+    })),
+    stages: [passed('fixture-integrity', null, { kind: 'digest', sha256: digest('manifest') }),
+      passed('host-presence'), passed('identity-binding', null, match), passed('cell-staging', null, configurationEvidence),
+      passed('session-start', 1), passed('configuration-unchanged', 2, configurationEvidence, 'before-session-2'),
+      passed('session-start', 2), passed('configuration-unchanged', 2, configurationEvidence, 'after-session-2'), passed('cleanup')],
+    security: { sandbox: { level: 'observed-os-boundary', mechanism: 'linux-native-boundary.v1', reason: 'observed' },
+      hostSecretIsolation: { outcome: 'passed', reason: 'observed' } },
+    authority: 'not-evaluated', survivingProcesses: [],
+    cleanup: { processes: 'confirmed', files: 'removed', retainedCell: null }, diagnostics: [],
+    limits: { budgetMs: 180000, elapsedMs: 60000, sessionsStarted: 2, stagesCompleted: 27,
+      observedBytes: 4096, telemetryEvents: 2, rpcMessages: 6, evidenceTruncated: false },
+  };
+  const validation = validateNativeVerificationResult(result);
+  assert.deepEqual(validation.diagnostics, []);
+  assert.equal(validation.valid, true);
+});
+
 test('controlled processes exercise two fresh sessions, fixed configuration and full result aggregation', async t => {
   const result = await controlled(t, 'healthy');
   assert.equal(result.status, 'complete', JSON.stringify(result)); assert.equal(result.verdict, 'verified');

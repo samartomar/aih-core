@@ -16,6 +16,9 @@ SHA-256 `33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29`.
 Native acceptance of the changed packed distribution remains pending. This
 candidate has not been published.
 
+Core 1.0.0-dev.23 also keeps ordinary session-1 process cleanup within the run
+budget, preserving the final cleanup allowance after a long second session.
+
 Core 1.0.0-dev.22 adds parent observation tokens to persistence diagnostics and
 collects metadata offenders across branches after the original failure. The
 walk remains bounded, never follows links or reads rejected contents, and
