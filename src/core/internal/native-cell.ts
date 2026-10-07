@@ -265,7 +265,8 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
       current = fact(rootName, path);
       check(); if (++seen > 4096) throw new NativeStop('limit-exceeded');
       const stat = lstatSync(join(root, ...path.split('/')));
-      if (diagnose) metadata.set(`${rootName}/${path}`, lstatSync(join(root, ...path.split('/')), { bigint: true }));
+      // Diagnostic observation only: a failure here must never change the admission decision.
+      if (diagnose) { try { metadata.set(`${rootName}/${path}`, lstatSync(join(root, ...path.split('/')), { bigint: true })); } catch { /* unobserved */ } }
       current.kind = stat.isSymbolicLink() ? 'other' : stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'other';
       return stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isDirectory() && !stat.isFile() ? undefined : stat;
     };

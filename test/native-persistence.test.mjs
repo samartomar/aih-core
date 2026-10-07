@@ -431,7 +431,7 @@ test('a diagnostic observer failure cannot replace the persistence decision', t 
 
 test('diagnostic traversal compares exact directory identities above the safe-integer range', t => {
   const cell = cellFixture(t), records = [], plan = planFixture();
-  writeFileSync(join(cell.home, 'a-privacy-canary-offender'), '');
+  // The swapped directory is itself the unexpected entry, so no other offender influences ordering.
   const swapped = join(cell.home, 'b-privacy-canary-swapped'); mkdirSync(swapped);
   writeFileSync(join(swapped, 'privacy-canary-inner'), '');
   // Distinct inode IDs that round to the same JavaScript number.
@@ -441,9 +441,10 @@ test('diagnostic traversal compares exact directory identities above the safe-in
   let calls = 0, crossed = 0;
   const stat = t.mock.method(fs, 'lstatSync', (path, options) => {
     const value = originalStat(path, options);
-    if (path !== swapped) return value;
+    if (path !== swapped || !options?.bigint) return value;
+    // First exact observation (admission cache) sees one ID; the walk's pre-enumeration check sees the other.
     const ino = ++calls >= 2 ? after : before;
-    Object.defineProperty(value, 'ino', { value: options?.bigint ? ino : Number(ino) });
+    Object.defineProperty(value, 'ino', { value: ino });
     return value;
   });
   const read = t.mock.method(fs, 'readdirSync', (path, ...args) => {
@@ -456,4 +457,26 @@ test('diagnostic traversal compares exact directory identities above the safe-in
     assert.equal(records[0].class, 'unexpected-entry');
     assert.equal(crossed, 0, 'a directory whose exact identity changed must never be enumerated');
   } finally { stat.mock.restore(); read.mock.restore(); syncBuiltinESMExports(); }
+});
+
+test('a failed diagnostic observation never changes the admission decision', t => {
+  const cell = cellFixture(t), plan = planFixture();
+  const originalStat = fs.lstatSync;
+  const stat = t.mock.method(fs, 'lstatSync', (path, options) => {
+    if (options?.bigint && path.startsWith(cell.home + sep)) throw Object.assign(new Error('vanished'), { code: 'ENOENT' });
+    return originalStat(path, options);
+  });
+  // An admitted, declared state tree: admission passes, so only a diagnostic failure could change it.
+  mkdirSync(join(cell.home, 'b-state')); writeFileSync(join(cell.home, 'b-state', 'entry'), '');
+  plan.home = [{ path: 'b-state', inspected: false, exclusions: [] }];
+  syncBuiltinESMExports();
+  try {
+    const withDiagnostics = [], records = [];
+    const on = checkNativePersistence(cell, plan, () => {}, value => records.push(value));
+    const off = checkNativePersistence(cell, plan, () => {});
+    assert.equal(off, true);
+    assert.equal(on, off);
+    withDiagnostics.push(...records);
+    assert.equal(withDiagnostics.every(record => record.class !== 'read-failure'), true);
+  } finally { stat.mock.restore(); syncBuiltinESMExports(); }
 });
