@@ -102,7 +102,7 @@ test('continued diagnostics never enumerate links or changed directory identity 
   const stat = t.mock.method(fs, 'lstatSync', (path, options) => {
     const value = originalStat(path, options);
     // Numeric Windows inode values may round away +1; mode is an exactly represented identity field.
-    if (path === unstable && !options?.bigint && ++seen >= 2) Object.defineProperty(value, 'mode', { value: value.mode ^ 0o010 });
+    if (path === unstable && ++seen >= 2) Object.defineProperty(value, 'mode', { value: options?.bigint ? value.mode ^ 0o010n : value.mode ^ 0o010 });
     return value;
   });
   const read = t.mock.method(fs, 'readdirSync', (path, ...args) => {
@@ -427,4 +427,33 @@ test('a diagnostic observer failure cannot replace the persistence decision', t 
   const cell = cellFixture(t), plan = planFixture(); writeFileSync(join(cell.home, 'unexpected'), '');
   plan.classify = () => { throw Error('observer failure'); };
   assert.equal(checkNativePersistence(cell, plan, () => {}, () => { throw Error('observer failure'); }), false);
+});
+
+test('diagnostic traversal compares exact directory identities above the safe-integer range', t => {
+  const cell = cellFixture(t), records = [], plan = planFixture();
+  writeFileSync(join(cell.home, 'a-privacy-canary-offender'), '');
+  const swapped = join(cell.home, 'b-privacy-canary-swapped'); mkdirSync(swapped);
+  writeFileSync(join(swapped, 'privacy-canary-inner'), '');
+  // Distinct inode IDs that round to the same JavaScript number.
+  const before = 9007199254740992n, after = 9007199254740993n;
+  assert.equal(Number(before), Number(after));
+  const originalStat = fs.lstatSync, originalRead = fs.readdirSync;
+  let calls = 0, crossed = 0;
+  const stat = t.mock.method(fs, 'lstatSync', (path, options) => {
+    const value = originalStat(path, options);
+    if (path !== swapped) return value;
+    const ino = ++calls >= 2 ? after : before;
+    Object.defineProperty(value, 'ino', { value: options?.bigint ? ino : Number(ino) });
+    return value;
+  });
+  const read = t.mock.method(fs, 'readdirSync', (path, ...args) => {
+    if (path === swapped) crossed++;
+    return originalRead(path, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(checkNativePersistence(cell, plan, () => {}, value => records.push(value)), false);
+    assert.equal(records[0].class, 'unexpected-entry');
+    assert.equal(crossed, 0, 'a directory whose exact identity changed must never be enumerated');
+  } finally { stat.mock.restore(); read.mock.restore(); syncBuiltinESMExports(); }
 });

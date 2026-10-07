@@ -1,4 +1,4 @@
-import { mkdirSync, lstatSync, readdirSync, realpathSync, rmSync, writeFileSync, type Stats } from 'node:fs';
+import { mkdirSync, lstatSync, readdirSync, realpathSync, rmSync, writeFileSync, type BigIntStats, type Stats } from 'node:fs';
 import { join, resolve, relative, parse, basename } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -141,7 +141,8 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
   let failure: NativePersistenceDiagnostics | undefined;
   let current: NativePersistenceFact | undefined; let ordinal = 0; let readingInspected = false;
   let seen = 0; let firstFact: NativePersistenceFact | undefined;
-  const metadata = new Map<string, Stats>();
+  // Exact (bigint) identities observed by admission, reused by the diagnostic walk.
+  const metadata = new Map<string, BigIntStats>();
   const fact = (root: 'home' | 'project', path: string, kind: NativePersistenceFact['kind'] = 'other'): NativePersistenceFact => {
     const segments = path ? path.split('/') : [];
     return { root, segments, depth: segments.length, kind };
@@ -176,7 +177,8 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
         reported.add(key); failure!.items.push(item(value));
       }
     };
-    const same = (a: Stats, b: Stats) => !b.isSymbolicLink() && b.isDirectory() &&
+    // Exact bigint identities: number inode IDs above 2^53 can collide after rounding.
+    const same = (a: BigIntStats, b: BigIntStats) => !b.isSymbolicLink() && b.isDirectory() &&
       a.dev === b.dev && a.ino === b.ino && a.mode === b.mode;
     const stable = (pins: PathPin[]) => pins.every(pin => {
       try {
@@ -190,7 +192,7 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
       const pattern = value.split('/');
       return pattern.length <= parts.length && pattern.every((part, i) => part === '*' || part === parts[i]?.toLowerCase());
     });
-    const walk = (rootName: 'home' | 'project', prefix: string, expected: Stats, state?: NativeStateEntry): boolean => {
+    const walk = (rootName: 'home' | 'project', prefix: string, expected: BigIntStats, state?: NativeStateEntry): boolean => {
       if (seen >= 4096 || failure!.items.length >= 16) return false;
       const value = fact(rootName, prefix, 'dir');
       const relativeDepth = state ? value.depth - state.path.split('/').length : value.depth;
@@ -200,7 +202,7 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
       try {
         if (!pinsMatch(cell.pins)) return false;
         pins = pathPins(absolute);
-        if (!same(expected, lstatSync(absolute)) || !stable(pins)) return true;
+        if (!same(expected, lstatSync(absolute, { bigint: true })) || !stable(pins)) return true;
         names = readdirSync(absolute);
         if (!stable(pins)) return true;
       } catch { add(value); return true; }
@@ -214,15 +216,15 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
         // Names only, never Dirent link targets or file contents. Containment is checked before metadata access.
         const target = join(cell[rootName], ...child.segments);
         if (!inside(cell[rootName], target)) { add(child); continue; }
-        let stat: Stats;
+        let stat: BigIntStats;
         try {
           const prior = metadata.get(`${rootName}/${path}`);
           if (prior) stat = prior;
-          else { ++seen; stat = lstatSync(target); }
+          else { ++seen; stat = lstatSync(target, { bigint: true }); }
         } catch { add(child); continue; }
         if (!stable(pins)) return true;
         child.kind = stat.isSymbolicLink() ? 'other' : stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'other';
-        const ordinary = !stat.isSymbolicLink() && (stat.isDirectory() || stat.isFile() && stat.nlink === 1);
+        const ordinary = !stat.isSymbolicLink() && (stat.isDirectory() || stat.isFile() && stat.nlink === 1n);
         const owned = plan[rootName].find(value => value.path === path);
         const active = state ?? owned;
         const rejected = !ordinary || (state ? excluded(state, child.segments.slice(state.path.split('/').length)) :
@@ -238,7 +240,7 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
     for (const rootName of ['home', 'project'] as const) {
       if (seen >= 4096 || failure.items.length >= 16) break;
       try {
-        const stat = lstatSync(cell[rootName]);
+        const stat = lstatSync(cell[rootName], { bigint: true });
         if (!stat.isSymbolicLink() && stat.isDirectory() && !walk(rootName, '', stat)) break;
       } catch { add(fact(rootName, '')); }
     }
@@ -263,7 +265,7 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
       current = fact(rootName, path);
       check(); if (++seen > 4096) throw new NativeStop('limit-exceeded');
       const stat = lstatSync(join(root, ...path.split('/')));
-      if (diagnose) metadata.set(`${rootName}/${path}`, stat);
+      if (diagnose) metadata.set(`${rootName}/${path}`, lstatSync(join(root, ...path.split('/')), { bigint: true }));
       current.kind = stat.isSymbolicLink() ? 'other' : stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'other';
       return stat.isSymbolicLink() || stat.isFile() && stat.nlink !== 1 || !stat.isDirectory() && !stat.isFile() ? undefined : stat;
     };
