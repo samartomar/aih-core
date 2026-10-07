@@ -4,7 +4,7 @@ import fs, { linkSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, sy
 import { syncBuiltinESMExports } from 'node:module';
 import { join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkNativePersistence } from '../dist/core/internal/native-cell.js';
+import { checkNativePersistence, nativeStatePlan } from '../dist/core/internal/native-cell.js';
 import { createPersistenceDiagnosticClassifier } from '../src/harness/native/persistence-diagnostics.mjs';
 import { claudeStatePaths, inspectClaudeGlobalState } from '../src/harness/native/claude-state.mjs';
 import { pathPins, sha256 } from '../dist/core/internal/host-files.js';
@@ -479,4 +479,122 @@ test('a failed diagnostic observation never changes the admission decision', t =
     withDiagnostics.push(...records);
     assert.equal(withDiagnostics.every(record => record.class !== 'read-failure'), true);
   } finally { stat.mock.restore(); syncBuiltinESMExports(); }
+});
+
+
+test('exact state shapes accept only empty directories or single-link regular files', t => {
+  const cell = cellFixture(t), plan = planFixture();
+  plan.home = [{ path: 'registry', kind: 'empty-directory', inspected: false, exclusions: [] },
+    { path: 'marker', kind: 'file', inspected: false, exclusions: [] }];
+  mkdirSync(join(cell.home, 'registry')); writeFileSync(join(cell.home, 'marker'), 'opaque');
+  assert.equal(checkNativePersistence(cell, plan, () => {}), true);
+  writeFileSync(join(cell.home, 'registry', 'pid.json'), '{}');
+  assert.equal(checkNativePersistence(cell, plan, () => {}), false, 'empty directory must refuse a child');
+  rmSync(join(cell.home, 'registry', 'pid.json'));
+  rmSync(join(cell.home, 'marker')); mkdirSync(join(cell.home, 'marker'));
+  assert.equal(checkNativePersistence(cell, plan, () => {}), false, 'file shape must refuse a directory');
+});
+
+
+test('Claude sessions absent or empty and exact housekeeping file pass without content inspection', t => {
+  const cell = cellFixture(t), plan = claudePlan();
+  assert.equal(checkNativePersistence(cell, plan, () => {}), true);
+  mkdirSync(join(cell.home, '.claude', 'sessions'), { recursive: true });
+  writeFileSync(join(cell.home, '.claude', '.last-cleanup'), 'housekeeping control metadata');
+  const open = t.mock.method(fs, 'openSync', () => { throw Error('Housekeeping contents must not be inspected'); });
+  syncBuiltinESMExports();
+  try {
+    for (const diagnostic of [undefined, () => {}]) {
+      assert.equal(checkNativePersistence(cell, plan, () => {}, diagnostic), true);
+      assert.equal(checkNativePersistence(cell, plan, () => {}, diagnostic), true, 'second checkpoint');
+    }
+  } finally { open.mock.restore(); syncBuiltinESMExports(); }
+});
+
+
+const verdictPair = (cell, plan, expected) => {
+  const records = [];
+  assert.equal(checkNativePersistence(cell, plan, () => {}), expected);
+  assert.equal(checkNativePersistence(cell, plan, () => {}, value => records.push(value)), expected);
+  assert.equal(records.length, expected ? 0 : 1);
+  return records[0];
+};
+for (const child of ['pid.json', 'socket-path.json', 'nested', 'link']) {
+  test(`Claude empty session registry refuses ${child} at either checkpoint`, t => {
+    const cell = cellFixture(t), plan = claudePlan(), registry = join(cell.home, '.claude', 'sessions');
+    mkdirSync(registry, { recursive: true }); verdictPair(cell, plan, true);
+    const path = join(registry, child);
+    if (child === 'nested') mkdirSync(path);
+    else if (child === 'link') {
+      const target = join(cell.path, 'target'); mkdirSync(target);
+      symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+    } else writeFileSync(path, child === 'pid.json' ? '{"pid":123,"sessionId":"session","cwd":"/cell"}' : '{"socketPath":"/socket"}');
+    assert.equal(verdictPair(cell, plan, false).class, 'state-tree-entry');
+  });
+}
+for (const shape of ['directory', 'link', 'hardlink', '.Last-cleanup', '.last-cleanup2']) {
+  test(`Claude housekeeping marker refuses ${shape} with diagnostics on or off`, t => {
+    const cell = cellFixture(t), plan = claudePlan(), parent = join(cell.home, '.claude'); mkdirSync(parent);
+    const path = join(parent, shape.startsWith('.') ? shape : '.last-cleanup');
+    if (shape === 'directory') mkdirSync(path);
+    else if (shape === 'link') {
+      const target = join(cell.path, 'target'); mkdirSync(target);
+      symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+    } else if (shape === 'hardlink') {
+      const target = join(cell.path, 'target'); writeFileSync(target, 'opaque'); linkSync(target, path);
+    } else writeFileSync(path, 'opaque');
+    verdictPair(cell, plan, false);
+  });
+}
+for (const path of ['.claude/Sessions', '.claude/sessions2', '.Claude/sessions']) {
+  test(`Claude empty registry refuses near-match ${path}`, t => {
+    const cell = cellFixture(t); mkdirSync(join(cell.home, ...path.split('/')), { recursive: true });
+    verdictPair(cell, claudePlan(), false);
+  });
+}
+for (const state of ['file', 'link']) {
+  test(`Claude registry refuses ${state} at the exact root`, t => {
+    const cell = cellFixture(t), registry = join(cell.home, '.claude', 'sessions');
+    mkdirSync(join(cell.home, '.claude'));
+    if (state === 'file') writeFileSync(registry, 'opaque');
+    else { const target = join(cell.path, 'target'); mkdirSync(target); symlinkSync(target, registry, process.platform === 'win32' ? 'junction' : 'dir'); }
+    verdictPair(cell, claudePlan(), false);
+  });
+}
+for (const populated of [false, true]) test(`Claude memory remains refused when ${populated ? 'populated' : 'empty'}`, t => {
+  const cell = cellFixture(t), memory = join(cell.home, '.claude', 'projects', 'cwd', 'memory');
+  mkdirSync(memory, { recursive: true });
+  if (populated) writeFileSync(join(memory, 'MEMORY.md'), 'instruction');
+  verdictPair(cell, claudePlan(), false);
+});
+test('Claude registry enumeration failure refuses persistence', t => {
+  const cell = cellFixture(t), registry = join(cell.home, '.claude', 'sessions'); mkdirSync(registry, { recursive: true });
+  const original = fs.readdirSync;
+  const mock = t.mock.method(fs, 'readdirSync', (path, ...args) => {
+    if (path === registry) throw Object.assign(Error('unreadable'), { code: 'EACCES' });
+    return original(path, ...args);
+  }); syncBuiltinESMExports();
+  try { assert.equal(verdictPair(cell, claudePlan(), false).class, 'read-failure'); }
+  finally { mock.mock.restore(); syncBuiltinESMExports(); }
+});
+test('narrow state entries validate kind, inspector and exclusions without changing overlap checks', () => {
+  const shape = { path: 'state', kind: 'empty-directory', inspected: false, exclusions: [] };
+  const build = entry => nativeStatePlan({ home: [entry], project: [] }, [], undefined);
+  assert.deepEqual(build(shape).home, [shape]);
+  assert.deepEqual(build({ ...shape, kind: 'file' }).home, [{ ...shape, kind: 'file' }]);
+  for (const change of [{ kind: 'tree' }, { kind: undefined }, { inspected: true }, { exclusions: ['child'] }])
+    assert.throws(() => build({ ...shape, ...change }), error => error.reason === 'native-internal');
+  assert.throws(() => nativeStatePlan({ home: [shape], project: [] }, [{ root: 'home', path: 'state/selected' }], undefined),
+    error => error.reason === 'guardrail-path-conflict');
+  assert.throws(() => nativeStatePlan({ home: [shape], project: [] }, [], 'state/credential'),
+    error => error.reason === 'guardrail-path-conflict');
+});
+test('admitted housekeeping and registry state still refuse selected-byte mutation', t => {
+  const cell = cellFixture(t), plan = claudePlan();
+  mkdirSync(join(cell.home, '.claude', 'sessions'), { recursive: true });
+  writeFileSync(join(cell.home, '.claude', '.last-cleanup'), 'opaque');
+  const selected = join(cell.project, 'CLAUDE.md'); writeFileSync(selected, 'selected');
+  cell.tree = [{ root: 'project', path: 'CLAUDE.md', member: { byteLength: 8, sha256: sha256('selected') } }];
+  verdictPair(cell, plan, true); writeFileSync(selected, 'changed!');
+  assert.equal(verdictPair(cell, plan, false).class, 'selected-member');
 });

@@ -48,6 +48,8 @@ export const managedPolicyLimitations = Object.freeze({
 // restricting host policy cannot be evaded by moving the workload into WSL2, so a managed
 // permission, sandbox, hook or plugin rule must not be missed.
 const RESTRICTING_KEYS = Object.freeze([
+  // Managed auto-memory preferences govern the fixed session's instruction loading.
+  'autoMemoryEnabled',
   'model',
   'effortLevel',
   'otelHeadersHelper',
@@ -66,9 +68,11 @@ const RESTRICTING_KEYS = Object.freeze([
   'deniedPlugins'
 ]);
 
-// Telemetry environment keys can redirect, disable or widen the collector channel, which the
+// Auto-memory and telemetry environment keys can change instruction loading or the collector channel, which the
 // native cell depends on. They are a positive restriction, not a benign preference.
 const TELEMETRY_ENV_KEYS = Object.freeze([
+  // A settings env block can replace inherited values, including the fixed disable switch.
+  /^CLAUDE_CODE_DISABLE_AUTO_MEMORY$/,
   /^OTEL_/,
   /^CLAUDE_CODE_ENABLE_TELEMETRY/,
   /^CLAUDE_CODE_ENHANCED/,

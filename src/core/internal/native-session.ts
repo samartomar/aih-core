@@ -83,8 +83,10 @@ export interface NativeRuntime {
  * One client-owned state path under a cell root. A tree entry may change between sessions, except any path that
  * equals or lies beneath one of its fixed relative loading exclusions (at most one single-segment `*` each).
  * An inspected entry is one regular file whose content must pass the runtime's separate inspection.
+ * An explicit kind narrows uninspected state to a single-link file or an empty ordinary directory;
+ * neither admits descendants or exclusions. Omitted kind retains the existing tree/inspected behavior.
  */
-export interface NativeStateEntry { path: string; exclusions: readonly string[]; inspected: boolean }
+export interface NativeStateEntry { path: string; exclusions: readonly string[]; inspected: boolean; kind?: 'empty-directory' | 'file' }
 export interface NativeStatePaths { home: readonly NativeStateEntry[]; project: readonly NativeStateEntry[] }
 
 export const nativeSessionRows = ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication', 'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'] as const;

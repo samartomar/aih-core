@@ -51,7 +51,7 @@ Core decides the first failure class in the existing check order:
 | `configuration-facts` | A selected file's captured identity, timestamps or size changed. |
 | `selected-member` | Selected regular-file shape, single-link identity, byte length or digest does not match. |
 | `unexpected-entry` | An entry outside declared configuration/state, or an invalid entry on the configuration walk. |
-| `state-tree-entry` | A client-state tree contains a link, non-regular entry, hard link, or loading exclusion. |
+| `state-tree-entry` | Client state has a link, non-regular entry, hard link, loading exclusion, wrong declared shape or nonempty empty-directory entry. |
 | `inspected-state` | An inspected state file has invalid shape, exceeds its byte bound or fails its inspector. |
 | `read-failure` | Metadata, directory enumeration or regular-file capture is unavailable. A failed inspected read additionally reports `read-failure`. |
 | `limit` | The existing 4096-entry or 32-relative-level state walk limit was exceeded. |
@@ -65,7 +65,7 @@ branches, including ordinary rejected directories. It uses only `lstat` and
 directory names, never follows links or reads rejected contents, and verifies
 directory identities before enumeration and metadata access. Failed pin checks
 are not traversed; changed directory identities, containment failures, links,
-selected members and rejected inspected containers are not crossed.
+selected members, explicit single-file/empty-directory state roots and rejected inspected containers are not crossed.
 
 The diagnostic walk spends only the admission walk's remaining 4096-entry
 budget, stops at 16 reported items, and retains the 32-relative-level state-tree
@@ -88,10 +88,36 @@ ordinary rejection remains `configuration-changed`, limits still throw
 The installed Claude plan admits home state at `.claude/projects` (with its fixed
 loading exclusions), inspected `.claude/.claude.json`, `.claude/.claude.json.lock`,
 `.claude/backups`, `.claude/history.jsonl`, `.claude/history.jsonl.lock`,
-`.claude/telemetry`, and exactly `.cache/claude-cli-nodejs`. It admits no project
+`.claude/telemetry`, empty-directory-only `.claude/sessions`, single-link-file-only
+`.claude/.last-cleanup`, and exactly `.cache/claude-cli-nodejs`. It admits no project
 state paths. `XDG_CACHE_HOME` remains `<home>/.cache`; `.cache` is permitted only
 as the directory parent of the exact cache state root, so other children and near
 matches still fail as `unexpected-entry`.
+
+The verifier sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` in the environment built
+from scratch for both sessions on every platform. This disables auto-memory
+creation, background extraction and next-session instruction loading. A managed
+`autoMemoryEnabled` key or managed `env.CLAUDE_CODE_DISABLE_AUTO_MEMORY` key,
+with any value, is a `restricted` / `managed-restriction` outcome. A known
+restriction takes precedence over unreadable sibling keys or sources; malformed
+or unreadable policy alone remains unreadable. Verification never overrides
+managed policy, and unobserved managed sources remain an evidence limitation.
+
+The exact home `.claude/sessions` path is admitted only as an ordinary empty
+directory at each persistence checkpoint, after descendant quiescence. Absence
+is also accepted. Any child (including a PID record, socket-path record, nested
+directory or link) or enumeration failure is refused; this is not a recursive
+state tree. The exact home `.claude/.last-cleanup` path is admitted only as an
+ordinary regular file with link count one. It is housekeeping control metadata
+whose contents are not inspected; the client reads back only its mtime. Links,
+reparse points, hard links, wrong shapes and case/path near-matches are refused.
+Per-project `*/memory` remains excluded whether empty or populated, and selected
+configuration bytes remain immutable.
+
+This rationale is specific to Claude Code 2.1.285, executable SHA-256
+`33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29`.
+Native acceptance of the changed packed distribution is pending; controlled
+checks do not establish native acceptance.
 
 Static tracing of the pinned Claude Code 2.1.285 executable identifies JSONL error
 and MCP logs under sanitized cwd names, in `errors/` and `mcp-logs-<sanitized server>/`.

@@ -71,7 +71,7 @@ test('the Linux branch delegates exactly the platform client pin shape', async (
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
-async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track } = {}) {
+async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track, environmentProbe } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
   const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
   for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
@@ -97,7 +97,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   // The adapter now creates the lifecycle context before any client and starts the client through it.
   const lifecycleContext = {
     createPipe: async () => ({ status: 'ready', transport: { endpoint: 'controlled-pipe', close: async () => {} } }),
-    start: async () => ({ status: 'started', handle: processHandle }),
+    start: async input => { environmentProbe?.(input.env); return { status: 'started', handle: processHandle }; },
     terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; }
   };
   // A selected entry whose exact absolute module path is the running Node image, so the adapter's
@@ -117,7 +117,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     startEvidenceChannel: async () => ({ endpoint: 'controlled', token: 'controlled', challenge: 'a'.repeat(64),
       snapshot: () => evidence, close: async () => evidence }),
     createClaudeStreamParser: realParser ? installed.createClaudeStreamParser : () => ({ push() {}, snapshot: () => ({ ...stream }), finish: () => ({ ...stream }) }),
-    buildClaudeEnvironment: () => ({}),
+    buildClaudeEnvironment: environmentProbe ? installed.buildClaudeEnvironment : () => ({}),
     evaluateServerEvidence: () => ({ initialize: true, discovery: 'complete', attestation: 'missing',
       ambiguousBeforeAttestation: false, query, queryResultSha256: query === 'result-mismatch' ? 'b'.repeat(64) : 'c'.repeat(64),
       rejectedQueryCalls: 0, unrequestedCalls: 0 }),
@@ -130,7 +130,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     platform: { os: 'win32' }, lifecycleId: 'windows-job.v1', sessionArgv: [],
     credentialDestination: { root: 'home', path: '.claude/.credentials.json' } };
   const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
-    deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {},
+    deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0' },
     pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] },
     identity: { expected: { accountUuid: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' } },
     cell,
@@ -413,7 +413,7 @@ test('native state paths enumerate only fixed client-owned state, never loading 
       '.claude/rules', '.claude/commands', '.claude/agents', '.claude/skills', '.claude/hooks', '.claude/output-styles'],
     home: ['.claude.json', '.claude/.claude.json', '.claude/.config.json', '.claude/CLAUDE.md', '.claude/settings.json',
       '.claude/settings.local.json', '.claude/rules', '.claude/commands', '.claude/agents', '.claude/skills', '.claude/hooks',
-      '.claude/output-styles', '.claude/plugins', '.claude/memory', '.claude/sessions', '.claude/session-env',
+      '.claude/output-styles', '.claude/plugins', '.claude/memory', '.claude/session-env',
       '.claude/shell-snapshots', '.claude/policy-limits.json', '.claude/remote-settings.json', '.claude/mcp-needs-auth-cache.json',
       // Names the client reserves inside a project folder for memory and other non-transcript content.
       '.claude/projects/*/memory', '.claude/projects/*/tiny_memory', '.claude/projects/*/bagel', '.claude/projects/*/cloud-snapshots',
@@ -427,7 +427,7 @@ test('native state paths enumerate only fixed client-owned state, never loading 
     assert.deepEqual(Object.keys(state).sort(), ['home', 'project']);
     assert.ok(state.home.length + state.project.length > 0, 'ordinary client-owned state must be allowed to change');
     for (const root of ['home', 'project']) for (const entry of state[root]) {
-      assert.deepEqual(Object.keys(entry).sort(), ['exclusions', 'inspected', 'path']);
+      assert.deepEqual(Object.keys(entry).sort(), entry.kind === undefined ? ['exclusions', 'inspected', 'path'] : ['exclusions', 'inspected', 'kind', 'path']);
       assert.ok(/^\.?[0-9A-Za-z._-]+(\/[0-9A-Za-z._-]+)*$/.test(entry.path), entry.path);
       const at = segments(entry.path);
       for (const source of loading[root]) {
@@ -451,7 +451,9 @@ test('native state paths enumerate only fixed client-owned state, never loading 
   }
   assert.deepEqual(seen[0], seen[1], 'both platform definitions share the same fixed state enumeration');
   assert.deepEqual(seen[0].home.map(entry => entry.path), ['.claude/projects', '.claude/.claude.json', '.claude/.claude.json.lock',
-    '.claude/backups', '.claude/history.jsonl', '.claude/history.jsonl.lock', '.claude/telemetry', '.cache/claude-cli-nodejs']);
+    '.claude/backups', '.claude/history.jsonl', '.claude/history.jsonl.lock', '.claude/telemetry', '.claude/sessions', '.claude/.last-cleanup', '.cache/claude-cli-nodejs']);
+  for (const [path, kind] of [['.claude/sessions', 'empty-directory'], ['.claude/.last-cleanup', 'file']])
+    assert.deepEqual(seen[0].home.find(entry => entry.path === path), { path, kind, exclusions: [], inspected: false });
   assert.deepEqual(seen[0].project, []);
   assert.deepEqual(runtime.nativeStatePaths({ client: 'codex', parserId: 'other.v1' }), { home: [], project: [] });
 });
@@ -560,4 +562,14 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
   assert.equal(inspect(project(), '.claude.json'), false, 'only the redirected configuration location is state');
   assert.equal(inspect(project(), '.claude/.claude.json', 'project'), false, 'never a project file');
   assert.equal(runtime.inspectNativeState({ client: 'codex', parserId: 'other.v1' }, { root: 'home', path: '.claude/.claude.json', bytes: Buffer.from('{}') }), false);
+});
+
+
+test('both native session launches disable auto-memory despite a hostile host value', async t => {
+  const launches = [];
+  for (const index of [1, 2]) {
+    const { exit, handle } = await session(t, { index, environmentProbe: env => launches.push({ index, value: env.CLAUDE_CODE_DISABLE_AUTO_MEMORY }) });
+    exit({ code: 0 }); await handle.observations;
+  }
+  assert.deepEqual(launches, [{ index: 1, value: '1' }, { index: 2, value: '1' }]);
 });

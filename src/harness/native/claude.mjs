@@ -174,6 +174,9 @@ export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir,
     XDG_CACHE_HOME: path.join(homeDir, '.cache'), XDG_STATE_HOME: path.join(homeDir, '.local', 'state'),
     TEMP: temp, TMP: temp, TMPDIR: temp,
     DISABLE_AUTOUPDATER: '1',
+    // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+    // disable auto-memory creation, extraction and next-session instruction loading.
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     CLAUDE_CODE_ENABLE_TELEMETRY: '1', OTEL_LOGS_EXPORTER: 'otlp', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
     OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: 'http/json',
     // Per-signal OTLP endpoints are used as-is; only the generic endpoint appends /v1/logs.
@@ -198,7 +201,7 @@ export function claudeConfigDirectory(platform, homeDir, relative) {
 }
 
 const MANAGED_DIRECTORY = { win32: 'C:\\Program Files\\ClaudeCode', darwin: '/Library/Application Support/ClaudeCode', linux: '/etc/claude-code' };
-const RESTRICTING_KEYS = ['otelHeadersHelper', 'allowManagedMcpServersOnly', 'allowedMcpServers', 'deniedMcpServers', 'managedMcpServers'];
+const RESTRICTING_KEYS = ['autoMemoryEnabled', 'otelHeadersHelper', 'allowManagedMcpServersOnly', 'allowedMcpServers', 'deniedMcpServers', 'managedMcpServers'];
 const MAX_MANAGED_BYTES = 65536;
 
 function readBounded(file) {
@@ -232,7 +235,7 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/.test(key))) restricted = true;
+    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/.test(key))) restricted = true;
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;

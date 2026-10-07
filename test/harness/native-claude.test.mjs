@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -266,5 +266,29 @@ test('managed settings that redirect telemetry or MCP are a positive restriction
     mkdirSync(join(dir, 'e'));
     writeFileSync(join(dir, 'e', 'managed-mcp.json'), '{}');
     assert.equal(observeClaudeManagedSettings({ directory: join(dir, 'e') }).outcome, 'restricted');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('auto-memory is disabled literally on every platform despite hostile host values', () => {
+  for (const platform of ['win32', 'linux', 'darwin']) for (const value of ['0', 'false', '', '1']) {
+    const env = buildClaudeEnvironment({ platform, hostEnv: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: value },
+      homeDir: platform === 'win32' ? 'C:/cell/home' : '/cell/home', scratchDir: '/cell/scratch', runtimeDirs: [],
+      telemetry: { endpoint: 'http://127.0.0.1:4318', token: 'synthetic' }, evidence: { endpoint: 'synthetic', token: 'synthetic' } });
+    assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', `${platform}: ${value}`);
+  }
+});
+
+
+test('all-platform managed observer refuses auto-memory policy without overriding it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aihq-managed-memory-'));
+  try {
+    for (const policy of [{ autoMemoryEnabled: true }, { autoMemoryEnabled: false },
+      ...['0', 'false', '', '1'].map(value => ({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: value } }))]) {
+      const file = join(dir, 'managed-settings.json');
+      const bytes = JSON.stringify(policy); writeFileSync(file, bytes);
+      assert.equal(observeClaudeManagedSettings({ directory: dir }).outcome, 'restricted');
+      assert.equal(readFileSync(file, 'utf8'), bytes);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

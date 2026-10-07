@@ -151,6 +151,11 @@ const writeState=(root,path,bytes)=>{const target=join(root,...path.split('/'));
 const globalState=(project={})=>JSON.stringify({numStartups:2,firstStartTime:'2026-10-05T00:00:00.000Z',userID:'0'.repeat(64),hasCompletedOnboarding:true,
   projects:{'/cell/project':{allowedTools:[],mcpServers:{},enabledMcpjsonServers:[],disabledMcpjsonServers:[],hasTrustDialogAccepted:false,projectOnboardingSeenCount:1,lastSessionId:'00000000-0000-4000-8000-000000000000',lastCost:0,...project}}});
 function clientWrites(cell,index){
+  if(scenario==='client-state-housekeeping'||scenario==='client-state-registry-after-session-2'){
+    mkdirSync(join(cell.home,'.claude','sessions'),{recursive:true});
+    writeState(cell.home,'.claude/.last-cleanup','housekeeping-'+index);
+    if(index===2&&scenario==='client-state-registry-after-session-2')writeState(cell.home,'.claude/sessions/pid.json','{}');
+  }
   if(scenario.startsWith('client-state-log-cache')){
     const cache='.cache/claude-cli-nodejs/-cell-project/';
     if(index===1){
@@ -687,4 +692,27 @@ for (const [scenario, reason] of [
   assert.equal(result.status, 'complete'); assert.equal(result.verdict, 'failed');
   assert.equal(result.sessions.length, 0); assert.equal(result.cleanup.files, 'not-created');
   assert.ok(result.stages.some(row => row.reason === reason));
+});
+
+
+test('controlled housekeeping passes both persistence checkpoints with diagnostics on or off', async t => {
+  const plain = await controlled(t, 'client-state-housekeeping');
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const observed = await controlled(t, 'client-state-housekeeping');
+    assert.equal(plain.verdict, 'verified'); assert.equal(observed.verdict, plain.verdict);
+    for (const result of [plain, observed]) {
+      assert.equal(result.sessions.length, 2);
+      assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.reason), ['before-session-2', 'after-session-2']);
+      assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'passed']);
+      assert.equal(result.cleanup.files, 'removed');
+    }
+    assert.equal(records.some(record => record.event === 'native-persistence-diagnostics'), false);
+  } finally { stream.unsubscribe(sink); }
+});
+test('controlled registry child after session 2 fails the final persistence checkpoint', async t => {
+  const result = await controlled(t, 'client-state-registry-after-session-2');
+  assert.equal(result.verdict, 'failed'); assert.equal(result.sessions.length, 2);
+  assert.deepEqual(result.stages.filter(row => row.id === 'configuration-unchanged').map(row => row.outcome), ['passed', 'failed']);
 });

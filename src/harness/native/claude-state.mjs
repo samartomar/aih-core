@@ -18,6 +18,11 @@ export const claudeStatePaths = Object.freeze({
     tree('.claude/history.jsonl'),
     tree('.claude/history.jsonl.lock'),
     tree('.claude/telemetry'),
+    // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+    // sessions is a PID/socket registry whose entries must be gone after descendant quiescence.
+    Object.freeze({ path: '.claude/sessions', kind: 'empty-directory', exclusions: Object.freeze([]), inspected: false }),
+    // .last-cleanup is housekeeping control metadata whose contents are not inspected; only its mtime is read back.
+    Object.freeze({ path: '.claude/.last-cleanup', kind: 'file', exclusions: Object.freeze([]), inspected: false }),
     // For the pinned Claude Code 2.1.285 executable, the enumerated static trace identifies error/MCP JSONL
     // log writers and age-based cleanup here; no configuration or instruction reader was identified in it.
     // This rationale is version-specific. The ordinary uninspected-root file-or-directory rule applies.

@@ -356,3 +356,17 @@ test('a drop-in entry that is not a regular file is unreadable', () =>
     mkdirSync(join(directory, 'managed-settings.d', 'a.json'), { recursive: true });
     assert.equal(observeNative(directory).outcome, 'unreadable');
   }));
+
+
+test('managed auto-memory keys are restrictions and win over unreadable observations', () =>
+  withRoot(root => {
+    const policies = [true, false, null, ''].map(value => ({ autoMemoryEnabled: value }));
+    policies.push(...['0', 'false', '', '1', 0, false].map(value => ({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: value } })));
+    for (const [index, policy] of policies.entries()) {
+      const linux = source(join(root, `policy-${index}`), { settings: { ...policy, unknownPolicy: {} },
+        dropIn: { 'unreadable.json': '{broken' } });
+      assert.equal(observeNative(linux).outcome, 'restricted', JSON.stringify(policy));
+      assert.equal(observeWsl(linux).outcome, 'restricted', 'restriction wins over unknown Windows source');
+    }
+    assert.equal(observeNative(source(join(root, 'unreadable'), { settings: '{broken' })).outcome, 'unreadable');
+  }));

@@ -112,8 +112,10 @@ export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], cred
     const list = value[root];
     if (!Array.isArray(list) || list.length > STATE_ENTRIES) throw invalid();
     for (const raw of list) {
-      if (!plainRecord(raw) || Object.keys(raw).sort().join() !== 'exclusions,inspected,path') throw invalid();
-      const { path, exclusions, inspected } = raw;
+      if (!plainRecord(raw) || !['exclusions,inspected,path', 'exclusions,inspected,kind,path'].includes(Object.keys(raw).sort().join())) throw invalid();
+      const { path, exclusions, inspected, kind } = raw;
+      if (Object.hasOwn(raw, 'kind') && (kind !== 'empty-directory' && kind !== 'file' || inspected !== false ||
+        !Array.isArray(exclusions) || exclusions.length !== 0)) throw invalid();
       if (typeof path !== 'string' || !safeNativePath(path) || path.split('/').length > STATE_SEGMENTS || typeof inspected !== 'boolean' ||
         !Array.isArray(exclusions) || exclusions.length > STATE_EXCLUSIONS || inspected && (exclusions.length > 0 || !inspect)) throw invalid();
       const fixed: string[] = [];
@@ -126,7 +128,7 @@ export function nativeStatePlan(value: unknown, selected: NativeTreeFile[], cred
       if (plan[root].some(other => aliasOverlap(other.path, path))) throw invalid();
       if (selected.some(file => file.root === root && aliasOverlap(file.path, path)) || root === 'home' && credential !== undefined && aliasOverlap(credential, path))
         throw new NativeStop('guardrail-path-conflict', 'unsupported');
-      plan[root].push({ path, exclusions: fixed, inspected });
+      plan[root].push({ path, exclusions: fixed, inspected, ...(kind === 'empty-directory' || kind === 'file' ? { kind } : {}) });
     }
   }
   if (credential !== undefined) plan.home.push({ path: credential, exclusions: [], inspected: false });
@@ -228,11 +230,12 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
         const owned = plan[rootName].find(value => value.path === path);
         const active = state ?? owned;
         const rejected = !ordinary || (state ? excluded(state, child.segments.slice(state.path.split('/').length)) :
-          selected.includes(path) || owned?.inspected ? !stat.isFile() :
+          owned?.kind === 'empty-directory' ? !stat.isDirectory() :
+          selected.includes(path) || owned?.inspected || owned?.kind === 'file' ? !stat.isFile() :
           !owned && (!stat.isDirectory() || !declared.some(value => value.startsWith(`${path}/`))));
         if (rejected) add(child);
         // A changed selected member or inspected container is a failed identity/content boundary.
-        if (ordinary && stat.isDirectory() && !selected.includes(path) && !owned?.inspected &&
+        if (ordinary && stat.isDirectory() && !selected.includes(path) && !owned?.inspected && !owned?.kind &&
           !walk(rootName, path, stat, active)) return false;
       }
       return true;
@@ -299,6 +302,22 @@ export function checkNativePersistence(cell: NativeCell, plan: NativeStatePlan, 
           current, owned?.inspected ? { reason: 'value-shape', token: null } : null);
         if (selected.includes(path)) { if (!stat.isFile()) return fail('selected-member'); continue; }
         if (owned?.inspected) { if (!stat.isFile()) return fail('inspected-state', current, { reason: 'not-record', token: null }); inspected.push({ root: rootName, path, absolute: join(root, ...path.split('/')) }); continue; }
+        if (owned?.kind) {
+          if (owned.kind === 'file' ? !stat.isFile() : !stat.isDirectory()) return fail('state-tree-entry');
+          const absolute = join(root, ...path.split('/'));
+          const captured = lstatSync(absolute, { bigint: true });
+          if (captured.isSymbolicLink() || (owned.kind === 'file' ? !captured.isFile() || captured.nlink !== 1n : !captured.isDirectory()))
+            return fail('state-tree-entry');
+          const pins = pathPins(absolute);
+          if (pins.at(-1)?.identity !== `${captured.dev}:${captured.ino}:${captured.mode}`) return fail('state-tree-entry');
+          if (owned.kind === 'empty-directory') {
+            // No recursive traversal: quiescent callers must observe zero children at every checkpoint.
+            const before = configurationIdentity(absolute);
+            if (readdirSync(absolute).length !== 0 || configurationIdentity(absolute) !== before) return fail('state-tree-entry');
+          }
+          if (!pinsMatch(pins)) return fail('state-tree-entry');
+          continue;
+        }
         if (owned) { if (stat.isDirectory() && !walkState(rootName, root, owned, [])) return false; continue; }
         if (!stat.isDirectory() || !declared.some(file => file.startsWith(`${path}/`))) {
           fail('unexpected-entry');
