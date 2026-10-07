@@ -530,7 +530,8 @@ function createNativeRuntime(module, dependencies) {
         const parsers = input.material.instructions.map((value) => module.createClaudeStreamParser({ ...options, markerSha256: value.markerSha256 }));
         const launchedAtMs = Date.now();
         diagnosticsSnapshot = () => ({ collector: telemetryFinal?.stats ?? collector.snapshot({ launchedAtMs, closedAtMs: Date.now() }).stats,
-          result: parsers[0].snapshot(), proxy: linux ? context.proxyDiagnostics?.() ?? null : null });
+          result: parsers[0].snapshot(), proxy: linux ? context.proxyDiagnostics?.() ?? null : null,
+          forwarder: linux ? context.forwarderDiagnostics?.() ?? null : null });
         const capture = (streams, telemetryResult, evidence, finalized = false) => {
             const stream = streams[0];
             const spec = { ...module.serverEvidenceSpec(resolved), queryTool: input.material.server.queryTool };

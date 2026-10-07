@@ -28,7 +28,7 @@ const WSL_MOUNT_FILES = Object.freeze(['/mnt/c/Windows/System32/cmd.exe', '/mnt/
 const WSL_INTEROP_FILES = Object.freeze(['/init', '/run/WSL', '/proc/sys/fs/binfmt_misc/WSLInterop']);
 // Files loaded by processes in the owned tree outside the sandbox profile's own runtime pins.
 export const linuxObserverSources = Object.freeze(['canonical.mjs', 'contracts.mjs', 'fixture-data.mjs', 'fixture-metadata.mjs',
-  'linux-runner.mjs', 'linux-workload.mjs', 'linux-profile.mjs', 'linux-proxy.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
+  'linux-runner.mjs', 'linux-workload.mjs', 'linux-forwarder.mjs', 'linux-profile.mjs', 'linux-proxy.mjs', 'linux-runtime.mjs', 'linux/runtime-lock.json',
   'linux/interop-canary.cs', 'linux/interop-canary.exe', 'linux/interop-build-record.json', 'linux/facility', 'linux/build-record.json']);
 // Host paths the pinned SRT 0.0.78 can leave when its runner is killed before reset(): bwrap's empty
 // read-only mount points for absent mandatory-deny names in the working directory. Deepest first.
@@ -134,7 +134,7 @@ export function classifyLinuxAuditSnapshot(observed, { runtime, runtimePins, pro
 export function createLinuxProbeSession({ token, challenge, entry, hostNamespaces, verifyProfile, inspectArguments, hostCanaries, bindClient }) {
   const proof = { probes: null, authenticated: false, namespaceSeparated: null, profileCompared: false,
     argumentsClean: null, clientBound: false, serverBound: false, interference: false };
-  const state = { peer: null, clientPid: null, code: null, ended: false, violation: false, closed: false, connections: 0, interference: false };
+  const state = { peer: null, clientPid: null, code: null, forwarder: null, ended: false, violation: false, closed: false, connections: 0, interference: false };
   let current = null;
   const close = () => { state.closed = true; current?.destroy(); };
   const violate = () => { state.violation = true; close(); };
@@ -205,10 +205,16 @@ export function createLinuxProbeSession({ token, challenge, entry, hostNamespace
         if (await auditArguments() !== true || state.closed) return close();
         socket.write('{"type":"resume"}\n');
       } else if (phase === 'end') {
-        if (!hasExactKeys(message, ['type', 'code']) || message.type !== 'end' || !Number.isSafeInteger(message.code) ||
+        if ((!hasExactKeys(message, ['type', 'code']) && !hasExactKeys(message, ['type', 'code', 'forwarder'])) ||
+            message.type !== 'end' || !Number.isSafeInteger(message.code) ||
             message.code < 0 || message.code > 255) return close();
         // Exit proves termination only. Missing acknowledged argv coverage cannot become clean.
         if (await auditArguments() !== true || state.closed) return close();
+        // Optional counts never affect proof. Malformed diagnostic blocks are discarded in full.
+        const keys = ['accepted', 'connected', 'refused', 'capped'];
+        state.forwarder = hasExactKeys(message.forwarder, keys) && keys.every(key =>
+          Number.isSafeInteger(message.forwarder[key]) && message.forwarder[key] >= 0 && message.forwarder[key] <= 1000000)
+          ? Object.freeze(Object.fromEntries(keys.map(key => [key, message.forwarder[key]]))) : null;
         state.code = message.code; state.ended = true; phase = 'closed';
         socket.write('{"type":"finish"}\n');
       } else close();
@@ -518,6 +524,7 @@ export async function composeLinuxSandbox(input, observerPins) {
       isolation,
       get failureReason() { return auditFailure; },
       proxyDiagnostics: () => proxyDiagnostics,
+      forwarderDiagnostics: () => session?.state.forwarder ?? null,
       isolationRecord() {
         const { proof, state } = session;
         return { version: 1, baseSha256: receipt?.baseSha256, profileSha256: receipt?.profileSha256, proxyArguments: { ...proxyArguments }, compared: proof.profileCompared, probes: proof.probes ? { ...proof.probes } : null,

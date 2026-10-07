@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.16 sets the generic OTLP protocol while retaining the authoritative
+per-signal logs endpoint. Linux native workloads bridge direct collector
+connections through authenticated, allowlisted sandbox proxy tunnels with fixed
+connection, byte and idle bounds. Optional diagnostics include counts-only
+forwarder observations; verification and admission verdicts remain unchanged.
+This development candidate has not been published to npm.
+
 Core 1.0.0-dev.15 extends the optional counts-only native diagnostics record with
 closed provider error classes and trusted Linux sandbox proxy decision counts in
 fixed host buckets. Unobservable proxy decisions remain null. Client error text

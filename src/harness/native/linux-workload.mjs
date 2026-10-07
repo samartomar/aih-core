@@ -1,13 +1,15 @@
-// Fixed in-namespace probe and client entry. Only built-ins are imported into the workload.
+// Fixed in-namespace probe and client entry. The trusted forwarder uses only built-ins.
 // Credentials and channel capabilities arrive only through the clean environment, never argv.
 // Each probe is true when a denial is proven, false when access is proven and null otherwise.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, closeSync, constants, lstatSync, openSync, readFileSync, readdirSync, readlinkSync,
-  unlinkSync, writeFileSync } from 'node:fs';
+  realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+import { proxyAuthorization, startCollectorForwarder } from './linux-forwarder.mjs';
 
 const HEX = /^[a-f0-9]{64}$/;
 const CONTROL = ['AIHQ_NATIVE_SANDBOX_PLAN_SHA256', 'AIHQ_NATIVE_ISOLATION_TOKEN', 'AIHQ_NATIVE_COLLECTOR_PROBE'];
@@ -31,15 +33,10 @@ const connectDenied = target => new Promise(resolve => {
 
 // SRT advertises its in-namespace listener as localhost:3128 with a URL-embedded credential.
 const proxyRequest = (target, probeToken, authorization = null) => new Promise(resolve => {
-  let url, credentials;
-  try {
-    url = new URL(process.env.HTTP_PROXY ?? '');
-    credentials = Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString('base64');
-  } catch { resolve(null); return; }
-  if (url.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(url.hostname) || url.port !== '3128' ||
-      !url.username || !url.password) { resolve(null); return; }
+  const proxyAuth = proxyAuthorization(process.env.HTTP_PROXY ?? '');
+  if (proxyAuth === null) { resolve(null); return; }
   const request = http.request({ host: '127.0.0.1', port: 3128, method: 'GET', path: target, agent: false,
-    headers: { 'proxy-authorization': `Basic ${credentials}`, connection: 'close', ...(authorization ? { authorization } : {}) } }, response => {
+    headers: { 'proxy-authorization': proxyAuth, connection: 'close', ...(authorization ? { authorization } : {}) } }, response => {
     const result = { code: response.statusCode, proxyError: typeof response.headers['x-proxy-error'] === 'string',
       matched: response.headers['x-aih-native-probe'] === probeToken };
     response.resume(); response.once('end', () => { clearTimeout(timer); resolve(result); });
@@ -95,7 +92,7 @@ const descriptorsClean = () => {
   return true;
 };
 
-async function runProbes(plan, challenge, probeToken) {
+export async function runProbes(plan, challenge, probeToken) {
   const { canaries } = plan;
   const [pathnameAgentDenied, abstractAgentDenied, directLoopbackDenied, directNetworkDenied,
     wrongPort, unapproved, collector, windowsDenied] = await Promise.all([
@@ -170,6 +167,8 @@ async function main() {
   if (!HEX.test(challenge ?? '')) stop();
   link.write(JSON.stringify({ type: 'probes', challenge, probes: await runProbes(plan, challenge, probeToken) }) + '\n');
   await receive('start');
+  // Probes run before the listener exists. Only the exact collector port gains a proxy-backed bridge.
+  const forwarder = await startCollectorForwarder({ collector: plan.collector, proxyUrl: process.env.HTTP_PROXY });
   // Observer controls are erased before the actual client starts. The evidence and OTLP channels remain.
   const childEnv = { ...process.env };
   for (const name of CONTROL) delete childEnv[name];
@@ -177,10 +176,13 @@ async function main() {
     link.write(JSON.stringify({ type: 'client', pid }) + '\n');
     await receive('resume');
   });
-  link.write(JSON.stringify({ type: 'end', code }) + '\n');
+  const forwarderStats = forwarder ? await forwarder.close() : null;
+  link.write(JSON.stringify({ type: 'end', code, forwarder: forwarderStats }) + '\n');
   await receive('finish');
   link.removeListener('close', stop); link.end();
   process.exitCode = code;
 }
 
-await main();
+// Imported only by tests; any launch path (including a symlinked one) that resolves to this file runs the entry.
+const launched = () => { try { return realpathSync(process.argv[1] ?? '') === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } };
+if (launched()) await main();

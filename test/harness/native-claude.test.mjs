@@ -219,6 +219,7 @@ test('the environment is built from scratch with fixed telemetry and no inherite
   assert.equal(env.HOME, 'C:\\cell\\home');
   assert.equal(env.CLAUDE_CODE_ENABLE_TELEMETRY, '1');
   assert.equal(env.OTEL_LOGS_EXPORTER, 'otlp');
+  assert.equal(env.OTEL_EXPORTER_OTLP_PROTOCOL, 'http/json');
   assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL, 'http/json');
   assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318/v1/logs');
   assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_HEADERS, `Authorization=Bearer ${'t'.repeat(64)}`);
@@ -232,6 +233,18 @@ test('the environment is built from scratch with fixed telemetry and no inherite
   assert.equal(env.SystemRoot, 'C:\\Windows');
   assert.equal(env.PATH, 'C:\\runtime');
   assert.equal(env.OTEL_EXPORTER_OTLP_ENDPOINT, undefined);
+});
+
+test('every platform uses the generic OTLP protocol with only the authoritative logs endpoint', () => {
+  for (const platform of ['win32', 'linux', 'darwin']) {
+    const env = buildClaudeEnvironment({ platform, hostEnv: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://unapproved' },
+      homeDir: platform === 'win32' ? 'C:\\cell\\home' : '/cell/home', scratchDir: '/cell/scratch', runtimeDirs: [],
+      telemetry: { endpoint: 'http://127.0.0.1:4318', token: 'synthetic' }, evidence: { endpoint: 'synthetic', token: 'synthetic' } });
+    assert.equal(env.OTEL_EXPORTER_OTLP_PROTOCOL, 'http/json', platform);
+    assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL, 'http/json', platform);
+    assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318/v1/logs', platform);
+    assert.equal(Object.hasOwn(env, 'OTEL_EXPORTER_OTLP_ENDPOINT'), false, platform);
+  }
 });
 
 test('managed settings that redirect telemetry or MCP are a positive restriction', () => {

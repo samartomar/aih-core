@@ -28,8 +28,13 @@
     },
     {
       "name": "linux-workload.mjs",
-      "byteLength": 11442,
-      "sha256": "6c07f0f32697288478f53b4beb546489db3ddb383bc13f3f295a5b8d5eb42a31"
+      "byteLength": 11875,
+      "sha256": "b5755ac716a9487de943cfbcd3e15a0222491ba1352b735bcfd503462965511a"
+    },
+    {
+      "name": "linux-forwarder.mjs",
+      "byteLength": 4698,
+      "sha256": "870bfb99b67ecf91f156a1d5aa693415d90adfd784ac145c8cb8b77635a9472f"
     },
     {
       "name": "linux-profile.mjs",

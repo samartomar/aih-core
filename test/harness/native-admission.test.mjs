@@ -34,7 +34,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
         eventNames: { apiRequest: 1, apiError: 0, other: 1 }, ignored: 1, matched: 1 },
-      proxy: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
+      proxy: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
     });
     const inspect = value => {
       assert.ok(Object.isFrozen(value));
@@ -52,7 +52,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: records[1].recordId,
       runSha256: null, phase: 'session', index: 1, definition: null,
       collector: { ...emptyCollector, requests: 1000000, rejected: { ...emptyCollector.rejected, auth: 1000000 } },
-      proxy: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
+      proxy: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
     for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
       admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: false, resultSubtype: subtype } });
@@ -65,6 +65,26 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
     assert.deepEqual(records.at(-1).result, { seen: false, isError: null, subtype: 'none', errorClass: 'none' });
     admission.publishNativeDiagnostics({ definition: 'claude-win32-x64-2.1.285' });
     assert.equal(records.at(-1).definition, 'claude-win32-x64-2.1.285');
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('session forwarder diagnostics are Linux-only, clamped, exact-key and frozen', () => {
+  const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
+  stream.subscribe(sink);
+  try {
+    const forwarder = { accepted: 1000001, connected: 2, refused: -1, capped: Infinity, payload: 'payload-marker' };
+    admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285', forwarder });
+    assert.deepEqual(records[0].forwarder, { accepted: 1000000, connected: 2, refused: 0, capped: 0 });
+    assert.ok(Object.isFrozen(records[0].forwarder));
+    assert.equal(JSON.stringify(records[0]).includes('payload-marker'), false);
+    for (const definition of ['claude-win32-x64-2.1.285', 'darwin', undefined]) {
+      admission.publishNativeDiagnostics({ definition, forwarder });
+      assert.equal(records.at(-1).forwarder, null);
+    }
+    for (const forwarder of [undefined, null, 'payload-marker', []]) {
+      admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285', forwarder });
+      assert.equal(records.at(-1).forwarder, null);
+    }
   } finally { stream.unsubscribe(sink); }
 });
 
