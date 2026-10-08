@@ -238,7 +238,7 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/.test(key))) restricted = true;
+    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/i.test(key))) restricted = true;
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;

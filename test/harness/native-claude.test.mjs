@@ -266,6 +266,13 @@ test('managed settings that redirect telemetry or MCP are a positive restriction
     mkdirSync(join(dir, 'e'));
     writeFileSync(join(dir, 'e', 'managed-mcp.json'), '{}');
     assert.equal(observeClaudeManagedSettings({ directory: join(dir, 'e') }).outcome, 'restricted');
+    // Windows applies env names case-insensitively, so a case variant of a fixed switch is still a restriction.
+    for (const key of ['claude_code_disable_fast_mode', 'Claude_Code_Disable_Official_Marketplace_Autoinstall',
+      'claude_code_disable_auto_memory']) {
+      const caseDir = join(dir, `case-${key}`); mkdirSync(caseDir);
+      writeFileSync(join(caseDir, 'managed-settings.json'), JSON.stringify({ env: { [key]: '0' } }));
+      assert.equal(observeClaudeManagedSettings({ directory: caseDir }).outcome, 'restricted', key);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
