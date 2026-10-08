@@ -34,9 +34,10 @@ jobs:
           - os: ubuntu-latest
             node: '24.15.0'
     runs-on: ${{ matrix.os }}
-    # Windows subprocess/packed-consumer checks already approach 20 minutes on
-    # hosted runners. Keep room for the full suite to finish after additions.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 20 }}
+    # Windows subprocess/packed-consumer checks already approach 20-25 minutes on
+    # hosted runners. Keep room for the packed fixtures' own npm budgets to
+    # expire and report before the job is cancelled.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
     steps:
       - uses: actions/checkout@v4
         with:
