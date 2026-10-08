@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { observeLinuxManagedPolicy } from '../../src/harness/native/managed-policy.mjs';
+import { observeClaudeManagedSettings } from '../../src/harness/native/claude.mjs';
 
 // Expected limitation tokens are written as independent literals, not imported
 // from the module under test, so a token change is caught rather than tautological.
@@ -386,4 +387,51 @@ test('managed fixed env presence restricts native and WSL policy observations', 
           'restricted', 'Windows policy restriction wins over unreadable drop-in');
         assert.equal(readFileSync(join(linux, 'managed-settings.json'), 'utf8'), JSON.stringify(policy));
       }
+  }));
+
+// --- One managed env classification for the Linux/WSL2 and the non-Linux observers ---
+
+// Independent literals: every fixed or telemetry env key that must restrict on every observer.
+const RESTRICTING_ENV_KEYS = ['CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL',
+  'CLAUDE_CODE_DISABLE_FAST_MODE', 'MCP_CONNECTION_NONBLOCKING', 'OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_LOGS_EXPORTER',
+  'CLAUDE_CODE_ENABLE_TELEMETRY', 'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA', 'DISABLE_TELEMETRY',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'];
+const caseVariants = key => [key, key.toLowerCase(),
+  key.toLowerCase().replace(/(^|_)([a-z])/g, (_, separator, letter) => separator + letter.toUpperCase())];
+// Each observer reports the same document-level classification under its own clear token.
+const outcomes = directory => [observeNative(directory).outcome,
+  observeClaudeManagedSettings({ platform: 'win32', directory }).outcome]
+  .map(outcome => outcome.replace('file-sources-clear', 'clear'));
+
+test('every fixed or telemetry managed env key restricts both observers, including case variants', () =>
+  withRoot(root => {
+    let index = 0;
+    for (const key of RESTRICTING_ENV_KEYS) for (const variant of caseVariants(key)) for (const value of ['', '0', '1', null]) {
+      const directory = source(join(root, `known-${index++}`), { settings: { env: { [variant]: value } } });
+      assert.deepEqual(outcomes(directory), ['restricted', 'restricted'], `${variant}/${value}`);
+    }
+  }));
+
+test('unrecognised or malformed managed env blocks fail closed on both observers', () =>
+  withRoot(root => {
+    const unreadable = {
+      proxy: { HTTPS_PROXY: 'http://proxy.example' }, path: { PATH: '/usr/bin' }, provider: { ANTHROPIC_BASE_URL: 'https://x' },
+      lookalike: { CLAUDE_CODE_DISABLE_FAST_MODES: '1' }, prefix: { XOTEL_EXPORTER: '1' }, safe: { SAFE_LOOKING: '1' }
+    };
+    for (const [name, env] of Object.entries(unreadable))
+      assert.deepEqual(outcomes(source(join(root, `unknown-${name}`), { settings: { env } })), ['unreadable', 'unreadable'], name);
+    for (const [name, env] of Object.entries({ string: 'nope', array: [], nil: null, number: 1 }))
+      assert.deepEqual(outcomes(source(join(root, `malformed-${name}`), { settings: { env } })), ['unreadable', 'unreadable'], name);
+    // A known key still wins over an unrecognised sibling key, in the same block or another source file.
+    assert.deepEqual(outcomes(source(join(root, 'mixed'), { settings: { env: { HTTPS_PROXY: 'x', otel_logs_exporter: 'none' } } })),
+      ['restricted', 'restricted']);
+    assert.deepEqual(outcomes(source(join(root, 'split'), { settings: { env: { HTTPS_PROXY: 'x' } },
+      dropIn: { 'a.json': { env: { DISABLE_TELEMETRY: '1' } } } })), ['restricted', 'restricted']);
+  }));
+
+test('absent and empty managed env blocks leave both observers clear', () =>
+  withRoot(root => {
+    assert.deepEqual(outcomes(source(join(root, 'absent'), { settings: { theme: 'dark' } })), ['clear', 'clear']);
+    assert.deepEqual(outcomes(source(join(root, 'empty'), { settings: { env: {} } })), ['clear', 'clear']);
+    assert.deepEqual(outcomes(source(join(root, 'dropin-empty'), { dropIn: { 'a.json': { env: {} } } })), ['clear', 'clear']);
   }));

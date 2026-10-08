@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.29 makes the published native verification definition schemas
+refuse what the portable validator refuses for admission. The 1.1.0 schema
+accepts `state: "admitted"` only for a descriptor exactly equal to a registered
+admitted definition, which it enumerates; a test keeps that list identical to the
+registry and checks schema/validator agreement for unregistered ids, changed
+platform, runtime, argv, evidence and versions, and self-promoted candidates.
+The 1.0.0 schema, which has no registered admission, now refuses the admitted
+state. Registered definitions are unchanged: `claude-linux-x64-wsl2-srt-2.1.285`
+stays admitted with the same evidence, and the Windows definition stays a
+candidate.
+
+Both Claude managed-policy observers now share one managed `env`
+classification. The non-Linux file observer previously treated an unrecognised
+managed env key as clear; it now fails closed as unreadable, consistent with the
+Linux/WSL2 observer, and a non-object `env` block is unreadable on both. The
+non-Linux observer also gains `DISABLE_TELEMETRY` and
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` as restrictions. Key matching is
+case-insensitive on every observer, so a case variant of a fixed or telemetry
+key read by the Linux/WSL2 observer is now `restricted` instead of unreadable.
+Absent or empty env blocks remain clear. This candidate has not been published to
+npm.
+
 Core 1.0.0-dev.28 promotes only `claude-linux-x64-wsl2-srt-2.1.285` to admitted
 for Claude Code 2.1.285 on Linux x64 WSL2, osRelease
 `6.18.33.2-microsoft-standard-WSL2`. Retained reviewed batch evidence is identified

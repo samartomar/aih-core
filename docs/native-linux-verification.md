@@ -9,6 +9,13 @@ It selects without `candidate-smoke`; the Windows definition remains a candidate
 with null evidence and still requires that mode. Passing a smoke never promotes
 a definition.
 
+Admission is a registry fact. Both the portable validator and the published
+`native-verification-definition` 1.1.0 JSON Schema accept `state: "admitted"`
+only for a descriptor exactly equal to a registered admitted definition; the
+schema enumerates those descriptors, and a test keeps that list identical to the
+registry. The 1.0.0 schema has no registered admission and refuses the admitted
+state.
+
 The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
 only this descriptor. Promotion is not publication: no npm publish has occurred.
 Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
@@ -108,6 +115,15 @@ organization. File-based Linux managed policy and verified Windows host managed
 policy are checked outside the sandbox. Restricting policy wins; unreadable or
 unknown policy gives unavailable. Registry, MDM and server-managed policy retain
 their explicitly unobserved limitations.
+Managed `env` blocks use one classification on every observer, with
+case-insensitive key matching. Any key matching the fixed or telemetry switches
+(`CLAUDE_CODE_DISABLE_AUTO_MEMORY`,
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`,
+`CLAUDE_CODE_DISABLE_FAST_MODE`, `MCP_CONNECTION_NONBLOCKING`, `OTEL_*`,
+`CLAUDE_CODE_ENABLE_TELEMETRY*`, `CLAUDE_CODE_ENHANCED*`, `DISABLE_TELEMETRY`,
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) is `restricted`. A non-object block or
+any other key is unreadable, so it gives unavailable rather than clear; a
+restriction still wins. An absent or empty block is clear.
 
 Process observation requires the host to let an unprivileged process trace a
 child it launched: the observer uses only `PTRACE_SEIZE` on its own held client,

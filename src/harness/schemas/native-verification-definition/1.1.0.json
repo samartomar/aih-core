@@ -114,15 +114,12 @@
   },
   "allOf": [
     {
-      "if": {
-        "properties": { "id": { "const": "claude-linux-x64-wsl2-srt-2.1.285" }, "state": { "const": "admitted" } },
-        "required": ["id", "state"]
-      },
+      "$comment": "Admission is a registry fact: an admitted descriptor must equal one registered admitted definition exactly.",
+      "if": { "properties": { "state": { "const": "admitted" } }, "required": ["state"] },
       "then": {
-        "properties": {
-          "clientVersions": { "const": ["2.1.285"] },
-          "evidenceSha256": { "const": "a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947" }
-        }
+        "enum": [
+          {"schema": "urn:aihq:harness:native-verification-definition:1.1.0", "id": "claude-linux-x64-wsl2-srt-2.1.285", "client": "claude", "state": "admitted", "platform": {"os": "linux", "arch": "x64", "execution": "wsl2", "osRelease": "6.18.33.2-microsoft-standard-WSL2"}, "clientVersions": ["2.1.285"], "executableNames": ["claude"], "runtimeMembers": [{"path": "package/harness/native/fixture/server.mjs", "sha256": "fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59", "byteLength": 6952}], "versionArgv": ["--version"], "sessionArgv": ["-p", "--verbose", "--output-format", "stream-json", "--tools", ""], "parserId": "claude-stream-json.v1", "identityAdapterId": "claude-oauth-otel.v1", "credentialDestination": {"root": "home", "path": ".claude/.credentials.json"}, "guardrails": [{"root": "home", "path": ".claude/settings.json", "member": {"path": "package/harness/native/fixture/claude-settings.json", "sha256": "99b9edf183055d58b80b0ff4215a4bcc481e5fc27bf652f90cd3147d38ef39b4", "byteLength": 523}}], "guardrailsSha256": "9feae5a2be034510e024166d57d202823a1f60c89c208ad717341a941aee5590", "lifecycleId": "linux-srt.v1", "isolation": {"mechanism": "vendor-runtime", "observerId": "anthropic-srt-linux.v1", "documentation": ["https://github.com/anthropic-experimental/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/README.md"]}, "evidenceSha256": "a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947"}
+        ]
       }
     },
     {

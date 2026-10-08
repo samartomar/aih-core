@@ -55,6 +55,50 @@ test('the registered WSL2 sandbox admission binds its exact tested version and r
   }
 });
 
+test('the published 1.1.0 admission rule is exactly the registered admitted definitions', () => {
+  const published = JSON.parse(readFileSync(schemaUrl('1.1.0'), 'utf8'));
+  const rules = published.allOf.filter(rule => rule.if?.properties?.state?.const === 'admitted');
+  assert.equal(rules.length, 1);
+  assert.deepEqual(rules[0].if, { properties: { state: { const: 'admitted' } }, required: ['state'] });
+  assert.deepEqual(Object.keys(rules[0].then), ['enum']);
+  assert.deepEqual(rules[0].then.enum, clone(nativeVerificationDefinitions.filter(d => d.state === 'admitted')));
+  const legacyRules = JSON.parse(readFileSync(schemaUrl('1.0.0'), 'utf8')).allOf
+    .filter(rule => rule.if?.properties?.state?.const === 'admitted');
+  assert.deepEqual(legacyRules.map(rule => rule.then), [false]);
+  assert.ok(nativeVerificationDefinitions.filter(d => d.state === 'admitted').every(d => d.schema === V11));
+});
+
+test('schema and validator agree that admission is only an exact registered descriptor', () => {
+  const registered = () => clone(nativeVerificationDefinitions.find(d => d.state === 'admitted'));
+  const candidate = () => clone(nativeVerificationDefinitions.find(d => d.state === 'candidate'));
+  agree('registered admission', registered(), true);
+  const cases = {
+    'unregistered id with reviewed evidence': d => { d.id = 'claude-linux-x64-wsl2-srt-2.1.286'; },
+    'unregistered id with other evidence': d => { d.id = 'claude-linux-x64-srt-2.1.285'; d.evidenceSha256 = 'b'.repeat(64); },
+    'osRelease': d => { d.platform.osRelease = '6.6.0-microsoft-standard-WSL2'; },
+    'native execution': d => { d.platform.execution = 'native'; },
+    'runtime pin': d => { d.runtimeMembers[0].sha256 = '0'.repeat(64); },
+    'runtime length': d => { d.runtimeMembers[0].byteLength += 1; },
+    'extra argv': d => { d.sessionArgv = [...d.sessionArgv, '--verbose']; },
+    'version argv': d => { d.versionArgv = ['-v']; },
+    'executable': d => { d.executableNames = ['claude', 'claude-code']; },
+    'credential destination': d => { d.credentialDestination.path = '.claude/other.json'; },
+    'isolation documentation': d => { d.isolation.documentation = ['https://code.claude.com/docs/en/sandbox-environments']; },
+    'widened versions': d => { d.clientVersions = ['2.1.285', '2.1.286']; },
+    'other evidence': d => { d.evidenceSha256 = 'b'.repeat(64); },
+    'legacy schema': d => { d.schema = V10; }
+  };
+  for (const [name, mutate] of Object.entries(cases)) { const d = registered(); mutate(d); agree(name, d, false); }
+  const promoted = candidate(); promoted.state = 'admitted'; promoted.evidenceSha256 = 'c'.repeat(64);
+  agree('1.0.0 candidate claiming admission', promoted, false);
+  const promotedV11 = { ...promoted, schema: V11 };
+  agree('1.1.0 candidate claiming admission', promotedV11, false);
+  const vendorAdmitted = vendor(); vendorAdmitted.state = 'admitted'; vendorAdmitted.evidenceSha256 = 'd'.repeat(64);
+  agree('unregistered vendor profile claiming admission', vendorAdmitted, false);
+  const demoted = registered(); demoted.state = 'candidate'; demoted.evidenceSha256 = null;
+  agree('registered profile as an unadmitted candidate', demoted, true);
+});
+
 test('definition 1.1.0 accepts the fixed Linux vendor-runtime profile in native and wsl2 execution', () => {
   agree('vendor', vendor(), true);
   const wsl = vendor(); wsl.platform.execution = 'wsl2';

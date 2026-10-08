@@ -21,6 +21,7 @@ import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readd
 import { isAbsolute, join, parse, sep } from 'node:path';
 import { isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
+import { classifyManagedEnv } from './managed-env.mjs';
 
 const DEFAULT_LINUX_DIRECTORY = '/etc/claude-code';
 const MAX_MANAGED_BYTES = 65536;
@@ -66,21 +67,6 @@ const RESTRICTING_KEYS = Object.freeze([
   'enabledPlugins',
   'allowedPlugins',
   'deniedPlugins'
-]);
-
-// Fixed invocation and telemetry environment keys can change startup behavior or the collector channel, which the
-// native cell depends on. They are a positive restriction, not a benign preference.
-const TELEMETRY_ENV_KEYS = Object.freeze([
-  // A settings env block can replace inherited values, including the fixed disable switch.
-  /^CLAUDE_CODE_DISABLE_AUTO_MEMORY$/,
-  /^CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$/,
-  /^CLAUDE_CODE_DISABLE_FAST_MODE$/,
-  /^MCP_CONNECTION_NONBLOCKING$/i,
-  /^OTEL_/,
-  /^CLAUDE_CODE_ENABLE_TELEMETRY/,
-  /^CLAUDE_CODE_ENHANCED/,
-  /^DISABLE_TELEMETRY$/,
-  /^CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC$/
 ]);
 
 // Deliberately small reviewed allowlist of managed settings whose policy effect is known benign.
@@ -210,13 +196,9 @@ function classifyManagedSettings(text) {
   // A known restriction is decisive even when a sibling key is unrecognised or malformed.
   if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) return 'restricted';
   if (Object.hasOwn(value, 'env')) {
-    const env = value.env;
-    if (!isRecord(env)) return 'unreadable';
-    const envKeys = Object.keys(env);
-    if (envKeys.some(key => TELEMETRY_ENV_KEYS.some(pattern => pattern.test(key)))) return 'restricted';
-    // An empty env map is a benign no-op. Any non-telemetry key may route credentials or
-    // providers or execute helpers, so it is unreadable rather than benign.
-    if (envKeys.length > 0) return 'unreadable';
+    // An empty env map is a benign no-op; the shared classification decides every other block.
+    const env = classifyManagedEnv(value.env);
+    if (env !== 'clear') return env;
   }
   for (const key of Object.keys(value)) {
     if (key === 'env') continue;
