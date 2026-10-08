@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
+import { validateNativeVerificationDefinition } from './contracts.mjs';
 import { claudeConfigDirectory } from "./claude.mjs";
 import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
@@ -35,7 +36,8 @@ function createNativeRuntime(module, dependencies) {
     if (result?.cleanup) dependencies.recordCleanup?.(result.cleanup, result.cleanupStartedAt);
     return result;
   };
-  const definitions = module.nativeVerificationDefinitions;
+  const definitions = module.nativeVerificationDefinitions.filter(definition =>
+    definition.state !== 'admitted' || validateNativeVerificationDefinition(definition).valid);
   const adapters = new Set(["claude-stream-json.v1"]);
   const identitiesSupported = new Set(["claude-oauth-otel.v1"]);
   const identities = new WeakMap();

@@ -1,6 +1,24 @@
-# Linux native verification candidate
+# Linux native verification admission
 
-The bundled Claude Code 2.1.285 Linux x64 WSL2 candidate remains unadmitted.
+The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
+Claude Code 2.1.285 on Linux x64 WSL2, osRelease
+`6.18.33.2-microsoft-standard-WSL2`, with `clientVersions: ["2.1.285"]`.
+Its retained reviewed batch evidence is identified by `evidenceSha256`
+`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`.
+It selects without `candidate-smoke`; the Windows definition remains a candidate
+with null evidence and still requires that mode. Passing a smoke never promotes
+a definition.
+
+The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
+only this descriptor. Promotion is not publication: no npm publish has occurred.
+Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
+Acceptance covers the fixed verifier environment: auto-memory disabled,
+marketplace auto-install disabled, fast mode disabled, and MCP connections
+awaited before init within the client's bounded timeout. Authentication uses
+`provisioning-bound-session` identity, with the owner's recorded acceptance:
+it loses the runtime wrong-account/refresh cross-check and is not provider-signed
+attestation. The proxy and policy limitations below remain part of that acceptance.
+
 It selects kernel `6.18.33.2-microsoft-standard-WSL2`, Node 24.19.0 and the exact
 runtime bytes in `dist/harness/native/linux/runtime-platform.json`. Other Linux,
 Windows and macOS environments need their own definitions and evidence. An
@@ -19,7 +37,7 @@ selected cell roots and authenticated IPC paths. Only cell home, project and
 scratch are writable; selected configuration and guardrails stay read-only.
 Library aliases are materialized from independently pinned bytes. The sole loader
 directory grant requires an exact root-owned, single-symlink inventory. Missing,
-changed or unexpected files refuse the candidate; verification never installs,
+changed or unexpected files refuse the definition; verification never installs,
 downloads, compiles or repairs prerequisites.
 
 The vendor also supplies its pinned seccomp support and Java proxy agent. Its
@@ -70,7 +88,7 @@ WSL2 additionally checks mounted Windows volumes, interop entry points and a
 known executable synthetic Windows canary. A native helper calls `execve`
 directly, avoiding shell fallback. It recognizes a missing interpreter, or an
 access refusal with the executable canary intact and `/init` independently
-observed as the vendor's non-executable `/dev/null` mask. The current candidate
+observed as the vendor's non-executable `/dev/null` mask. The admitted definition
 requires independently observed NAT networking. Mirrored networking remains
 unavailable pending a separate Windows-side loopback denial proof.
 
@@ -181,8 +199,9 @@ configuration bytes remain immutable.
 
 This rationale is specific to Claude Code 2.1.285, executable SHA-256
 `33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29`.
-Native acceptance of the changed packed distribution is pending; controlled
-checks do not establish native acceptance.
+The retained reviewed evidence covers the tested Core `1.0.0-dev.27` packed
+distribution in the fixed verifier environment; controlled checks alone do not
+establish native acceptance.
 
 The fixed home state paths additionally admit exactly `.cache/claude-cli-nodejs`;
 `XDG_CACHE_HOME` stays `<home>/.cache`. Static tracing of the pinned Claude Code

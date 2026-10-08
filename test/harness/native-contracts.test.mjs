@@ -55,7 +55,7 @@ test('stable reason table carries every contract token', () => {
     assert.ok(nativeStageReasons.includes(reason), reason);
 });
 
-test('the Claude candidate is exact, unadmitted and evidence-free', () => {
+test('the Windows Claude candidate is exact, unadmitted and evidence-free', () => {
   const definition = claude();
   assert.equal(definition.state, 'candidate');
   assert.equal(definition.evidenceSha256, null);
@@ -63,7 +63,31 @@ test('the Claude candidate is exact, unadmitted and evidence-free', () => {
   assert.deepEqual(definition.sessionArgv, ['-p', '--verbose', '--output-format', 'stream-json']);
   assert.equal(definition.isolation.mechanism, 'none');
   assert.equal(validateNativeVerificationDefinition(definition).valid, true);
-  assert.equal(nativeVerificationDefinitions.filter(d => d.state === 'admitted').length, 0);
+  assert.deepEqual(nativeVerificationDefinitions.filter(d => d.state === 'admitted').map(d => d.id),
+    ['claude-linux-x64-wsl2-srt-2.1.285']);
+});
+
+test('an admitted descriptor is valid only as the exact registered admission', () => {
+  const registered = () => structuredClone(nativeVerificationDefinitions.find(d => d.state === 'admitted'));
+  assert.equal(validateNativeVerificationDefinition(registered()).valid, true);
+  const cases = {
+    osRelease: d => { d.platform.osRelease = '6.6.0-microsoft-standard-WSL2'; },
+    execution: d => { d.platform.execution = 'native'; },
+    runtimePin: d => { d.runtimeMembers[0].sha256 = sha('0'); },
+    extraArgv: d => { d.sessionArgv = [...d.sessionArgv, '--verbose']; },
+    unregisteredId: d => { d.id = 'claude-linux-x64-wsl2-srt-2.1.286'; },
+    otherEvidence: d => { d.evidenceSha256 = sha('b'); },
+    widerVersions: d => { d.clientVersions = ['2.1.285', '2.1.286']; }
+  };
+  for (const [name, mutate] of Object.entries(cases)) {
+    const definition = registered();
+    mutate(definition);
+    assert.equal(validateNativeVerificationDefinition(definition).valid, false, name);
+  }
+  // A candidate cannot promote itself by claiming admission with any evidence.
+  const selfPromoted = claude();
+  selfPromoted.state = 'admitted'; selfPromoted.evidenceSha256 = sha('c');
+  assert.equal(validateNativeVerificationDefinition(selfPromoted).valid, false);
 });
 
 test('definition validation rejects loose or unsafe descriptors', () => {

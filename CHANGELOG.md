@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.28 promotes only `claude-linux-x64-wsl2-srt-2.1.285` to admitted
+for Claude Code 2.1.285 on Linux x64 WSL2, osRelease
+`6.18.33.2-microsoft-standard-WSL2`. Retained reviewed batch evidence is identified
+by `evidenceSha256`
+`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`;
+the tested packed artifact was Core 1.0.0-dev.27. Selection no longer requires
+`candidate-smoke` for that definition; the Windows definition remains a candidate
+with null evidence and requires that mode. A descriptor is valid as admitted only
+when it exactly equals a registered admitted definition: altered evidence, extra or
+unexact client versions, any other changed field, an unregistered id and a candidate
+claiming admission are refused. Platform/runtime pins,
+argv, lifecycle, isolation and guardrails are unchanged.
+
+Acceptance covers the fixed verifier environment: auto-memory disabled,
+marketplace auto-install disabled, fast mode disabled, and MCP connections awaited
+before init within the client's bounded timeout. Authentication uses
+`provisioning-bound-session` identity, with the owner's recorded acceptance:
+it loses the runtime wrong-account/refresh cross-check and is not provider-signed
+attestation. Existing proxy/policy limitations remain. Coverage is the bundled
+mechanism only, not Catalog's cross-client matrix. Promotion is not publication;
+no npm publish has occurred.
+
 Core 1.0.0-dev.27 sets literal `MCP_CONNECTION_NONBLOCKING=false` in both Claude
 verification sessions on every platform, so the pinned client awaits configured
 MCP connections before init and the first turn. Acceptance covers the verifier's

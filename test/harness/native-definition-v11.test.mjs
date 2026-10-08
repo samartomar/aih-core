@@ -32,14 +32,27 @@ const agree = (name, definition, expected, schemaValidator = definition.schema =
   assert.equal(schemaValidator(definition), expected, `schema: ${name} ${JSON.stringify(schemaValidator.errors)}`);
 };
 
-test('the registered WSL2 sandbox candidate has its own exact platform and remains unadmitted', () => {
-  const candidate = nativeVerificationDefinitions.find(value => value.lifecycleId === 'linux-srt.v1');
-  assert.ok(candidate);
-  agree('registered candidate', candidate, true);
-  assert.deepEqual(candidate.platform, { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' });
-  assert.equal(candidate.state, 'candidate');
-  assert.equal(candidate.evidenceSha256, null);
-  assert.deepEqual(candidate.sessionArgv, [...SESSION, '--tools', '']);
+test('the registered WSL2 sandbox admission binds its exact tested version and reviewed evidence', () => {
+  const definition = nativeVerificationDefinitions.find(value => value.lifecycleId === 'linux-srt.v1');
+  assert.ok(definition);
+  agree('registered admission', definition, true);
+  assert.deepEqual(definition.platform, { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' });
+  assert.equal(definition.state, 'admitted');
+  assert.deepEqual(definition.clientVersions, ['2.1.285']);
+  assert.equal(definition.evidenceSha256, 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947');
+  assert.deepEqual(definition.sessionArgv, [...SESSION, '--tools', '']);
+  const cases = {
+    'null evidence': d => { d.evidenceSha256 = null; },
+    'malformed evidence': d => { d.evidenceSha256 = 'not-a-sha256'; },
+    'unreviewed evidence': d => { d.evidenceSha256 = 'e'.repeat(64); },
+    'extra exact version': d => { d.clientVersions.push('2.1.286'); },
+    'different exact version': d => { d.clientVersions = ['2.1.286']; },
+    'wildcard version': d => { d.clientVersions = ['2.1.*']; },
+    'version range': d => { d.clientVersions = ['^2.1.285']; }
+  };
+  for (const [name, mutate] of Object.entries(cases)) {
+    const copy = clone(definition); mutate(copy); agree(name, copy, false);
+  }
 });
 
 test('definition 1.1.0 accepts the fixed Linux vendor-runtime profile in native and wsl2 execution', () => {
