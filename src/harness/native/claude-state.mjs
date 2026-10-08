@@ -49,7 +49,8 @@ const number = value => typeof value === 'number' && Number.isFinite(value);
 const text = value => typeof value === 'string' && value.length <= STRING;
 const bool = value => typeof value === 'boolean';
 const nullable = check => value => value === null || check(value);
-const recordOf = check => value => isRecord(value) && Object.values(value).every(check);
+const recordOf = check => value => isRecord(value) && Object.entries(value).every(([key, field]) =>
+  !NESTED_GRANTS.has(key) && check(field));
 const arrayOf = (check, max) => value => Array.isArray(value) && value.length <= max && value.every(check);
 // Keys that, nested anywhere inside client bookkeeping, would name a server, tool, permission, hook, plugin,
 // environment, credential helper or directory grant. Bookkeeping never needs them.
@@ -62,6 +63,11 @@ const data = (depth = 4) => value => scalar(value) || (depth > 0 && (
 // Provider-response caches (feature gates, dynamic configs, experiments, usage, eligibility). Their content is the
 // provider's, kept between sessions by the client; it is accepted as an explicit limitation while every session's
 // loading, restriction, tool and authentication evidence is still observed independently.
+// Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+// modelAccessCache and penguinModeOrgEnabled are behavior-relevant provider state admitted under this same
+// limitation, even with fast mode disabled. Selected-settings mutations still fail persistence validation.
+const modelAccess = arrayOf(value => isRecord(value) && Object.keys(value).every(key =>
+  ['apiName', 'entitled'].includes(key)) && text(value.apiName) && bool(value.entitled), 256);
 const providerCache = value => value === null || isRecord(value) || Array.isArray(value) || scalar(value);
 const counterMap = recordOf(value => count(value) || recordOf(count)(value));
 // Profile metadata the client merges after authentication: known fields only.
@@ -71,6 +77,13 @@ const ACCOUNT = new Set(['accountUuid', 'emailAddress', 'organizationUuid', 'org
 const account = value => isRecord(value) && Object.entries(value).every(([key, field]) =>
   key === 'ccOnboardingFlags' ? recordOf(scalar)(field) && !Object.keys(field).some(name => NESTED_GRANTS.has(name))
     : ACCOUNT.has(key) && scalar(field));
+
+// Claude Code 2.1.285 under the verifier's fixed marketplace-disable switch still writes this tuple.
+// Admit it atomically or allow complete absence; no install/retry/timestamp state is admitted.
+const DISABLED_MARKETPLACE = new Map([
+  ['officialMarketplaceAutoInstallAttempted', true], ['officialMarketplaceAutoInstalled', false],
+  ['officialMarketplaceAutoInstallFailReason', 'policy_blocked']
+]);
 
 const COUNTERS = ['numStartups', 'memoryUsageCount', 'promptQueueUseCount', 'btwUseCount', 'queuedCommandUpHintCount',
   'lspRecommendationIgnoredCount', 'promptSuggestionUnusedStreak', 'subscriptionNoticeCount', 'subscriptionUpsellShownCount',
@@ -94,7 +107,16 @@ const GLOBAL_STATE = new Map([
   ['autoUpdates', value => value === false], ['autoUpdatesProtectedForNative', bool], ['hasCompletedOnboarding', bool],
   ['lastOnboardingVersion', text], ['lastReleaseNotesSeen', text], ['changelogLastFetched', number], ['oauthAccount', account],
   ['cachedExtraUsageDisabledReason', nullable(text)], ['cachedUsageUtilization', providerCache],
-  ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache]
+  ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache],
+  ['modelAccessCache', modelAccess], ['penguinModeOrgEnabled', bool],
+  // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+  // Reviewed readers filter closed-issue notices, throttle the fixed issue-response cache query, append the
+  // auto-mode notice, or gate guest-pass/onboarding tips. They do not select model tools or connection routes.
+  // Date.now() writers use nonnegative integer milliseconds. Only true is written for the auto-mode warning;
+  // passes visit history is set and reset, and its remaining-count writer never introduces null.
+  ['closedIssuesAcknowledged', arrayOf(count, 1024)], ['closedIssuesLastChecked', count],
+  ['hasSeenAutoModeEntryWarning', value => value === true], ['hasVisitedPasses', bool],
+  ['passesLastSeenRemaining', count], ['teamOnboardingLastUsedAt', count]
 ]);
 // Locally generated random identifiers.
 const IDENTIFIERS = new Set(['userID', 'machineID', 'summonSidKey']);
@@ -117,7 +139,12 @@ const PROJECT_STATE = new Map([
 const MIGRATIONS = new Map([
   ['opusProMigrationComplete', bool], ['sonnet1m45MigrationComplete', bool], ['hasResetAutoModeOptInForDefaultOffer', bool],
   ['opusProMigrationTimestamp', count], ['legacyOpusMigrationTimestamp', count], ['sonnet45To46MigrationTimestamp', count],
-  ['fable5ToFableAliasMigrationTimestamp', count]
+  ['fable5ToFableAliasMigrationTimestamp', count],
+  // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29: the batch
+  // constant is exactly 14, written only after every migration in the batch persisted, and its only reader skips
+  // re-running that batch. Each migration's own markers above stay individually inspected, and settings it writes
+  // remain subject to selected-file persistence checks; no other batch value is reviewed.
+  ['migrationVersion', value => value === 14]
 ]);
 
 function acceptedGlobal(key, value) {
@@ -170,6 +197,9 @@ export function inspectClaudeGlobalState(bytes, diagnostics = {}) {
               PROJECT_STATE.has(name) ? rejectedShapeReason(field) : 'unknown-project-key', 'project', name);
           }
         }
+      } else if (DISABLED_MARKETPLACE.has(key)) {
+        if (![...DISABLED_MARKETPLACE].every(([name, expected]) => Object.hasOwn(value, name) && value[name] === expected))
+          return fail('value-shape', 'global', key);
       } else if (!acceptedGlobal(key, entry)) return fail(GRANTS.has(key) ? 'grant-content' :
         GLOBAL_STATE.has(key) || IDENTIFIERS.has(key) || MIGRATIONS.has(key) ? rejectedShapeReason(entry) : 'unknown-global-key', 'global', key);
     }

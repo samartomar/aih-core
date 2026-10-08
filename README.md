@@ -163,6 +163,18 @@ restriction takes precedence over unreadable sibling keys or sources; malformed
 or unreadable policy alone remains unreadable. Verification never overrides
 managed policy, and unobserved managed sources remain an evidence limitation.
 
+Both session environments also fix
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` and
+`CLAUDE_CODE_DISABLE_FAST_MODE=1`, regardless of host values. Either key's presence
+in a managed `env` block, including empty, `0` or `false` values, yields
+`restricted` / `managed-restriction` with the same precedence. The pinned client
+still writes disabled marketplace state: the global state inspector admits only
+the complete tuple `officialMarketplaceAutoInstallAttempted=true`,
+`officialMarketplaceAutoInstalled=false`, and
+`officialMarketplaceAutoInstallFailReason="policy_blocked"`, or all three absent.
+Partial tuples, other values, retry counters and timestamps remain refused.
+This admits no plugin files, configuration or installation paths.
+
 The exact home `.claude/sessions` path is admitted only as an ordinary empty
 directory at each persistence checkpoint, after descendant quiescence. Absence
 is also accepted. Any child (including a PID record, socket-path record, nested
@@ -200,7 +212,12 @@ Accepted limitation: provider feature-gate and experiment caches recorded by the
 client, such as `cachedGrowthBookFeatures`, `cachedDynamicConfigs` and the
 `cachedExperiment*` keys, persist from the first session into the second. The
 second session's loading, restriction, tool-discovery and authentication evidence
-is still observed independently. Identity, loading, isolation and cleanup remain
+is still observed independently. For Claude Code 2.1.285 this limitation also
+includes behavior-relevant `modelAccessCache` (at most 256 closed records with
+only `apiName`, a string of at most 65536 characters, and `entitled`, a boolean)
+and boolean `penguinModeOrgEnabled`. Selected settings mutations still fail
+persistence validation; `lastSeenOrgDefaultUpdatedAt` and
+`gzipRequestBodiesLatchedOff` remain refused. Identity, loading, isolation and cleanup remain
 distinct; hygiene evidence cannot become full native proof.
 Unavailable process/peer-identity facilities fail closed. Native platform acceptance
 requires actual observations and separate maintained evidence.
