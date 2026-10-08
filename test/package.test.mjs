@@ -33,13 +33,12 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const output = execFileSync(process.execPath, [process.env.npm_execpath, ...args],
         { cwd, env, encoding: 'utf8', timeout });
       // Report each fixture command's duration so its budget can be reviewed against runner timings.
-      console.log(`Package fixture command took ${Date.now() - started} ms of ${timeout} ms: ${args[0]}`);
+      console.log(`Package fixture command took ${Date.now() - started} ms of ${timeout} ms:`, args.join(' '));
       return output;
     } catch (error) {
-      console.error(`Package fixture command stopped after ${Date.now() - started} ms of ${timeout} ms.`);
       // Node's test reporter truncates large child output before its final failure.
       // Preserve a bounded tail so nested upgrade checks remain diagnosable.
-      console.error('Package fixture command failed:', args.join(' '));
+      console.error(`Package fixture command failed after ${Date.now() - started} ms of ${timeout} ms:`, args.join(' '));
       console.error(String(error.stdout ?? '').slice(-12_000));
       console.error(String(error.stderr ?? '').slice(-4_000));
       throw error;
@@ -705,8 +704,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     mkdirSync(join(updated, 'dist/harness'), { recursive: true });
     writeFileSync(join(updated, 'dist/index.js'), 'obsolete output');
     writeFileSync(join(updated, 'dist/harness/package.json'), '{}');
-    // The locked closure equals the outer checkout's, so npm's cache already holds it. This install
-    // shares the runner with the concurrent outer suite; Windows runners have exceeded 120 s here.
+    // On Windows npm's cache (under LOCALAPPDATA) already holds this locked closure from the job's
+    // install; elsewhere misses fall back to the registry. This install shares the runner with the
+    // concurrent outer suite; Windows runners have exceeded 120 s here.
     npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], updated, 300_000);
     npm(['run', 'typecheck'], updated);
     npm(['run', 'build'], updated);
