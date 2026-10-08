@@ -5,20 +5,21 @@ import { inspectClaudeGlobalState } from '../../src/harness/native/claude-state.
 import { createPersistenceDiagnosticClassifier, safePersistenceDiagnosticToken } from '../../src/harness/native/persistence-diagnostics.mjs';
 import { publishNativePersistenceDiagnostics } from '../../src/harness/native/admission.mjs';
 
-// Values reconstructed from the pinned 2.1.285 updater's object fields, literal migration constant,
-// Date.now(), boolean markers, issue numbers and capped name histories. No client execution is needed.
+// Values reconstructed from the pinned 2.1.285 readers/writers. These six keys affect notices,
+// issue-response cache freshness or dismissal history. No client execution is needed.
 const slot = { data: { status: 'available', items: ['sample'] }, at: 1000, entrypoint: null, model: 'sample-model', org: null };
 const eligibility = { info: { available: true, eligible: true, granted: false, amount_minor_units: 100, currency: 'USD' }, timestamp: 1000 };
 const bookkeeping = {
-  claudeAiMcpEverConnected: ['sample-server'],
-  clientDataCacheSlots: { request: slot },
   closedIssuesAcknowledged: [1, 2], closedIssuesLastChecked: 1000,
-  fotwClaimedFeatures: { account: ['sample-feature'] },
-  fotwEligibilityCache: { account: { campaign: eligibility } },
-  githubWebConnectionStatusCache: { status: 'connected' },
-  hasRunUltrareview: true, hasSeenAutoModeEntryWarning: true, hasVisitedPasses: false,
-  mcpNeedsAuthNoticed: ['sample-server'], migrationVersion: 14,
+  hasSeenAutoModeEntryWarning: true, hasVisitedPasses: false,
   passesLastSeenRemaining: 1, teamOnboardingLastUsedAt: 1000
+};
+// Writer samples alone do not close these keys' reader/caller influence or response shapes.
+const dropped = {
+  claudeAiMcpEverConnected: ['sample-server'], clientDataCacheSlots: { request: slot },
+  fotwClaimedFeatures: { account: ['sample-feature'] }, fotwEligibilityCache: { account: { campaign: eligibility } },
+  githubWebConnectionStatusCache: { accountUuid: 'sample-account', orgUuid: 'sample-org', status: 'connected' },
+  hasRunUltrareview: true, mcpNeedsAuthNoticed: ['sample-server']
 };
 const disabledMarketplace = {
   officialMarketplaceAutoInstallAttempted: true, officialMarketplaceAutoInstalled: false,
@@ -65,18 +66,17 @@ test('reviewed headless bookkeeping accepts bounded client-shaped values with di
     assert.equal(result.accepted, true, key); assert.deepEqual(result.diagnoses, []);
   }
   assert.equal(verdicts(bookkeeping).accepted, true);
-  assert.equal(verdicts({ passesLastSeenRemaining: null }).accepted, true);
-  const { model, ...withoutModel } = slot;
-  assert.equal(verdicts({ clientDataCacheSlots: { request: withoutModel } }).accepted, true);
+  assert.equal(verdicts({ hasVisitedPasses: true }).accepted, true);
+  assert.equal(verdicts({ closedIssuesAcknowledged: [] }).accepted, true);
+  for (const key of ['closedIssuesLastChecked', 'passesLastSeenRemaining', 'teamOnboardingLastUsedAt'])
+    for (const value of [0, Number.MAX_SAFE_INTEGER]) assert.equal(verdicts({ [key]: value }).accepted, true, key);
 });
 
 test('each bookkeeping admission refuses incompatible shapes and nested grants', () => {
   const wrong = {
-    claudeAiMcpEverConnected: [1], clientDataCacheSlots: { request: { ...slot, at: '1000' } },
-    closedIssuesAcknowledged: [-1], closedIssuesLastChecked: '1000', fotwClaimedFeatures: { account: [false] },
-    fotwEligibilityCache: { account: { campaign: { ...eligibility, info: { ...eligibility.info, granted: 'false' } } } },
-    githubWebConnectionStatusCache: [], hasRunUltrareview: 1, hasSeenAutoModeEntryWarning: null, hasVisitedPasses: 'false',
-    mcpNeedsAuthNoticed: [1], migrationVersion: 15, passesLastSeenRemaining: -1, teamOnboardingLastUsedAt: -1
+    closedIssuesAcknowledged: [-1], closedIssuesLastChecked: '1000',
+    hasSeenAutoModeEntryWarning: false, hasVisitedPasses: 'false',
+    passesLastSeenRemaining: -1, teamOnboardingLastUsedAt: -1
   };
   const grants = ['mcpServers', 'allowedTools', 'mcpContextUris', 'enabledMcpjsonServers', 'disabledMcpjsonServers',
     'enableAllProjectMcpServers', 'hasTrustDialogAccepted', 'hasClaudeMdExternalIncludesApproved', 'ignorePatterns',
@@ -100,18 +100,49 @@ test('each bookkeeping admission refuses incompatible shapes and nested grants',
   }
 });
 
-test('bookkeeping bounds and closed response metadata reject unsupported client shapes', () => {
-  for (const key of ['claudeAiMcpEverConnected', 'mcpNeedsAuthNoticed', 'closedIssuesAcknowledged'])
-    assert.equal(verdicts({ [key]: Array(1025).fill(key === 'closedIssuesAcknowledged' ? 1 : 'sample') }).accepted, false, key);
-  assert.equal(verdicts({ fotwClaimedFeatures: { account: Array(1025).fill('sample') } }).accepted, false);
-  assert.equal(verdicts({ migrationVersion: '14' }).accepted, false);
-  for (const value of [null, [], { ...slot, extra: true }, { ...slot, model: null }, { ...slot, data: { a: { b: { c: { d: { e: 1 } } } } } },
-    { ...slot, org: 'x'.repeat(65537) }]) assert.equal(verdicts({ clientDataCacheSlots: { request: value } }).accepted, false);
-  for (const entry of [{ ...eligibility, timestamp: -1 }, { ...eligibility, extra: true },
-    { ...eligibility, info: { ...eligibility.info, amount_minor_units: -1 } },
-    { ...eligibility, info: { ...eligibility.info, extra: true } }])
-    assert.equal(verdicts({ fotwEligibilityCache: { account: { campaign: entry } } }).accepted, false);
-  assert.equal(verdicts({ githubWebConnectionStatusCache: { a: { b: { c: true } } } }).accepted, false);
+test('notice bookkeeping rejects fractional, negative, unsafe and NaN-like numbers', () => {
+  assert.equal(verdicts({ closedIssuesAcknowledged: Array(1024).fill(1) }).accepted, true);
+  assert.equal(verdicts({ closedIssuesAcknowledged: Array(1025).fill(1) }).accepted, false);
+  for (const key of ['closedIssuesLastChecked', 'passesLastSeenRemaining', 'teamOnboardingLastUsedAt']) {
+    for (const value of [-0.5, 1.5, -1, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, null, 'NaN', '1000', false, [], {}]) {
+      const result = verdicts({ [key]: value });
+      assert.equal(result.accepted, false, `${key}/${String(value)}`);
+      assert.deepEqual(result.diagnoses, [{ reason: 'value-shape', token: key }]);
+    }
+  }
+  for (const value of [1.5, -0.5, null, '1', false, {}])
+    assert.equal(verdicts({ closedIssuesAcknowledged: [value] }).accepted, false);
+  for (const token of ['NaN', 'Infinity']) {
+    const input = Buffer.from(`{"closedIssuesLastChecked":${token}}`), diagnoses = [];
+    assert.equal(inspectClaudeGlobalState(input), false);
+    assert.equal(inspectClaudeGlobalState(input, { diagnose: value => diagnoses.push(value) }), false);
+    assert.deepEqual(diagnoses, [{ reason: 'malformed-json', token: null }]);
+  }
+});
+
+test('the migration batch marker admits only the pinned batch constant', () => {
+  assert.equal(verdicts({ migrationVersion: 14 }).accepted, true);
+  for (const value of [13, 15, '14', 14.5, -14, null, true, [], {}]) {
+    const result = verdicts({ migrationVersion: value });
+    assert.equal(result.accepted, false, JSON.stringify(value));
+    assert.deepEqual(result.diagnoses, [{ reason: 'value-shape', token: 'migrationVersion' }]);
+  }
+});
+
+test('unsupported reader/caller keys are refused and disclosed even with writer-shaped or empty values', () => {
+  assert.equal(Object.keys(dropped).length, 7);
+  for (const [key, sample] of Object.entries(dropped)) for (const value of [sample, true, false, null, 0, 14, '', [], {}]) {
+    const result = verdicts({ [key]: value });
+    assert.equal(result.accepted, false, key);
+    assert.deepEqual(result.diagnoses, [{ reason: 'unknown-global-key', token: key }]);
+  }
+  for (const value of [{ status: { arbitrary: true }, unreviewedField: 42 },
+    { ...dropped.githubWebConnectionStatusCache, unreviewedField: 42 },
+    { ...dropped.githubWebConnectionStatusCache, status: { arbitrary: true } }]) {
+    const result = verdicts({ githubWebConnectionStatusCache: value });
+    assert.equal(result.accepted, false);
+    assert.deepEqual(result.diagnoses, [{ reason: 'unknown-global-key', token: 'githubWebConnectionStatusCache' }]);
+  }
 });
 
 test('behavior inputs and interactive writers remain refused, including false or empty values', () => {
@@ -124,7 +155,7 @@ test('behavior inputs and interactive writers remain refused, including false or
 });
 
 test('all 90 reviewed names disclose only as global keys; an unreviewed name retains an ordinal', () => {
-  const names = [...Object.keys(bookkeeping), ...Object.keys(disabledMarketplace), ...Object.keys(providerState), ...behavioral, ...interactive];
+  const names = [...Object.keys(bookkeeping), ...Object.keys(dropped), 'migrationVersion', ...Object.keys(disabledMarketplace), ...Object.keys(providerState), ...behavioral, ...interactive];
   assert.equal(new Set(names).size, 90);
   for (const name of names) {
     const classifier = createPersistenceDiagnosticClassifier();

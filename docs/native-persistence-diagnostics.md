@@ -122,6 +122,18 @@ independent. Selected settings mutations still fail persistence validation;
 These reviewed key names are disclosed only at their global-key location;
 diagnostics disclose no values and never change admission.
 
+Six additional reviewed notice/history keys are admitted: `closedIssuesAcknowledged`
+(at most 1024 nonnegative safe integer issue numbers), `closedIssuesLastChecked`
+and `teamOnboardingLastUsedAt` (nonnegative safe integer timestamps),
+`hasSeenAutoModeEntryWarning` (only `true`), `hasVisitedPasses` (boolean), and
+`passesLastSeenRemaining` (a nonnegative safe integer, without `null`).
+`clientDataCacheSlots`, `fotwClaimedFeatures`, `fotwEligibilityCache`,
+`githubWebConnectionStatusCache`, `claudeAiMcpEverConnected`, `mcpNeedsAuthNoticed`,
+and `hasRunUltrareview` remain refused as `unknown-global-key`. `migrationVersion` is admitted only as
+the pinned migration-batch constant `14`; its only reader skips re-running that batch, the batch's own
+markers stay individually inspected, and settings it writes remain subject to persistence checks.
+Their reviewed names remain in the independent disclosure dictionary.
+
 The exact home `.claude/sessions` path is admitted only as an ordinary empty
 directory at each persistence checkpoint, after descendant quiescence. Absence
 is also accepted. Any child (including a PID record, socket-path record, nested

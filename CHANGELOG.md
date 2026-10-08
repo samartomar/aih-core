@@ -2,9 +2,14 @@
 
 ## Unreleased
 
-Core 1.0.0-dev.26 admits additional bounded Claude Code 2.1.285 response caches,
-history markers and the exact completed migration batch. New record admissions
-reject nested grant names. Both session environments on every platform fix
+Core 1.0.0-dev.26 admits six bounded Claude Code 2.1.285 notice/history markers
+and the pinned migration-batch constant 14.
+Issue-check and onboarding timestamps accept only nonnegative safe integers;
+the auto-mode warning marker accepts only `true`, and guest-pass remaining counts
+reject `null`. Unsupported response slots, campaign caches, GitHub connection
+status, MCP histories and review-use keys remain refused while
+diagnostics disclose their reviewed names. Bookkeeping maps reject nested grant
+names. Both session environments on every platform fix
 `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` and
 `CLAUDE_CODE_DISABLE_FAST_MODE=1`; either managed env key's presence is a managed
 restriction regardless of value. Global marketplace state admits only the complete
