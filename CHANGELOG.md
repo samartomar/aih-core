@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.25 applies backpressure in the Linux facility helper: child and
+peer bytes are read only while its outbound queue can accept another data frame,
+so a slow consumer no longer overflows the queue, silently drops output, loses an
+output-limit failure or leaves cleanup unresolved. The rebuilt helper carries a
+new build record. Windows mechanism tests now give preparation a deadline that
+loaded runners cannot exhaust before the behaviour under test. This development
+candidate has not been published to npm.
+
 Core 1.0.0-dev.24 accepts Claude's first-start version as bounded text and its
 artifact-roster denial metadata as a shallow record of bounded scalar values.
 Record-valued first-start versions, nested grants and other unsupported shapes

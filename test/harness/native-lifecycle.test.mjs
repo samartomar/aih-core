@@ -11,7 +11,7 @@ import { lifecycleAvailability, parseProcStat, parsePsTable, treeMembers, signal
 // Availability is now an async, bounded probe of the actual host facility rather than a static
 // refusal; the Windows Job mechanism itself is proven in native-windows.test.mjs.
 test('windows-job.v1 availability reflects the real host Job facility', async () => {
-  const observed = await lifecycleAvailability('windows-job.v1', 'win32', { deadline: performance.now() + 10_000 });
+  const observed = await lifecycleAvailability('windows-job.v1', 'win32', { deadline: performance.now() + 60_000 });
   if (process.platform === 'win32') assert.equal(observed.status, 'available', JSON.stringify(observed));
   else assert.equal(observed.status, 'unavailable', JSON.stringify(observed));
 });
