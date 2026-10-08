@@ -85,7 +85,11 @@ wrong-account/refresh cross-check; promotion evidence must record this limitatio
 and the owner's acceptance. Neither kind is provider-signed attestation. See the
 [collector diagnostics contract](native-linux-verification.md) for the shared
 counts-only record. Managed policy remains effective, and unobserved policy sources
-remain limitations.
+remain limitations. The non-Linux file observer shares the Linux observer's
+managed `env` classification: fixed or telemetry switch keys, matched
+case-insensitively, are `restricted`; any other key or a non-object block is
+unreadable and makes tool restrictions unavailable; an absent or empty block is
+clear.
 
 This Claude candidate has no whole-client isolation mechanism. The documented
 sandbox covers shell commands and their children, while built-in file tools, MCP

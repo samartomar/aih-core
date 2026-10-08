@@ -108,6 +108,11 @@
       "else": { "properties": { "platform": { "type": "object", "properties": { "os": { "enum": ["linux", "darwin"] } } } } }
     },
     {
+      "$comment": "No 1.0.0 definition is a registered admission, so 1.0.0 cannot express the admitted state.",
+      "if": { "properties": { "state": { "const": "admitted" } }, "required": ["state"] },
+      "then": false
+    },
+    {
       "if": { "properties": { "state": { "const": "candidate" } }, "required": ["state"] },
       "then": { "properties": { "evidenceSha256": { "type": "null" } } },
       "else": { "properties": { "evidenceSha256": { "$ref": "#/$defs/sha256" } } }

@@ -131,7 +131,9 @@ awaited before init within the client's bounded timeout. Authentication uses
 it loses the runtime wrong-account/refresh cross-check and is not provider-signed
 attestation. The documented proxy and policy limitations still apply.
 The Windows definition remains a candidate with null evidence and requires
-`--candidate-smoke`; passing a smoke never changes admission. All eleven selected client
+`--candidate-smoke`; passing a smoke never changes admission. The portable
+validator and the 1.1.0 definition schema both accept an admitted state only as
+an exact registered admitted descriptor. All eleven selected client
 IDs remain available for explicit, honest outcomes: Claude, Codex, Cursor,
 Gemini, Copilot, Windsurf, OpenCode, Kimi, Kiro, Antigravity and Zed.
 

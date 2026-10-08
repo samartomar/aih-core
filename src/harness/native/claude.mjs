@@ -6,6 +6,7 @@ import { posix, win32, join } from 'node:path';
 import { canonicalJson, isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
 import { sha256 } from './digest.mjs';
+import { classifyManagedEnv } from './managed-env.mjs';
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SERVER_STATUSES = ['connected', 'pending', 'failed', 'needs-auth', 'disabled'];
@@ -241,10 +242,16 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     if (read.absent) continue;
     if (read.unreadable) { unreadable = true; continue; }
     let value;
-    try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
+    // Strict parsing as on Linux: a duplicate key cannot silently drop an earlier restriction.
+    try { value = parseStrictJson(read.text, nativeBounds.jsonDepth); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|MCP_CONNECTION_NONBLOCKING$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/i.test(key))) restricted = true;
+    // Same env classification as the Linux observer: an unrecognised or malformed env block fails closed.
+    if (Object.hasOwn(value, 'env')) {
+      const env = classifyManagedEnv(value.env);
+      if (env === 'restricted') restricted = true;
+      else if (env === 'unreadable') unreadable = true;
+    }
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;
