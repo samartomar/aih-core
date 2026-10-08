@@ -58,9 +58,11 @@ test('session freshness: unobservable, reused and distinct ids', () => {
   assert.ok(fresh.rows.every(r => r.session === 2));
 });
 
-test('loading mode: absent server fails, failed server is unavailable, unknown stays unobservable', () => {
+test('loading mode: only connected passes, absent fails and unsuccessful statuses remain unavailable', () => {
+  assert.deepEqual(pair(evaluateClaudeSession(input()), 'loading-mode'), ['passed', 'observed']);
   assert.deepEqual(pair(evaluateClaudeSession(input({ stream: stream({ serverStatus: 'absent' }) })), 'loading-mode'), ['failed', 'configuration-not-loaded']);
-  assert.deepEqual(pair(evaluateClaudeSession(input({ stream: stream({ serverStatus: 'failed' }) })), 'loading-mode'), ['unavailable', 'server-evidence-unavailable']);
+  for (const serverStatus of ['failed', 'pending', 'needs-auth', 'disabled', 'other'])
+    assert.deepEqual(pair(evaluateClaudeSession(input({ stream: stream({ serverStatus }) })), 'loading-mode'), ['unavailable', 'server-evidence-unavailable']);
   assert.deepEqual(pair(evaluateClaudeSession(input({ stream: stream({ serverStatus: null }) })), 'loading-mode'), ['unavailable', 'loading-mode-unobservable']);
 });
 
@@ -76,10 +78,11 @@ test('a positively observed managed restriction takes precedence over an omitted
   assert.deepEqual(pair(evaluateClaudeSession(input({ managed: { outcome: 'unreadable' } })), 'tool-restrictions'), ['unavailable', 'restriction-unobservable']);
 });
 
-test('managed marketplace and fast-mode key presence yields managed-restriction in both sessions', t => {
+test('managed fixed env key presence yields managed-restriction in both sessions', t => {
   const directory = mkdtempSync(join(tmpdir(), 'aihq-session-policy-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+  for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE',
+    'MCP_CONNECTION_NONBLOCKING', 'mcp_connection_nonblocking', 'Mcp_Connection_Nonblocking'])
     for (const value of ['', '0', 'false', '1']) {
       writeFileSync(join(directory, 'managed-settings.json'), JSON.stringify({ env: { [key]: value } }));
       for (const sessionIndex of [1, 2]) {

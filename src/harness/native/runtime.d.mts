@@ -113,7 +113,8 @@ export function serverEvidenceSpec(resolved: ResolvedFixture): ServerEvidenceSpe
 export type ClaudeStreamOptions = { serverName: string; attestTool: string; queryTool: string; expectedAnswer: string; markerSha256: string;
   challenge: string; maxBytes?: number; maxRecordBytes?: number };
 export type ClaudeStreamObservation = { status: 'ok' | 'limit-exceeded' | 'malformed'; bytes: number; records: number; sessionId: string | null;
-  sessionIdConsistent: boolean; serverStatus: string | null; visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
+  sessionIdConsistent: boolean; serverStatus: 'connected' | 'pending' | 'failed' | 'needs-auth' | 'disabled' | 'absent' | 'other' | null;
+  visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
   permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; answerSha256: string | null; resultSubtype: string | null; resultIsError: boolean | null;
   errorClass: 'none' | 'authentication' | 'forbidden' | 'rate-limit' | 'overloaded' | 'network' | 'other';
   unselectedTools: number; unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };

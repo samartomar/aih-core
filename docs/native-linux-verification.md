@@ -129,6 +129,25 @@ restriction takes precedence over unreadable sibling keys or sources; malformed
 or unreadable policy alone remains unreadable. Verification never overrides
 managed policy, and unobserved managed sources remain an evidence limitation.
 
+Both session environments also set literal `MCP_CONNECTION_NONBLOCKING=false`,
+regardless of host values. The pinned Claude Code 2.1.285 client awaits configured
+MCP connections before emitting init and starting the first turn. Acceptance
+covers this verifier's fixed environment, not default client startup timing.
+Presence of this key in managed env, regardless of value (including Windows case
+variants), yields `restricted` / `managed-restriction`; verification does not
+override managed policy. Pending, failed, authentication-required and disabled
+servers remain nonpassing, and an observed list lacking the selected server
+remains `configuration-not-loaded`. Deadlines, cancellation and cleanup are
+unchanged.
+
+Optional `aih.native.diagnostics.v1` session records include `init.serverStatus`
+for the selected server, restricted to `connected`, `pending`, `failed`,
+`needs-auth`, `disabled`, `absent`, `other` or `unobserved`. Unknown or malformed
+statuses become `other`; no usable init/server-list observation becomes
+`unobserved`. `absent` requires an observed server list lacking the selected
+server. Diagnostics publish no raw status text or server identities and do not
+change verdicts or first-failure precedence.
+
 Both session environments also fix
 `CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` and
 `CLAUDE_CODE_DISABLE_FAST_MODE=1`, regardless of host values. Presence of either

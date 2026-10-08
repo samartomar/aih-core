@@ -68,13 +68,14 @@ const RESTRICTING_KEYS = Object.freeze([
   'deniedPlugins'
 ]);
 
-// Fixed-disable and telemetry environment keys can change invocation behavior or the collector channel, which the
+// Fixed invocation and telemetry environment keys can change startup behavior or the collector channel, which the
 // native cell depends on. They are a positive restriction, not a benign preference.
 const TELEMETRY_ENV_KEYS = Object.freeze([
   // A settings env block can replace inherited values, including the fixed disable switch.
   /^CLAUDE_CODE_DISABLE_AUTO_MEMORY$/,
   /^CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$/,
   /^CLAUDE_CODE_DISABLE_FAST_MODE$/,
+  /^MCP_CONNECTION_NONBLOCKING$/i,
   /^OTEL_/,
   /^CLAUDE_CODE_ENABLE_TELEMETRY/,
   /^CLAUDE_CODE_ENHANCED/,
