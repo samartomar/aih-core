@@ -422,6 +422,12 @@ test('unrecognised or malformed managed env blocks fail closed on both observers
       assert.deepEqual(outcomes(source(join(root, `unknown-${name}`), { settings: { env } })), ['unreadable', 'unreadable'], name);
     for (const [name, env] of Object.entries({ string: 'nope', array: [], nil: null, number: 1 }))
       assert.deepEqual(outcomes(source(join(root, `malformed-${name}`), { settings: { env } })), ['unreadable', 'unreadable'], name);
+    // Prototype-shaped and empty names are own keys of the parsed block, never a benign or inherited value.
+    for (const [name, text] of Object.entries({ proto: '{"env":{"__proto__":{}}}', protoNull: '{"env":{"__proto__":null}}',
+      constructor: '{"env":{"constructor":"1"}}', empty: '{"env":{"":"1"}}',
+      // A duplicate env key must not let a later empty block erase an earlier restriction.
+      duplicate: '{"env":{"OTEL_EXPORTER_OTLP_ENDPOINT":"http://x"},"env":{}}' }))
+      assert.deepEqual(outcomes(source(join(root, `crafted-${name}`), { settings: text })), ['unreadable', 'unreadable'], name);
     // A known key still wins over an unrecognised sibling key, in the same block or another source file.
     assert.deepEqual(outcomes(source(join(root, 'mixed'), { settings: { env: { HTTPS_PROXY: 'x', otel_logs_exporter: 'none' } } })),
       ['restricted', 'restricted']);

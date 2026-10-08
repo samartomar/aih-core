@@ -242,7 +242,8 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     if (read.absent) continue;
     if (read.unreadable) { unreadable = true; continue; }
     let value;
-    try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
+    // Strict parsing as on Linux: a duplicate key cannot silently drop an earlier restriction.
+    try { value = parseStrictJson(read.text, nativeBounds.jsonDepth); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
     // Same env classification as the Linux observer: an unrecognised or malformed env block fails closed.
