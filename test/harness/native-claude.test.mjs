@@ -279,6 +279,25 @@ test('auto-memory is disabled literally on every platform despite hostile host v
   }
 });
 
+test('both-session environments fix marketplace and fast-mode switches on every platform', () => {
+  for (const platform of ['win32', 'linux', 'darwin']) for (const value of ['0', 'false', '', '1', 'hostile']) {
+    const sessions = [1, 2].map(() => buildClaudeEnvironment({ platform, hostEnv: {
+      CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: value, CLAUDE_CODE_DISABLE_FAST_MODE: value,
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://unapproved', CLAUDE_CODE_ENABLE_TELEMETRY: '0'
+    }, homeDir: platform === 'win32' ? 'C:/cell/home' : '/cell/home', scratchDir: '/cell/scratch', runtimeDirs: [],
+    telemetry: { endpoint: 'http://127.0.0.1:4318', token: 'synthetic' }, evidence: { endpoint: 'synthetic', token: 'synthetic' } }));
+    assert.deepEqual(sessions[1], sessions[0], `${platform}: ${value}`);
+    for (const env of sessions) {
+      assert.equal(env.CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL, '1');
+      assert.equal(env.CLAUDE_CODE_DISABLE_FAST_MODE, '1');
+      assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
+      assert.equal(env.CLAUDE_CODE_ENABLE_TELEMETRY, '1');
+      assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318/v1/logs');
+      assert.equal(Object.hasOwn(env, 'OTEL_EXPORTER_OTLP_ENDPOINT'), false);
+    }
+  }
+});
+
 
 test('all-platform managed observer refuses auto-memory policy without overriding it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aihq-managed-memory-'));
@@ -290,5 +309,22 @@ test('all-platform managed observer refuses auto-memory policy without overridin
       assert.equal(observeClaudeManagedSettings({ directory: dir }).outcome, 'restricted');
       assert.equal(readFileSync(file, 'utf8'), bytes);
     }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('all-platform managed switch presence wins over unreadable siblings without policy writes', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aihq-managed-switches-'));
+  try {
+    mkdirSync(join(dir, 'managed-settings.d'));
+    writeFileSync(join(dir, 'managed-settings.d', 'broken.json'), '{broken');
+    for (const platform of ['win32', 'linux', 'darwin'])
+      for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+        for (const value of ['', '0', 'false', '1', false, 0, null]) {
+          const file = join(dir, 'managed-settings.json');
+          const bytes = JSON.stringify({ env: { [key]: value }, unknownPolicy: {} });
+          writeFileSync(file, bytes);
+          assert.equal(observeClaudeManagedSettings({ platform, directory: dir }).outcome, 'restricted', `${platform}/${key}/${value}`);
+          assert.equal(readFileSync(file, 'utf8'), bytes);
+        }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -4,8 +4,18 @@
 
 Core 1.0.0-dev.26 admits additional bounded Claude Code 2.1.285 response caches,
 history markers and the exact completed migration batch. New record admissions
-reject nested grant names. Client-written model, marketplace, remote-control,
-transport and preference inputs remain refused. Persistence diagnostics name
+reject nested grant names. Both session environments on every platform fix
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` and
+`CLAUDE_CODE_DISABLE_FAST_MODE=1`; either managed env key's presence is a managed
+restriction regardless of value. Global marketplace state admits only the complete
+disabled tuple (`Attempted=true`, `Installed=false`, `FailReason="policy_blocked"`)
+or complete absence; retry counters and timestamps remain refused. Bounded closed
+`modelAccessCache` records and boolean `penguinModeOrgEnabled` are admitted as
+behavior-relevant provider state under the existing provider-cache limitation,
+pinned to Claude Code 2.1.285. Selected settings mutations still fail persistence.
+`lastSeenOrgDefaultUpdatedAt`, `gzipRequestBodiesLatchedOff`, other model choices,
+marketplace installation, remote-control, transport and preference inputs remain
+refused. Persistence diagnostics name
 reviewed global updater keys while retaining ordinal tokens for unreviewed names;
 values are never disclosed and admission decisions are unchanged by diagnostics.
 The existing diagnostic contract continues to report the first inspected-state

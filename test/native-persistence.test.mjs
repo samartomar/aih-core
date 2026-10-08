@@ -598,3 +598,21 @@ test('admitted housekeeping and registry state still refuse selected-byte mutati
   verdictPair(cell, plan, true); writeFileSync(selected, 'changed!');
   assert.equal(verdictPair(cell, plan, false).class, 'selected-member');
 });
+
+test('disabled marketplace and provider state never permit selected fast-mode settings mutation', t => {
+  const cell = cellFixture(t), plan = { ...claudePlan(), inspect: (_root, _path, bytes) => inspectClaudeGlobalState(bytes) };
+  mkdirSync(join(cell.home, '.claude'), { recursive: true });
+  writeFileSync(join(cell.home, '.claude', '.claude.json'), JSON.stringify({
+    officialMarketplaceAutoInstallAttempted: true, officialMarketplaceAutoInstalled: false,
+    officialMarketplaceAutoInstallFailReason: 'policy_blocked',
+    modelAccessCache: [{ apiName: 'sample', entitled: true }], penguinModeOrgEnabled: false
+  }));
+  const selected = join(cell.home, '.claude', 'settings.json'), original = '{"fastMode":false}';
+  writeFileSync(selected, original);
+  cell.tree = [{ root: 'home', path: '.claude/settings.json', member: { byteLength: Buffer.byteLength(original), sha256: sha256(original) } }];
+  for (const checkpoint of ['before-session-2', 'after-session-2']) {
+    writeFileSync(selected, original); verdictPair(cell, plan, true);
+    writeFileSync(selected, '{"fastMode":true}');
+    assert.equal(verdictPair(cell, plan, false).class, 'selected-member', checkpoint);
+  }
+});

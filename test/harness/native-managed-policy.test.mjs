@@ -2,7 +2,7 @@
 // native Linux/WSL2 sandbox cells. Every fixture is an isolated temporary
 // directory; the helper itself performs no execution, writes or network use.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -369,4 +369,20 @@ test('managed auto-memory keys are restrictions and win over unreadable observat
       assert.equal(observeWsl(linux).outcome, 'restricted', 'restriction wins over unknown Windows source');
     }
     assert.equal(observeNative(source(join(root, 'unreadable'), { settings: '{broken' })).outcome, 'unreadable');
+  }));
+
+test('managed marketplace and fast-mode env presence restricts native and WSL policy observations', () =>
+  withRoot(root => {
+    let index = 0;
+    for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+      for (const value of ['', '0', 'false', '1', false, 0, null]) {
+        const policy = { env: { [key]: value }, unknownPolicy: {} };
+        const linux = source(join(root, `linux-${index}`), { settings: policy, dropIn: { 'broken.json': '{broken' } });
+        const windows = source(join(root, `windows-${index++}`), { dropIn: { 'switch.json': policy, 'broken.json': '{broken' } });
+        assert.equal(observeNative(linux).outcome, 'restricted', `${key}/${value}`);
+        assert.equal(observeWsl(linux).outcome, 'restricted', 'restriction wins over unknown Windows source');
+        assert.equal(observeWsl(source(join(root, 'clear')), { windowsDirectory: windows, windowsSourceKnown: true }).outcome,
+          'restricted', 'Windows policy restriction wins over unreadable drop-in');
+        assert.equal(readFileSync(join(linux, 'managed-settings.json'), 'utf8'), JSON.stringify(policy));
+      }
   }));

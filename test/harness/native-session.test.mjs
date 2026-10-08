@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { observeClaudeManagedSettings } from '../../src/harness/native/claude.mjs';
 import { evaluateClaudeSession } from '../../src/harness/native/session.mjs';
 
 const SID1 = '0f8fad5b-d9cb-469f-a165-70867728950e';
@@ -70,6 +74,22 @@ test('a positively observed managed restriction takes precedence over an omitted
   assert.deepEqual(pair(result, 'read-only-query'), ['unavailable', 'not-run-after-restriction']);
   assert.equal(result.proceed, false);
   assert.deepEqual(pair(evaluateClaudeSession(input({ managed: { outcome: 'unreadable' } })), 'tool-restrictions'), ['unavailable', 'restriction-unobservable']);
+});
+
+test('managed marketplace and fast-mode key presence yields managed-restriction in both sessions', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'aihq-session-policy-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+    for (const value of ['', '0', 'false', '1']) {
+      writeFileSync(join(directory, 'managed-settings.json'), JSON.stringify({ env: { [key]: value } }));
+      for (const sessionIndex of [1, 2]) {
+        const result = evaluateClaudeSession(input({ sessionIndex, previousSessionId: SID2,
+          managed: observeClaudeManagedSettings({ directory }), stream: stream({ serverStatus: 'absent' }), telemetry: null }));
+        for (const id of ['loading-mode', 'tool-restrictions', 'provider-authentication'])
+          assert.deepEqual(pair(result, id), ['restricted', 'managed-restriction'], `${key}/${value}/session-${sessionIndex}/${id}`);
+        assert.equal(result.proceed, false);
+      }
+    }
 });
 
 test('identity telemetry reasons map without inventing loading defects', () => {

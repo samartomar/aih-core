@@ -20,14 +20,19 @@ const bookkeeping = {
   mcpNeedsAuthNoticed: ['sample-server'], migrationVersion: 14,
   passesLastSeenRemaining: 1, teamOnboardingLastUsedAt: 1000
 };
+const disabledMarketplace = {
+  officialMarketplaceAutoInstallAttempted: true, officialMarketplaceAutoInstalled: false,
+  officialMarketplaceAutoInstallFailReason: 'policy_blocked'
+};
+const providerState = { modelAccessCache: [{ apiName: 'sample-model', entitled: true }], penguinModeOrgEnabled: false };
 const behavioral = [
   'autoConnectIde', 'autoUpdatesChannel', 'bridgeOauthDeadExpiresAt', 'bridgeOauthDeadFailCount', 'briefTranscript',
   'chromeExtension', 'claudeCodeHints', 'claudeInChromeDefaultEnabled', 'codeReviewLastEffort', 'diffTool',
   'fableOverageConsentV2', 'githubRepoPaths', 'gzipRequestBodiesLatchedOff', 'hasRemoteEnvironment',
   'hasSeenUltraplanTerms', 'lastSeenOrgDefaultUpdatedAt', 'lspRecommendationDisabled', 'lspRecommendationNeverPlugins',
-  'minimumVersion', 'modelAccessCache', 'officialMarketplaceAutoInstallAttempted', 'officialMarketplaceAutoInstallFailReason',
+  'minimumVersion',
   'officialMarketplaceAutoInstallLastAttemptTime', 'officialMarketplaceAutoInstallNextRetryTime',
-  'officialMarketplaceAutoInstallRetryCount', 'officialMarketplaceAutoInstalled', 'penguinModeOrgEnabled',
+  'officialMarketplaceAutoInstallRetryCount',
   'remoteControlAtStartup', 'replBridgePlaceholders'
 ];
 const interactive = [
@@ -110,7 +115,7 @@ test('bookkeeping bounds and closed response metadata reject unsupported client 
 });
 
 test('behavior inputs and interactive writers remain refused, including false or empty values', () => {
-  assert.equal(behavioral.length, 29); assert.equal(interactive.length, 47);
+  assert.equal(behavioral.length, 24); assert.equal(interactive.length, 47);
   for (const key of [...behavioral, ...interactive]) for (const value of [true, false, null, 'sample', 1, [], {}]) {
     const result = verdicts({ [key]: value });
     assert.equal(result.accepted, false, key);
@@ -119,7 +124,7 @@ test('behavior inputs and interactive writers remain refused, including false or
 });
 
 test('all 90 reviewed names disclose only as global keys; an unreviewed name retains an ordinal', () => {
-  const names = [...Object.keys(bookkeeping), ...behavioral, ...interactive];
+  const names = [...Object.keys(bookkeeping), ...Object.keys(disabledMarketplace), ...Object.keys(providerState), ...behavioral, ...interactive];
   assert.equal(new Set(names).size, 90);
   for (const name of names) {
     const classifier = createPersistenceDiagnosticClassifier();
@@ -128,9 +133,32 @@ test('all 90 reviewed names disclose only as global keys; an unreviewed name ret
     assert.equal(classifier.key('global', name.toUpperCase()), 'unknown-2');
   }
   assert.deepEqual(verdicts({ modelAccessCache: ['privacy-canary-value'] }).diagnoses,
-    [{ reason: 'unknown-global-key', token: 'modelAccessCache' }]);
+    [{ reason: 'value-shape', token: 'modelAccessCache' }]);
   assert.deepEqual(verdicts({ 'privacy-canary-name': 'privacy-canary-value', remoteControlAtStartup: true }).diagnoses,
     [{ reason: 'unknown-global-key', token: 'unknown-1' }]);
+});
+
+test('marketplace state admits only complete absence or the exact coherent disabled tuple', () => {
+  assert.equal(verdicts({}).accepted, true);
+  assert.equal(verdicts(disabledMarketplace).accepted, true);
+  assert.equal(verdicts({ ...bookkeeping, ...disabledMarketplace }).accepted, true);
+  const entries = Object.entries(disabledMarketplace);
+  // Enumerate every nonempty partial tuple, including pairs in reversed key order.
+  for (let mask = 1; mask < 7; mask++) {
+    const partial = Object.fromEntries(entries.filter((_, index) => mask & (1 << index)).reverse());
+    assert.equal(verdicts(partial).accepted, false, `partial tuple ${mask}`);
+  }
+  for (const [key, expected] of entries)
+    for (const value of [true, false, null, 0, 1, 'true', 'false', 'policy_blocked', 'unknown', '', [], {}]) {
+      if (value === expected) continue;
+      assert.equal(verdicts({ ...disabledMarketplace, [key]: value }).accepted, false, `${key}/${JSON.stringify(value)}`);
+    }
+  for (const key of ['officialMarketplaceAutoInstallRetryCount', 'officialMarketplaceAutoInstallLastAttemptTime',
+    'officialMarketplaceAutoInstallNextRetryTime']) for (const value of [false, null, 0, 1, '', {}, []]) {
+    assert.equal(verdicts({ [key]: value }).accepted, false, key);
+    assert.equal(verdicts({ ...disabledMarketplace, [key]: value }).accepted, false, key);
+  }
+  assert.equal(verdicts({ projects: { sample: disabledMarketplace } }).accepted, false);
 });
 
 test('published first-only diagnostics retain reviewed names and omit values', () => {
@@ -146,9 +174,31 @@ test('published first-only diagnostics retain reviewed names and omit values', (
         truncated: true, inspectedDiagnosis: result.diagnoses[0] });
     }
     assert.deepEqual(records.map(record => record.inspectedDiagnosis), [
-      { reason: 'unknown-global-key', token: 'modelAccessCache' }, { reason: 'unknown-global-key', token: 'unknown-1' }
+      { reason: 'value-shape', token: 'modelAccessCache' }, { reason: 'unknown-global-key', token: 'unknown-1' }
     ]);
     assert.equal(JSON.stringify(records).includes('privacy-canary'), false);
     for (const record of records) assert.ok(Object.isFrozen(record.inspectedDiagnosis));
   } finally { stream.unsubscribe(subscriber); }
+});
+
+test('behavior-relevant provider state admits only bounded closed model access records and boolean org state', () => {
+  assert.equal(verdicts(providerState).accepted, true);
+  assert.equal(verdicts({ ...bookkeeping, ...disabledMarketplace, ...providerState }).accepted, true);
+  for (const value of [[], [{ apiName: '', entitled: false }],
+    Array(256).fill({ apiName: 'sample', entitled: true })]) {
+    assert.equal(verdicts({ modelAccessCache: value }).accepted, true);
+  }
+  assert.equal(verdicts({ modelAccessCache: [{ apiName: 'x'.repeat(65536), entitled: true }] }).accepted, true);
+  for (const value of [null, false, 0, '', {}, ['sample'], [null], [[]], [{}],
+    [{ apiName: 'sample' }], [{ entitled: true }], [{ apiName: 1, entitled: true }],
+    [{ apiName: null, entitled: true }], [{ apiName: {}, entitled: true }],
+    [{ apiName: 'sample', entitled: 'true' }], [{ apiName: 'sample', entitled: 0 }],
+    [{ apiName: 'sample', entitled: null }], [{ apiName: 'x'.repeat(65537), entitled: true }],
+    [{ apiName: 'sample', entitled: true, extra: false }],
+    [{ apiName: 'sample', entitled: true, env: {} }], Array(257).fill({ apiName: 'sample', entitled: true })])
+    assert.equal(verdicts({ modelAccessCache: value }).accepted, false, JSON.stringify(value).slice(0, 100));
+  for (const value of [true, false]) assert.equal(verdicts({ penguinModeOrgEnabled: value }).accepted, true);
+  for (const value of [null, 0, 1, '', 'false', 'true', [], {}])
+    assert.equal(verdicts({ penguinModeOrgEnabled: value }).accepted, false);
+  assert.equal(verdicts({ projects: { sample: providerState } }).accepted, false);
 });

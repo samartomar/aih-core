@@ -103,6 +103,25 @@ restriction takes precedence over unreadable sibling keys or sources; malformed
 or unreadable policy alone remains unreadable. Verification never overrides
 managed policy, and unobserved managed sources remain an evidence limitation.
 
+Both session environments also fix
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1` and
+`CLAUDE_CODE_DISABLE_FAST_MODE=1`, regardless of host values. Presence of either
+managed env key, including empty, `0` or `false` values, is
+`restricted` / `managed-restriction` with the same precedence. For the pinned
+Claude Code 2.1.285 client, global state admits only the complete disabled tuple
+`officialMarketplaceAutoInstallAttempted=true`, `officialMarketplaceAutoInstalled=false`,
+and `officialMarketplaceAutoInstallFailReason="policy_blocked"`, or complete
+absence. Partial tuples, other values and retry counters/timestamps remain refused.
+No plugin files, configuration or installation paths are admitted by this rule.
+The existing provider-cache limitation additionally admits behavior-relevant
+`modelAccessCache` (at most 256 closed `{apiName: string, entitled: boolean}`
+records; each string at most 65536 characters) and boolean `penguinModeOrgEnabled`.
+Each session's authentication, loading, restriction and tool evidence remains
+independent. Selected settings mutations still fail persistence validation;
+`lastSeenOrgDefaultUpdatedAt` and `gzipRequestBodiesLatchedOff` remain refused.
+These reviewed key names are disclosed only at their global-key location;
+diagnostics disclose no values and never change admission.
+
 The exact home `.claude/sessions` path is admitted only as an ordinary empty
 directory at each persistence checkpoint, after descendant quiescence. Absence
 is also accepted. Any child (including a PID record, socket-path record, nested

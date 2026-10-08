@@ -63,6 +63,11 @@ const data = (depth = 4) => value => scalar(value) || (depth > 0 && (
 // Provider-response caches (feature gates, dynamic configs, experiments, usage, eligibility). Their content is the
 // provider's, kept between sessions by the client; it is accepted as an explicit limitation while every session's
 // loading, restriction, tool and authentication evidence is still observed independently.
+// Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+// modelAccessCache and penguinModeOrgEnabled are behavior-relevant provider state admitted under this same
+// limitation, even with fast mode disabled. Selected-settings mutations still fail persistence validation.
+const modelAccess = arrayOf(value => isRecord(value) && Object.keys(value).every(key =>
+  ['apiName', 'entitled'].includes(key)) && text(value.apiName) && bool(value.entitled), 256);
 const providerCache = value => value === null || isRecord(value) || Array.isArray(value) || scalar(value);
 const counterMap = recordOf(value => count(value) || recordOf(count)(value));
 // Profile metadata the client merges after authentication: known fields only.
@@ -88,6 +93,13 @@ const featureEligibility = value => isRecord(value) && Object.keys(value).every(
 const eligibilityEntry = value => isRecord(value) && Object.keys(value).every(key => ['info', 'timestamp'].includes(key)) &&
   featureEligibility(value.info) && count(value.timestamp);
 
+// Claude Code 2.1.285 under the verifier's fixed marketplace-disable switch still writes this tuple.
+// Admit it atomically or allow complete absence; no install/retry/timestamp state is admitted.
+const DISABLED_MARKETPLACE = new Map([
+  ['officialMarketplaceAutoInstallAttempted', true], ['officialMarketplaceAutoInstalled', false],
+  ['officialMarketplaceAutoInstallFailReason', 'policy_blocked']
+]);
+
 const COUNTERS = ['numStartups', 'memoryUsageCount', 'promptQueueUseCount', 'btwUseCount', 'queuedCommandUpHintCount',
   'lspRecommendationIgnoredCount', 'promptSuggestionUnusedStreak', 'subscriptionNoticeCount', 'subscriptionUpsellShownCount',
   'passesUpsellSeenCount', 'promoStartupSeenCount', 'fullscreenUpsellSeenCount', 'fullscreenDownsellSeenCount',
@@ -111,9 +123,10 @@ const GLOBAL_STATE = new Map([
   ['lastOnboardingVersion', text], ['lastReleaseNotesSeen', text], ['changelogLastFetched', number], ['oauthAccount', account],
   ['cachedExtraUsageDisabledReason', nullable(text)], ['cachedUsageUtilization', providerCache],
   ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache],
+  ['modelAccessCache', modelAccess], ['penguinModeOrgEnabled', bool],
   // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
   // reviewed headless-capable response/history writers. Server-name histories do not configure MCP; campaign
-  // histories do not enable features. Model entitlements, fast-mode consent, marketplace bootstrap/retry controls,
+  // histories do not enable features. Other model choices, fast-mode consent, marketplace install/retry controls,
   // compression latches, remote-control records and preferences remain unknown/refused even when client-written.
   ['clientDataCacheSlots', recordOf(responseSlot)], ['closedIssuesAcknowledged', arrayOf(count, 1024)],
   ['closedIssuesLastChecked', number], ['fotwClaimedFeatures', recordOf(arrayOf(text, 1024))],
@@ -200,6 +213,9 @@ export function inspectClaudeGlobalState(bytes, diagnostics = {}) {
               PROJECT_STATE.has(name) ? rejectedShapeReason(field) : 'unknown-project-key', 'project', name);
           }
         }
+      } else if (DISABLED_MARKETPLACE.has(key)) {
+        if (![...DISABLED_MARKETPLACE].every(([name, expected]) => Object.hasOwn(value, name) && value[name] === expected))
+          return fail('value-shape', 'global', key);
       } else if (!acceptedGlobal(key, entry)) return fail(GRANTS.has(key) ? 'grant-content' :
         GLOBAL_STATE.has(key) || IDENTIFIERS.has(key) || MIGRATIONS.has(key) ? rejectedShapeReason(entry) : 'unknown-global-key', 'global', key);
     }

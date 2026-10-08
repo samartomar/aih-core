@@ -130,7 +130,10 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     platform: { os: 'win32' }, lifecycleId: 'windows-job.v1', sessionArgv: [],
     credentialDestination: { root: 'home', path: '.claude/.credentials.json' } };
   const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
-    deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0' },
+    deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '',
+      CLAUDE_CODE_DISABLE_FAST_MODE: 'false'
+    },
     pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] },
     identity: { expected: { accountUuid: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' } },
     cell,
@@ -565,11 +568,13 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
 });
 
 
-test('both native session launches disable auto-memory despite a hostile host value', async t => {
+test('both native session launches disable auto-memory, marketplace and fast mode despite hostile host values', async t => {
   const launches = [];
   for (const index of [1, 2]) {
-    const { exit, handle } = await session(t, { index, environmentProbe: env => launches.push({ index, value: env.CLAUDE_CODE_DISABLE_AUTO_MEMORY }) });
+    const { exit, handle } = await session(t, { index, environmentProbe: env => launches.push({ index,
+      values: [env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, env.CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL,
+        env.CLAUDE_CODE_DISABLE_FAST_MODE] }) });
     exit({ code: 0 }); await handle.observations;
   }
-  assert.deepEqual(launches, [{ index: 1, value: '1' }, { index: 2, value: '1' }]);
+  assert.deepEqual(launches, [{ index: 1, values: ['1', '1', '1'] }, { index: 2, values: ['1', '1', '1'] }]);
 });

@@ -177,6 +177,9 @@ export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir,
     // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
     // disable auto-memory creation, extraction and next-session instruction loading.
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    // Fixed-disabled invocation: block official marketplace bootstrap and fast mode in both sessions.
+    CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '1',
+    CLAUDE_CODE_DISABLE_FAST_MODE: '1',
     CLAUDE_CODE_ENABLE_TELEMETRY: '1', OTEL_LOGS_EXPORTER: 'otlp', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
     OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: 'http/json',
     // Per-signal OTLP endpoints are used as-is; only the generic endpoint appends /v1/logs.
@@ -235,7 +238,7 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/.test(key))) restricted = true;
+    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/.test(key))) restricted = true;
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;
