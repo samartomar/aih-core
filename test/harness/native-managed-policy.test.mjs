@@ -460,7 +460,12 @@ test('non-Linux observer fails closed on unknown top-level managed keys in setti
   withRoot(root => {
     const cases = [
       ['unknown', { unknownPolicy: true }, 'unreadable'],
-      ['unknown-object', { apiKeyHelper: '/usr/bin/helper' }, 'unreadable'],
+      ['unknown-helper', { apiKeyHelper: '/usr/bin/helper' }, 'unreadable'],
+      ['unknown-object', { unknownPolicy: { enabled: true } }, 'unreadable'],
+      // Prototype-shaped and empty names are own keys of the parsed document, never an inherited known key.
+      ['proto', '{"__proto__":{}}', 'unreadable'],
+      ['constructor', '{"constructor":"x"}', 'unreadable'],
+      ['empty-name', '{"":"x"}', 'unreadable'],
       ['unknown-with-restriction', { unknownPolicy: true, permissions: { deny: ['Bash'] } }, 'restricted'],
       ['unknown-with-env-restriction', { unknownPolicy: true, env: { DISABLE_TELEMETRY: '1' } }, 'restricted'],
       ['benign-bad-case', { theme: 'Dark' }, 'unreadable'],
