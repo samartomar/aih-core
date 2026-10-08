@@ -18,7 +18,9 @@ classification. The non-Linux file observer previously treated an unrecognised
 managed env key as clear; it now fails closed as unreadable, consistent with the
 Linux/WSL2 observer, and a non-object `env` block is unreadable on both. The
 non-Linux observer also gains `DISABLE_TELEMETRY` and
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` as restrictions. Key matching is
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` as restrictions and parses managed
+settings strictly like the Linux observer, so a duplicate key is unreadable rather
+than letting a later `env` block erase an earlier restriction. Key matching is
 case-insensitive on every observer, so a case variant of a fixed or telemetry
 key read by the Linux/WSL2 observer is now `restricted` instead of unreadable.
 Absent or empty env blocks remain clear. This candidate has not been published to
