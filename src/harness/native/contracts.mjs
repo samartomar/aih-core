@@ -167,11 +167,16 @@ function validateDefinition(value) {
       (platform.execution === 'wsl2' && platform.os !== 'linux')) bad('platform', '/platform');
   if (!boundedStrings(value.clientVersions, 1, 32, 128) || value.clientVersions.some(v => !SEMVER_RE.test(v)) ||
       new Set(value.clientVersions).size !== value.clientVersions.length) bad('client-versions', '/clientVersions');
-  // A registered admission cannot inherit an untested version or replace its reviewed evidence.
+  // Admission is a registry fact: an admitted descriptor must be a registered admitted definition, byte-for-byte.
+  // It cannot inherit an untested version, replace its reviewed evidence or alter any other reviewed field.
   const admission = nativeVerificationDefinitions.find(d => d.id === value.id && d.state === 'admitted');
-  if (value.state === 'admitted' && admission) {
-    if (canonicalJson(value.clientVersions) !== canonicalJson(admission.clientVersions)) bad('client-versions', '/clientVersions');
-    if (value.evidenceSha256 !== admission.evidenceSha256) bad('evidence', '/evidenceSha256');
+  if (value.state === 'admitted') {
+    if (!admission) bad('state', '/state');
+    else {
+      if (canonicalJson(value.clientVersions) !== canonicalJson(admission.clientVersions)) bad('client-versions', '/clientVersions');
+      if (value.evidenceSha256 !== admission.evidenceSha256) bad('evidence', '/evidenceSha256');
+      if (canonicalJson(value) !== canonicalJson(admission)) bad('state', '/state');
+    }
   }
   if (!boundedStrings(value.executableNames, 1, 8, 255) || value.executableNames.some(n => /[\\/]/.test(n)))
     bad('executable-names', '/executableNames');

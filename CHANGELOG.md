@@ -9,8 +9,10 @@ by `evidenceSha256`
 `a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`;
 the tested packed artifact was Core 1.0.0-dev.27. Selection no longer requires
 `candidate-smoke` for that definition; the Windows definition remains a candidate
-with null evidence and requires that mode. Admitted descriptor validation refuses
-altered evidence and extra or unexact client versions. Platform/runtime pins,
+with null evidence and requires that mode. A descriptor is valid as admitted only
+when it exactly equals a registered admitted definition: altered evidence, extra or
+unexact client versions, any other changed field, an unregistered id and a candidate
+claiming admission are refused. Platform/runtime pins,
 argv, lifecycle, isolation and guardrails are unchanged.
 
 Acceptance covers the fixed verifier environment: auto-memory disabled,

@@ -64,9 +64,12 @@ test('a matching platform with an available lifecycle selects the descriptor and
   assert.equal(result.outcome, 'selected');
   assert.equal(result.definition.id, definition.id);
   assert.match(result.adapter.sha256, /^[0-9a-f]{64}$/);
-  const admitted = { ...definition, state: 'admitted', evidenceSha256: 'e'.repeat(64) };
-  assert.equal((await selectNativeCell({ client: 'claude', admission: 'admitted', platform: linux, definitions: [admitted] })).outcome, 'selected');
-  assert.equal((await selectNativeCell({ client: 'claude', platform: linux, definitions: [admitted] })).outcome, 'selected');
+  // A descriptor that merely claims admission is not a registered admission and is never selected as admitted.
+  const fabricated = { ...definition, state: 'admitted', evidenceSha256: 'e'.repeat(64) };
+  assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'admitted', platform: linux, definitions: [fabricated] }),
+    { outcome: 'unsupported', reason: 'cell-not-admitted' });
+  assert.deepEqual(await selectNativeCell({ client: 'claude', platform: linux, definitions: [fabricated] }),
+    { outcome: 'unsupported', reason: 'cell-not-admitted' });
 });
 
 test('client versions match exactly: no ranges, no inherited upgrades', () => {
