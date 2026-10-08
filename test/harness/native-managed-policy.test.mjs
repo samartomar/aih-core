@@ -441,3 +441,87 @@ test('absent and empty managed env blocks leave both observers clear', () =>
     assert.deepEqual(outcomes(source(join(root, 'empty'), { settings: { env: {} } })), ['clear', 'clear']);
     assert.deepEqual(outcomes(source(join(root, 'dropin-empty'), { dropIn: { 'a.json': { env: {} } } })), ['clear', 'clear']);
   }));
+
+// --- One managed top-level classification for the Linux/WSL2 and the non-Linux observers ---
+
+// Independent literals: every top-level key that must restrict on every observer, with a representative value.
+const RESTRICTING_TOP_LEVEL = {
+  autoMemoryEnabled: false, model: 'opus', effortLevel: 'high', otelHeadersHelper: '/usr/bin/helper',
+  allowManagedMcpServersOnly: true, allowedMcpServers: ['time'], deniedMcpServers: ['shell'],
+  managedMcpServers: [{ name: 'x' }], permissions: { deny: ['Bash'] }, sandbox: { enabled: true },
+  disableBypassPermissionsMode: 'disable', allowManagedHooksOnly: true, hooks: { PreToolUse: [] },
+  plugins: { enabled: [] }, enabledPlugins: ['x'], allowedPlugins: ['x'], deniedPlugins: ['x']
+};
+const NON_LINUX = ['win32', 'darwin'];
+const nonLinux = directory => NON_LINUX.map(platform => observeClaudeManagedSettings({ platform, directory }).outcome)
+  .map(outcome => outcome.replace('file-sources-clear', 'clear'));
+
+test('non-Linux observer fails closed on unknown top-level managed keys in settings and fragments', () =>
+  withRoot(root => {
+    const cases = [
+      ['unknown', { unknownPolicy: true }, 'unreadable'],
+      ['unknown-object', { apiKeyHelper: '/usr/bin/helper' }, 'unreadable'],
+      ['unknown-with-restriction', { unknownPolicy: true, permissions: { deny: ['Bash'] } }, 'restricted'],
+      ['unknown-with-env-restriction', { unknownPolicy: true, env: { DISABLE_TELEMETRY: '1' } }, 'restricted'],
+      ['benign-bad-case', { theme: 'Dark' }, 'unreadable'],
+      ['benign-bad-type', { theme: 1 }, 'unreadable'],
+      ['benign-bad-object', { theme: { name: 'dark' } }, 'unreadable'],
+      ['benign-bad-long', { theme: `d${'a'.repeat(32)}` }, 'unreadable'],
+      ['benign-valid', { theme: 'dark' }, 'clear'],
+      ['benign-valid-empty-env', { theme: 'light', env: {} }, 'clear'],
+      ['empty', {}, 'clear']
+    ];
+    for (const [name, policy, expected] of cases) {
+      assert.deepEqual(nonLinux(source(join(root, `settings-${name}`), { settings: policy })), [expected, expected], name);
+      assert.deepEqual(nonLinux(source(join(root, `fragment-${name}`), { dropIn: { 'a.json': policy } })),
+        [expected, expected], `fragment ${name}`);
+    }
+    // Across files: a restriction in one file wins over an unknown key in another; an unknown key beats a clear sibling.
+    assert.deepEqual(nonLinux(source(join(root, 'split-restricted'), { settings: { unknownPolicy: 1 },
+      dropIn: { 'a.json': { hooks: {} } } })), ['restricted', 'restricted']);
+    assert.deepEqual(nonLinux(source(join(root, 'split-unreadable'), { settings: { theme: 'dark' },
+      dropIn: { 'a.json': { theme: 'dark' }, 'b.json': { unknownPolicy: 1 } } })), ['unreadable', 'unreadable']);
+    // managed-mcp.json is unchanged: presence restricts, even beside an unknown settings key.
+    assert.deepEqual(nonLinux(source(join(root, 'mcp'), { settings: { unknownPolicy: 1 }, mcp: {} })), ['restricted', 'restricted']);
+  }));
+
+test('every restricting top-level managed key restricts both observers', () =>
+  withRoot(root => {
+    for (const [key, value] of Object.entries(RESTRICTING_TOP_LEVEL)) {
+      const directory = source(join(root, key), { settings: { [key]: value, unknownPolicy: {} } });
+      assert.deepEqual(outcomes(directory), ['restricted', 'restricted'], key);
+      assert.deepEqual(nonLinux(directory), ['restricted', 'restricted'], key);
+    }
+  }));
+
+// Top-level keys are JSON property names, which Claude Code matches exactly on every OS: a case variant is an
+// unrecognised setting, never the known key and never clear.
+test('top-level managed key casing is exact on every observer and a case variant is unreadable', () =>
+  withRoot(root => {
+    for (const key of ['Theme', 'THEME', 'Permissions', 'HOOKS', 'Env', 'ENV']) {
+      const directory = source(join(root, `case-${key}`), { settings: { [key]: key.toLowerCase() === 'env' ? {} : 'dark' } });
+      assert.deepEqual(outcomes(directory), ['unreadable', 'unreadable'], key);
+      assert.deepEqual(nonLinux(directory), ['unreadable', 'unreadable'], key);
+    }
+  }));
+
+test('Linux and non-Linux observers classify the same managed-settings texts identically', () =>
+  withRoot(root => {
+    const texts = [
+      '{}', '{"theme":"dark"}', '{"theme":"Dark"}', '{"theme":7}', '{"unknownPolicy":true}',
+      '{"unknownPolicy":true,"permissions":{}}', '{"model":"opus"}', '{"effortLevel":"low","theme":"dark"}',
+      '{"env":{}}', '{"env":{"HTTPS_PROXY":"x"}}', '{"env":{"otel_logs_exporter":"none"},"unknownPolicy":1}',
+      '{"env":"nope"}', '{"env":{},"theme":"dark"}', '{"theme":"dark","theme":"light"}', '[]', '"x"', 'null',
+      '{broken', '{"__proto__":{}}', '{"constructor":"x"}', '{"":"x"}', '{"Theme":"dark"}', '{"Permissions":{}}'
+    ];
+    let index = 0;
+    for (const text of texts) {
+      for (const layout of [{ settings: text }, { dropIn: { 'a.json': text } }, { settings: '{"theme":"dark"}', dropIn: { 'b.json': text } }]) {
+        const directory = source(join(root, `agree-${index++}`), layout);
+        const [linux] = outcomes(directory);
+        assert.deepEqual(nonLinux(directory), [linux, linux], `${JSON.stringify(layout)}`);
+        assert.equal(observeWsl(source(join(root, `agree-${index++}`)), { windowsDirectory: directory, windowsSourceKnown: true })
+          .outcome.replace('file-sources-clear', 'clear'), linux, `wsl windows ${JSON.stringify(layout)}`);
+      }
+    }
+  }));
