@@ -22,6 +22,28 @@ test('every roster client except Claude is client-unsupported, retaining all ele
 
 test('a normal admitted call never selects a candidate', async () => {
   assert.deepEqual(await selectNativeCell({ client: 'claude', admission: 'admitted', platform: win }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
+  assert.deepEqual(await selectNativeCell({ client: 'claude', platform: win }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
+});
+
+test('the WSL2 admission reaches its lifecycle gate without candidate-smoke', async () => {
+  const definition = nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
+  for (const admission of [undefined, 'admitted']) {
+    const result = await selectNativeCell({ client: 'claude', admission, platform: definition.platform });
+    assert.notEqual(result.reason, 'cell-not-admitted');
+    if (result.outcome === 'selected') assert.equal(result.definition, definition);
+    else assert.ok(['platform-unsupported', 'termination-unresolved'].includes(result.reason));
+  }
+});
+
+test('tampered admission evidence or tested versions cannot select even with candidate-smoke', async () => {
+  const definition = nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
+  for (const patch of [{ evidenceSha256: null }, { evidenceSha256: 'bad' }, { evidenceSha256: 'e'.repeat(64) },
+    { clientVersions: ['2.1.285', '2.1.286'] }, { clientVersions: ['2.1.*'] }, { clientVersions: ['^2.1.285'] }]) {
+    for (const admission of [undefined, 'admitted', 'candidate-smoke']) {
+      assert.deepEqual(await selectNativeCell({ client: 'claude', admission, platform: definition.platform,
+        definitions: [{ ...definition, ...patch }] }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
+    }
+  }
 });
 
 test('a platform that does not match the descriptor is platform-unsupported', async () => {
@@ -44,6 +66,7 @@ test('a matching platform with an available lifecycle selects the descriptor and
   assert.match(result.adapter.sha256, /^[0-9a-f]{64}$/);
   const admitted = { ...definition, state: 'admitted', evidenceSha256: 'e'.repeat(64) };
   assert.equal((await selectNativeCell({ client: 'claude', admission: 'admitted', platform: linux, definitions: [admitted] })).outcome, 'selected');
+  assert.equal((await selectNativeCell({ client: 'claude', platform: linux, definitions: [admitted] })).outcome, 'selected');
 });
 
 test('client versions match exactly: no ranges, no inherited upgrades', () => {

@@ -115,6 +115,18 @@
   "allOf": [
     {
       "if": {
+        "properties": { "id": { "const": "claude-linux-x64-wsl2-srt-2.1.285" }, "state": { "const": "admitted" } },
+        "required": ["id", "state"]
+      },
+      "then": {
+        "properties": {
+          "clientVersions": { "const": ["2.1.285"] },
+          "evidenceSha256": { "const": "a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947" }
+        }
+      }
+    },
+    {
+      "if": {
         "properties": { "platform": { "type": "object", "properties": { "execution": { "const": "wsl2" } }, "required": ["execution"] } },
         "required": ["platform"]
       },

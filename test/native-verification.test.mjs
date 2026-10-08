@@ -95,8 +95,8 @@ test('every roster member has an explicit unsupported or unadmitted native outco
   }
 });
 
-// This installed test artifact supplies a fixed controlled process adapter. It is never shipped,
-// admitted, or presented as a native client proof. Only the public verifier is exercised.
+// This installed test artifact supplies a fixed controlled process adapter. It is never shipped
+// or presented as a native client proof; its synthetic admission exercises only the public verifier.
 const fixtureRuntime = scenario => `
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -125,6 +125,7 @@ const expectedResultSha256 = hash(canonical({content:[{type:'text',text:'leaf'}]
 let snapshotReadyResolve;
 export const snapshotReady=new Promise(resolve=>snapshotReadyResolve=resolve);
 export const nativeDefinitions = [{id:'controlled.claude.v1',client:'claude',state:'candidate',platform:{os:process.platform,arch:process.arch,execution:'native',osRelease:release()},clientVersions:['1.0.0'],executableNames:['node'],runtimeMembers:[],versionArgv:['--version'],sessionArgv:[],parserId:'controlled.claude.v1',identityAdapterId:'claude-oauth-otel.v1',credentialDestination:{root:'home',path:'oauth.json'},guardrails:[guard],guardrailsSha256:treeHash([guard]),lifecycleId:'test-controlled',isolation:{mechanism:'client-native',observerId:'test-controlled',documentation:[]},evidenceSha256:null}];
+if(scenario==='admitted-default'){nativeDefinitions[0].state='admitted';nativeDefinitions[0].evidenceSha256='e'.repeat(64);}
 export function nativeBundledFixture() {return {id:'aihq.native-fixture.v1',client:'claude',adapterId:'controlled.claude.v1',outputTree,outputTreeSha256:treeHash(outputTree),instructions:[{root:'project',path:'INSTRUCTIONS.md',sha256:member.sha256,evidence:'marker',markerSha256:marker}],server:{name:'fixture',transport:'stdio',runtime:[],evidenceAdapterId:'aihq.fixture.v1',observation:'native',toolNames:['attest','query'],queryTool:'query',queryArguments:{node:'entry'},challenge:{mode:'argument',field:'challenge'},expectedResultSha256,expectedAnswer:'leaf'},manifestSha256:hash('controlled-bundled-manifest'),archiveSha256:null,scope:'bundled-mechanism',bytes:new Map([[member.path,fixture],[guard.member.path,guardrail]])};}
 export function nativeCapabilities(){return {lifecycle:scenario!=='known-managed',peerIdentity:true,credentialChannel:true};}
 export function nativeManagedRestriction(){return scenario==='known-managed';}
@@ -295,6 +296,18 @@ function archiveMembers(entries) {
   }
   return Buffer.concat([...chunks, Buffer.alloc(1024)]);
 }
+test('Core selects synthetic admitted metadata with default admission and keeps candidates gated', async t => {
+  const admitted = await controlled(t, 'admitted-default');
+  assert.equal(admitted.admission, 'admitted');
+  assert.equal(admitted.verdict, 'verified');
+  assert.equal(admitted.sessions.length, 2);
+  const candidate = await controlled(t, 'candidate-default');
+  assert.equal(candidate.admission, 'admitted');
+  assert.equal(candidate.verdict, 'unverified');
+  assert.equal(candidate.limits.sessionsStarted, 0);
+  assert.ok(candidate.stages.some(row => row.reason === 'cell-not-admitted'));
+});
+
 async function controlled(t, scenario, controls = {}, clock) {
   const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-controlled-native-')));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -355,7 +368,7 @@ async function controlled(t, scenario, controls = {}, clock) {
     } } };
   }
   const cancellation = scenario.startsWith('cancel-snapshot-') ? new AbortController() : undefined;
-  const pending = api.verifyNativeClient(selected, { admission: 'candidate-smoke', testIdentity: identity,
+  const pending = api.verifyNativeClient(selected, { ...(['admitted-default', 'candidate-default'].includes(scenario) ? {} : { admission: 'candidate-smoke' }), testIdentity: identity,
     ...(scenario === 'default-temp' ? {} : { sandboxRoot }), ...controls, ...(cancellation ? { signal: cancellation.signal } : {}) });
   if (cancellation) {
     // Cancellation tests need actual proof readiness, independently of deadline tests.
@@ -426,7 +439,7 @@ test('verified-only validation accepts the full two-session native stage list', 
   // Synthetic Linux observations, including the nine run rows and both nine-row sessions.
   const result = {
     schema: 'urn:aihq:core:native-verification-result:1.0.0',
-    package: { name: '@aihq/core', version: '1.0.0-dev.27' },
+    package: { name: '@aihq/core', version: '1.0.0-dev.28' },
     status: 'complete', verdict: 'verified', proofScope: 'bundled-mechanism', admission: 'candidate-smoke',
     client: { id: 'claude', observedVersion: '2.1.285' },
     adapter: { id: 'claude-linux.v1', sha256: digest('adapter bytes') },

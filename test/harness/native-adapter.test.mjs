@@ -24,6 +24,18 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
+
+test('the installed Core adapter exposes the admission and refuses tampered admitted descriptors', () => {
+  const definition = installed.nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
+  const create = definitions => installed.createNativeRuntime({ ...installed, nativeVerificationDefinitions: definitions },
+    { readPinned() { throw Error('no native operation expected'); }, Stop: Error });
+  assert.deepEqual(create([definition]).nativeDefinitions, [definition]);
+  for (const patch of [{ evidenceSha256: null }, { evidenceSha256: 'bad' },
+    { clientVersions: ['2.1.285', '2.1.286'] }, { clientVersions: ['^2.1.285'] }])
+    assert.deepEqual(create([{ ...definition, ...patch }]).nativeDefinitions, []);
+  const candidate = installed.nativeVerificationDefinitions.find(d => d.platform.os === 'win32');
+  assert.deepEqual(create([candidate]).nativeDefinitions, [candidate]);
+});
 import { nativeParserIds } from '../../src/harness/native/contracts.mjs';
 import { sha256 } from '../../src/harness/native/digest.mjs';
 

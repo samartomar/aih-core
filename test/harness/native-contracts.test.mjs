@@ -55,7 +55,7 @@ test('stable reason table carries every contract token', () => {
     assert.ok(nativeStageReasons.includes(reason), reason);
 });
 
-test('the Claude candidate is exact, unadmitted and evidence-free', () => {
+test('the Windows Claude candidate is exact, unadmitted and evidence-free', () => {
   const definition = claude();
   assert.equal(definition.state, 'candidate');
   assert.equal(definition.evidenceSha256, null);
@@ -63,7 +63,8 @@ test('the Claude candidate is exact, unadmitted and evidence-free', () => {
   assert.deepEqual(definition.sessionArgv, ['-p', '--verbose', '--output-format', 'stream-json']);
   assert.equal(definition.isolation.mechanism, 'none');
   assert.equal(validateNativeVerificationDefinition(definition).valid, true);
-  assert.equal(nativeVerificationDefinitions.filter(d => d.state === 'admitted').length, 0);
+  assert.deepEqual(nativeVerificationDefinitions.filter(d => d.state === 'admitted').map(d => d.id),
+    ['claude-linux-x64-wsl2-srt-2.1.285']);
 });
 
 test('definition validation rejects loose or unsafe descriptors', () => {

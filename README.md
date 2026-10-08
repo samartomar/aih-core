@@ -41,7 +41,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/repair/1.2.0.json`, `macos-session-profiles/1.0.0.json` | macOS metadata; no desktop profile is admitted in this candidate |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
-| `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate definitions; 1.1 adds the Linux vendor-runtime mechanism |
+| `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate/admitted definitions; 1.1 adds the Linux vendor-runtime mechanism |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
 
@@ -116,9 +116,22 @@ aih verify-client claude --json
 aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json
 ```
 
-No client is admitted by this development artifact. A normal call reports its
-unadmitted or unsupported cell. The bundled Claude candidate is a mechanism
-smoke candidate; passing it never changes admission. All eleven selected client
+The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
+Claude Code 2.1.285 on Linux x64 WSL2, osRelease
+`6.18.33.2-microsoft-standard-WSL2`, and selects without `--candidate-smoke`.
+Its retained reviewed batch evidence is identified by `evidenceSha256`
+`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`.
+The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
+the descriptor. Promotion is not publication: no npm publish has occurred.
+Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
+Acceptance covers the fixed verifier environment: auto-memory disabled,
+marketplace auto-install disabled, fast mode disabled, and MCP connections
+awaited before init within the client's bounded timeout. Authentication uses
+`provisioning-bound-session` identity, with the owner's recorded acceptance:
+it loses the runtime wrong-account/refresh cross-check and is not provider-signed
+attestation. The documented proxy and policy limitations still apply.
+The Windows definition remains a candidate with null evidence and requires
+`--candidate-smoke`; passing a smoke never changes admission. All eleven selected client
 IDs remain available for explicit, honest outcomes: Claude, Codex, Cursor,
 Gemini, Copilot, Windsurf, OpenCode, Kimi, Kiro, Antigravity and Zed.
 
@@ -230,11 +243,11 @@ bytes fail closed. Dedicated identity still requires operator provisioning and
 same-session authentication evidence. The candidate has no whole-client isolation
 mechanism, so useful hygiene evidence remains incomplete/unverified. See
 [Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
-The separate Linux x64 WSL2 candidate wraps the entire workload in pinned
+The separate admitted Linux x64 WSL2 definition wraps the entire workload in pinned
 Anthropic Sandbox Runtime 0.0.78 and uses a bundled Linux kernel observer for
 process ownership, authenticated IPC and cleanup. It requires the exact client,
-kernel and runtime byte closure recorded by its candidate metadata. It remains
-unadmitted until packed API/CLI acceptance and dedicated identity evidence pass.
+kernel and runtime byte closure recorded by its definition metadata. Admission
+is limited to the exact tested version and environment described above.
 See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 Controlled facility and synthetic session checks do not establish native acceptance.
 
