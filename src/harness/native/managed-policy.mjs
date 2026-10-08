@@ -19,9 +19,9 @@
 // and `file-sources-clear` is never proof of a stable filesystem.
 import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync } from 'node:fs';
 import { isAbsolute, join, parse, sep } from 'node:path';
-import { isRecord, parseStrictJson } from './canonical.mjs';
+import { parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
-import { classifyManagedEnv } from './managed-env.mjs';
+import { classifyManagedSettings } from './managed-settings.mjs';
 
 const DEFAULT_LINUX_DIRECTORY = '/etc/claude-code';
 const MAX_MANAGED_BYTES = 65536;
@@ -44,45 +44,6 @@ export const managedPolicyLimitations = Object.freeze({
   executionUnknown: 'execution-unknown',
   linuxSourceInvalid: 'linux-host-file-source-invalid'
 });
-
-// Presence of any of these is a managed restriction. The set is deliberately conservative: a
-// restricting host policy cannot be evaded by moving the workload into WSL2, so a managed
-// permission, sandbox, hook or plugin rule must not be missed.
-const RESTRICTING_KEYS = Object.freeze([
-  // Managed auto-memory preferences govern the fixed session's instruction loading.
-  'autoMemoryEnabled',
-  'model',
-  'effortLevel',
-  'otelHeadersHelper',
-  'allowManagedMcpServersOnly',
-  'allowedMcpServers',
-  'deniedMcpServers',
-  'managedMcpServers',
-  'permissions',
-  'sandbox',
-  'disableBypassPermissionsMode',
-  'allowManagedHooksOnly',
-  'hooks',
-  'plugins',
-  'enabledPlugins',
-  'allowedPlugins',
-  'deniedPlugins'
-]);
-
-// Deliberately small reviewed allowlist of managed settings whose policy effect is known benign.
-// Anything not listed is an observation whose effect cannot be established, so it is unreadable:
-// an unrecognised managed key may route credentials/providers or run helpers. A listed key is
-// only benign when its value is a recognised, bounded scalar; any other shape is unreadable.
-//
-// Entry justification:
-// - `theme`: documented non-executing display preference (bounded lowercase token).
-// No other key is allowlisted. Unverified settings or UI keys stay unreadable rather than clear.
-// Model and effort choices govern the actual invocation. Masking their host source would discard
-// that policy, so their presence is a restriction regardless of the selected value.
-const BOUNDED_LOWER_TOKEN = /^[a-z][a-z0-9-]{0,31}$/;
-const BENIGN_SCALAR_KEYS = Object.freeze(new Map([
-  ['theme', value => typeof value === 'string' && BOUNDED_LOWER_TOKEN.test(value)]
-]));
 
 // Identity of one captured object. `dev`/`ino` bind which object it is; size and the two change
 // timestamps bind its observed bytes. A missing `dev`/`ino` (reported as 0 on some filesystems,
@@ -184,29 +145,6 @@ function readBoundedPolicyFile(file, { requirePresent = false } = {}) {
       !sameIdentity(identity(before), identity(after))) return { kind: 'unreadable' };
     return { kind: 'ok', text };
   } catch { return { kind: 'unreadable' }; } finally { closeSync(fd); }
-}
-
-// One managed-settings document. A present restriction wins; a malformed document, an unrecognised
-// key or an unrecognised environment key is an observation that could not be established, so it is
-// unreadable rather than clear.
-function classifyManagedSettings(text) {
-  let value;
-  try { value = parseStrictJson(text, nativeBounds.jsonDepth); } catch { return 'unreadable'; }
-  if (!isRecord(value)) return 'unreadable';
-  // A known restriction is decisive even when a sibling key is unrecognised or malformed.
-  if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) return 'restricted';
-  if (Object.hasOwn(value, 'env')) {
-    // An empty env map is a benign no-op; the shared classification decides every other block.
-    const env = classifyManagedEnv(value.env);
-    if (env !== 'clear') return env;
-  }
-  for (const key of Object.keys(value)) {
-    if (key === 'env') continue;
-    const validate = BENIGN_SCALAR_KEYS.get(key);
-    // An unknown managed key is an observation whose policy effect cannot be established.
-    if (!validate || !validate(value[key])) return 'unreadable';
-  }
-  return 'clear';
 }
 
 // A managed-mcp.json is a managed restriction whenever it is present and valid strict JSON. Its

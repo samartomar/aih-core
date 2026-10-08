@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.30 makes the non-Linux Claude managed-settings file observer
+fail closed on unknown top-level keys, matching the Linux/WSL2 observer. Both
+observers now share one per-document classification for `managed-settings.json`
+and `managed-settings.d/*.json`: a known restricting key is `restricted` even
+beside an unknown sibling, the `theme` scalar is clear only with a bounded
+lowercase token value, the shared `env` classification is unchanged, and any
+other top-level key is unreadable. Previously the Windows/macOS observer ignored
+unrecognised top-level keys and checked only a subset of the restricting keys, so
+a document such as `{"permissions": {...}}` or `{"unknownPolicy": true}` could
+report `file-sources-clear`; such documents are now `restricted` and
+`unreadable` respectively. Top-level keys are matched exactly on every OS,
+including Windows, so a case variant is unreadable; `env` key matching stays
+case-insensitive. Precedence across files and `managed-mcp.json` handling are
+unchanged. This candidate has not been published to npm.
+
 Core 1.0.0-dev.29 makes the published native verification definition schemas
 refuse what the portable validator refuses for admission. The 1.1.0 schema
 accepts `state: "admitted"` only for a descriptor exactly equal to a registered

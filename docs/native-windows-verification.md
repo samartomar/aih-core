@@ -89,7 +89,12 @@ remain limitations. The non-Linux file observer shares the Linux observer's
 managed `env` classification: fixed or telemetry switch keys, matched
 case-insensitively, are `restricted`; any other key or a non-object block is
 unreadable and makes tool restrictions unavailable; an absent or empty block is
-clear.
+clear. It also shares the Linux observer's top-level classification for every
+`managed-settings.json` and `managed-settings.d/*.json` document: a known
+restricting key is `restricted`, the allowlisted `theme` scalar is clear only
+with a bounded lowercase token value, and any other top-level key is unreadable.
+Top-level keys are matched exactly, on Windows as elsewhere, so a case variant
+such as `Permissions` is an unrecognised setting and unreadable, never clear.
 
 This Claude candidate has no whole-client isolation mechanism. The documented
 sandbox covers shell commands and their children, while built-in file tools, MCP

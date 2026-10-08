@@ -6,7 +6,7 @@ import { posix, win32, join } from 'node:path';
 import { canonicalJson, isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
 import { sha256 } from './digest.mjs';
-import { classifyManagedEnv } from './managed-env.mjs';
+import { classifyManagedSettings } from './managed-settings.mjs';
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SERVER_STATUSES = ['connected', 'pending', 'failed', 'needs-auth', 'disabled'];
@@ -211,7 +211,6 @@ export function claudeConfigDirectory(platform, homeDir, relative) {
 }
 
 const MANAGED_DIRECTORY = { win32: 'C:\\Program Files\\ClaudeCode', darwin: '/Library/Application Support/ClaudeCode', linux: '/etc/claude-code' };
-const RESTRICTING_KEYS = ['autoMemoryEnabled', 'otelHeadersHelper', 'allowManagedMcpServersOnly', 'allowedMcpServers', 'deniedMcpServers', 'managedMcpServers'];
 const MAX_MANAGED_BYTES = 65536;
 
 function readBounded(file) {
@@ -241,17 +240,11 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     const read = readBounded(file);
     if (read.absent) continue;
     if (read.unreadable) { unreadable = true; continue; }
-    let value;
-    // Strict parsing as on Linux: a duplicate key cannot silently drop an earlier restriction.
-    try { value = parseStrictJson(read.text, nativeBounds.jsonDepth); } catch { unreadable = true; continue; }
-    if (!isRecord(value)) { unreadable = true; continue; }
-    if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    // Same env classification as the Linux observer: an unrecognised or malformed env block fails closed.
-    if (Object.hasOwn(value, 'env')) {
-      const env = classifyManagedEnv(value.env);
-      if (env === 'restricted') restricted = true;
-      else if (env === 'unreadable') unreadable = true;
-    }
+    // Same per-document classification as the Linux observer: strict parsing, the shared restricting and benign
+    // top-level keys, and the shared env classification, so an unrecognised key fails closed on every OS.
+    const state = classifyManagedSettings(read.text);
+    if (state === 'restricted') restricted = true;
+    else if (state === 'unreadable') unreadable = true;
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;

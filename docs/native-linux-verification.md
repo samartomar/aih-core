@@ -124,6 +124,12 @@ case-insensitive key matching. Any key matching the fixed or telemetry switches
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) is `restricted`. A non-object block or
 any other key is unreadable, so it gives unavailable rather than clear; a
 restriction still wins. An absent or empty block is clear.
+Top-level keys also use one classification on every observer, for
+`managed-settings.json` and each `managed-settings.d/*.json` fragment: a known
+restricting key is `restricted` even beside an unknown sibling, the allowlisted
+`theme` scalar is clear only with a bounded lowercase token, and any other key is
+unreadable. Top-level matching is exact-case on every OS because the keys are
+JSON property names; a case variant is unreadable, never clear.
 
 Process observation requires the host to let an unprivileged process trace a
 child it launched: the observer uses only `PTRACE_SEIZE` on its own held client,
