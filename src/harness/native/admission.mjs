@@ -73,6 +73,9 @@ export function publishNativeDiagnostics(input) {
   const boundedCount = value => Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 1000000) : 0;
   const counts = (value, keys) => Object.freeze(Object.fromEntries(keys.map(key => [key, boundedCount(value?.[key])])));
   const result = input.result ?? {};
+  const serverStatus = result.serverStatus == null ? 'unobserved' :
+    ['connected', 'pending', 'failed', 'needs-auth', 'disabled', 'absent', 'other', 'unobserved'].includes(result.serverStatus)
+      ? result.serverStatus : 'other';
   const seen = result.resultSeen === true;
   const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
   const errorClass = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'].includes(result.errorClass) ? result.errorClass : 'none';
@@ -100,5 +103,6 @@ export function publishNativeDiagnostics(input) {
         ? Math.min(source.firstMatchingEventIndex, 1000000) : null,
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
+    init: Object.freeze({ serverStatus }),
     proxy, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
 }

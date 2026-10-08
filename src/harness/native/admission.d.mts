@@ -32,6 +32,7 @@ export type NativeSessionDiagnostics = Readonly<{
   proxy: Readonly<Record<'apiAnthropic' | 'claudeAi' | 'platformClaude' | 'consoleAnthropic' | 'otherAnthropic' | 'collector' | 'other',
     Readonly<{ allowed: number; denied: number }>>> | null;
   forwarder: NativeForwarderDiagnostics | null;
+  init: Readonly<{ serverStatus: 'connected' | 'pending' | 'failed' | 'needs-auth' | 'disabled' | 'absent' | 'other' | 'unobserved' }>;
   result: Readonly<{ seen: boolean; isError: boolean | null; subtype: 'none' | 'success' | 'error_max_turns' | 'error_during_execution' | 'other';
     errorClass: 'none' | 'authentication' | 'forbidden' | 'rate-limit' | 'overloaded' | 'network' | 'other' }>;
 }>;

@@ -132,7 +132,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
     deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '',
-      CLAUDE_CODE_DISABLE_FAST_MODE: 'false'
+      CLAUDE_CODE_DISABLE_FAST_MODE: 'false', MCP_CONNECTION_NONBLOCKING: 'true', mcp_connection_nonblocking: '1'
     },
     pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] },
     identity: { expected: { accountUuid: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' } },
@@ -568,13 +568,47 @@ test('the global client state inspector accepts bookkeeping and refuses loading 
 });
 
 
-test('both native session launches disable auto-memory, marketplace and fast mode despite hostile host values', async t => {
+test('both native session launches fix disable switches and await MCP despite hostile host values', async t => {
   const launches = [];
   for (const index of [1, 2]) {
     const { exit, handle } = await session(t, { index, environmentProbe: env => launches.push({ index,
       values: [env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, env.CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL,
-        env.CLAUDE_CODE_DISABLE_FAST_MODE] }) });
+        env.CLAUDE_CODE_DISABLE_FAST_MODE, env.MCP_CONNECTION_NONBLOCKING] }) });
     exit({ code: 0 }); await handle.observations;
   }
-  assert.deepEqual(launches, [{ index: 1, values: ['1', '1', '1'] }, { index: 2, values: ['1', '1', '1'] }]);
+  assert.deepEqual(launches, [{ index: 1, values: ['1', '1', '1', 'false'] }, { index: 2, values: ['1', '1', '1', 'false'] }]);
+});
+
+test('delayed connected init passes loading and diagnostics preserve all adapter observations on or off', async t => {
+  const records = [], diagnostics = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  for (const index of [1, 2]) for (const status of ['connected', 'pending', 'failed', 'needs-auth', 'disabled',
+    'absent', 'raw-status-marker', 'unobserved']) {
+    const run = async enabled => {
+      if (enabled) diagnostics.subscribe(sink);
+      try {
+        const { handle, stdout, exit } = await session(t, { realParser: true, index });
+        assert.equal(handle.snapshot().loading, 'unobservable', 'no init is never a loading pass');
+        // The controlled process emits init only after its delayed connection settles.
+        await new Promise(resolve => setImmediate(resolve));
+        stdout.write(JSON.stringify({ type: 'system', subtype: 'init',
+          session_id: index === 1 ? '0f8fad5b-d9cb-469f-a165-70867728950e' : '1f8fad5b-d9cb-469f-a165-70867728950e',
+          tools: [], ...(status === 'unobserved' ? {} : { mcp_servers: status === 'absent'
+            ? [{ name: 'raw-server-marker', status: 'connected' }] : [{ name: 'controlled', status }] }) }) + '\n');
+        exit({ code: 0 });
+        const observed = await handle.observations;
+        assert.equal(observed.loading, status === 'connected' ? 'observed' : status === 'absent' ? 'not-loaded' : 'unobservable');
+        await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 });
+        return observed;
+      } finally { if (enabled) diagnostics.unsubscribe(sink); }
+    };
+    const before = records.length;
+    const plain = await run(false), enabled = await run(true);
+    assert.deepEqual(enabled, plain, `${index}/${status}`);
+    assert.equal(records.length, before + 1);
+    const record = records.at(-1);
+    assert.equal(record.index, index);
+    assert.deepEqual(record.init, { serverStatus: status === 'raw-status-marker' ? 'other' : status });
+    for (const marker of ['raw-status-marker', 'raw-server-marker', 'controlled', 'mcp_servers', 'serverName'])
+      assert.equal(JSON.stringify(record).includes(marker), false);
+  }
 });

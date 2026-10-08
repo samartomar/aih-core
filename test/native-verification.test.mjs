@@ -102,6 +102,8 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync, writeFileSync, unlinkSync, lstatSync, mkdirSync, linkSync, rmSync } from 'node:fs';
 import { createNativeRuntime as installedHarness } from './adapter.mjs';
+import { createClaudeStreamParser } from './claude.mjs';
+import { publishNativeDiagnostics } from './admission.mjs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 const scenario = ${JSON.stringify(scenario)};
@@ -211,6 +213,17 @@ export async function startNativeSession(input){
   if(scenario==='spawn-rejected')return {outcome:'unavailable',reason:'session-launch-failed'};
   const child=spawn(process.execPath,['-e',childScript],{cwd:input.cell.project,env:input.environment,stdio:['pipe','pipe','pipe'],windowsHide:true});
   const observations={sessionId:scenario==='reused'?'controlled-session':'controlled-session-'+input.index,resumed:false,loading:'observed',restrictions:scenario==='managed'?'managed':'observed',authentication:scenario==='identity-conflict'?'conflict':'matched',discovery:{complete:true,clientTools:['attest','query'],serverList:true},instructions:{nativeSha256:[],attestations:[{markerSha256:scenario==='bad-attestation'?hash('wrong'):marker,challengeMatched:true,clientReceipt:true}],rejected:false,alternateRead:scenario==='later-read'},query:{correlated:true,challengeMatched:!scenario.startsWith('bad-challenge'),resultSha256:scenario.startsWith('bad-query')?hash('wrong'):expectedResultSha256,answerSha256:hash('leaf'),rejectedCalls:scenario==='early-query'||scenario.endsWith('-refused')},isolation:scenario==='hygiene'?'unobservable':'observed',serverPeerBound:true,counts:{observedBytes:0,telemetryEvents:1,rpcMessages:3}};
+  let initStatus;
+  if(scenario.startsWith('mcp-init-')){
+    const status=scenario.slice('mcp-init-'.length).replace(/^managed-/,'');
+    const parser=createClaudeStreamParser({serverName:'privacy-canary-server',attestTool:'attest',queryTool:'query',
+      expectedAnswer:'leaf',markerSha256:marker,challenge:input.challenge});
+    parser.push(JSON.stringify({type:'system',subtype:'init',
+      ...(status==='unobserved'?{}:{mcp_servers:status==='absent'?[]:[{name:'privacy-canary-server',status}]})})+String.fromCharCode(10));
+    initStatus=parser.finish().serverStatus;
+    observations.loading=initStatus==='connected'?'observed':initStatus==='absent'?'not-loaded':'unobservable';
+    if(scenario.startsWith('mcp-init-managed-'))observations.restrictions='managed';
+  }
   const partial=scenario.includes('-snapshot-'); let snapshot;
   if(scenario.includes('-snapshot-bad-query'))observations.query.resultSha256=hash('wrong');
   if(scenario.endsWith('-unfinished-auth'))observations.authentication='missing';
@@ -252,6 +265,8 @@ export async function startNativeSession(input){
   child.stdin.end(JSON.stringify({observations,wait:scenario==='cancel'||scenario==='deadline'||partial,partial,ready:scenario==='deadline'}));
   let cleanupStartedAt;
   const timedObservations=accepted.then(value=>{
+    if(scenario.startsWith('mcp-init-'))publishNativeDiagnostics({index:input.index,
+      definition:'claude-win32-x64-2.1.285',runSha256:hash(input.cell.path),result:{serverStatus:initStatus}});
     if(cleanupClock){
       cleanupClock.now+=input.index===2||scenario==='cleanup-clock-decisive'?20000:1000;
       cleanupStartedAt=cleanupClock.now;
@@ -411,7 +426,7 @@ test('verified-only validation accepts the full two-session native stage list', 
   // Synthetic Linux observations, including the nine run rows and both nine-row sessions.
   const result = {
     schema: 'urn:aihq:core:native-verification-result:1.0.0',
-    package: { name: '@aihq/core', version: '1.0.0-dev.26' },
+    package: { name: '@aihq/core', version: '1.0.0-dev.27' },
     status: 'complete', verdict: 'verified', proofScope: 'bundled-mechanism', admission: 'candidate-smoke',
     client: { id: 'claude', observedVersion: '2.1.285' },
     adapter: { id: 'claude-linux.v1', sha256: digest('adapter bytes') },
@@ -779,6 +794,47 @@ for (const [scenario, reason] of [
   assert.ok(result.stages.some(row => row.reason === reason));
 });
 
+
+test('controlled MCP init diagnostics leave public verdicts and first-failure precedence unchanged', async t => {
+  const records = [], diagnostics = channel('aih.native.diagnostics.v1'), sink = record => records.push(record);
+  for (const [status, verdict, loadingOutcome, reason] of [
+    ['connected', 'verified', 'passed', 'observed'],
+    ['pending', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['failed', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['needs-auth', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['disabled', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['absent', 'failed', 'failed', 'configuration-not-loaded'],
+    ['raw-status-marker', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['unobserved', 'unverified', 'unavailable', 'loading-mode-unobservable'],
+    ['managed-absent', 'unverified', 'unavailable', 'not-run-after-restriction']
+  ]) {
+    const scenario = `mcp-init-${status}`;
+    const plain = await controlled(t, scenario);
+    records.length = 0;
+    diagnostics.subscribe(sink);
+    let observed;
+    try { observed = await controlled(t, scenario); } finally { diagnostics.unsubscribe(sink); }
+    assert.equal(plain.verdict, verdict, status);
+    assert.equal(observed.verdict, plain.verdict, status);
+    assert.equal(observed.status, plain.status, status);
+    assert.deepEqual(observed.sessions.map(session => session.stages), plain.sessions.map(session => session.stages), status);
+    for (const result of [plain, observed]) {
+      const loading = result.sessions[0].stages.find(row => row.id === 'loading-mode');
+      assert.equal(loading.outcome, loadingOutcome, status); assert.equal(loading.reason, reason, status);
+      if (status === 'managed-absent') {
+        const restriction = result.sessions[0].stages.find(row => row.id === 'tool-restrictions');
+        assert.equal(restriction.outcome, 'restricted'); assert.equal(restriction.reason, 'managed-restriction');
+      }
+      assert.equal(result.cleanup.files, 'removed');
+    }
+    assert.equal(records.length, status === 'connected' ? 2 : 1, status);
+    for (const record of records) {
+      assert.deepEqual(record.init, { serverStatus: status === 'raw-status-marker' ? 'other' : status === 'managed-absent' ? 'absent' : status });
+      assert.equal(JSON.stringify(record).includes('raw-status-marker'), false);
+      assert.equal(JSON.stringify(record).includes('privacy-canary-server'), false);
+    }
+  }
+});
 
 test('controlled housekeeping passes both persistence checkpoints with diagnostics on or off', async t => {
   const plain = await controlled(t, 'client-state-housekeeping');

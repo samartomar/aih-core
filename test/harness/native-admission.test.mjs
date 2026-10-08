@@ -151,6 +151,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         apiRequestRejected: { ...emptyCollector.apiRequestRejected, wrongSession: 1 },
         identityByEvent: { accountPresent: 2, accountMatches: 1, organizationPresent: 3, organizationMatches: 2 }, firstMatchingEventIndex: 4,
         ignored: 1, matched: 1 },
+      init: { serverStatus: 'unobserved' },
       proxy: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
     });
     const inspect = value => {
@@ -178,6 +179,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         eventNames: { ...emptyCollector.eventNames, apiRequest: 1000000, userPrompt: 1000000, toolDecision: 4 },
         apiRequestRejected: { ...emptyCollector.apiRequestRejected, missingRequestId: 1000000, missingSession: 1000000, outsideWindow: 3 },
         identityByEvent: { ...emptyCollector.identityByEvent, accountPresent: 1000000 }, firstMatchingEventIndex: 1000000 },
+      init: { serverStatus: 'unobserved' },
       proxy: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
     for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
@@ -195,6 +197,28 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
     }
     admission.publishNativeDiagnostics({ definition: 'claude-win32-x64-2.1.285' });
     assert.equal(records.at(-1).definition, 'claude-win32-x64-2.1.285');
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('session init diagnostics project only a normalized status and never server identities', () => {
+  const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
+  stream.subscribe(sink);
+  try {
+    for (const serverStatus of ['connected', 'pending', 'failed', 'needs-auth', 'disabled', 'absent', 'other', 'unobserved',
+      'raw-status-marker', '', 7, false, {}, [], null, undefined]) {
+      admission.publishNativeDiagnostics({ result: { serverStatus, serverName: 'raw-server-marker' },
+        serverName: 'raw-server-marker', mcp_servers: [{ name: 'raw-server-marker', status: 'raw-status-marker' }] });
+      const record = records.at(-1);
+      const expected = serverStatus == null ? 'unobserved' :
+        ['connected', 'pending', 'failed', 'needs-auth', 'disabled', 'absent', 'other', 'unobserved'].includes(serverStatus)
+          ? serverStatus : 'other';
+      assert.deepEqual(record.init, { serverStatus: expected });
+      assert.ok(Object.isFrozen(record.init));
+      for (const marker of ['raw-status-marker', 'raw-server-marker', 'mcp_servers', 'serverName'])
+        assert.equal(JSON.stringify(record).includes(marker), false);
+    }
+    admission.publishNativeDiagnostics({});
+    assert.deepEqual(records.at(-1).init, { serverStatus: 'unobserved' });
   } finally { stream.unsubscribe(sink); }
 });
 

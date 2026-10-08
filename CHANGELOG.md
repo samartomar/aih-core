@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.27 sets literal `MCP_CONNECTION_NONBLOCKING=false` in both Claude
+verification sessions on every platform, so the pinned client awaits configured
+MCP connections before init and the first turn. Acceptance covers the verifier's
+fixed environment rather than default client startup timing. Any managed env
+presence of the key is a restriction regardless of value, including Windows
+case variants; managed policy is never overridden. Optional session diagnostics
+report only a closed, normalized selected-server init status, with no server
+identities or raw status text. Unsuccessful connections remain nonpassing;
+verdicts, first-failure precedence, deadlines, cancellation and cleanup are
+unchanged. Native acceptance remains pending. This candidate has not been
+published to npm.
+
 Core 1.0.0-dev.26 admits six bounded Claude Code 2.1.285 notice/history markers
 and the pinned migration-batch constant 14.
 Issue-check and onboarding timestamps accept only nonnegative safe integers;

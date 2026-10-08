@@ -146,6 +146,25 @@ test('a missing server is reported and a wrong answer or wrong marker echo is no
   assert.equal(o.attestationReturned, false);
 });
 
+test('init server status uses a closed vocabulary without retaining names or arbitrary status text', () => {
+  for (const status of ['connected', 'pending', 'failed', 'needs-auth', 'disabled'])
+    assert.equal(parse([init({ mcp_servers: [{ name: options.serverName, status }] })]).serverStatus, status);
+  for (const status of ['raw-status-marker', 'absent', 'unobserved', 'CONNECTED', '', null, 3, {}, []]) {
+    const observed = parse([init({ mcp_servers: [{ name: options.serverName, status }] })]);
+    assert.equal(observed.serverStatus, 'other');
+    assert.equal(JSON.stringify(observed).includes('raw-status-marker'), false);
+    assert.equal(JSON.stringify(observed).includes(options.serverName), false);
+  }
+  assert.equal(parse([init({ mcp_servers: [{ name: options.serverName }] })]).serverStatus, 'other');
+  for (const mcp_servers of [undefined, null, {}, 'raw-list-marker', [null], [{}]])
+    assert.equal(parse([init({ mcp_servers })]).serverStatus, null);
+  assert.equal(parse([done]).serverStatus, null);
+  assert.equal(parse([init({ mcp_servers: [] })]).serverStatus, 'absent');
+  const absent = parse([init({ mcp_servers: [{ name: 'raw-server-marker', status: 'connected' }] })]);
+  assert.equal(absent.serverStatus, 'absent');
+  assert.equal(JSON.stringify(absent).includes('raw-server-marker'), false);
+});
+
 test('answers only count when returned by the selected tool for its call', () => {
   const spoof = [init(), use('t9', 'Read', { file_path: 'x' }), result('t9', [{ type: 'text', text: 'leaf' }]), done];
   const o = parse(spoof);
@@ -286,10 +305,11 @@ test('auto-memory is disabled literally on every platform despite hostile host v
   }
 });
 
-test('both-session environments fix marketplace and fast-mode switches on every platform', () => {
-  for (const platform of ['win32', 'linux', 'darwin']) for (const value of ['0', 'false', '', '1', 'hostile']) {
+test('both-session environments fix marketplace, fast-mode and MCP scheduling on every platform', () => {
+  for (const platform of ['win32', 'linux', 'darwin']) for (const value of ['0', 'false', '', '1', 'true', 'hostile']) {
     const sessions = [1, 2].map(() => buildClaudeEnvironment({ platform, hostEnv: {
       CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: value, CLAUDE_CODE_DISABLE_FAST_MODE: value,
+      MCP_CONNECTION_NONBLOCKING: value, mcp_connection_nonblocking: value,
       OTEL_EXPORTER_OTLP_ENDPOINT: 'http://unapproved', CLAUDE_CODE_ENABLE_TELEMETRY: '0'
     }, homeDir: platform === 'win32' ? 'C:/cell/home' : '/cell/home', scratchDir: '/cell/scratch', runtimeDirs: [],
     telemetry: { endpoint: 'http://127.0.0.1:4318', token: 'synthetic' }, evidence: { endpoint: 'synthetic', token: 'synthetic' } }));
@@ -297,6 +317,8 @@ test('both-session environments fix marketplace and fast-mode switches on every 
     for (const env of sessions) {
       assert.equal(env.CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL, '1');
       assert.equal(env.CLAUDE_CODE_DISABLE_FAST_MODE, '1');
+      assert.equal(env.MCP_CONNECTION_NONBLOCKING, 'false');
+      assert.equal(Object.hasOwn(env, 'mcp_connection_nonblocking'), false);
       assert.equal(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
       assert.equal(env.CLAUDE_CODE_ENABLE_TELEMETRY, '1');
       assert.equal(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, 'http://127.0.0.1:4318/v1/logs');
@@ -325,7 +347,8 @@ test('all-platform managed switch presence wins over unreadable siblings without
     mkdirSync(join(dir, 'managed-settings.d'));
     writeFileSync(join(dir, 'managed-settings.d', 'broken.json'), '{broken');
     for (const platform of ['win32', 'linux', 'darwin'])
-      for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+      for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE',
+        'MCP_CONNECTION_NONBLOCKING', 'mcp_connection_nonblocking', 'Mcp_Connection_Nonblocking'])
         for (const value of ['', '0', 'false', '1', false, 0, null]) {
           const file = join(dir, 'managed-settings.json');
           const bytes = JSON.stringify({ env: { [key]: value }, unknownPolicy: {} });

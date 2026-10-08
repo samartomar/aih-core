@@ -8,6 +8,7 @@ import { nativeBounds } from './contracts.mjs';
 import { sha256 } from './digest.mjs';
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SERVER_STATUSES = ['connected', 'pending', 'failed', 'needs-auth', 'disabled'];
 const textOf = content => typeof content === 'string' ? [content]
   : Array.isArray(content) ? content.filter(b => isRecord(b) && b.type === 'text' && typeof b.text === 'string').map(b => b.text) : [];
 const ERROR_PATTERNS = Object.freeze([
@@ -58,7 +59,10 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
       if (typeof value.permissionMode === 'string') state.permissionMode = value.permissionMode.slice(0, 64);
       if (Array.isArray(value.mcp_servers)) {
         const entry = value.mcp_servers.find(item => isRecord(item) && item.name === serverName);
-        state.serverStatus = entry ? (typeof entry.status === 'string' ? entry.status.slice(0, 64) : 'unknown') : 'absent';
+        // Raw server statuses never leave the parser. A malformed list cannot establish absence.
+        if (entry) state.serverStatus = SERVER_STATUSES.includes(entry.status) ? entry.status : 'other';
+        else if (value.mcp_servers.every(item => isRecord(item) && typeof item.name === 'string' && item.name !== ''))
+          state.serverStatus = 'absent';
       }
       if (Array.isArray(value.tools)) {
         const names = new Set(value.tools.filter(tool => typeof tool === 'string'));
@@ -180,6 +184,8 @@ export function buildClaudeEnvironment({ platform, hostEnv, homeDir, scratchDir,
     // Fixed-disabled invocation: block official marketplace bootstrap and fast mode in both sessions.
     CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '1',
     CLAUDE_CODE_DISABLE_FAST_MODE: '1',
+    // Await configured MCP connections before init/first turn in the pinned client, in both sessions.
+    MCP_CONNECTION_NONBLOCKING: 'false',
     CLAUDE_CODE_ENABLE_TELEMETRY: '1', OTEL_LOGS_EXPORTER: 'otlp', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
     OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: 'http/json',
     // Per-signal OTLP endpoints are used as-is; only the generic endpoint appends /v1/logs.
@@ -238,7 +244,7 @@ export function observeClaudeManagedSettings({ platform = process.platform, dire
     try { value = JSON.parse(read.text); } catch { unreadable = true; continue; }
     if (!isRecord(value)) { unreadable = true; continue; }
     if (RESTRICTING_KEYS.some(key => Object.hasOwn(value, key))) restricted = true;
-    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/i.test(key))) restricted = true;
+    if (isRecord(value.env) && Object.keys(value.env).some(key => /^(CLAUDE_CODE_DISABLE_AUTO_MEMORY$|CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL$|CLAUDE_CODE_DISABLE_FAST_MODE$|MCP_CONNECTION_NONBLOCKING$|OTEL_|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED)/i.test(key))) restricted = true;
   }
   const mcp = readBounded(join(directory, 'managed-mcp.json'));
   if (mcp.unreadable) unreadable = true; else if (!mcp.absent) restricted = true;

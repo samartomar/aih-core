@@ -371,10 +371,11 @@ test('managed auto-memory keys are restrictions and win over unreadable observat
     assert.equal(observeNative(source(join(root, 'unreadable'), { settings: '{broken' })).outcome, 'unreadable');
   }));
 
-test('managed marketplace and fast-mode env presence restricts native and WSL policy observations', () =>
+test('managed fixed env presence restricts native and WSL policy observations', () =>
   withRoot(root => {
     let index = 0;
-    for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE'])
+    for (const key of ['CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL', 'CLAUDE_CODE_DISABLE_FAST_MODE',
+      'MCP_CONNECTION_NONBLOCKING', 'mcp_connection_nonblocking', 'Mcp_Connection_Nonblocking'])
       for (const value of ['', '0', 'false', '1', false, 0, null]) {
         const policy = { env: { [key]: value }, unknownPolicy: {} };
         const linux = source(join(root, `linux-${index}`), { settings: policy, dropIn: { 'broken.json': '{broken' } });
