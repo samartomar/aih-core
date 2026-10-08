@@ -20,7 +20,8 @@ test('a packed Core consumer adds, updates, conflicts, resolves and removes an o
   const env = { ...process.env, HOME: home, USERPROFILE: home };
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
   delete env.NODE_TEST_CONTEXT;
-  const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 180_000 });
+  // Installing the packed artifact beside the concurrent suite has exceeded 180 s on Windows runners.
+  const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 300_000 });
   try {
     const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], packageRoot))[0];
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'hook-consumer', private: true, type: 'module',

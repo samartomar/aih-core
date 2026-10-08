@@ -28,10 +28,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
   // which would silently skip the updated artifact's owning test files.
   delete env.NODE_TEST_CONTEXT;
   const npm = (args, cwd, timeout = 120_000) => {
+    const started = Date.now();
     try {
-      return execFileSync(process.execPath, [process.env.npm_execpath, ...args],
+      const output = execFileSync(process.execPath, [process.env.npm_execpath, ...args],
         { cwd, env, encoding: 'utf8', timeout });
+      // Report each fixture command's duration so its budget can be reviewed against runner timings.
+      console.log(`Package fixture command took ${Date.now() - started} ms of ${timeout} ms: ${args[0]}`);
+      return output;
     } catch (error) {
+      console.error(`Package fixture command stopped after ${Date.now() - started} ms of ${timeout} ms.`);
       // Node's test reporter truncates large child output before its final failure.
       // Preserve a bounded tail so nested upgrade checks remain diagnosable.
       console.error('Package fixture command failed:', args.join(' '));
@@ -700,14 +705,17 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     mkdirSync(join(updated, 'dist/harness'), { recursive: true });
     writeFileSync(join(updated, 'dist/index.js'), 'obsolete output');
     writeFileSync(join(updated, 'dist/harness/package.json'), '{}');
-    npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund'], updated);
+    // The locked closure equals the outer checkout's, so npm's cache already holds it. This install
+    // shares the runner with the concurrent outer suite; Windows runners have exceeded 120 s here.
+    npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], updated, 300_000);
     npm(['run', 'typecheck'], updated);
     npm(['run', 'build'], updated);
     assert.equal(existsSync(join(updated, 'dist/index.js')), false);
     assert.equal(existsSync(join(updated, 'dist/harness/package.json')), false);
     // This runs a complete standalone suite, including bounded Windows native
-    // subprocess checks. Its budget is larger than an individual npm install.
-    try { npm(['test'], updated, 300_000); } catch (error) {
+    // subprocess checks, beside the concurrent outer suite. Windows runners
+    // have exceeded 300 s here, so its budget is twice an npm install's.
+    try { npm(['test'], updated, 600_000); } catch (error) {
       const lines = String(error.stdout ?? '').split('\n');
       const failing = lines.filter(line => /^\s*✖ /.test(line)).slice(0, 20);
       const failingAt = lines.findIndex(line => line.includes('failing tests:'));
