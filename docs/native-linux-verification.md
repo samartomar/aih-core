@@ -130,9 +130,12 @@ or unreadable policy alone remains unreadable. Verification never overrides
 managed policy, and unobserved managed sources remain an evidence limitation.
 
 Both session environments also set literal `MCP_CONNECTION_NONBLOCKING=false`,
-regardless of host values. The pinned Claude Code 2.1.285 client awaits configured
-MCP connections before emitting init and starting the first turn. Acceptance
-covers this verifier's fixed environment, not default client startup timing.
+regardless of host values. With it, the pinned Claude Code 2.1.285 client awaits
+each configured MCP connection before emitting init and starting the first turn,
+bounded by its MCP connect timeout (`MCP_CONNECT_TIMEOUT_MS`, 5000 ms when unset;
+the verifier does not set it). A server still unsettled at that bound keeps a
+non-connected init status and does not pass loading. Acceptance covers this
+verifier's fixed environment, not default client startup timing.
 Presence of this key in managed env, regardless of value (including Windows case
 variants), yields `restricted` / `managed-restriction`; verification does not
 override managed policy. Pending, failed, authentication-required and disabled
