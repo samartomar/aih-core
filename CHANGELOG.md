@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.26 admits additional bounded Claude Code 2.1.285 response caches,
+history markers and the exact completed migration batch. New record admissions
+reject nested grant names. Client-written model, marketplace, remote-control,
+transport and preference inputs remain refused. Persistence diagnostics name
+reviewed global updater keys while retaining ordinal tokens for unreviewed names;
+values are never disclosed and admission decisions are unchanged by diagnostics.
+The existing diagnostic contract continues to report the first inspected-state
+failure. Native acceptance remains pending. This candidate has not been published
+to npm.
+
 Core 1.0.0-dev.25 applies backpressure in the Linux facility helper: child and
 peer bytes are read only while its outbound queue can accept another data frame,
 so a slow consumer no longer overflows the queue, silently drops output, loses an

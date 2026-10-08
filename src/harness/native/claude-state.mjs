@@ -49,7 +49,8 @@ const number = value => typeof value === 'number' && Number.isFinite(value);
 const text = value => typeof value === 'string' && value.length <= STRING;
 const bool = value => typeof value === 'boolean';
 const nullable = check => value => value === null || check(value);
-const recordOf = check => value => isRecord(value) && Object.values(value).every(check);
+const recordOf = check => value => isRecord(value) && Object.entries(value).every(([key, field]) =>
+  !NESTED_GRANTS.has(key) && check(field));
 const arrayOf = (check, max) => value => Array.isArray(value) && value.length <= max && value.every(check);
 // Keys that, nested anywhere inside client bookkeeping, would name a server, tool, permission, hook, plugin,
 // environment, credential helper or directory grant. Bookkeeping never needs them.
@@ -71,6 +72,21 @@ const ACCOUNT = new Set(['accountUuid', 'emailAddress', 'organizationUuid', 'org
 const account = value => isRecord(value) && Object.entries(value).every(([key, field]) =>
   key === 'ccOnboardingFlags' ? recordOf(scalar)(field) && !Object.keys(field).some(name => NESTED_GRANTS.has(name))
     : ACCOUNT.has(key) && scalar(field));
+
+// Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+// startup response slots are keyed by client request identity, with provider data and fetch metadata. The model
+// field may be absent when the request has no model. These are response caches, not a source of model selection.
+const responseSlot = value => isRecord(value) &&
+  Object.keys(value).every(key => ['data', 'at', 'entrypoint', 'model', 'org'].includes(key)) &&
+  Object.hasOwn(value, 'data') && data(4)(value.data) && count(value.at) &&
+  nullable(text)(value.entrypoint) && (!Object.hasOwn(value, 'model') || text(value.model)) && nullable(text)(value.org);
+// The same executable stores account/campaign eligibility responses with these known fields. A nested "granted"
+// boolean is provider eligibility metadata; it is not a tool/permission grant name. Unknown response fields reject.
+const featureEligibility = value => isRecord(value) && Object.keys(value).every(key =>
+  ['available', 'eligible', 'granted', 'amount_minor_units', 'currency'].includes(key)) &&
+  bool(value.available) && bool(value.eligible) && bool(value.granted) && count(value.amount_minor_units) && text(value.currency);
+const eligibilityEntry = value => isRecord(value) && Object.keys(value).every(key => ['info', 'timestamp'].includes(key)) &&
+  featureEligibility(value.info) && count(value.timestamp);
 
 const COUNTERS = ['numStartups', 'memoryUsageCount', 'promptQueueUseCount', 'btwUseCount', 'queuedCommandUpHintCount',
   'lspRecommendationIgnoredCount', 'promptSuggestionUnusedStreak', 'subscriptionNoticeCount', 'subscriptionUpsellShownCount',
@@ -94,7 +110,18 @@ const GLOBAL_STATE = new Map([
   ['autoUpdates', value => value === false], ['autoUpdatesProtectedForNative', bool], ['hasCompletedOnboarding', bool],
   ['lastOnboardingVersion', text], ['lastReleaseNotesSeen', text], ['changelogLastFetched', number], ['oauthAccount', account],
   ['cachedExtraUsageDisabledReason', nullable(text)], ['cachedUsageUtilization', providerCache],
-  ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache]
+  ['groveConfigCache', providerCache], ['passesEligibilityCache', providerCache],
+  // Claude Code 2.1.285, SHA-256 33dad1ec615a2e08cc78b494f05c110e49916de2c79d78ec8799ebf46b233d29:
+  // reviewed headless-capable response/history writers. Server-name histories do not configure MCP; campaign
+  // histories do not enable features. Model entitlements, fast-mode consent, marketplace bootstrap/retry controls,
+  // compression latches, remote-control records and preferences remain unknown/refused even when client-written.
+  ['clientDataCacheSlots', recordOf(responseSlot)], ['closedIssuesAcknowledged', arrayOf(count, 1024)],
+  ['closedIssuesLastChecked', number], ['fotwClaimedFeatures', recordOf(arrayOf(text, 1024))],
+  ['fotwEligibilityCache', recordOf(recordOf(eligibilityEntry))],
+  ['githubWebConnectionStatusCache', value => isRecord(value) && data(2)(value)],
+  ['claudeAiMcpEverConnected', arrayOf(text, 1024)], ['mcpNeedsAuthNoticed', arrayOf(text, 1024)],
+  ['hasRunUltrareview', bool], ['hasSeenAutoModeEntryWarning', bool], ['hasVisitedPasses', bool],
+  ['passesLastSeenRemaining', nullable(count)], ['teamOnboardingLastUsedAt', count]
 ]);
 // Locally generated random identifiers.
 const IDENTIFIERS = new Set(['userID', 'machineID', 'summonSidKey']);
@@ -117,7 +144,10 @@ const PROJECT_STATE = new Map([
 const MIGRATIONS = new Map([
   ['opusProMigrationComplete', bool], ['sonnet1m45MigrationComplete', bool], ['hasResetAutoModeOptInForDefaultOffer', bool],
   ['opusProMigrationTimestamp', count], ['legacyOpusMigrationTimestamp', count], ['sonnet45To46MigrationTimestamp', count],
-  ['fable5ToFableAliasMigrationTimestamp', count]
+  ['fable5ToFableAliasMigrationTimestamp', count],
+  // The pinned 2.1.285 executable's migration batch constant is exactly 14. This records completion, while
+  // settings written by those migrations remain independently selected/refused; no other batch is reviewed.
+  ['migrationVersion', value => value === 14]
 ]);
 
 function acceptedGlobal(key, value) {
