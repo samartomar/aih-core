@@ -783,9 +783,16 @@ done:
   for(int i=0;i<2;i++){close_fd(&fdin[i]);close_fd(&fdout[i]);close_fd(&fderr[i]);close_fd(&gate[i]);close_fd(&execerr[i]);}if(argc>0)free_strings(args+1,argc);free_strings(environment,nenv);free(file);free(cwd);return ok;
 }
 
+/* Child and peer bytes are read only while the outbound queue can take another
+ * full data frame below DATA_QUEUE. A slow consumer then blocks the writer
+ * instead of overflowing emit(), which would silently drop frames, including a
+ * later limit fault, and fault the session. The remainder stays for control events. */
+#define DATA_FRAME (CHUNK*4/3+256)
+#define DATA_QUEUE 262144
+static int data_room(void) {return outn+DATA_FRAME<=DATA_QUEUE;}
 static void drain_fd(int *fd,const char *type) {
   unsigned char buf[CHUNK];
-  if(*fd<0)return;
+  if(*fd<0||(!output_limited&&!data_room()))return;
   ssize_t n=read(*fd,buf,sizeof(buf));
   if(n>0) {
     if(output_limited)return; /* Discard during bounded cleanup; emit no repeated limit event. */
@@ -801,10 +808,11 @@ static void drain_fd(int *fd,const char *type) {
   }
 }
 static void io_step(int timeout) {
-  struct pollfd fds[MAX_PEER+5];int count=0;fds[count++]=(struct pollfd){STDOUT_FILENO,outn?POLLOUT:0,0};fds[count++]=(struct pollfd){child_out,POLLIN,0};fds[count++]=(struct pollfd){child_err,POLLIN,0};
-  for(int i=0;i<2;i++){fds[count++]=(struct pollfd){i<pipe_count?pipes[i].fd:-1,POLLIN,0};}for(int i=0;i<MAX_PEER;i++)fds[count++]=(struct pollfd){peers[i].fd,POLLIN,0};
+  int room=data_room(),output_room=room||output_limited;
+  struct pollfd fds[MAX_PEER+5];int count=0;fds[count++]=(struct pollfd){STDOUT_FILENO,outn?POLLOUT:0,0};fds[count++]=(struct pollfd){output_room?child_out:-1,POLLIN,0};fds[count++]=(struct pollfd){output_room?child_err:-1,POLLIN,0};
+  for(int i=0;i<2;i++){fds[count++]=(struct pollfd){i<pipe_count?pipes[i].fd:-1,POLLIN,0};}for(int i=0;i<MAX_PEER;i++)fds[count++]=(struct pollfd){room?peers[i].fd:-1,POLLIN,0};
   int rc=poll(fds,(nfds_t)count,timeout);if(rc<0&&errno!=EINTR){faulted=1;enter_cleanup();}flush();drain_fd(&child_out,"stdout");drain_fd(&child_err,"stderr");for(int i=0;i<pipe_count;i++)if(pipes[i].fd>=0&&(fds[3+i].revents&POLLIN))accept_peer(&pipes[i]);
-  for(int i=0;i<MAX_PEER;i++){Peer *p=&peers[i];if(p->fd<0)continue;unsigned char buf[CHUNK];ssize_t n=read(p->fd,buf,sizeof(buf));if(n>0){p->bytes+=(size_t)n;ipc_bytes+=(uint64_t)n;if(ipc_bytes>IPC_LIMIT){event("fault","{\"reason\":\"pipe-limit\"}");enter_cleanup();stop_pipe();}else data_event("pipe-data",p->id,buf,(size_t)n);}else if(!n||(errno!=EAGAIN&&errno!=EINTR))close_peer(p);}
+  for(int i=0;i<MAX_PEER;i++){Peer *p=&peers[i];if(p->fd<0||!data_room())continue;unsigned char buf[CHUNK];ssize_t n=read(p->fd,buf,sizeof(buf));if(n>0){p->bytes+=(size_t)n;ipc_bytes+=(uint64_t)n;if(ipc_bytes>IPC_LIMIT){event("fault","{\"reason\":\"pipe-limit\"}");enter_cleanup();stop_pipe();}else data_event("pipe-data",p->id,buf,(size_t)n);}else if(!n||(errno!=EAGAIN&&errno!=EINTR))close_peer(p);}
   if(root_reaped&&!exit_sent){char b[128];int ignored=snprintf(b,sizeof(b),"{\"code\":%d,\"signal\":null}",WIFEXITED(root_status)?WEXITSTATUS(root_status):128+WTERMSIG(root_status));(void)ignored;event("exit",b);exit_sent=1;}
 }
 static int cleanup(unsigned grace,unsigned budget) {

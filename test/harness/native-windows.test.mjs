@@ -667,9 +667,12 @@ test('a rejected launch without a client PID still reports helper cleanup', WIND
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const result = await lifecycle.startLifecycle({ lifecycleId: 'windows-job.v1', os: 'win32',
     file: process.execPath, argv: ['-e', 'throw Error("must not start")'], cwd: join(directory, 'missing'),
-    env: childEnv(), deadline: performance.now() + 5000 });
-  assert.equal(result.status, 'unavailable');
+    // The deadline bounds preparation (pinning node and the helper). Under loaded CI a short one expired before
+    // the helper existed, leaving nothing to clean up and never reaching the rejected launch under test.
+    env: childEnv(), deadline: performance.now() + 60_000 });
+  assert.equal(result.status, 'unavailable', JSON.stringify(result));
   assert.equal(result.partial, undefined);
+  assert.ok(result.cleanup, JSON.stringify(result));
   assert.equal(result.cleanup.confirmed, true);
   assert.deepEqual(result.cleanup.survivors, []);
   assert.ok(Number.isFinite(result.cleanupStartedAt));

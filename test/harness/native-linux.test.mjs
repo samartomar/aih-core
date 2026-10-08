@@ -580,6 +580,22 @@ test('bounded output failure keeps cleanup observable without surfacing raw chil
   assert.equal(alive(started.handle.pid), false);
 });
 
+test('stalled output consumer applies backpressure without dropping bytes or the limit failure', native, async t => {
+  const f = fixture(t, 'process.stdout.write(Buffer.alloc(3000000,65));setInterval(()=>{},1000);');
+  const c = await context(t, f); const started = await c.start({ file: f.nodePin.path, argv: [f.file], cwd: f.directory, env: env() });
+  assert.equal(started.status, 'started');
+  let count = 0; started.handle.stdout.on('data', bytes => { count += bytes.length; });
+  const ended = new Promise(resolve => started.handle.stdout.once('end', resolve));
+  // Block this consumer so the facility's outbound queue would overflow without backpressure.
+  const until = performance.now() + 1500; while (performance.now() < until) { /* stalled consumer */ }
+  await bounded(started.handle.exited); await bounded(ended);
+  assert.equal(started.handle.failure?.reason, 'limit-exceeded'); assert.equal(started.handle.failure.limitSource, 'output');
+  // Every byte read before the limit-crossing chunk (at most 16 KiB) is delivered.
+  assert.ok(count <= 2097152 && count > 2097152 - 16384, String(count));
+  const receipt = await c.terminate({ graceMs: 0 }); assert.equal(receipt.processes, 'confirmed', JSON.stringify(receipt));
+  assert.equal(alive(started.handle.pid), false);
+});
+
 test('traced multithreaded Node roots confirm immediate, forced and graceful tree closure', { ...native, timeout: 90_000 }, async t => {
   const f = fixture(t, `import {Worker} from 'node:worker_threads';
     import {spawn} from 'node:child_process';import {once} from 'node:events';
