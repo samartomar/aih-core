@@ -38,8 +38,8 @@
     },
     {
       "name": "linux-proxy.mjs",
-      "byteLength": 3829,
-      "sha256": "80cb45da62511aefa265490a4603c043af8164dee542661a62e69ee27b6055e9"
+      "byteLength": 3839,
+      "sha256": "e80e080fa436d7e30a6bf0b597b1e058a67cfdafe641341be55eda5186d495ed"
     },
     {
       "name": "linux-runtime.mjs",

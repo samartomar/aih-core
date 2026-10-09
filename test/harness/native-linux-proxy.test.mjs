@@ -67,11 +67,11 @@ test('runner monitoring consumes supported debug logs and violation-store notifi
 test('runner monitoring surfaces a fixed content-free signal for genuine non-debug SRT warnings and errors', () => {
   const store = new SandboxViolationStore();
   const emitted = [];
-  const originalError = console.error, originalWarn = console.warn;
-  console.error = console.warn = (...args) => { emitted.push(args); };
-  const outerError = console.error, outerWarn = console.warn;
-  const observer = observeLinuxProxyDiagnostics(store, 'http://127.0.0.1:43210/v1/logs');
+  const originalError = console.error, originalWarn = console.warn, originalDebug = process.env.SRT_DEBUG;
   try {
+    const outer = (...args) => { emitted.push(args); };
+    console.error = console.warn = outer;
+    const observer = observeLinuxProxyDiagnostics(store, 'http://127.0.0.1:43210/v1/logs');
     // SRT pairs a direct console.warn with a [SandboxDebug]-prefixed duplicate; only the direct one is genuine.
     const raw = '[sandbox-runtime] WARNING: credentials.envVars entry "credential-marker" is left UNPROTECTED';
     console.warn(raw);
@@ -79,9 +79,15 @@ test('runner monitoring surfaces a fixed content-free signal for genuine non-deb
     console.error(new Error('credential-marker failure'));
     logForDebugging('Allowed by config rule: api.anthropic.com:443');
     assert.equal(emitted.length, 1, 'one fixed signal, debug-prefixed lines stay silent');
-    assert.match(emitted[0].join(' '), /sandbox-runtime/i);
+    assert.deepEqual(emitted[0], ['sandbox-runtime or runner reported a warning or error; details withheld from the trusted runner.']);
     assert.doesNotMatch(JSON.stringify(emitted), /credential-marker|envVars/);
     assert.equal(observer.snapshot().apiAnthropic.allowed, 1, 'counting is unchanged');
-  } finally { observer.stop(); console.error = originalError; console.warn = originalWarn; }
-  assert.equal(outerError === outerWarn, true);
+    observer.stop();
+    assert.equal(console.error, outer);
+    assert.equal(console.warn, outer);
+    assert.equal(process.env.SRT_DEBUG, originalDebug);
+  } finally {
+    console.error = originalError; console.warn = originalWarn;
+    if (originalDebug === undefined) delete process.env.SRT_DEBUG; else process.env.SRT_DEBUG = originalDebug;
+  }
 });

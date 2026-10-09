@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { channel } from 'node:diagnostics_channel';
 import { publishNativeAdmission } from '../../src/harness/native/admission.mjs';
 import * as admission from '../../src/harness/native/admission.mjs';
-import { createClaudeStreamParser } from '../../src/harness/native/claude.mjs';
+import { createClaudeStreamParser, nativeErrorClasses } from '../../src/harness/native/claude.mjs';
 
 test('persistence publisher closes parent tokens and enforces the serialized byte cap', () => {
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
@@ -276,8 +276,8 @@ test('session diagnostics clamp and freeze proxy buckets and admit only closed p
 
 test('parser error classes share the frozen diagnostics vocabulary and survive admission', () => {
   const expectedClasses = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'];
-  assert.deepEqual(Object.values(admission.nativeErrorClasses), expectedClasses);
-  assert.ok(Object.isFrozen(admission.nativeErrorClasses));
+  assert.deepEqual(Object.values(nativeErrorClasses), expectedClasses);
+  assert.ok(Object.isFrozen(nativeErrorClasses));
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
   stream.subscribe(sink);
   try {

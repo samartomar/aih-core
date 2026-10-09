@@ -5,9 +5,14 @@ import { closeSync, fstatSync, openSync, readSync, readdirSync } from 'node:fs';
 import { posix, win32, join } from 'node:path';
 import { canonicalJson, isRecord, parseStrictJson } from './canonical.mjs';
 import { nativeBounds } from './contracts.mjs';
-import { nativeErrorClasses } from './admission.mjs';
 import { sha256 } from './digest.mjs';
 import { classifyManagedSettings } from './managed-settings.mjs';
+
+// Closed provider-error vocabulary; session diagnostics admit only these values.
+export const nativeErrorClasses = Object.freeze({
+  none: 'none', authentication: 'authentication', forbidden: 'forbidden',
+  rateLimit: 'rate-limit', overloaded: 'overloaded', network: 'network', other: 'other'
+});
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SERVER_STATUSES = ['connected', 'pending', 'failed', 'needs-auth', 'disabled'];

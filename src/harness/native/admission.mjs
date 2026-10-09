@@ -6,13 +6,9 @@ import { canonicalJson, isRecord } from './canonical.mjs';
 import { sha256 } from './digest.mjs';
 import { isolationProbeNames } from './linux-isolation.mjs';
 import { linuxProxyBuckets } from './linux-proxy.mjs';
+import { nativeErrorClasses } from './claude.mjs';
 import { persistenceFailureClasses, inspectedStateDiagnoses, safePersistenceDiagnosticToken } from './persistence-diagnostics.mjs';
 
-// Shared closed vocabulary for parser observations and diagnostic projection.
-export const nativeErrorClasses = Object.freeze({
-  none: 'none', authentication: 'authentication', forbidden: 'forbidden',
-  rateLimit: 'rate-limit', overloaded: 'overloaded', network: 'network', other: 'other'
-});
 const admittedErrorClasses = Object.freeze(Object.values(nativeErrorClasses));
 
 const stream = channel('aih.native.admission.v1');

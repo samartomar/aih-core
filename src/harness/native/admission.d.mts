@@ -1,9 +1,3 @@
-export const nativeErrorClasses: Readonly<{
-  none: 'none'; authentication: 'authentication'; forbidden: 'forbidden';
-  rateLimit: 'rate-limit'; overloaded: 'overloaded'; network: 'network'; other: 'other';
-}>;
-export type NativeErrorClass = typeof nativeErrorClasses[keyof typeof nativeErrorClasses];
-
 export type NativeForwarderDiagnostics = Readonly<{ accepted: number; connected: number; refused: number; capped: number }>;
 export type NativePersistenceDiagnostics = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-persistence-diagnostics'; recordId: string;
@@ -40,7 +34,7 @@ export type NativeSessionDiagnostics = Readonly<{
   forwarder: NativeForwarderDiagnostics | null;
   init: Readonly<{ serverStatus: 'connected' | 'pending' | 'failed' | 'needs-auth' | 'disabled' | 'absent' | 'other' | 'unobserved' }>;
   result: Readonly<{ seen: boolean; isError: boolean | null; subtype: 'none' | 'success' | 'error_max_turns' | 'error_during_execution' | 'other';
-    errorClass: NativeErrorClass }>;
+    errorClass: import('./runtime.mjs').NativeErrorClass }>;
 }>;
 export function publishNativeDiagnostics(input: Record<string, unknown>): void;
 export function publishNativeAdmission(input: Record<string, unknown>): void;

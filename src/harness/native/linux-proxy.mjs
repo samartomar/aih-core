@@ -54,7 +54,7 @@ export function observeLinuxProxyDiagnostics(store, collectorEndpoint) {
     try { counter.log(message); } catch { available = false; }
     if (signalled || (typeof message === 'string' && message.startsWith('[SandboxDebug] '))) return;
     signalled = true;
-    try { originalError('sandbox-runtime reported a warning or error; details withheld from the trusted runner.'); } catch { /* stderr unavailable */ }
+    try { originalError('sandbox-runtime or runner reported a warning or error; details withheld from the trusted runner.'); } catch { /* stderr unavailable */ }
   };
   console.error = console.warn = hook;
   process.env.SRT_DEBUG = '1';
