@@ -33,6 +33,14 @@ ordinary `verify-client` call cannot promote a candidate or select a custom poli
 
 ## Fixed workload boundary
 
+Platform-runtime pinned re-reads allow a multi-link regular file only on POSIX
+when it is root-owned (uid 0) with no group or other write bits, every ancestor
+is a real root-owned directory (no symlinks) with no group or other write bits,
+and device, inode, size, mtime, ctime and link count stay stable across the read. The pinned
+SHA-256 still has to match. This supports stock Ubuntu's rust-coreutils multicall
+`env` without a host single-link copy. Client executable, material, cell and
+other reads remain single-link, and Windows behavior is unchanged.
+
 Harness wraps the version probe and each complete client session in a fresh
 instance of Anthropic Sandbox Runtime 0.0.78. The unmodified dependency and its
 transitive JavaScript closure are bundled and checked against `runtime-lock.json`.
@@ -399,4 +407,6 @@ with the pinned runtime and an npm-installed `@aihq/core` package. Set
 terminates the real sandbox without executing the client; CI skips it because
 these variables are unset.
 The same gate also re-reads every merged runtime pin except the client through
-Core's pinned-file reader and checks its SHA-256 without executing the client.
+Core's runtime-pin reader and checks its SHA-256 without executing the client.
+When a multi-link runtime pin exists, a separate assertion confirms that the
+strict pinned-file reader still refuses it.

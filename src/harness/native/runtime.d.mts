@@ -4,6 +4,7 @@ export * from './contracts.mjs';
 /** Internal composition used only with the fixed installed exports by Core. */
 export function createNativeRuntime(module: typeof import('./runtime.mjs'), dependencies: {
   readPinned: typeof import('../../core/internal/native-material.js').nativeReadPinned;
+  readPinnedRuntime: typeof import('../../core/internal/native-material.js').nativeReadPinnedRuntime;
   Stop: typeof import('../../core/internal/native-input.js').NativeStop;
   recordCleanup?: (receipt: import('../../core/internal/native-session.js').NativeSessionCleanup, startedAt?: number) => void;
 }): import('../../core/internal/native-session.js').NativeRuntime;

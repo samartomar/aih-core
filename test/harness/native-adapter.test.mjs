@@ -83,7 +83,7 @@ test('the Linux branch delegates exactly the platform client pin shape', async (
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
-async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track, environmentProbe } = {}) {
+async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track, environmentProbe, reads } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
   const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
   for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
@@ -134,7 +134,9 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
       ambiguousBeforeAttestation: false, query, queryResultSha256: query === 'result-mismatch' ? 'b'.repeat(64) : 'c'.repeat(64),
       rejectedQueryCalls: 0, unrequestedCalls: 0 }),
     prepareLifecycleContext: async () => ({ status: 'ready', context: lifecycleContext }) };
-  const runtime = installed.createNativeRuntime(module, { readPinned(path) { return readFileSync(path); },
+  const runtime = installed.createNativeRuntime(module, {
+    readPinned(path) { reads?.push(['strict', path]); return readFileSync(path); },
+    readPinnedRuntime(path) { reads?.push(['runtime', path]); return readFileSync(path); },
     Stop: class extends Error { constructor(reason) { super(reason); this.reason = reason; } } });
   runtime.nativeCapabilities = () => ({ lifecycle: true, peerIdentity: true, credentialChannel: true });
   runtime.nativeServerEvidenceAvailable = () => true;
@@ -624,4 +626,40 @@ test('delayed connected init passes loading and diagnostics preserve all adapter
     for (const marker of ['raw-status-marker', 'raw-server-marker', 'controlled', 'mcp_servers', 'serverName'])
       assert.equal(JSON.stringify(record).includes(marker), false);
   }
+});
+
+test('client revalidation keeps the executable strict and uses the runtime reader for runtime pins', () => {
+  const executable = Buffer.from('client-bytes'), runtimeBytes = Buffer.from('runtime-bytes');
+  const pin = { executable: '/client', sha256: sha256(executable), runtime: [
+    { path: '/runtime-a', sha256: sha256(runtimeBytes) }, { path: '/runtime-b', sha256: sha256(runtimeBytes) }
+  ] };
+  const calls = [], check = () => {}, maximum = 256 * 1024 * 1024;
+  const runtime = installed.createNativeRuntime(installed, {
+    readPinned(path, limit, checked) {
+      calls.push(['strict', path]); assert.equal(limit, maximum); assert.equal(checked, check);
+      if (path !== pin.executable) throw Error('strict reader refuses runtime fixture');
+      return executable;
+    },
+    readPinnedRuntime(path, limit, checked) {
+      calls.push(['runtime', path]); assert.equal(limit, maximum); assert.equal(checked, check);
+      assert.ok(pin.runtime.some(value => value.path === path)); return runtimeBytes;
+    },
+    Stop: Error
+  });
+  assert.equal(runtime.revalidateNativeClient(pin, { check }), true);
+  assert.deepEqual(calls, [['strict', '/client'], ['runtime', '/runtime-a'], ['runtime', '/runtime-b']]);
+  assert.equal(runtime.revalidateNativeClient({ ...pin, sha256: sha256('changed-client') }, { check }), false);
+  assert.equal(runtime.revalidateNativeClient({ ...pin, runtime: [{ ...pin.runtime[0], sha256: sha256('changed-runtime') }] }, { check }), false);
+  calls.length = 0;
+  assert.equal(runtime.revalidateNativeClient({ ...pin, executable: '/refused-client' }, { check }), false);
+  assert.deepEqual(calls, [['strict', '/refused-client']]);
+});
+
+test('launch planning reads runtime pins through the runtime reader and everything else strictly', async t => {
+  const reads = [];
+  await session(t, { reads });
+  const node = realpathSync.native(process.execPath);
+  assert.deepEqual(reads.slice(0, 2), [['strict', node], ['runtime', node]]);
+  assert.deepEqual(reads.filter(([kind]) => kind === 'runtime'), [['runtime', node]]);
+  assert.ok(reads.filter(([kind]) => kind === 'strict').length > 1);
 });

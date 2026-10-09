@@ -52,7 +52,10 @@ export function readRegularFileWithStats(
       /** Ordinary descriptor stats retained for existing numeric consumers. */
       stats: Stats;
       /** BigInt identity/link facts from the same descriptor as {@link contents}. */
-      identity: Pick<BigIntStats, "dev" | "ino" | "nlink">;
+      identity: Pick<
+        BigIntStats,
+        "dev" | "ino" | "nlink" | "uid" | "mode" | "size" | "mtimeNs" | "ctimeNs"
+      >;
     }
   | undefined {
   let fd: number;
@@ -75,7 +78,16 @@ export function readRegularFileWithStats(
       ? undefined
       : {
           contents,
-          identity: { dev: identity.dev, ino: identity.ino, nlink: identity.nlink },
+          identity: {
+            dev: identity.dev,
+            ino: identity.ino,
+            nlink: identity.nlink,
+            uid: identity.uid,
+            mode: identity.mode,
+            size: identity.size,
+            mtimeNs: identity.mtimeNs,
+            ctimeNs: identity.ctimeNs,
+          },
           stats,
         };
   } finally {

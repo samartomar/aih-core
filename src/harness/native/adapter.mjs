@@ -31,7 +31,7 @@ async function terminateBounded(handle, deadline, graceMs) {
 }
 function createNativeRuntime(module, dependencies) {
   const persistenceClassifier = createPersistenceDiagnosticClassifier();
-  const { readPinned: nativeReadPinned, Stop: NativeStop } = dependencies;
+  const { readPinned: nativeReadPinned, readPinnedRuntime: nativeReadPinnedRuntime, Stop: NativeStop } = dependencies;
   const observeFacility = result => {
     if (result?.cleanup) dependencies.recordCleanup?.(result.cleanup, result.cleanupStartedAt);
     return result;
@@ -94,9 +94,9 @@ function createNativeRuntime(module, dependencies) {
     try {
       const cellRoot = `${pathKey(realpathSync.native(cell.path))}${sep}`;
       const pins = new Map();
-      const addPin = (path, expected, reason) => {
+      const addPin = (path, expected, reason, read = nativeReadPinned) => {
         const canonical = realpathSync.native(path);
-        const bytes = nativeReadPinned(canonical, MAX_PINNED_BYTES, check);
+        const bytes = read(canonical, MAX_PINNED_BYTES, check);
         const digest = sha256(bytes);
         if (digest !== expected.sha256 || expected.byteLength !== undefined && bytes.length !== expected.byteLength) throw new NativeStop(reason, "failed");
         const value = { path: canonical, sha256: digest, byteLength: bytes.length };
@@ -104,7 +104,7 @@ function createNativeRuntime(module, dependencies) {
         return value;
       };
       addPin(pin.executable, pin, "executable-changed");
-      for (const value of pin.runtime) addPin(value.path, value, "executable-changed");
+      for (const value of pin.runtime) addPin(value.path, value, "executable-changed", nativeReadPinnedRuntime);
       if (linuxVendor(input.definition)) for (const file of [...material.outputTree, ...(input.definition.guardrails ?? [])]) {
         const canonical = realpathSync.native(join(cell[file.root], ...file.path.split('/')));
         if (!pathKey(canonical).startsWith(cellRoot)) throw new NativeStop('material-path-unsafe', 'failed');
@@ -332,7 +332,7 @@ function createNativeRuntime(module, dependencies) {
     },
     revalidateNativeClient(pin, input) {
       try {
-        return sha256(nativeReadPinned(pin.executable, 256 * 1024 * 1024, input.check)) === pin.sha256 && pin.runtime.every((value) => sha256(nativeReadPinned(value.path, 256 * 1024 * 1024, input.check)) === value.sha256);
+        return sha256(nativeReadPinned(pin.executable, 256 * 1024 * 1024, input.check)) === pin.sha256 && pin.runtime.every((value) => sha256(nativeReadPinnedRuntime(value.path, 256 * 1024 * 1024, input.check)) === value.sha256);
       } catch (error) {
         if (error instanceof NativeStop && ["cancelled", "budget-exhausted"].includes(error.reason)) throw error;
         return false;

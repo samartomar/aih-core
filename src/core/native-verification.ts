@@ -10,7 +10,7 @@ import { canonicalJson } from './internal/canonical.js';
 import { sha256 } from './internal/host-files.js';
 import { NativeStop, nativeSnapshot, nativeDiagnostic, validateNativeControls } from './internal/native-input.js';
 import { emptyNativeResult, invalidNativeResult, appendNativeStage, finishNativeResult, addNativeDiagnostic, type NativeStage } from './internal/native-result.js';
-import { acquireNativeSupplied, captureNativeInstalledMembers, captureNativeHelpers, revalidateNativeHelpers, nativeReadPinned, validateMaterialTrees, type NativeMaterial } from './internal/native-material.js';
+import { acquireNativeSupplied, captureNativeInstalledMembers, captureNativeHelpers, revalidateNativeHelpers, nativeReadPinned, nativeReadPinnedRuntime, validateMaterialTrees, type NativeMaterial } from './internal/native-material.js';
 import { createNativeCell, stageNativeCell, checkNativePersistence, nativeStatePlan, removeNativeCell, type NativeCell } from './internal/native-cell.js';
 import { evaluateNativeSession, type NativeRuntime, type NativeSessionHandle, type NativeSessionObservations } from './internal/native-session.js';
 import { nativeRuntime } from './internal/native-runtime.js';
@@ -157,8 +157,8 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     check();
     if (!runtime.nativeServerEvidenceAvailable(material)) throw new NativeStop('server-evidence-unavailable');
     if (material.scope === 'production-configuration' && material.server.evidenceAdapterId === 'aihq.fixture.v1') throw new NativeStop('server-evidence-unavailable');
-    const executablePins = [{ path: pin.executable, sha256: pin.sha256 }, ...pin.runtime];
-    for (const member of executablePins) if (sha256(nativeReadPinned(member.path, 256 * 1024 * 1024, check)) !== member.sha256) throw new NativeStop('executable-changed');
+    const executablePins = [{ path: pin.executable, sha256: pin.sha256, read: nativeReadPinned }, ...pin.runtime.map(value => ({ ...value, read: nativeReadPinnedRuntime }))];
+    for (const member of executablePins) if (sha256(member.read(member.path, 256 * 1024 * 1024, check)) !== member.sha256) throw new NativeStop('executable-changed');
     result.adapter.sha256 = sha256(canonicalJson({ definition, helpersSha256: helpers.sha256, executableSha256: pin.sha256, runtimes: pin.runtime.map(value => value.sha256) }));
     result.client.observedVersion = safeHostValue(pin.observedVersion);
     if (!definition.clientVersions.includes(pin.observedVersion)) throw new NativeStop('version-unsupported', 'unsupported');
@@ -200,7 +200,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       }
       activeStage = 'session-start';
       if (!revalidateNativeHelpers(helpers, check) || !await runtime.revalidateNativeClient(pin, { check }) ||
-        executablePins.some(member => sha256(nativeReadPinned(member.path, 256 * 1024 * 1024, check)) !== member.sha256)) throw new NativeStop('executable-changed');
+        executablePins.some(member => sha256(member.read(member.path, 256 * 1024 * 1024, check)) !== member.sha256)) throw new NativeStop('executable-changed');
       const challenge = randomBytes(32).toString('hex');
       const queryArguments = material.server.challenge.mode === 'argument' ? { ...material.server.queryArguments, [material.server.challenge.field]: challenge } : material.server.queryArguments;
       const sessionDeadline = index === 1 ? performance.now() + Math.max(0, deadline - performance.now()) / 2 : deadline;
