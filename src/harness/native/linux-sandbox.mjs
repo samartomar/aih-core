@@ -14,7 +14,7 @@ import { acquireLinuxCellProfile } from './linux-cell-profile.mjs';
 import { createLinuxCanaries } from './linux-canaries.mjs';
 import { deriveLinuxSessionProfile } from './linux-profile.mjs';
 import { evaluateLinuxIsolation, inspectLinuxArguments, inspectLinuxProxyCapability, isolationProbeNames, validIsolationProbes } from './linux-isolation.mjs';
-import { linuxProxyBuckets } from './linux-proxy.mjs';
+import { parseLinuxProxyReceipt } from './linux-proxy.mjs';
 
 const resource = name => fileURLToPath(new URL(name, import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -258,15 +258,13 @@ export async function composeLinuxSandbox(input, observerPins) {
   let planFile, baseFile, windowsCanary;
   const profileFile = file('d', '.json'), receiptFile = file('r', '.json');
   const diagnosticsFile = join(cell.observations, `proxy-${basename(receiptFile)}`);
-  let proxyDiagnostics = null;
+  let proxyDiagnostics = null, runnerWarnings = null;
   const readProxyDiagnostics = () => {
     try {
-      const record = parseStrictJson(readBounded(diagnosticsFile, 4096).toString('utf8'));
-      if (!hasExactKeys(record, linuxProxyBuckets) || linuxProxyBuckets.some(key =>
-        !hasExactKeys(record[key], ['allowed', 'denied']) || ['allowed', 'denied'].some(decision =>
-          !Number.isSafeInteger(record[key][decision]) || record[key][decision] < 0 || record[key][decision] > 1000000))) return;
-      for (const pair of Object.values(record)) Object.freeze(pair);
-      proxyDiagnostics = Object.freeze(record);
+      const parsed = parseLinuxProxyReceipt(readBounded(diagnosticsFile, 4096).toString('utf8'));
+      if (parsed === null) return;
+      proxyDiagnostics = parsed.proxy;
+      runnerWarnings = parsed.runnerWarnings;
     } catch { /* a killed runner or incomplete diagnostic receipt is unobservable */ }
   };
   const workload = resource('linux-workload.mjs'), runner = resource('linux-runner.mjs'), interopHelper = resource('linux/facility');
@@ -524,6 +522,7 @@ export async function composeLinuxSandbox(input, observerPins) {
       isolation,
       get failureReason() { return auditFailure; },
       proxyDiagnostics: () => proxyDiagnostics,
+      runnerWarnings: () => runnerWarnings,
       forwarderDiagnostics: () => session?.state.forwarder ?? null,
       isolationRecord() {
         const { proof, state } = session;

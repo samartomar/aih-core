@@ -84,9 +84,9 @@ try {
 finally {
   if (manager) { try { manager.cleanupAfterCommand(); await manager.reset(); } catch { code = 125; } }
   try {
-    const proxy = proxyDiagnostics?.snapshot() ?? null;
+    const proxy = proxyDiagnostics?.snapshot() ?? null, runnerWarnings = proxyDiagnostics?.warnings() ?? null;
     proxyDiagnostics?.stop();
-    if (diagnosticsFile) writeFileSync(diagnosticsFile, canonicalJson(proxy), { flag: 'wx', mode: 0o600 });
+    if (diagnosticsFile) writeFileSync(diagnosticsFile, canonicalJson(proxy === null || runnerWarnings === null ? null : { proxy, runnerWarnings }), { flag: 'wx', mode: 0o600 });
   } catch { /* diagnostics never change the exit status */ }
 }
 process.exit(code);

@@ -6,7 +6,10 @@ import { canonicalJson, isRecord } from './canonical.mjs';
 import { sha256 } from './digest.mjs';
 import { isolationProbeNames } from './linux-isolation.mjs';
 import { linuxProxyBuckets } from './linux-proxy.mjs';
+import { nativeErrorClasses } from './claude.mjs';
 import { persistenceFailureClasses, inspectedStateDiagnoses, safePersistenceDiagnosticToken } from './persistence-diagnostics.mjs';
+
+const admittedErrorClasses = Object.freeze(Object.values(nativeErrorClasses));
 
 const stream = channel('aih.native.admission.v1');
 const diagnosticsStream = channel('aih.native.diagnostics.v1');
@@ -78,9 +81,10 @@ export function publishNativeDiagnostics(input) {
       ? result.serverStatus : 'other';
   const seen = result.resultSeen === true;
   const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
-  const errorClass = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'].includes(result.errorClass) ? result.errorClass : 'none';
+  const errorClass = admittedErrorClasses.includes(result.errorClass) ? result.errorClass : nativeErrorClasses.none;
   const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
     [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;
+  const runnerWarnings = proxy !== null && input.runnerWarnings != null ? boundedCount(input.runnerWarnings) : null;
   const forwarder = input.definition === 'claude-linux-x64-wsl2-srt-2.1.285' && isRecord(input.forwarder)
     ? counts(input.forwarder, ['accepted', 'connected', 'refused', 'capped']) : null;
   diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: randomUUID(),
@@ -104,5 +108,5 @@ export function publishNativeDiagnostics(input) {
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
     init: Object.freeze({ serverStatus }),
-    proxy, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
+    proxy, runnerWarnings, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
 }

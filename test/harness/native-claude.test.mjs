@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import test from 'node:test';
-import { createClaudeStreamParser, buildClaudeEnvironment, claudePrompt, observeClaudeManagedSettings, claudeSessionsAreFresh }
+import { createClaudeStreamParser, buildClaudeEnvironment, claudePrompt, observeClaudeManagedSettings, claudeSessionsAreFresh, nativeErrorClasses }
   from '../../src/harness/native/claude.mjs';
 import { fixtureMarkerSha256 } from '../../src/harness/native/fixture-data.mjs';
 
@@ -356,5 +359,27 @@ test('all-platform managed switch presence wins over unreadable siblings without
           assert.equal(observeClaudeManagedSettings({ platform, directory: dir }).outcome, 'restricted', `${platform}/${key}/${value}`);
           assert.equal(readFileSync(file, 'utf8'), bytes);
         }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the declared stream observation carries result presence and the closed error-class vocabulary', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aih-claude-types-'));
+  try {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const declaration = JSON.stringify(join(root, 'src/harness/native/runtime.d.mts').split(sep).join('/'));
+    const classes = Object.values(nativeErrorClasses);
+    // Record keys must be exactly the declared union: a missing or extra runtime class fails to compile.
+    writeFileSync(join(dir, 'observation.mts'), [
+      `import type { ClaudeStreamObservation, NativeErrorClass } from ${declaration};`,
+      'declare const observation: ClaudeStreamObservation;',
+      'export const resultSeen: boolean = observation.resultSeen;',
+      'export const observed: NativeErrorClass = observation.errorClass;',
+      `export const classes: Record<NativeErrorClass, true> = ${JSON.stringify(Object.fromEntries(classes.map(name => [name, true])))};`,
+      `export const runtime: Record<${classes.map(name => JSON.stringify(name)).join(' | ')}, true> = classes;`, ''].join('\n'));
+    const manifest = createRequire(import.meta.url).resolve('typescript/package.json');
+    const compiler = join(dirname(manifest), JSON.parse(readFileSync(manifest, 'utf8')).bin.tsc);
+    execFileSync(process.execPath, [compiler, '--noEmit', '--strict', '--skipLibCheck', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
+      '--target', 'ES2023', '--types', 'node', '--typeRoots', join(root, 'node_modules/@types'), 'observation.mts'],
+      { cwd: dir, encoding: 'utf8', timeout: 30_000 });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
