@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.32 lets native platform-runtime pinned re-reads accept multi-link
+regular files only on POSIX when the file is root-owned (uid 0), has no group or
+other write bits, and every ancestor is a real root-owned directory with no group
+or other write bits. Device, inode, size, mtime, ctime and link count must remain
+stable across the read, and the pinned SHA-256 must still match. Core and Harness
+use this runtime-only reader, supporting stock Ubuntu rust-coreutils `env`
+without a host single-link copy. Client executable, material, cell and other reads
+remain single-link; Windows behavior is unchanged. This candidate has not been
+published to npm.
+
 Core 1.0.0-dev.31 resolves three low review findings in the native diagnostics.
 The trusted Linux runner no longer silently swallows genuine SRT warnings and
 errors: SRT's forced debug lines are still only counted, and any other console

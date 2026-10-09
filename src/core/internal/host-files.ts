@@ -25,7 +25,8 @@ function macSystemAliasIdentity(path: string, link: BigIntStats): string | undef
     return `alias:${link.dev}:${link.ino}:${link.mode}:${expected}:${target.dev}:${target.ino}:${target.mode}`;
   } catch { return undefined; }
 }
-export function pathPins(path: string): PathPin[] {
+/** `multiLink` is an explicit opt-in for the platform runtime-pin reader; every other caller stays strict. */
+export function pathPins(path: string, multiLink = false): PathPin[] {
   const absolute = resolve(path); const base = parse(absolute).root;
   let current = base;
   const pins: PathPin[] = [];
@@ -41,7 +42,7 @@ export function pathPins(path: string): PathPin[] {
         pins.push({ path: current, identity });
         continue;
       }
-      if (stats.ino === 0n || stats.nlink > 1n && stats.isFile()) throw new Error('unsafe-path');
+      if (stats.ino === 0n || stats.nlink > 1n && stats.isFile() && !multiLink) throw new Error('unsafe-path');
       pins.push({ path: current, identity: `${stats.dev}:${stats.ino}:${stats.mode}` });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') { pins.push({ path: current, identity: 'absent' }); break; }
@@ -50,11 +51,25 @@ export function pathPins(path: string): PathPin[] {
   }
   return pins;
 }
-export function pinsMatch(pins: PathPin[]): boolean {
+export function pinsMatch(pins: PathPin[], multiLink = false): boolean {
   return pins.every(pin => {
-    try { const current = pathPins(pin.path); return current.at(-1)?.path === pin.path && current.at(-1)?.identity === pin.identity; }
+    try { const current = pathPins(pin.path, multiLink); return current.at(-1)?.path === pin.path && current.at(-1)?.identity === pin.identity; }
     catch { return false; }
   });
+}
+/** Every ancestor directory is real (macOS system aliases excepted), owned as `owned` accepts, and not group/other writable. */
+export function ownedDirectoryChain(path: string, owned: (uid: bigint) => boolean): boolean {
+  try {
+    for (let current = dirname(resolve(path)); ; current = dirname(current)) {
+      let stats = lstatSync(current, { bigint: true });
+      if (stats.isSymbolicLink()) {
+        if (!macSystemAliasIdentity(current, stats)) return false;
+        stats = lstatSync(realpathSync.native(current), { bigint: true });
+      }
+      if (!stats.isDirectory() || !owned(stats.uid) || (stats.mode & 0o022n) !== 0n) return false;
+      if (dirname(current) === current) return true;
+    }
+  } catch { return false; }
 }
 export function projectRoot(project: string): string {
   if (typeof project !== 'string' || !isAbsolute(project)) throw new Error('project-absolute');

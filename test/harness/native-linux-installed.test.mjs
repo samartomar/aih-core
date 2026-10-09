@@ -83,22 +83,30 @@ test('an installed scoped package prepares the real pinned sandbox without start
 
 test('installed Linux runtime pins pass the core pinned re-read', {
   skip: enabled() ? false : 'Linux x64 host with the pinned runtime and an installed @aihq/core package only', timeout: 120_000
-}, async () => {
+}, async t => {
   const installed = name => import(pathToFileURL(join(INSTALLED, 'dist/harness/native', name)).href);
   const { resolveLinuxPlatform } = await installed('linux-platform.mjs');
   const { verifyLinuxVendorClosure } = await installed('linux-runtime.mjs');
   const { linuxObserverPins } = await installed('linux-sandbox.mjs');
-  const { nativeReadPinned } = await import(pathToFileURL(join(INSTALLED, 'dist/core/internal/native-material.js')).href);
+  const { nativeReadPinned, nativeReadPinnedRuntime } = await import(pathToFileURL(join(INSTALLED, 'dist/core/internal/native-material.js')).href);
   const platform = await resolveLinuxPlatform({ client });
   assert.equal(platform.status, 'ready', platform.reason);
   const vendor = verifyLinuxVendorClosure();
   assert.equal(vendor.status, 'ready', vendor.reason);
   const pins = [...new Map([...platform.pins, ...vendor.pins, ...linuxObserverPins()].map(pin => [pin.path, pin])).values()]
     .filter(pin => pin.path !== client.path);
+  t.diagnostic(`env runtime pin: ${platform.runtime.env}`);
+  const multiLink = pins.find(pin => lstatSync(pin.path).nlink > 1);
+  await t.test('the strict reader still refuses a multi-link runtime pin', {
+    skip: multiLink ? false : 'no multi-link runtime pin on this host'
+  }, () => {
+    assert.throws(() => nativeReadPinned(multiLink.path, 256 * 1024 * 1024, () => {}),
+      error => error.reason === 'configuration-unavailable');
+  });
   const refusals = [];
   for (const pin of pins) {
     try {
-      const bytes = nativeReadPinned(pin.path, 256 * 1024 * 1024, () => {});
+      const bytes = nativeReadPinnedRuntime(pin.path, 256 * 1024 * 1024, () => {});
       assert.equal(createHash('sha256').update(bytes).digest('hex'), pin.sha256, pin.path);
     } catch { refusals.push(pin.path); }
   }

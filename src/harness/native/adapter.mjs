@@ -31,7 +31,7 @@ async function terminateBounded(handle, deadline, graceMs) {
 }
 function createNativeRuntime(module, dependencies) {
   const persistenceClassifier = createPersistenceDiagnosticClassifier();
-  const { readPinned: nativeReadPinned, Stop: NativeStop } = dependencies;
+  const { readPinned: nativeReadPinned, readPinnedRuntime: nativeReadPinnedRuntime, Stop: NativeStop } = dependencies;
   const observeFacility = result => {
     if (result?.cleanup) dependencies.recordCleanup?.(result.cleanup, result.cleanupStartedAt);
     return result;
@@ -332,7 +332,7 @@ function createNativeRuntime(module, dependencies) {
     },
     revalidateNativeClient(pin, input) {
       try {
-        return sha256(nativeReadPinned(pin.executable, 256 * 1024 * 1024, input.check)) === pin.sha256 && pin.runtime.every((value) => sha256(nativeReadPinned(value.path, 256 * 1024 * 1024, input.check)) === value.sha256);
+        return sha256(nativeReadPinned(pin.executable, 256 * 1024 * 1024, input.check)) === pin.sha256 && pin.runtime.every((value) => sha256(nativeReadPinnedRuntime(value.path, 256 * 1024 * 1024, input.check)) === value.sha256);
       } catch (error) {
         if (error instanceof NativeStop && ["cancelled", "budget-exhausted"].includes(error.reason)) throw error;
         return false;

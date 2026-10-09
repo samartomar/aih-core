@@ -625,3 +625,30 @@ test('delayed connected init passes loading and diagnostics preserve all adapter
       assert.equal(JSON.stringify(record).includes(marker), false);
   }
 });
+
+test('client revalidation keeps the executable strict and uses the runtime reader for runtime pins', () => {
+  const executable = Buffer.from('client-bytes'), runtimeBytes = Buffer.from('runtime-bytes');
+  const pin = { executable: '/client', sha256: sha256(executable), runtime: [
+    { path: '/runtime-a', sha256: sha256(runtimeBytes) }, { path: '/runtime-b', sha256: sha256(runtimeBytes) }
+  ] };
+  const calls = [], check = () => {}, maximum = 256 * 1024 * 1024;
+  const runtime = installed.createNativeRuntime(installed, {
+    readPinned(path, limit, checked) {
+      calls.push(['strict', path]); assert.equal(limit, maximum); assert.equal(checked, check);
+      if (path !== pin.executable) throw Error('strict reader refuses runtime fixture');
+      return executable;
+    },
+    readPinnedRuntime(path, limit, checked) {
+      calls.push(['runtime', path]); assert.equal(limit, maximum); assert.equal(checked, check);
+      assert.ok(pin.runtime.some(value => value.path === path)); return runtimeBytes;
+    },
+    Stop: Error
+  });
+  assert.equal(runtime.revalidateNativeClient(pin, { check }), true);
+  assert.deepEqual(calls, [['strict', '/client'], ['runtime', '/runtime-a'], ['runtime', '/runtime-b']]);
+  assert.equal(runtime.revalidateNativeClient({ ...pin, sha256: sha256('changed-client') }, { check }), false);
+  assert.equal(runtime.revalidateNativeClient({ ...pin, runtime: [{ ...pin.runtime[0], sha256: sha256('changed-runtime') }] }, { check }), false);
+  calls.length = 0;
+  assert.equal(runtime.revalidateNativeClient({ ...pin, executable: '/refused-client' }, { check }), false);
+  assert.deepEqual(calls, [['strict', '/refused-client']]);
+});
