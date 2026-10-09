@@ -411,9 +411,9 @@ and reason enum are the same. For the Linux client, an optional subscriber on th
 It carries no paths, hashes or sizes of host files. Identity races, unreadable or
 non-ELF files, alias mismatches, a missing role, node, client or `wslinfo` byte
 changes and an invalid record stay `runtime-changed` and publish nothing. A
-wrong-size file is never hashed; drift is reported only after its first bytes pass
-the same ELF or shebang header check and its file identity is unchanged after
-that small read. A PATH role reports drift only when no
+wrong-size file is never hashed; drift is reported only after its file identity is
+unchanged after a small read of its first bytes, which for roles and `dash` must
+also pass the same ELF or shebang header check. A PATH role reports drift only when no
 candidate matched and a stable candidate differed. The loader alias revalidation
 still reports `runtime-changed`.
 
@@ -424,11 +424,13 @@ files, and asks `dpkg` for ownership, verification and the installed version.
 1. Report: `node scripts/recapture-linux-runtime-platform.mjs --client <path> [--role <name>=<path>]...`.
    The JSON report lists the changed rows and any refusals and writes nothing.
    Exit code 0 means no drift, 2 means verified drift (report only), 1 means a
-   refusal with no writes (verification failure, unsupported change or wrong host).
+   refusal (verification failure, unsupported change or wrong host); a refusal
+   writes nothing.
 2. Review the report. A changed library or read-only file row is rewritable only
-   when `dpkg -S` names exactly one owning package (no diversion) and
-   `dpkg --verify` of that package is clean; the report shows the package and its
-   installed version. A distro-role byte change additionally requires the
+   when `dpkg -S` names exactly one owning package (no diversion), that package's
+   `md5sums` lists the file exactly once with the MD5 of the same bytes the tool
+   hashed, and `dpkg --verify` of that package is clean; any `dpkg` error output
+   refuses. The report shows the package and its installed version. A distro-role byte change additionally requires the
    installed package version to equal the record row's version. Node and client changes and package-version
    changes are always refused: they need a reviewed code change, not this tool.
    `wslinfo` resolves to `/init` on WSL2, which no package owns, so its changes
@@ -439,7 +441,11 @@ files, and asks `dpkg` for ownership, verification and the installed version.
    changed in the same run. A fixture pin of a platform record file whose hash is
    neither the old nor the new record hash (for example one captured from another
    checkout) is left unchanged and listed under `fixture.unmatchedRecordPins` for
-   manual review. A successful `--write` exits 0 and the report lists `written`.
+   manual review. The record and fixture are staged as temporary files before
+   either is renamed into place. A successful `--write` exits 0 and the report
+   lists `written`. If a rename fails, the report lists the targets already
+   `written` plus `writeError` and exits 1; inspect and restore them from version
+   control before retrying.
 4. Review the diff of the record (and fixture) by hand.
 5. Every re-capture changes shipped Harness bytes, so it needs a reviewed new Core
    distribution version. Re-run the Linux gates before promoting it.

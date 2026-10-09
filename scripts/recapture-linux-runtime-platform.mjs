@@ -20,7 +20,9 @@ const dpkg = (command, args) => {
   if (run.error || run.status !== 0 || run.stderr !== '') throw new Error(`${command} failed`);
   return run.stdout;
 };
-const safeDirectory = value => /^\/[A-Za-z0-9._/+-]+$/.test(value) && value !== '/' && !value.endsWith('/');
+// Same PATH admission as the runtime's role search: bounded, normalized absolute entries; candidates must be executable.
+const safeDirectory = value => value.length <= 4096 && /^\/[A-Za-z0-9._/+-]+$/.test(value) && value !== '/' &&
+  posix.normalize(value) === value && !value.endsWith('/');
 
 const host = {
   platform: process.platform, arch: process.arch, execPath: process.execPath, pathEnv: process.env.PATH ?? '',
@@ -31,10 +33,11 @@ const host = {
   },
   realpath: path => realpathSync(path),
   whichAll(name, pathEnv) {
-    const found = [];
-    for (const directory of new Set(String(pathEnv).split(delimiter).filter(safeDirectory))) {
+    const found = [], value = String(pathEnv), entries = value.split(delimiter);
+    if (value.length > 32768 || entries.length > 64) return found;
+    for (const directory of new Set(entries.filter(safeDirectory))) {
       const candidate = posix.join(directory, name);
-      try { if (statSync(candidate).isFile()) found.push(candidate); } catch { /* try the next PATH entry */ }
+      try { const stat = statSync(candidate); if (stat.isFile() && stat.mode & 0o111) found.push(candidate); } catch { /* try the next PATH entry */ }
     }
     return found;
   },
@@ -48,7 +51,12 @@ const host = {
 const fsOps = {
   writeTemp(target, text) {
     const temporary = join(dirname(target), `.${process.pid}.${basename(target)}.recapture.tmp`);
-    writeFileSync(temporary, text, { flag: 'wx' });
+    try { writeFileSync(temporary, text, { flag: 'wx' }); }
+    catch (error) {
+      // A partial temp file we created is removed; an existing one (EEXIST) is not ours to delete.
+      if (error.code !== 'EEXIST') try { unlinkSync(temporary); } catch { /* never created */ }
+      throw error;
+    }
     return temporary;
   },
   rename: (temporary, target) => renameSync(temporary, target),

@@ -13,8 +13,9 @@ receives a closed `native-platform-drift` record naming only the table and row
 unavailable with `isolation-unobserved`; the schemas and reason enum are
 unchanged. A developer-only script, `scripts/recapture-linux-runtime-platform.mjs`,
 reports drift on the reference host and, with `--write`, rewrites only the changed
-rows when each file is `dpkg`-owned and `dpkg --verify` is clean (roles must also
-remain at the recorded package version); node, client and package-version changes
+rows when each file is owned by one `dpkg` package whose `md5sums` entry matches
+the hashed bytes and `dpkg --verify` is clean (roles must also remain at the
+recorded package version); node, client and package-version changes
 are refused (node, client and `wslinfo` byte changes stay `runtime-changed`), and any refusal writes nothing. It can update a supplied controlled
 fixture in the same run. The script is never run by build, install, test or
 verification. The documentation describes the maintainer workflow and holding
