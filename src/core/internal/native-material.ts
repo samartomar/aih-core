@@ -33,28 +33,30 @@ export function nativeReadPinned(path: string, maximum: number, check: () => voi
   if (!captured || captured.identity.nlink !== 1n || !pinsMatch(pins)) throw new NativeStop('configuration-unavailable');
   check(); return captured.contents;
 }
-/** Internal seam: `posix` gates the multi-link allowance; `owned` accepts the owner uid (root by default). */
-export interface RuntimePinTrust { posix: boolean; owned: (uid: bigint) => boolean }
+/** Internal seam: `posix` gates the multi-link allowance; `owned` accepts the owner uid (root by default); `afterRead` runs between the read and the stability check (tests only). */
+export interface RuntimePinTrust { posix: boolean; owned: (uid: bigint) => boolean; afterRead?: () => void }
 const systemTrust: RuntimePinTrust = { posix: process.platform !== 'win32', owned: uid => uid === 0n };
 /**
  * Platform runtime pins only. A multi-link regular file (e.g. a rust-coreutils multicall binary) is
  * accepted when POSIX, root-owned, not group/other writable, under root-owned non-writable real
- * directories, and unchanged across the read. Single-link files behave exactly as `nativeReadPinned`.
+ * (non-symlink) directories, and unchanged across the read. Every read, single-link or not, must keep
+ * its device, inode, size, mtime, ctime and link count between the descriptor and a fresh lstat, so a
+ * link created during the read is refused unless the multi-link rule already holds.
  */
 export function nativeReadPinnedRuntime(path: string, maximum: number, check: () => void, trust: RuntimePinTrust = systemTrust): Buffer {
   check();
   let pins;
   try { pins = pathPins(path, trust.posix); } catch { throw new NativeStop('configuration-unavailable'); }
   const captured = readRegularFileWithStats(path, { maxBytes: maximum });
+  trust.afterRead?.();
   if (!captured || !pinsMatch(pins, trust.posix)) throw new NativeStop('configuration-unavailable');
-  if (captured.identity.nlink !== 1n) {
-    const opened = captured.identity;
-    let now;
-    try { now = lstatSync(path, { bigint: true }); } catch { throw new NativeStop('configuration-unavailable'); }
-    if (!trust.posix || !now.isFile() || now.dev !== opened.dev || now.ino !== opened.ino || now.size !== opened.size || now.mtimeNs !== opened.mtimeNs ||
-      now.ctimeNs !== opened.ctimeNs || now.nlink !== opened.nlink || !trust.owned(opened.uid) || (opened.mode & 0o022n) !== 0n ||
-      !ownedDirectoryChain(path, trust.owned)) throw new NativeStop('configuration-unavailable');
-  }
+  const opened = captured.identity;
+  let now;
+  try { now = lstatSync(path, { bigint: true }); } catch { throw new NativeStop('configuration-unavailable'); }
+  if (!now.isFile() || now.dev !== opened.dev || now.ino !== opened.ino || now.size !== opened.size || now.mtimeNs !== opened.mtimeNs ||
+    now.ctimeNs !== opened.ctimeNs || now.nlink !== opened.nlink) throw new NativeStop('configuration-unavailable');
+  if (opened.nlink !== 1n && (!trust.posix || !trust.owned(opened.uid) || (opened.mode & 0o022n) !== 0n || !ownedDirectoryChain(path, trust.owned)))
+    throw new NativeStop('configuration-unavailable');
   check(); return captured.contents;
 }
 function tarNumber(field: Buffer): number {

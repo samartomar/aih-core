@@ -57,15 +57,11 @@ export function pinsMatch(pins: PathPin[], multiLink = false): boolean {
     catch { return false; }
   });
 }
-/** Every ancestor directory is real (macOS system aliases excepted), owned as `owned` accepts, and not group/other writable. */
+/** Every ancestor directory is a real directory (any symlink, including a macOS system alias, is refused), owned as `owned` accepts, and not group/other writable. */
 export function ownedDirectoryChain(path: string, owned: (uid: bigint) => boolean): boolean {
   try {
     for (let current = dirname(resolve(path)); ; current = dirname(current)) {
-      let stats = lstatSync(current, { bigint: true });
-      if (stats.isSymbolicLink()) {
-        if (!macSystemAliasIdentity(current, stats)) return false;
-        stats = lstatSync(realpathSync.native(current), { bigint: true });
-      }
+      const stats = lstatSync(current, { bigint: true });
       if (!stats.isDirectory() || !owned(stats.uid) || (stats.mode & 0o022n) !== 0n) return false;
       if (dirname(current) === current) return true;
     }

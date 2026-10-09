@@ -35,7 +35,7 @@ ordinary `verify-client` call cannot promote a candidate or select a custom poli
 
 Platform-runtime pinned re-reads allow a multi-link regular file only on POSIX
 when it is root-owned (uid 0) with no group or other write bits, every ancestor
-is a real root-owned directory with no group or other write bits, and device,
+is a real root-owned directory (no symlinks) with no group or other write bits, and device,
 inode, size, mtime, ctime and link count stay stable across the read. The pinned
 SHA-256 still has to match. This supports stock Ubuntu's rust-coreutils multicall
 `env` without a host single-link copy. Client executable, material, cell and

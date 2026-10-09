@@ -4,7 +4,7 @@
 
 Core 1.0.0-dev.32 lets native platform-runtime pinned re-reads accept multi-link
 regular files only on POSIX when the file is root-owned (uid 0), has no group or
-other write bits, and every ancestor is a real root-owned directory with no group
+other write bits, and every ancestor is a real root-owned directory (no symlinks) with no group
 or other write bits. Device, inode, size, mtime, ctime and link count must remain
 stable across the read, and the pinned SHA-256 must still match. Core and Harness
 use this runtime-only reader, supporting stock Ubuntu rust-coreutils `env`
