@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { analyseRecapture, parseArguments, parseDpkgOwner } from '../scripts/linux-runtime-recapture.mjs';
+import { analyseRecapture, applyPairedWrites, parseArguments, parseDpkgOwner } from '../scripts/linux-runtime-recapture.mjs';
 import { validateLinuxPlatformRecord } from '../src/harness/native/linux-platform.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -40,13 +40,19 @@ function scenario() {
     platform: 'linux', arch: 'x64', execPath: NODE, pathEnv: '/usr/bin:/bin',
     readFile(path) { const bytes = files.get(path); if (!bytes) throw new Error('ENOENT'); return bytes; },
     realpath(path) { return links.get(path) ?? path; },
-    which: name => roleBinaries[name] ?? null,
+    candidates: new Map(), md5Overrides: new Map(),
+    whichAll(name) { return this.candidates.get(name) ?? (roleBinaries[name] ? [roleBinaries[name]] : []); },
     owners: new Map(), verifyOutput: new Map(), versions: new Map(),
     dpkgOwner(path) { return this.owners.get(path) ?? `pkg-${posix.basename(path)}:amd64: ${path}\n`; },
+    dpkgMd5sums(owner) {
+      if (this.md5Overrides.has(owner)) { const value = this.md5Overrides.get(owner); if (value instanceof Error) throw value; return value; }
+      return [...files].filter(([path]) => `pkg-${posix.basename(path)}:amd64` === owner)
+        .map(([path, bytes]) => `${createHash('md5').update(bytes).digest('hex')}  ${path.slice(1)}\n`).join('');
+    },
     dpkgVerify(pkg) { return this.verifyOutput.get(pkg) ?? ''; },
     dpkgVersion(pkg) { return this.versions.get(pkg) ?? '1.0'; },
   };
-  for (const [name, row] of Object.entries(record.roles)) if (row && name !== 'node' && name !== 'client') host.versions.set(`pkg-${posix.basename(roleBinaries[name])}`, row.version);
+  for (const [name, row] of Object.entries(record.roles)) if (row && name !== 'node' && name !== 'client') host.versions.set(`pkg-${posix.basename(roleBinaries[name])}:amd64`, row.version);
   const drift = (path, tag = 'v2') => { files.set(path, content(path, tag)); };
   const run = (extra = {}) => analyseRecapture({ host, recordText, client: CLIENT, ...extra });
   return { host, files, record, recordText, run, drift, links };
@@ -72,7 +78,7 @@ test('verified library drift is reported and rewrites only that row', () => {
   assert.equal(result.report.changed.length, 1);
   const [change] = result.report.changed;
   assert.equal(change.table, 'libraries'); assert.equal(change.key, LIBC);
-  assert.equal(change.package, 'pkg-libc.so.6'); assert.equal(change.packageVersion, '1.0');
+  assert.equal(change.package, 'pkg-libc.so.6:amd64'); assert.equal(change.packageVersion, '1.0');
   assert.equal(change.old.sha256, rowOf(s.record, LIBC).sha256);
   const [write] = result.writes;
   assert.equal(write.target, 'record');
@@ -132,7 +138,7 @@ test('dpkg -S failure (non-zero exit) is a refusal', () => {
 });
 
 test('dpkg --verify output refuses', () => {
-  const s = scenario(); s.drift(LIBC); s.host.verifyOutput.set('pkg-libc.so.6', '??5?????? /usr/lib/x86_64-linux-gnu/libc.so.6\n');
+  const s = scenario(); s.drift(LIBC); s.host.verifyOutput.set('pkg-libc.so.6:amd64', '??5?????? /usr/lib/x86_64-linux-gnu/libc.so.6\n');
   const result = s.run();
   assert.equal(result.exitCode, 1);
   assert.match(result.report.refused[0].reason, /does not verify clean/);
@@ -160,11 +166,11 @@ test('distro role byte change with same package version and clean verify is rewr
   const s = scenario(); s.drift('/usr/bin/bwrap');
   const result = s.run();
   assert.equal(result.exitCode, 2);
-  assert.equal(result.report.changed[0].package, 'pkg-bwrap');
+  assert.equal(result.report.changed[0].package, 'pkg-bwrap:amd64');
 });
 
 test('distro role package version change is refused', () => {
-  const s = scenario(); s.drift('/usr/bin/bwrap'); s.host.versions.set('pkg-bwrap', '9.9');
+  const s = scenario(); s.drift('/usr/bin/bwrap'); s.host.versions.set('pkg-bwrap:amd64', '9.9');
   const result = s.run();
   assert.equal(result.exitCode, 1);
   assert.match(result.report.refused[0].reason, /reviewed code change/);
@@ -200,7 +206,7 @@ test('invalid source record is refused', () => {
 });
 
 test('missing role binary is refused', () => {
-  const s = scenario(); s.host.which = () => null;
+  const s = scenario(); s.host.candidates.set('bash', []);
   assert.equal(s.run().exitCode, 1);
 });
 
@@ -271,7 +277,7 @@ test('non-canonical record formatting is refused rather than reformatted', () =>
 });
 
 test('dpkg owner parser handles arch-qualified single owners', () => {
-  assert.equal(parseDpkgOwner(`libc6:amd64: ${LIBC}\n`, LIBC), 'libc6');
+  assert.equal(parseDpkgOwner(`libc6:amd64: ${LIBC}\n`, LIBC), 'libc6:amd64');
   assert.throws(() => parseDpkgOwner('libc6:amd64: /other\n', LIBC));
 });
 
@@ -294,4 +300,94 @@ test('build and package do not reference the re-capture tooling', () => {
   assert.ok(!pkg.files.some(entry => entry === 'scripts' || entry.startsWith('scripts/')));
   assert.ok(!JSON.stringify(pkg.scripts).includes('recapture'));
   assert.ok(!readFileSync(fileURLToPath(new URL('scripts/build.mjs', root)), 'utf8').includes('recapture'));
+});
+
+test('package md5sums binds the hashed bytes; queries use the arch-qualified owner', () => {
+  const s = scenario(); s.drift(LIBC);
+  const queried = [];
+  const original = s.host.dpkgVersion.bind(s.host);
+  s.host.dpkgVersion = owner => { queried.push(owner); return original(owner); };
+  const result = s.run();
+  assert.equal(result.exitCode, 2);
+  assert.deepEqual(queried, ['pkg-libc.so.6:amd64']);
+});
+
+test('missing md5sums entry refuses', () => {
+  const s = scenario(); s.drift(LIBC); s.host.md5Overrides.set('pkg-libc.so.6:amd64', 'd41d8cd98f00b204e9800998ecf8427e  usr/lib/other.so\n');
+  const result = s.run();
+  assert.equal(result.exitCode, 1);
+  assert.match(result.report.refused[0].reason, /not covered by package md5sums/);
+  assert.deepEqual(result.writes, []);
+});
+
+test('duplicate md5sums entries refuse', () => {
+  const s = scenario(); s.drift(LIBC);
+  const line = `d41d8cd98f00b204e9800998ecf8427e  ${LIBC.slice(1)}\n`;
+  s.host.md5Overrides.set('pkg-libc.so.6:amd64', line + line);
+  assert.match(s.run().report.refused[0].reason, /not covered/);
+});
+
+test('md5sums mismatch with the hashed bytes refuses', () => {
+  const s = scenario(); s.drift(LIBC); s.host.md5Overrides.set('pkg-libc.so.6:amd64', `d41d8cd98f00b204e9800998ecf8427e  ${LIBC.slice(1)}\n`);
+  const result = s.run();
+  assert.equal(result.exitCode, 1);
+  assert.match(result.report.refused[0].reason, /bytes differ from package md5sums/);
+});
+
+test('dpkg helper failures (the CLI host throws on non-zero exit or stderr output) refuse', () => {
+  const s = scenario(); s.drift(LIBC); s.host.md5Overrides.set('pkg-libc.so.6:amd64', new Error('stderr not empty'));
+  assert.equal(s.run().exitCode, 1);
+  const t = scenario(); t.drift(LIBC); t.host.dpkgVerify = () => { throw new Error('stderr not empty'); };
+  assert.equal(t.run().exitCode, 1);
+});
+
+test('PATH role: a later candidate matching the pin means no drift', () => {
+  const s = scenario(); s.files.set('/opt/shadow/socat', Buffer.from('shadow'));
+  s.host.candidates.set('socat', ['/opt/shadow/socat', '/usr/bin/socat']);
+  assert.equal(s.run().exitCode, 0);
+});
+
+test('PATH role: no candidate matches, so the first is analysed and all are listed', () => {
+  const s = scenario(); s.drift('/usr/bin/bwrap'); s.files.set('/opt/shadow/bwrap', Buffer.from('shadow'));
+  s.host.candidates.set('bwrap', ['/usr/bin/bwrap', '/opt/shadow/bwrap']);
+  const result = s.run();
+  assert.equal(result.exitCode, 2);
+  assert.deepEqual(result.report.changed[0].candidates, ['/usr/bin/bwrap', '/opt/shadow/bwrap']);
+});
+
+test('running node mismatch suggests --role node=', () => {
+  const s = scenario(); s.drift(NODE);
+  assert.match(s.run().report.refused[0].reason, /running node differs.*--role node=/);
+  assert.match(s.run({ roles: { node: NODE } }).report.refused[0].reason, /upstream artifact changed/);
+});
+
+function pairedOps({ failWrite, failRename } = {}) {
+  const disk = new Map([['/r', 'old-r'], ['/f', 'old-f']]);
+  const ops = {
+    writeTemp(target, text) { if (failWrite === target) throw new Error('disk full'); const temp = `${target}.tmp`; disk.set(temp, text); return temp; },
+    rename(temp, target) { if (failRename === target) throw new Error('rename failed'); disk.set(target, disk.get(temp)); disk.delete(temp); },
+    remove(temp) { disk.delete(temp); },
+  };
+  return { disk, ops };
+}
+const pair = [{ target: 'record', path: '/r', text: 'new-r' }, { target: 'fixture', path: '/f', text: 'new-f' }];
+
+test('paired writes: success renames both', () => {
+  const { disk, ops } = pairedOps();
+  assert.deepEqual(applyPairedWrites(pair, ops), { written: ['record', 'fixture'] });
+  assert.deepEqual([...disk], [['/r', 'new-r'], ['/f', 'new-f']]);
+});
+
+test('paired writes: a temp-write failure renames nothing and leaves no temp files', () => {
+  const { disk, ops } = pairedOps({ failWrite: '/f' });
+  const outcome = applyPairedWrites(pair, ops);
+  assert.deepEqual(outcome.written, []); assert.match(outcome.error, /disk full/);
+  assert.deepEqual([...disk], [['/r', 'old-r'], ['/f', 'old-f']]);
+});
+
+test('paired writes: a rename failure reports what was written and cleans temp files', () => {
+  const { disk, ops } = pairedOps({ failRename: '/f' });
+  const outcome = applyPairedWrites(pair, ops);
+  assert.deepEqual(outcome.written, ['record']); assert.match(outcome.error, /rename failed/);
+  assert.deepEqual([...disk], [['/r', 'new-r'], ['/f', 'old-f']]);
 });

@@ -70,7 +70,7 @@ export function publishNativeAdmission(input) {
 }
 
 // Node and client are upstream artifacts, not distribution re-capture rows.
-const driftRoles = ['bash', 'env', 'bwrap', 'socat', 'rg', 'which', 'wslinfo'];
+const driftRoles = ['bash', 'env', 'bwrap', 'socat', 'rg', 'which'];
 // Names only which pinned platform-record row no longer matches; never paths, hashes or sizes of host files.
 export function publishNativePlatformDrift(input) {
   if (!diagnosticsStream.hasSubscribers) return;

@@ -134,6 +134,13 @@ async function readBounded(path, maximum, check) {
   } finally { await handle.close(); }
 }
 
+const headerValid = (executable, chunk, bytesRead) => !executable ||
+  (executable === 'which-script' ? chunk.subarray(0, 11).equals(Buffer.from('#! /bin/sh\n')) :
+    bytesRead >= 20 && chunk.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) && chunk[4] === 2 && chunk[5] === 1 && chunk[6] === 1 &&
+    [2, 3].includes(chunk.readUInt16LE(16)) && chunk.readUInt16LE(18) === 62);
+const sameFile = (a, b, current) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs &&
+  current.dev === a.dev && current.ino === a.ino && !current.isSymbolicLink();
+
 async function matchFile(candidate, expected, check, executable = false, row = null) {
   await check();
   const path = await realpath(candidate);
@@ -142,15 +149,21 @@ async function matchFile(candidate, expected, check, executable = false, row = n
   try {
     const before = await handle.stat();
     if (!before.isFile() || executable && !(before.mode & 0o111)) refuse('runtime-changed');
-    if (before.size !== expected.byteLength) refuse(row ? DRIFT : 'runtime-changed', row);
+    if (before.size !== expected.byteLength) {
+      if (!row) refuse('runtime-changed');
+      // Label drift only after a small header read and an identity re-check; the wrong-size file is never hashed.
+      await check();
+      const head = Buffer.alloc(20), { bytesRead } = await handle.read(head, 0, Math.min(20, before.size), 0);
+      if (!bytesRead || !headerValid(executable, head, bytesRead)) refuse('runtime-changed');
+      if (!sameFile(before, await handle.stat(), await lstat(path))) refuse('runtime-changed');
+      refuse(DRIFT, row);
+    }
     const chunk = Buffer.alloc(65536), hash = createHash('sha256'); let offset = 0;
     while (offset < before.size) {
       await check();
       const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, before.size - offset), offset);
       if (!bytesRead) refuse('runtime-changed');
-      if (!offset && executable === 'which-script' && !chunk.subarray(0, 11).equals(Buffer.from('#! /bin/sh\n'))) refuse('runtime-changed');
-      if (!offset && executable && executable !== 'which-script' && (bytesRead < 20 || !chunk.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) ||
-          chunk[4] !== 2 || chunk[5] !== 1 || chunk[6] !== 1 || ![2, 3].includes(chunk.readUInt16LE(16)) || chunk.readUInt16LE(18) !== 62)) refuse('runtime-changed');
+      if (!offset && !headerValid(executable, chunk, bytesRead)) refuse('runtime-changed');
       hash.update(chunk.subarray(0, bytesRead)); offset += bytesRead;
     }
     const sha256 = hash.digest('hex'), after = await handle.stat(), current = await lstat(path);
@@ -262,7 +275,7 @@ export async function resolveLinuxPlatform({ check: trustedCheck = () => {}, cli
     const platform = { execution: isWsl ? 'wsl2' : 'native', kernel, uid: process.getuid() };
     if (isWsl) {
       if (!record.roles.wslinfo) refuse('isolation-unobserved');
-      const info = await matchFile('/usr/bin/wslinfo', record.roles.wslinfo, check, true, { table: 'roles', key: 'wslinfo' });
+      const info = await matchFile('/usr/bin/wslinfo', record.roles.wslinfo, check, true);
       if (info.path !== '/init') refuse('isolation-unobserved');
       await check(); const mode = await networkingMode(); await check();
       if (mode !== 'nat') refuse('isolation-unobserved');

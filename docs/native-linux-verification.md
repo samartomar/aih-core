@@ -405,12 +405,15 @@ and reason enum are the same. For the Linux client, an optional subscriber on th
 | `recordId`, `runSha256` | random record id; digest of the run (null when invalid) |
 | `definition` | `claude-linux-x64-wsl2-srt-2.1.285` |
 | `table` | `roles`, `libraries` or `readFiles` |
-| `key` | role name for `roles` (`bash`, `env`, `bwrap`, `socat`, `rg`, `which`, `wslinfo`); row index 0-63 for the other tables; otherwise null |
+| `key` | role name for `roles` (`bash`, `env`, `bwrap`, `socat`, `rg`, `which`); row index 0-63 for the other tables; otherwise null |
 | `remedy` | `recapture-platform-record` |
 
 It carries no paths, hashes or sizes of host files. Identity races, unreadable or
-non-ELF files, alias mismatches, a missing role, node or client byte changes and
-an invalid record stay `runtime-changed` and publish nothing. A PATH role reports drift only when no
+non-ELF files, alias mismatches, a missing role, node, client or `wslinfo` byte
+changes and an invalid record stay `runtime-changed` and publish nothing. A
+wrong-size file is never hashed; drift is reported only after its first bytes pass
+the same ELF or shebang header check and its file identity is unchanged after
+that small read. A PATH role reports drift only when no
 candidate matched and a stable candidate differed. The loader alias revalidation
 still reports `runtime-changed`.
 

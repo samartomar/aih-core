@@ -7,19 +7,19 @@ import { validateLinuxPlatformRecord } from '../src/harness/native/linux-platfor
 
 export const RECORD_PIN_SUFFIX = '/harness/native/linux/runtime-platform.json';
 const ROLE_ORDER = ['bash', 'env', 'bwrap', 'socat', 'rg', 'which', 'node', 'client', 'wslinfo'];
-const UPSTREAM_ROLES = new Set(['node', 'client']);
 const WSLINFO_PATH = '/usr/bin/wslinfo';
 const TABLE_ORDER = { host: 0, roles: 1, libraries: 2, readFiles: 3, fixture: 4 };
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const serialize = (value, indent = 2, newline = true) => JSON.stringify(value, null, indent) + (newline ? '\n' : '');
+const md5 = bytes => createHash('md5').update(bytes).digest('hex'); // Matches dpkg md5sums; not a security hash here.
 const pinOf = bytes => ({ sha256: sha256(bytes), byteLength: bytes.length });
 const same = (a, b) => a.sha256 === b.sha256 && a.byteLength === b.byteLength;
 const compare = (a, b) => (TABLE_ORDER[a.table] - TABLE_ORDER[b.table]) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
 class Refusal extends Error { constructor(reason) { super(reason); this.reason = reason; } }
 
-// Parses `dpkg -S <path>` output. Exactly one owning package, no diversions.
+// Parses `dpkg -S <path>` output. Exactly one owning package (returned with its arch qualifier, e.g. zlib1g:amd64), no diversions.
 export function parseDpkgOwner(output, queriedPath) {
   const lines = String(output).split('\n').map(line => line.trim()).filter(Boolean);
   if (!lines.length) throw new Refusal('no owning package');
@@ -29,31 +29,47 @@ export function parseDpkgOwner(output, queriedPath) {
     const split = line.lastIndexOf(': ');
     if (split < 0 || line.slice(split + 2) !== queriedPath) throw new Refusal('unparseable dpkg owner output');
     for (const name of line.slice(0, split).split(', ')) {
-      const base = name.replace(/:[A-Za-z0-9-]+$/, '');
-      if (!/^[a-z0-9][a-z0-9+.-]*$/.test(base)) throw new Refusal('unparseable dpkg owner output');
-      owners.add(base);
+      if (!/^[a-z0-9][a-z0-9+.-]*(?::[A-Za-z0-9-]+)?$/.test(name)) throw new Refusal('unparseable dpkg owner output');
+      owners.add(name); // Keep the architecture qualifier for every later query.
     }
   }
   if (owners.size !== 1) throw new Refusal('path has multiple owning packages');
   return [...owners][0];
 }
 
-function verifyOwned(host, realPath) {
+// Binds the exact bytes that were hashed to the owning package: the package md5sums must list the path exactly once
+// with the md5 of those same bytes. dpkg --verify alone checks the disk now and skips files without md5sums entries.
+function checkMd5sums(host, owner, realPath, observedMd5) {
+  let text;
+  try { text = host.dpkgMd5sums(owner); } catch { throw new Refusal('package md5sums unavailable'); }
+  const wanted = realPath.slice(1), entries = [];
+  for (const line of String(text).split('\n')) {
+    const match = /^([0-9a-f]{32})  (.+)$/.exec(line.trimEnd());
+    if (match && match[2] === wanted) entries.push(match[1]);
+  }
+  if (entries.length !== 1) throw new Refusal('file not covered by package md5sums');
+  if (entries[0] !== observedMd5) throw new Refusal('bytes differ from package md5sums');
+}
+
+function verifyOwned(host, observed) {
+  const realPath = observed.real;
   let output;
   try { output = host.dpkgOwner(realPath); } catch { throw new Refusal('no owning package'); }
-  const pkg = parseDpkgOwner(output, realPath);
+  const owner = parseDpkgOwner(output, realPath);
+  checkMd5sums(host, owner, realPath, observed.md5);
   let verify;
-  try { verify = host.dpkgVerify(pkg); } catch { throw new Refusal('package verification failed to run'); }
-  if (String(verify).trim() !== '') throw new Refusal(`package ${pkg} does not verify clean`);
+  try { verify = host.dpkgVerify(owner); } catch { throw new Refusal('package verification failed to run'); }
+  if (String(verify).trim() !== '') throw new Refusal(`package ${owner} does not verify clean`);
   let version;
-  try { version = String(host.dpkgVersion(pkg)).trim(); } catch { throw new Refusal('package version unavailable'); }
+  try { version = String(host.dpkgVersion(owner)).trim(); } catch { throw new Refusal('package version unavailable'); }
   if (!version) throw new Refusal('package version unavailable');
-  return { package: pkg, packageVersion: version };
+  return { package: owner, packageVersion: version };
 }
 
 function observe(host, path) {
   const real = host.realpath(path);
-  return { real, ...pinOf(host.readFile(real)) };
+  const bytes = host.readFile(real);
+  return { real, md5: md5(bytes), ...pinOf(bytes) };
 }
 
 // Walks any JSON value and calls visit(object) for every plain object.
@@ -74,7 +90,7 @@ function detectFormat(text, parsed) {
 /**
  * Analyse drift. Returns { exitCode, report, writes } where writes is a list of { target: 'record'|'fixture', text }
  * that the caller applies only for --write and exitCode 2 (all-or-nothing: any refusal yields no writes).
- * input: { host, recordText, recordPin: {path?}, client, roles: {name: path}, fixtureText? }
+ * input: { host, recordText, client, roles: {name: path}, fixtureText? }
  */
 export function analyseRecapture({ host, recordText, client, roles = {}, fixtureText }) {
   const refused = [], changed = [];
@@ -100,11 +116,11 @@ export function analyseRecapture({ host, recordText, client, roles = {}, fixture
   const next = structuredClone(record);
   const applied = []; // { row, nextRow, old, new, keys: Set of observed/logical paths }
 
-  const consider = (table, key, row, nextRow, observed, extraKeys, verify) => {
+  const consider = (table, key, row, nextRow, observed, extraKeys, verify, extraEntry = {}) => {
     const old = { sha256: row.sha256, byteLength: row.byteLength };
     const now = { sha256: observed.sha256, byteLength: observed.byteLength };
     if (same(old, now)) return;
-    const entry = { table, key, old, new: now };
+    const entry = { table, key, old, new: now, ...extraEntry };
     try {
       Object.assign(entry, verify());
       nextRow.sha256 = now.sha256; nextRow.byteLength = now.byteLength;
@@ -122,25 +138,34 @@ export function analyseRecapture({ host, recordText, client, roles = {}, fixture
   for (const name of ROLE_ORDER) {
     const row = record.roles[name];
     if (row === null) continue;
-    let path = roles[name];
-    if (!path) {
-      if (name === 'node') path = host.execPath;
-      else if (name === 'client') path = client;
-      else if (name === 'wslinfo') path = WSLINFO_PATH;
-      else path = host.which(name, host.pathEnv);
-    }
-    if (!path) { refuseRow('roles', name, 'role binary not found'); continue; }
-    let observed;
-    try { observed = observe(host, path); } catch { refuseRow('roles', name, 'role binary could not be read'); continue; }
+    let candidates = [];
+    const explicit = roles[name];
+    if (explicit) candidates = [explicit];
+    else if (name === 'node') candidates = [host.execPath];
+    else if (name === 'client') candidates = [client];
+    else if (name === 'wslinfo') candidates = [WSLINFO_PATH];
+    else candidates = [...new Set(host.whichAll(name, host.pathEnv) ?? [])];
+    const seen = [];
+    for (const path of candidates) { try { seen.push({ path, ...observe(host, path) }); } catch { /* unreadable candidate */ } }
+    if (!candidates.length) { refuseRow('roles', name, 'role binary not found'); continue; }
+    if (!seen.length) { refuseRow('roles', name, 'role binary could not be read'); continue; }
+    // The runtime accepts the first PATH candidate that matches the pin, so any matching candidate means no drift.
+    const match = seen.find(item => same(item, row));
+    const observed = match ?? seen[0];
     rolePaths[name] = observed.real;
-    consider('roles', name, row, next.roles[name], observed, [path], () => {
-      if (UPSTREAM_ROLES.has(name)) throw new Refusal('upstream artifact changed; requires a reviewed code change');
-      const owner = verifyOwned(host, observed.real);
+    const extraEntry = !match && !explicit && candidates.length > 1 ? { candidates } : {};
+    consider('roles', name, row, next.roles[name], observed, [observed.path], () => {
+      if (name === 'client') throw new Refusal('upstream artifact changed; requires a reviewed code change');
+      if (name === 'node') {
+        throw new Refusal(explicit ? 'upstream artifact changed; requires a reviewed code change'
+          : 'the running node differs from the recorded node (pass --role node=<path> if another binary was intended); a node change requires a reviewed code change');
+      }
+      const owner = verifyOwned(host, observed);
       if (owner.packageVersion !== row.version) {
         throw new Refusal(`installed ${owner.package} version ${owner.packageVersion} differs from recorded ${row.version}; requires a reviewed code change`);
       }
       return owner;
-    });
+    }, extraEntry);
   }
 
   // Libraries and read files
@@ -164,7 +189,7 @@ export function analyseRecapture({ host, recordText, client, roles = {}, fixture
         if (real !== observed.real) { refuseRow(table, key, `alias ${alias} does not resolve to the row target`); aliasOk = false; }
       }
       if (!aliasOk) return;
-      consider(table, key, row, nextRows[index], observed, [logical], () => verifyOwned(host, observed.real));
+      consider(table, key, row, nextRows[index], observed, [logical], () => verifyOwned(host, observed));
     });
   }
 
@@ -201,7 +226,11 @@ export function analyseRecapture({ host, recordText, client, roles = {}, fixture
         if (isRecordPin) {
           // Old hash: re-pin. New hash: already current. Anything else (for example a fixture captured from another checkout)
           // is left unchanged and reported for manual review.
-          if (changed.length && object.sha256 === recordPin.sha256) { fixtureChanges.push({ key: location, kind: 'record-pin', old: { sha256: object.sha256, byteLength: object.byteLength }, new: newPin }); object.sha256 = newPin.sha256; object.byteLength = newPin.byteLength; }
+          if (changed.length && object.sha256 === recordPin.sha256) {
+            fixtureChanges.push({ key: location, kind: 'record-pin', old: { sha256: object.sha256, byteLength: object.byteLength }, new: newPin });
+            object.sha256 = newPin.sha256;
+            object.byteLength = newPin.byteLength;
+          }
           else if (object.sha256 !== recordPin.sha256 && object.sha256 !== newPin.sha256) unmatchedRecordPins.push({ key: location, sha256: object.sha256 });
           return;
         }
@@ -251,4 +280,21 @@ export function parseArguments(argv) {
   }
   if (!out.client) throw new Error('--client <path> is required');
   return out;
+}
+
+/**
+ * Applies record/fixture writes as a pair: every temp file is written first, then each is renamed into place.
+ * fsOps: { writeTemp(target, text) -> tempPath, rename(tempPath, target), remove(tempPath) }.
+ * Returns { written: [targetNames], error?: string }. On any failure the remaining temp files are removed.
+ */
+export function applyPairedWrites(writes, fsOps) {
+  const staged = [], written = [];
+  const cleanup = () => { for (const item of staged) if (!item.done) { try { fsOps.remove(item.temp); } catch { /* best effort */ } } };
+  try { for (const write of writes) staged.push({ write, temp: fsOps.writeTemp(write.path, write.text), done: false }); }
+  catch (error) { cleanup(); return { written, error: error.message }; }
+  for (const item of staged) {
+    try { fsOps.rename(item.temp, item.write.path); item.done = true; written.push(item.write.target); }
+    catch (error) { cleanup(); return { written, error: error.message }; }
+  }
+  return { written };
 }

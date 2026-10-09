@@ -42,7 +42,7 @@ export function publishNativeAdmission(input: Record<string, unknown>): void;
 export type NativePlatformDrift = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-platform-drift'; recordId: string; runSha256: string | null;
   definition: 'claude-linux-x64-wsl2-srt-2.1.285'; table: 'roles' | 'libraries' | 'readFiles';
-  key: 'bash' | 'env' | 'bwrap' | 'socat' | 'rg' | 'which' | 'wslinfo' | number | null;
+  key: 'bash' | 'env' | 'bwrap' | 'socat' | 'rg' | 'which' | number | null;
   remedy: 'recapture-platform-record';
 }>;
 export function publishNativePlatformDrift(input: Record<string, unknown>): void;

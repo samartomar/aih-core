@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { channel } from 'node:diagnostics_channel';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -56,21 +56,31 @@ test('drift publisher is silent without subscribers', () => {
 
 // Runs a private copy of the platform module with a copied record whose role rows describe the running node
 // binary, so only the PATH-resolved `bash` role can differ. The shipped module and record are never modified.
-async function platformCopy(t) {
+async function platformCopy(t, { libc } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'aih-drift-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   mkdirSync(join(directory, 'linux'));
   copyFileSync(fileURLToPath(new URL('canonical.mjs', native)), join(directory, 'canonical.mjs'));
   const source = readFileSync(fileURLToPath(new URL('linux-platform.mjs', native)), 'utf8');
-  const patched = source.replace(/node: '24\.19\.0'/, `node: '${process.version.slice(1)}'`);
-  assert.notEqual(patched, source, 'VERSIONS pattern must exist');
+  const token = "node: '24.19.0'";
+  assert.equal(source.split(token).length, 2, "VERSIONS node token must appear exactly once");
+  const patched = source.replace(token, () => `node: '${process.version.slice(1)}'`);
   writeFileSync(join(directory, 'linux-platform.mjs'), patched);
   const record = JSON.parse(readFileSync(fileURLToPath(new URL('linux/runtime-platform.json', native)), 'utf8'));
   const bytes = readFileSync(process.execPath), sha256 = createHash('sha256').update(bytes).digest('hex');
   for (const name of Object.keys(record.roles)) if (record.roles[name]) record.roles[name] = { ...record.roles[name], sha256, byteLength: bytes.length };
   record.roles.node.version = process.version.slice(1);
+  if (libc) {
+    // Library row 0 describes the host's own libc; the roles resolve to controlled copies on a private PATH.
+    const host = readFileSync(libc), bin = join(directory, 'bin'); mkdirSync(bin);
+    for (const name of ['bash', 'env', 'bwrap', 'socat', 'rg']) { writeFileSync(join(bin, name), bytes); chmodSync(join(bin, name), 0o755); }
+    const script = Buffer.from('#! /bin/sh\n:\n'); writeFileSync(join(bin, 'which'), script); chmodSync(join(bin, 'which'), 0o755);
+    record.roles.which = { ...record.roles.which, sha256: createHash('sha256').update(script).digest('hex'), byteLength: script.length };
+    record.libraries[0] = { ...record.libraries[0], sha256: createHash('sha256').update(host).digest('hex'), byteLength: host.length };
+    delete record.libraries[0].aliases;
+  }
   writeFileSync(join(directory, 'linux', 'runtime-platform.json'), JSON.stringify(record, null, 2) + '\n');
   const module = await import(pathToFileURL(join(directory, 'linux-platform.mjs')).href);
-  return { module, directory, bytes, client: { path: process.execPath, sha256, byteLength: bytes.length } };
+  return { module, directory, bytes, record, client: { path: process.execPath, sha256, byteLength: bytes.length } };
 }
 
 function pathWith(t, directory, name, bytes) {
@@ -108,3 +118,43 @@ test('a non-ELF PATH candidate of the pinned size stays runtime-changed', linuxO
   pathWith(t, copy.directory, 'bash', Buffer.alloc(copy.bytes.length, 0x41));
   assert.deepEqual(await copy.module.resolveLinuxPlatform({ client: copy.client }), { status: 'unavailable', reason: 'runtime-changed' });
 });
+
+const LIBC = '/usr/lib/x86_64-linux-gnu/libc.so.6';
+const libcOnly = { skip: LINUX && existsSync(LIBC) ? false : 'Linux x64 non-root host with the pinned libc path only' };
+const rewriteRecord = (copy, change) => {
+  const row = copy.record.libraries[0]; change(row);
+  writeFileSync(join(copy.directory, 'linux', 'runtime-platform.json'), JSON.stringify(copy.record, null, 2) + '\n');
+};
+
+test('a library row with a different sha256 refuses as platform-record-drift naming the table and index', libcOnly, async t => {
+  const copy = await platformCopy(t, { libc: LIBC });
+  rewriteRecord(copy, row => { row.sha256 = (row.sha256[0] === '0' ? '1' : '0') + row.sha256.slice(1); });
+  const saved = process.env.PATH; process.env.PATH = join(copy.directory, 'bin'); t.after(() => { process.env.PATH = saved; });
+  assert.deepEqual(await copy.module.resolveLinuxPlatform({ client: copy.client }),
+    { status: 'unavailable', reason: 'platform-record-drift', drift: { table: 'libraries', key: 0 } });
+});
+
+test('a library row with a different byte length refuses as platform-record-drift without hashing', libcOnly, async t => {
+  const copy = await platformCopy(t, { libc: LIBC });
+  rewriteRecord(copy, row => { row.byteLength += 1; });
+  const saved = process.env.PATH; process.env.PATH = join(copy.directory, 'bin'); t.after(() => { process.env.PATH = saved; });
+  assert.deepEqual(await copy.module.resolveLinuxPlatform({ client: copy.client }),
+    { status: 'unavailable', reason: 'platform-record-drift', drift: { table: 'libraries', key: 0 } });
+});
+
+test('a wrong-size PATH role whose header is not ELF stays runtime-changed', linuxOnly, async t => {
+  const copy = await platformCopy(t);
+  pathWith(t, copy.directory, 'bash', Buffer.alloc(copy.bytes.length - 1, 0x41));
+  assert.deepEqual(await copy.module.resolveLinuxPlatform({ client: copy.client }), { status: 'unavailable', reason: 'runtime-changed' });
+});
+
+test('node, client and wslinfo keys are not publishable drift keys', () => {
+  const records = capture(() => {
+    for (const key of ['node', 'client', 'wslinfo']) publishNativePlatformDrift({ runSha256: 'a'.repeat(64), table: 'roles', key });
+  });
+  assert.deepEqual(records.map(record => record.key), [null, null, null]);
+});
+
+// resolveLinuxNativeClient is not driven here: it first observes managed policy on the real host and then launches
+// the bundled sandbox around a real client, which cannot be done without widening the public API. The mapping it
+// applies (platform-record-drift -> publishNativePlatformDrift(table, key)) is covered by the publisher tests above.
