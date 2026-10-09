@@ -351,6 +351,9 @@ unobservable or on Windows. Counts include isolation probes and indicate policy
 decisions, not successful requests: an allowed hostname may subsequently be denied
 by SRT's resolved-address guard. `collector` requires its exact loopback host/port;
 `otherAnthropic` covers other names under anthropic.com, claude.com and claude.ai.
+The runner never re-emits SRT log text. A genuine SRT warning or error (any
+console output without SRT's `[SandboxDebug]` prefix) writes one fixed, content-free
+line to the runner's stderr, at most once per runner.
 The `forwarder` block is null when absent or on non-Linux platforms; otherwise it
 contains only `accepted`, `connected`, `refused` and `capped` counts (clamped to
 1,000,000). After isolation probes finish, the trusted workload listens only on

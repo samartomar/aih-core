@@ -439,7 +439,7 @@ test('verified-only validation accepts the full two-session native stage list', 
   // Synthetic Linux observations, including the nine run rows and both nine-row sessions.
   const result = {
     schema: 'urn:aihq:core:native-verification-result:1.0.0',
-    package: { name: '@aihq/core', version: '1.0.0-dev.30' },
+    package: { name: '@aihq/core', version: '1.0.0-dev.31' },
     status: 'complete', verdict: 'verified', proofScope: 'bundled-mechanism', admission: 'candidate-smoke',
     client: { id: 'claude', observedVersion: '2.1.285' },
     adapter: { id: 'claude-linux.v1', sha256: digest('adapter bytes') },

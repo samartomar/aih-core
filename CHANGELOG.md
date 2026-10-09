@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.31 resolves three low review findings in the native diagnostics.
+The trusted Linux runner no longer silently swallows genuine SRT warnings and
+errors: SRT's forced debug lines are still only counted, and any other console
+warning or error now writes one fixed, content-free line to the runner's stderr,
+at most once per runner, without re-emitting SRT text. The Claude stream
+parser and the native session diagnostics now share one closed `errorClass`
+vocabulary (`nativeErrorClasses` / `NativeErrorClass`) instead of three copies;
+classification and normalization are unchanged. The `ClaudeStreamObservation`
+declaration now includes the `resultSeen` field the parser already returns. The
+Linux observer lock is regenerated for the runner change. This candidate has not
+been published to npm.
+
 Core 1.0.0-dev.30 makes the non-Linux Claude managed-settings file observer
 fail closed on unknown top-level keys, matching the Linux/WSL2 observer. Both
 observers now share one per-document classification for `managed-settings.json`

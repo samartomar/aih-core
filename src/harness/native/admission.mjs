@@ -8,6 +8,13 @@ import { isolationProbeNames } from './linux-isolation.mjs';
 import { linuxProxyBuckets } from './linux-proxy.mjs';
 import { persistenceFailureClasses, inspectedStateDiagnoses, safePersistenceDiagnosticToken } from './persistence-diagnostics.mjs';
 
+// Shared closed vocabulary for parser observations and diagnostic projection.
+export const nativeErrorClasses = Object.freeze({
+  none: 'none', authentication: 'authentication', forbidden: 'forbidden',
+  rateLimit: 'rate-limit', overloaded: 'overloaded', network: 'network', other: 'other'
+});
+const admittedErrorClasses = Object.freeze(Object.values(nativeErrorClasses));
+
 const stream = channel('aih.native.admission.v1');
 const diagnosticsStream = channel('aih.native.diagnostics.v1');
 const diagnosticsDefinitions = ['claude-win32-x64-2.1.285', 'claude-linux-x64-wsl2-srt-2.1.285'];
@@ -78,7 +85,7 @@ export function publishNativeDiagnostics(input) {
       ? result.serverStatus : 'other';
   const seen = result.resultSeen === true;
   const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
-  const errorClass = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'].includes(result.errorClass) ? result.errorClass : 'none';
+  const errorClass = admittedErrorClasses.includes(result.errorClass) ? result.errorClass : nativeErrorClasses.none;
   const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
     [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;
   const forwarder = input.definition === 'claude-linux-x64-wsl2-srt-2.1.285' && isRecord(input.forwarder)

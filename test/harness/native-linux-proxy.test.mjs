@@ -63,3 +63,25 @@ test('runner monitoring consumes supported debug logs and violation-store notifi
   store.addViolation({ line: 'deny network-outbound console.anthropic.com:443 (denied)', timestamp: new Date() });
   assert.equal(observer.snapshot().consoleAnthropic.denied, 102);
 });
+
+test('runner monitoring surfaces a fixed content-free signal for genuine non-debug SRT warnings and errors', () => {
+  const store = new SandboxViolationStore();
+  const emitted = [];
+  const originalError = console.error, originalWarn = console.warn;
+  console.error = console.warn = (...args) => { emitted.push(args); };
+  const outerError = console.error, outerWarn = console.warn;
+  const observer = observeLinuxProxyDiagnostics(store, 'http://127.0.0.1:43210/v1/logs');
+  try {
+    // SRT pairs a direct console.warn with a [SandboxDebug]-prefixed duplicate; only the direct one is genuine.
+    const raw = '[sandbox-runtime] WARNING: credentials.envVars entry "credential-marker" is left UNPROTECTED';
+    console.warn(raw);
+    logForDebugging(raw, { level: 'warn' });
+    console.error(new Error('credential-marker failure'));
+    logForDebugging('Allowed by config rule: api.anthropic.com:443');
+    assert.equal(emitted.length, 1, 'one fixed signal, debug-prefixed lines stay silent');
+    assert.match(emitted[0].join(' '), /sandbox-runtime/i);
+    assert.doesNotMatch(JSON.stringify(emitted), /credential-marker|envVars/);
+    assert.equal(observer.snapshot().apiAnthropic.allowed, 1, 'counting is unchanged');
+  } finally { observer.stop(); console.error = originalError; console.warn = originalWarn; }
+  assert.equal(outerError === outerWarn, true);
+});

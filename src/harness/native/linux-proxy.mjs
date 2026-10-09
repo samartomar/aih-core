@@ -46,7 +46,17 @@ export function observeLinuxProxyDiagnostics(store, collectorEndpoint) {
       if (added > 0) for (const violation of violations.slice(-added)) counter.violation(violation.line);
     } catch { available = false; }
   });
-  console.error = console.warn = message => { try { counter.log(message); } catch { available = false; } };
+  // Raw SRT text may name credentials, paths or hosts, so it is never re-emitted. SRT's debug logger only
+  // writes '[SandboxDebug]'-prefixed lines (and only because SRT_DEBUG is forced on); anything else reaching
+  // console.error/warn is a genuine SRT warning or error. Surface it once as a fixed, content-free line.
+  let signalled = false;
+  const hook = message => {
+    try { counter.log(message); } catch { available = false; }
+    if (signalled || (typeof message === 'string' && message.startsWith('[SandboxDebug] '))) return;
+    signalled = true;
+    try { originalError('sandbox-runtime reported a warning or error; details withheld from the trusted runner.'); } catch { /* stderr unavailable */ }
+  };
+  console.error = console.warn = hook;
   process.env.SRT_DEBUG = '1';
   return Object.freeze({
     snapshot: () => available ? counter.snapshot() : null,

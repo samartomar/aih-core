@@ -115,8 +115,8 @@ export type ClaudeStreamOptions = { serverName: string; attestTool: string; quer
 export type ClaudeStreamObservation = { status: 'ok' | 'limit-exceeded' | 'malformed'; bytes: number; records: number; sessionId: string | null;
   sessionIdConsistent: boolean; serverStatus: 'connected' | 'pending' | 'failed' | 'needs-auth' | 'disabled' | 'absent' | 'other' | null;
   visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
-  permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; answerSha256: string | null; resultSubtype: string | null; resultIsError: boolean | null;
-  errorClass: 'none' | 'authentication' | 'forbidden' | 'rate-limit' | 'overloaded' | 'network' | 'other';
+  permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; answerSha256: string | null; resultSeen: boolean; resultSubtype: string | null; resultIsError: boolean | null;
+  errorClass: import('./admission.mjs').NativeErrorClass;
   unselectedTools: number; unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };
 export function createClaudeStreamParser(options: ClaudeStreamOptions): { push(chunk: Uint8Array | string): void; snapshot(): ClaudeStreamObservation; finish(): ClaudeStreamObservation };
 export function claudeStreamOptions(resolved: ResolvedFixture, challenge: string): ClaudeStreamOptions;

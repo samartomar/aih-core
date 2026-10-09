@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { channel } from 'node:diagnostics_channel';
 import { publishNativeAdmission } from '../../src/harness/native/admission.mjs';
 import * as admission from '../../src/harness/native/admission.mjs';
+import { createClaudeStreamParser } from '../../src/harness/native/claude.mjs';
 
 test('persistence publisher closes parent tokens and enforces the serialized byte cap', () => {
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
@@ -270,6 +271,45 @@ test('session diagnostics clamp and freeze proxy buckets and admit only closed p
       assert.equal(records.at(-1).result.errorClass, 'none');
       assert.equal(records.at(-1).proxy, null);
     }
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('parser error classes share the frozen diagnostics vocabulary and survive admission', () => {
+  const expectedClasses = ['none', 'authentication', 'forbidden', 'rate-limit', 'overloaded', 'network', 'other'];
+  assert.deepEqual(Object.values(admission.nativeErrorClasses), expectedClasses);
+  assert.ok(Object.isFrozen(admission.nativeErrorClasses));
+  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
+  stream.subscribe(sink);
+  try {
+    const cases = [
+      ['none', { type: 'result', subtype: 'success', is_error: false }],
+      ['authentication', { type: 'assistant', error: { status: 401, message: 'network' } }],
+      ['forbidden', { type: 'assistant', error: { status: 403, message: 'authentication' } }],
+      ['rate-limit', { type: 'system', subtype: 'api_error', status_code: 429 }],
+      ['overloaded', { type: 'system', subtype: 'api_error', statusCode: 529 }],
+      ['network', { type: 'result', is_error: true, result: 'ECONNRESET fetch failed' }],
+      ['other', { type: 'result', is_error: true, status: 500, result: 'authentication' }],
+      ...[
+        ['authentication', 'oauth token expired'], ['forbidden', 'forbidden'],
+        ['rate-limit', 'rate limit'], ['overloaded', 'overloaded'],
+        ['other', 'unrecognized failure']
+      ].map(([errorClass, result]) => [errorClass, { type: 'result', is_error: true, result }])
+    ];
+    const observedClasses = new Set();
+    for (const [expected, record] of cases) {
+      const parser = createClaudeStreamParser({ serverName: 'fixture', attestTool: 'attest', queryTool: 'query',
+        expectedAnswer: 'answer', markerSha256: 'a'.repeat(64), challenge: 'c'.repeat(64) });
+      parser.push(JSON.stringify(record) + '\n');
+      const result = parser.finish();
+      assert.equal(result.errorClass, expected);
+      observedClasses.add(result.errorClass);
+      admission.publishNativeDiagnostics({ result });
+      assert.equal(records.at(-1).result.errorClass, expected);
+    }
+    assert.deepEqual([...observedClasses], expectedClasses);
+    admission.publishNativeDiagnostics({ result: { errorClass: 'unknown-error-marker' } });
+    assert.equal(records.at(-1).result.errorClass, 'none');
+    assert.equal(JSON.stringify(records).includes('unknown-error-marker'), false);
   } finally { stream.unsubscribe(sink); }
 });
 
