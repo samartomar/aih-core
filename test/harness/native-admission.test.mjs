@@ -153,7 +153,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         identityByEvent: { accountPresent: 2, accountMatches: 1, organizationPresent: 3, organizationMatches: 2 }, firstMatchingEventIndex: 4,
         ignored: 1, matched: 1 },
       init: { serverStatus: 'unobserved' },
-      proxy: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
+      proxy: null, runnerWarnings: null, forwarder: null, result: { seen: true, isError: true, subtype: 'error_during_execution', errorClass: 'none' }
     });
     const inspect = value => {
       assert.ok(Object.isFrozen(value));
@@ -181,7 +181,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
         apiRequestRejected: { ...emptyCollector.apiRequestRejected, missingRequestId: 1000000, missingSession: 1000000, outsideWindow: 3 },
         identityByEvent: { ...emptyCollector.identityByEvent, accountPresent: 1000000 }, firstMatchingEventIndex: 1000000 },
       init: { serverStatus: 'unobserved' },
-      proxy: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
+      proxy: null, runnerWarnings: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
     for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
       admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: false, resultSubtype: subtype } });
@@ -271,6 +271,32 @@ test('session diagnostics clamp and freeze proxy buckets and admit only closed p
       assert.equal(records.at(-1).result.errorClass, 'none');
       assert.equal(records.at(-1).proxy, null);
     }
+  } finally { stream.unsubscribe(sink); }
+});
+
+test('session diagnostics publish a bounded runner warning count only beside an observed proxy and never leak warning text', () => {
+  const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
+  const buckets = Object.fromEntries(['apiAnthropic', 'claudeAi', 'platformClaude', 'consoleAnthropic', 'otherAnthropic', 'collector', 'other']
+    .map(key => [key, { allowed: 1, denied: 2 }]));
+  stream.subscribe(sink);
+  try {
+    const published = input => { admission.publishNativeDiagnostics(input); return records.at(-1); };
+    assert.equal(published({ proxy: buckets, runnerWarnings: 0 }).runnerWarnings, 0);
+    assert.equal(published({ proxy: buckets, runnerWarnings: 7 }).runnerWarnings, 7);
+    assert.equal(published({ proxy: buckets, runnerWarnings: 1000001 }).runnerWarnings, 1000000);
+    assert.equal(published({ proxy: buckets, runnerWarnings: Number.MAX_SAFE_INTEGER }).runnerWarnings, 1000000);
+    for (const malformed of [-1, 1.5, NaN, Infinity, '3', 'credential-marker', {}, true])
+      assert.equal(published({ proxy: buckets, runnerWarnings: malformed }).runnerWarnings, 0, String(malformed));
+    for (const absent of [undefined, null]) assert.equal(published({ proxy: buckets, runnerWarnings: absent }).runnerWarnings, null);
+    assert.equal(published({ runnerWarnings: 5 }).runnerWarnings, null, 'no proxy observation means no count');
+    assert.equal(published({ proxy: null, runnerWarnings: 5 }).runnerWarnings, null);
+    const record = published({ proxy: buckets, runnerWarnings: 3, collector: { requests: 2 }, result: { errorClass: 'network' } });
+    assert.deepEqual(record.proxy.other, { allowed: 1, denied: 2 }, 'proxy buckets are unchanged');
+    assert.equal(record.collector.requests, 2);
+    assert.equal(record.result.errorClass, 'network', 'the count never changes verdict fields');
+    assert.ok(Object.isFrozen(record));
+    assert.equal(record.schema, 'aih.native.diagnostics.v1');
+    assert.equal(JSON.stringify(published({ proxy: buckets, runnerWarnings: 'credential-marker' })).includes('credential-marker'), false);
   } finally { stream.unsubscribe(sink); }
 });
 

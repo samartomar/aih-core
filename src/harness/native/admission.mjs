@@ -84,6 +84,7 @@ export function publishNativeDiagnostics(input) {
   const errorClass = admittedErrorClasses.includes(result.errorClass) ? result.errorClass : nativeErrorClasses.none;
   const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
     [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;
+  const runnerWarnings = proxy !== null && input.runnerWarnings != null ? boundedCount(input.runnerWarnings) : null;
   const forwarder = input.definition === 'claude-linux-x64-wsl2-srt-2.1.285' && isRecord(input.forwarder)
     ? counts(input.forwarder, ['accepted', 'connected', 'refused', 'capped']) : null;
   diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: randomUUID(),
@@ -107,5 +108,5 @@ export function publishNativeDiagnostics(input) {
       ignored: boundedCount(source.ignored), matched: boundedCount(source.matched), duplicates: boundedCount(source.duplicates),
       wrongSession: boundedCount(source.wrongSession), conflict: source.conflict === true }),
     init: Object.freeze({ serverStatus }),
-    proxy, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
+    proxy, runnerWarnings, forwarder, result: Object.freeze({ seen, isError: seen && typeof result.resultIsError === 'boolean' ? result.resultIsError : null, subtype, errorClass }) }));
 }

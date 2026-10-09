@@ -5,8 +5,9 @@
 Core 1.0.0-dev.31 resolves three low review findings in the native diagnostics.
 The trusted Linux runner no longer silently swallows genuine SRT warnings and
 errors: SRT's forced debug lines are still only counted, and any other console
-warning or error now writes one fixed, content-free line to the runner's stderr,
-at most once per runner, without re-emitting SRT text. The Claude stream
+warning or error is now counted (saturating at 1,000,000) and published as
+`runnerWarnings` on the session diagnostics record, without emitting, formatting or
+retaining any SRT text and without writing to stdout or stderr. The Claude stream
 parser and the native session diagnostics now share one closed `errorClass`
 vocabulary (`nativeErrorClasses` / `NativeErrorClass`) instead of three copies;
 classification and normalization are unchanged. The `ClaudeStreamObservation`

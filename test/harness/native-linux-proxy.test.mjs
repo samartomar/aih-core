@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLinuxProxyDiagnostics, observeLinuxProxyDiagnostics } from '../../src/harness/native/linux-proxy.mjs';
+import { canonicalJson } from '../../src/harness/native/canonical.mjs';
+import { createLinuxProxyDiagnostics, linuxProxyBuckets, observeLinuxProxyDiagnostics, parseLinuxProxyReceipt } from '../../src/harness/native/linux-proxy.mjs';
 import { SandboxViolationStore } from '../../node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-violation-store.js';
 import { logForDebugging } from '../../node_modules/@anthropic-ai/sandbox-runtime/dist/utils/debug.js';
 
@@ -64,7 +65,7 @@ test('runner monitoring consumes supported debug logs and violation-store notifi
   assert.equal(observer.snapshot().consoleAnthropic.denied, 102);
 });
 
-test('runner monitoring surfaces a fixed content-free signal for genuine non-debug SRT warnings and errors', () => {
+test('runner monitoring counts non-debug warnings and errors without emitting, formatting or retaining their content', () => {
   const store = new SandboxViolationStore();
   const emitted = [];
   const originalError = console.error, originalWarn = console.warn, originalDebug = process.env.SRT_DEBUG;
@@ -72,21 +73,84 @@ test('runner monitoring surfaces a fixed content-free signal for genuine non-deb
     const outer = (...args) => { emitted.push(args); };
     console.error = console.warn = outer;
     const observer = observeLinuxProxyDiagnostics(store, 'http://127.0.0.1:43210/v1/logs');
+    assert.equal(observer.warnings(), 0);
     // SRT pairs a direct console.warn with a [SandboxDebug]-prefixed duplicate; only the direct one is genuine.
     const raw = '[sandbox-runtime] WARNING: credentials.envVars entry "credential-marker" is left UNPROTECTED';
     console.warn(raw);
+    assert.equal(observer.warnings(), 1);
     logForDebugging(raw, { level: 'warn' });
+    assert.equal(observer.warnings(), 1, 'the debug duplicate is not counted');
+    let formatted = false;
+    const hostile = { toString() { formatted = true; return 'credential-marker'; }, get message() { formatted = true; return 'credential-marker'; } };
     console.error(new Error('credential-marker failure'));
+    console.error(hostile, 'credential-marker');
+    console.warn(); console.warn(42); console.warn(null); console.warn(' [SandboxDebug] leading space'); console.warn('[SandboxDebug]no-space');
+    assert.equal(formatted, false, 'non-string arguments are never formatted');
+    assert.equal(observer.warnings(), 8);
     logForDebugging('Allowed by config rule: api.anthropic.com:443');
-    assert.equal(emitted.length, 1, 'one fixed signal, debug-prefixed lines stay silent');
-    assert.deepEqual(emitted[0], ['sandbox-runtime or runner reported a warning or error; details withheld from the trusted runner.']);
-    assert.doesNotMatch(JSON.stringify(emitted), /credential-marker|envVars/);
+    assert.equal(observer.warnings(), 8);
+    assert.deepEqual(emitted, [], 'the hook writes nothing to console, so it adds zero output bytes');
     assert.equal(observer.snapshot().apiAnthropic.allowed, 1, 'counting is unchanged');
+    assert.doesNotMatch(JSON.stringify([observer.snapshot(), observer.warnings()]), /credential-marker|envVars/);
+    assert.deepEqual(Object.keys(observer.snapshot()), [...linuxProxyBuckets], 'the proxy snapshot shape is unchanged');
     observer.stop();
     assert.equal(console.error, outer);
     assert.equal(console.warn, outer);
     assert.equal(process.env.SRT_DEBUG, originalDebug);
   } finally {
+    console.error = originalError; console.warn = originalWarn;
+    if (originalDebug === undefined) delete process.env.SRT_DEBUG; else process.env.SRT_DEBUG = originalDebug;
+  }
+});
+
+test('the runner warning count saturates at one million', () => {
+  const originalError = console.error, originalWarn = console.warn, originalDebug = process.env.SRT_DEBUG;
+  const observer = observeLinuxProxyDiagnostics(new SandboxViolationStore(), 'http://127.0.0.1:43210/v1/logs');
+  try {
+    for (let i = 0; i < 1000005; i++) console.warn('warning');
+    assert.equal(observer.warnings(), 1000000);
+  } finally {
+    observer.stop();
+    console.error = originalError; console.warn = originalWarn;
+    if (originalDebug === undefined) delete process.env.SRT_DEBUG; else process.env.SRT_DEBUG = originalDebug;
+  }
+});
+
+test('the internal receipt round-trips exactly { proxy, runnerWarnings } and rejects everything else as unobservable', () => {
+  const counter = createLinuxProxyDiagnostics('http://127.0.0.1:43210/v1/logs');
+  counter.log('[SandboxDebug] Allowed by config rule: api.anthropic.com:443');
+  const proxy = counter.snapshot();
+  const parsed = parseLinuxProxyReceipt(canonicalJson({ proxy, runnerWarnings: 3 }));
+  assert.deepEqual(parsed, { proxy, runnerWarnings: 3 });
+  assert.ok(Object.isFrozen(parsed) && Object.isFrozen(parsed.proxy));
+  for (const pair of Object.values(parsed.proxy)) assert.ok(Object.isFrozen(pair));
+  assert.equal(parseLinuxProxyReceipt(canonicalJson({ proxy, runnerWarnings: 0 })).runnerWarnings, 0);
+  assert.equal(parseLinuxProxyReceipt(canonicalJson({ proxy, runnerWarnings: 1000000 })).runnerWarnings, 1000000);
+  const bad = [canonicalJson(null), canonicalJson(proxy), canonicalJson({ proxy }), canonicalJson({ runnerWarnings: 1 }),
+    canonicalJson({ proxy, runnerWarnings: 1, extra: 1 }), canonicalJson({ proxy, runnerWarnings: 1000001 }),
+    canonicalJson({ proxy, runnerWarnings: -1 }), canonicalJson({ proxy, runnerWarnings: 1.5 }),
+    canonicalJson({ proxy, runnerWarnings: '1' }), canonicalJson({ proxy, runnerWarnings: null }),
+    canonicalJson({ proxy: null, runnerWarnings: 1 }),
+    canonicalJson({ proxy: { ...proxy, extra: { allowed: 0, denied: 0 } }, runnerWarnings: 1 }),
+    canonicalJson({ proxy: { ...proxy, other: { allowed: 1000001, denied: 0 } }, runnerWarnings: 1 }),
+    canonicalJson({ proxy: { ...proxy, other: { allowed: 0 } }, runnerWarnings: 1 }),
+    canonicalJson({ proxy: { ...proxy, other: { allowed: 0, denied: 0, extra: 0 } }, runnerWarnings: 1 }),
+    '{"proxy":', '', 'not json'];
+  for (const text of bad) assert.equal(parseLinuxProxyReceipt(text), null, text.slice(0, 60));
+  const { other, ...missing } = proxy;
+  assert.equal(parseLinuxProxyReceipt(canonicalJson({ proxy: missing, runnerWarnings: 1 })), null);
+});
+
+test('warning text never reaches the receipt', () => {
+  const originalError = console.error, originalWarn = console.warn, originalDebug = process.env.SRT_DEBUG;
+  const observer = observeLinuxProxyDiagnostics(new SandboxViolationStore(), 'http://127.0.0.1:43210/v1/logs');
+  try {
+    console.warn('credential-marker /private/path-marker host-marker.invalid:443');
+    const receipt = canonicalJson({ proxy: observer.snapshot(), runnerWarnings: observer.warnings() });
+    assert.doesNotMatch(receipt, /credential-marker|path-marker|host-marker/);
+    assert.equal(parseLinuxProxyReceipt(receipt).runnerWarnings, 1);
+  } finally {
+    observer.stop();
     console.error = originalError; console.warn = originalWarn;
     if (originalDebug === undefined) delete process.env.SRT_DEBUG; else process.env.SRT_DEBUG = originalDebug;
   }

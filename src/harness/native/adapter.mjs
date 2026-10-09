@@ -536,6 +536,7 @@ function createNativeRuntime(module, dependencies) {
         const launchedAtMs = Date.now();
         diagnosticsSnapshot = () => ({ collector: telemetryFinal?.stats ?? collector.snapshot({ launchedAtMs, closedAtMs: Date.now() }).stats,
           result: parsers[0].snapshot(), proxy: linux ? context.proxyDiagnostics?.() ?? null : null,
+          runnerWarnings: linux ? context.runnerWarnings?.() ?? null : null,
           forwarder: linux ? context.forwarderDiagnostics?.() ?? null : null });
         const capture = (streams, telemetryResult, evidence, finalized = false) => {
             const stream = streams[0];

@@ -241,6 +241,7 @@ test('session cleanup publishes collector diagnostics and the parsed error resul
     assert.equal(records[0].collector.rejected.auth, 3);
     assert.deepEqual(records[0].result, { seen: true, isError: true, subtype: 'success', errorClass: 'authentication' });
     assert.equal(records[0].proxy, null);
+    assert.equal(records[0].runnerWarnings, null, 'non-Linux sessions publish no warning count');
     assert.equal(records[0].forwarder, null);
     assert.equal(JSON.stringify(records[0]).includes('private-result'), false);
   } finally { diagnostics.unsubscribe(sink); }

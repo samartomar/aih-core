@@ -1,3 +1,4 @@
+import { hasExactKeys, parseStrictJson } from './canonical.mjs';
 // Counts from the trusted runner's SRT debug logger and violation store, never client stderr.
 export const linuxProxyBuckets = Object.freeze(['apiAnthropic', 'claudeAi', 'platformClaude',
   'consoleAnthropic', 'otherAnthropic', 'collector', 'other']);
@@ -46,20 +47,20 @@ export function observeLinuxProxyDiagnostics(store, collectorEndpoint) {
       if (added > 0) for (const violation of violations.slice(-added)) counter.violation(violation.line);
     } catch { available = false; }
   });
-  // Raw SRT text may name credentials, paths or hosts, so it is never re-emitted. SRT's debug logger only
-  // writes '[SandboxDebug]'-prefixed lines (and only because SRT_DEBUG is forced on); anything else reaching
-  // console.error/warn is a genuine SRT warning or error. Surface it once as a fixed, content-free line.
-  let signalled = false;
+  // Raw SRT text may name credentials, paths or hosts, so it is only counted, never formatted or re-emitted.
+  // SRT's debug logger only writes '[SandboxDebug] '-prefixed lines (and only because SRT_DEBUG is forced on);
+  // anything else reaching console.error/warn is a genuine SRT warning or error. The hook writes nothing.
+  let warnings = 0;
   const hook = message => {
     try { counter.log(message); } catch { available = false; }
-    if (signalled || (typeof message === 'string' && message.startsWith('[SandboxDebug] '))) return;
-    signalled = true;
-    try { originalError('sandbox-runtime or runner reported a warning or error; details withheld from the trusted runner.'); } catch { /* stderr unavailable */ }
+    if (typeof message === 'string' && message.startsWith('[SandboxDebug] ')) return;
+    warnings = Math.min(1000000, warnings + 1);
   };
   console.error = console.warn = hook;
   process.env.SRT_DEBUG = '1';
   return Object.freeze({
     snapshot: () => available ? counter.snapshot() : null,
+    warnings: () => warnings,
     stop() {
       console.error = originalError;
       console.warn = originalWarn;
@@ -67,4 +68,17 @@ export function observeLinuxProxyDiagnostics(store, collectorEndpoint) {
       unsubscribe();
     }
   });
+}
+
+// Parse the runner's internal receipt: exactly { proxy, runnerWarnings }. Anything else is unobservable (null).
+export function parseLinuxProxyReceipt(text) {
+  try {
+    const receipt = parseStrictJson(text), record = receipt?.proxy;
+    const bounded = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000;
+    if (!hasExactKeys(receipt, ['proxy', 'runnerWarnings']) || !bounded(receipt.runnerWarnings) || !hasExactKeys(record, linuxProxyBuckets) ||
+        linuxProxyBuckets.some(key => !hasExactKeys(record[key], ['allowed', 'denied']) ||
+          !bounded(record[key].allowed) || !bounded(record[key].denied))) return null;
+    for (const pair of Object.values(record)) Object.freeze(pair);
+    return Object.freeze({ proxy: Object.freeze(record), runnerWarnings: receipt.runnerWarnings });
+  } catch { return null; }
 }
