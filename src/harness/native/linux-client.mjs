@@ -8,7 +8,7 @@ import { observeLinuxManagedPolicy } from './managed-policy.mjs';
 import { verifyLinuxVendorClosure } from './linux-runtime.mjs';
 import { linuxObserverPins, prepareLinuxSandboxContext } from './linux-sandbox.mjs';
 import { parseClaudeVersionOutput } from './select.mjs';
-import { publishNativeAdmission } from './admission.mjs';
+import { publishNativeAdmission, publishNativePlatformDrift } from './admission.mjs';
 import { sha256 } from './digest.mjs';
 
 export function observeLinuxNativePolicy(execution) {
@@ -33,6 +33,7 @@ export async function resolveLinuxNativeClient({ definition, input, client, cell
   if (managed.outcome === 'restricted') return { outcome: 'restricted', reason: 'managed-restriction' };
   if (managed.outcome !== 'file-sources-clear') return fail('restriction-unobservable');
   const platform = await resolveLinuxPlatform({ client, check }); check();
+  if (platform.reason === 'platform-record-drift') publishNativePlatformDrift({ runSha256: sha256(cell.path), ...platform.drift });
   if (platform.status !== 'ready') return fail(platform.reason === 'restriction-unobservable' ? platform.reason : 'isolation-unobserved');
   const vendor = verifyLinuxVendorClosure({ check }); check();
   if (vendor.status !== 'ready') return fail(vendor.reason);

@@ -1,0 +1,35 @@
+{
+  "result": {
+    "status": "ready",
+    "libraryClosure": [
+      {
+        "source": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        "sha256": "{{libc}}",
+        "byteLength": 11,
+        "names": [
+          "libc.so.6"
+        ]
+      },
+      {
+        "source": "/usr/lib/x86_64-linux-gnu/libm.so.6",
+        "sha256": "{{libm}}",
+        "byteLength": 11,
+        "names": [
+          "libm.so.6"
+        ]
+      }
+    ],
+    "pins": [
+      {
+        "path": "/opt/pkg/harness/native/linux/runtime-platform.json",
+        "sha256": "{{record}}",
+        "byteLength": 0
+      },
+      {
+        "path": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        "sha256": "{{libc}}",
+        "byteLength": 11
+      }
+    ]
+  }
+}

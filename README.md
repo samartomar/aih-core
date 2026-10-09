@@ -837,6 +837,15 @@ npm run build
 npm test
 ```
 
+Linux native verification pins exact runtime bytes. After distro updates change a
+pinned library, verification refuses with `isolation-unobserved`; see
+[Re-capturing the platform record](docs/native-linux-verification.md#re-capturing-the-platform-record-after-distro-updates).
+On the reference host the developer-only report command is read-only:
+
+```sh
+node scripts/recapture-linux-runtime-platform.mjs --client <path>
+```
+
 Tests exercise public boundaries with temporary homes and target directories.
 `npm test` includes the migrated Harness CA/candidate tests. The package test
 installs one Core tarball into an isolated consumer, imports public schemas and

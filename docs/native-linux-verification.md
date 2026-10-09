@@ -382,6 +382,70 @@ over regex classification within a message; the first specific class survives la
 generic failures. They carry no client strings or hostnames, never change a verdict
 and have no default sink.
 
+## Re-capturing the platform record after distro updates
+
+The reference WSL2 Ubuntu host receives distro security updates (glibc, OpenSSL,
+zlib and similar) that change the bytes of pinned runtime files. The pins in
+`runtime-platform.json` stay exact SHA-256 and byte-length values: there is no
+trust widening, no package-identity pin and no automatic re-pinning at runtime.
+When a pinned row no longer matches, verification refuses and a maintainer
+re-captures the row deliberately.
+
+**Diagnostic.** A pinned file that is read stably but whose size or SHA-256
+differs from its row makes platform resolution refuse with the internal reason
+`platform-record-drift`. The public result is unchanged: the verification
+outcome is unavailable with reason `isolation-unobserved`, and the result schema
+and reason enum are the same. For the Linux client, an optional subscriber on the
+`aih.native.diagnostics.v1` channel also receives one frozen
+`native-platform-drift` record with these closed fields only:
+
+| Field | Value |
+|---|---|
+| `schema`, `event` | `aih.native.diagnostics.v1`, `native-platform-drift` |
+| `recordId`, `runSha256` | random record id; digest of the run (null when invalid) |
+| `definition` | `claude-linux-x64-wsl2-srt-2.1.285` |
+| `table` | `roles`, `libraries` or `readFiles` |
+| `key` | role name for `roles` (`bash`, `env`, `bwrap`, `socat`, `rg`, `which`, `wslinfo`); row index 0-63 for the other tables; otherwise null |
+| `remedy` | `recapture-platform-record` |
+
+It carries no paths, hashes or sizes of host files. Identity races, unreadable or
+non-ELF files, alias mismatches, a missing role, node or client byte changes and
+an invalid record stay `runtime-changed` and publish nothing. A PATH role reports drift only when no
+candidate matched and a stable candidate differed. The loader alias revalidation
+still reports `runtime-changed`.
+
+**Maintainer workflow.** Run the developer-only script on the reference host as
+the normal user. It never runs the client or any role binary; it reads and hashes
+files, and asks `dpkg` for ownership, verification and the installed version.
+
+1. Report: `node scripts/recapture-linux-runtime-platform.mjs --client <path> [--role <name>=<path>]...`.
+   The JSON report lists the changed rows and any refusals and writes nothing.
+   Exit code 0 means no drift, 2 means verified drift (report only), 1 means a
+   refusal with no writes (verification failure, unsupported change or wrong host).
+2. Review the report. A changed library or read-only file row is rewritable only
+   when `dpkg -S` names exactly one owning package (no diversion) and
+   `dpkg --verify` of that package is clean; the report shows the package and its
+   installed version. A distro-role byte change additionally requires the
+   installed package version to equal the record row's version. Node and client changes and package-version
+   changes are always refused: they need a reviewed code change, not this tool.
+   `wslinfo` resolves to `/init` on WSL2, which no package owns, so its changes
+   are refused as well.
+3. Rewrite: repeat with `--write` (and `--fixture <controlled fixture>` to update
+   a test fixture too). Only the changed rows' `sha256` and `byteLength` are
+   rewritten, keeping the record's formatting; the fixture update keys off rows
+   changed in the same run. A fixture pin of a platform record file whose hash is
+   neither the old nor the new record hash (for example one captured from another
+   checkout) is left unchanged and listed under `fixture.unmatchedRecordPins` for
+   manual review. A successful `--write` exits 0 and the report lists `written`.
+4. Review the diff of the record (and fixture) by hand.
+5. Every re-capture changes shipped Harness bytes, so it needs a reviewed new Core
+   distribution version. Re-run the Linux gates before promoting it.
+
+Hold distro updates on the reference host between verification batches, for
+example `sudo apt-mark hold <packages>` for the pinned packages or disabling
+unattended upgrades for the window. Afterwards `sudo apt-mark unhold` them and
+re-capture deliberately so the record changes in a reviewed version, not mid-batch.
+
 ## Build records and development checks
 
 The package carries helper source, executable and build record. Linux CI compiles
