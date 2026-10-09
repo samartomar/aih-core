@@ -287,6 +287,8 @@ test('argument parsing', () => {
   assert.throws(() => parseArguments([]));
   assert.throws(() => parseArguments(['--client', '/c', '--role', 'bogus=/n']));
   assert.throws(() => parseArguments(['--client', '/c', '--nope']));
+  assert.throws(() => parseArguments(['--client', '/c', '--client', '/d']));
+  assert.throws(() => parseArguments(['--client', '/c', '--fixture', 'a.json', '--fixture', 'b.json']));
 });
 
 test('the real source record is canonically formatted and valid', () => {

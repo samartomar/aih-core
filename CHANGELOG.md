@@ -15,9 +15,10 @@ unchanged. A developer-only script, `scripts/recapture-linux-runtime-platform.mj
 reports drift on the reference host and, with `--write`, rewrites only the changed
 rows when each file is owned by one `dpkg` package whose `md5sums` entry matches
 the hashed bytes and `dpkg --verify` is clean (roles must also remain at the
-recorded package version); node, client and package-version changes
-are refused (node, client and `wslinfo` byte changes stay `runtime-changed`), and any refusal writes nothing. It can update a supplied controlled
-fixture in the same run. The script is never run by build, install, test or
+recorded package version). The script refuses node, client and package-version
+changes, and any refusal writes nothing. It can update a supplied controlled
+fixture in the same run. Node, client and `wslinfo` byte changes stay
+`runtime-changed` at runtime. The script is never run by build, install, test or
 verification. The documentation describes the maintainer workflow and holding
 distro updates between verification batches. This candidate has not been
 published to npm.

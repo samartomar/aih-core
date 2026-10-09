@@ -415,7 +415,9 @@ wrong-size file is never hashed; drift is reported only after its file identity 
 unchanged after a small read of its first bytes, which for roles and `dash` must
 also pass the same ELF or shebang header check. A PATH role reports drift only when no
 candidate matched and a stable candidate differed. The loader alias revalidation
-still reports `runtime-changed`.
+still reports `runtime-changed`. The remedy names the next step, not a guarantee:
+when a role's package version changed (common for security updates) the tool
+refuses that row, because the role version is part of the reviewed code.
 
 **Maintainer workflow.** Run the developer-only script on the reference host as
 the normal user. It never runs the client or any role binary; it reads and hashes
@@ -438,7 +440,8 @@ files, and asks `dpkg` for ownership, verification and the installed version.
 3. Rewrite: repeat with `--write` (and `--fixture <controlled fixture>` to update
    a test fixture too). Only the changed rows' `sha256` and `byteLength` are
    rewritten, keeping the record's formatting; the fixture update keys off rows
-   changed in the same run. A fixture pin of a platform record file whose hash is
+   changed in the same run, so pass `--fixture` in the run that rewrites the
+   record (each of `--client` and `--fixture` may be given once). A fixture pin of a platform record file whose hash is
    neither the old nor the new record hash (for example one captured from another
    checkout) is left unchanged and listed under `fixture.unmatchedRecordPins` for
    manual review. The record and fixture are staged as temporary files before

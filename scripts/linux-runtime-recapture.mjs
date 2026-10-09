@@ -268,8 +268,8 @@ export function parseArguments(argv) {
     else if (arg === '--client' || arg === '--fixture' || arg === '--role') {
       const value = argv[++i];
       if (value === undefined || value.startsWith('--')) throw new Error(`${arg} requires a value`);
-      if (arg === '--client') out.client = value;
-      else if (arg === '--fixture') out.fixture = value;
+      if (arg === '--client') { if (out.client !== undefined) throw new Error('--client may be given once'); out.client = value; }
+      else if (arg === '--fixture') { if (out.fixture !== undefined) throw new Error('--fixture may be given once'); out.fixture = value; }
       else {
         const eq = value.indexOf('=');
         const name = value.slice(0, eq);
