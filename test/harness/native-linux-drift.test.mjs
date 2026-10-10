@@ -1,5 +1,6 @@
 // Platform-record drift diagnostics: closed descriptors only, no trust widening.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { channel } from 'node:diagnostics_channel';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -201,4 +202,30 @@ test('a managed-policy refusal returns before platform resolution and publishes 
   assert.deepEqual([restricted.result, restricted.records, restricted.resolved], [{ outcome: 'restricted', reason: 'managed-restriction' }, [], 0]);
   const unreadable = await wire(drift, () => ({ outcome: 'unreadable' }));
   assert.deepEqual([unreadable.result, unreadable.records, unreadable.resolved], [{ outcome: 'unavailable', reason: 'restriction-unobservable' }, [], 0]);
+});
+
+test('the public resolver publishes drift through its default dependencies', t => {
+  // A separate process replaces only the modules behind the two default dependencies; the public function runs unchanged.
+  const root = mkdtempSync(join(tmpdir(), 'aih-drift-wiring-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const fixture = join(root, 'default-wiring.mjs');
+  writeFileSync(fixture, `import assert from 'node:assert/strict';
+    import {channel} from 'node:diagnostics_channel';import {registerHooks} from 'node:module';
+    const target=process.argv[2];
+    const mocks={
+      './linux-platform.mjs':'export const resolveLinuxPlatform=async()=>({status:"unavailable",reason:"platform-record-drift",drift:{table:"libraries",key:3}});export const windowsPolicyDirectoryFromMounts=()=>null;',
+      './managed-policy.mjs':'export const observeLinuxManagedPolicy=()=>({outcome:"file-sources-clear"});'
+    };
+    registerHooks({resolve(specifier,context,next){
+      if(context.parentURL===target && mocks[specifier])return {url:'data:text/javascript,'+encodeURIComponent(mocks[specifier]),shortCircuit:true};
+      return next(specifier,context);
+    }});
+    const {resolveLinuxNativeClient}=await import(target);
+    const records=[];channel('aih.native.diagnostics.v1').subscribe(value=>records.push(value));
+    const result=await resolveLinuxNativeClient({definition:{platform:{execution:'native'}},input:{},client:{path:'/client'},cell:{path:'/cell'},check(){}});
+    assert.deepEqual(result,{outcome:'unavailable',reason:'isolation-unobserved'});
+    assert.deepEqual(records.map(record=>[record.event,record.table,record.key]),[['native-platform-drift','libraries',3]]);
+    console.log('DRIFT_DEFAULT_WIRING_PASS');`, { mode: 0o600 });
+  const result = spawnSync(process.execPath, [fixture, new URL('linux-client.mjs', native).href], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /DRIFT_DEFAULT_WIRING_PASS/);
 });
