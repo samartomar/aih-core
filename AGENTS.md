@@ -12,8 +12,9 @@ checks. Preserve the generic engine boundary: vendor/tool-specific definitions
 and helpers belong in Harness or supplied content. Portable contracts must work
 without Node host effects. Treat schemas and public API behavior as contracts.
 
-Every shipped Harness edit requires a new Core distribution version. Preserve
-the actual installed package identity and selected helper/input byte binding.
+Published Harness changes require a new Core distribution version. Identify
+unpublished local builds by source commit and artifact digest. Preserve the actual
+installed package identity and selected helper/input byte binding.
 Build only the root package; no nested package or sibling checkout is required.
 
 Run focused checks for the change and the applicable package checks before
