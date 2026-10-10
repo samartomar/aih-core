@@ -881,8 +881,9 @@ both modules, and checked against the installed manifest by host operations.
 Repair review/result `inputs.package` names that Core distribution;
 `helperSha256` binds the manifest, generated identity and shipped Harness helper
 bytes, while `sourceSha256` binds selected repair inputs. Schema IDs retain their
-independent versions. Every shipped Harness change requires a new Core package
+independent versions. Published Harness changes require a new Core package
 version and a deliberate Core update through ordinary package management.
+Unpublished local builds are distinguished by source commit and artifact digest.
 
 CI runs these gates on Linux, Windows and macOS. The separate manually invoked
 native macOS trust acceptance uses a disposable runner, installs a temporary CA
