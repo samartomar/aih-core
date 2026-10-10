@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.34 adds a test of the connection between Linux platform-record
+drift and its diagnostic. `resolveLinuxNativeClient` now delegates to an
+internal `resolveLinuxNativeClientWith` export of the Linux client module, which
+takes the managed-policy observer and platform resolver as dependencies and is
+not re-exported from the runtime entry point. A new test drives it with a stubbed
+resolver and observes the real publisher: a `platform-record-drift` result
+publishes exactly one `native-platform-drift` record bound to the digest of the
+cell path, an ordinary `runtime-changed` result publishes nothing, and both
+return the unchanged `isolation-unobserved` refusal. The re-capture script now
+refuses a `--role` name that was already given; distinct roles stay repeatable.
+The maintainer workflow wording about repeated options is corrected. No public
+API, schema or runtime behaviour changes. This candidate has not been published
+to npm.
+
 Core 1.0.0-dev.33 makes Linux native platform-record drift diagnosable and
 re-capturable without widening trust. The exact byte pins in the platform record
 are unchanged. When a stably read pinned distro file (a PATH role, library

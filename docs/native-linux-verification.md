@@ -441,7 +441,9 @@ files, and asks `dpkg` for ownership, verification and the installed version.
    a test fixture too). Only the changed rows' `sha256` and `byteLength` are
    rewritten, keeping the record's formatting; the fixture update keys off rows
    changed in the same run, so pass `--fixture` in the run that rewrites the
-   record (each of `--client` and `--fixture` may be given once). A fixture pin of a platform record file whose hash is
+   record (`--client` and `--fixture` may each be given once, a `--role` name may be given
+   once while distinct roles are repeatable, and repeating `--write` is accepted
+   with no further effect). A fixture pin of a platform record file whose hash is
    neither the old nor the new record hash (for example one captured from another
    checkout) is left unchanged and listed under `fixture.unmatchedRecordPins` for
    manual review. The record and fixture are staged as temporary files before
