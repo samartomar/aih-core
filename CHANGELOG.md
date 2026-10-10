@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.33 makes Linux native platform-record drift diagnosable and
+re-capturable without widening trust. The exact byte pins in the platform record
+are unchanged. When a stably read pinned distro file (a PATH role, library
+or read-only file) differs in size or SHA-256 from its row, platform
+resolution now refuses with the internal reason `platform-record-drift` instead
+of `runtime-changed`, and a subscriber on the `aih.native.diagnostics.v1` channel
+receives a closed `native-platform-drift` record naming only the table and row
+(role name or index), with no paths, hashes or sizes. The public result stays
+unavailable with `isolation-unobserved`; the schemas and reason enum are
+unchanged. A developer-only script, `scripts/recapture-linux-runtime-platform.mjs`,
+reports drift on the reference host and, with `--write`, rewrites only the changed
+rows when each file is owned by one `dpkg` package whose `md5sums` entry matches
+the hashed bytes and `dpkg --verify` is clean (roles must also remain at the
+recorded package version). The script refuses node, client and package-version
+changes, and any refusal writes nothing. It can update a supplied controlled
+fixture in the same run. Node, client and `wslinfo` byte changes stay
+`runtime-changed` at runtime. The script is never run by build, install, test or
+verification. The documentation describes the maintainer workflow and holding
+distro updates between verification batches. This candidate has not been
+published to npm.
+
 Core 1.0.0-dev.32 lets native platform-runtime pinned re-reads accept multi-link
 regular files only on POSIX when the file is root-owned (uid 0), has no group or
 other write bits, and every ancestor is a real root-owned directory (no symlinks)

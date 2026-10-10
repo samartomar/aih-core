@@ -69,6 +69,19 @@ export function publishNativeAdmission(input) {
     acceptedLimitation: 'vendor-local-proxy-capability-in-argv' }));
 }
 
+// Node and client are upstream artifacts, not distribution re-capture rows.
+const driftRoles = ['bash', 'env', 'bwrap', 'socat', 'rg', 'which'];
+// Names only which pinned platform-record row no longer matches; never paths, hashes or sizes of host files.
+export function publishNativePlatformDrift(input) {
+  if (!diagnosticsStream.hasSubscribers) return;
+  const table = input?.table;
+  if (!['roles', 'libraries', 'readFiles'].includes(table)) return;
+  const key = table === 'roles' ? (driftRoles.includes(input.key) ? input.key : null)
+    : Number.isSafeInteger(input.key) && input.key >= 0 && input.key <= 63 ? input.key : null;
+  diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-platform-drift', recordId: randomUUID(),
+    runSha256: digest(input.runSha256), definition: 'claude-linux-x64-wsl2-srt-2.1.285', table, key, remedy: 'recapture-platform-record' }));
+}
+
 // Session diagnostics are an optional observation: explicit fields discard all client strings.
 export function publishNativeDiagnostics(input) {
   if (!diagnosticsStream.hasSubscribers) return;

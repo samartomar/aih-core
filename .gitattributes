@@ -12,3 +12,5 @@ src/harness/native/linux/*.cs text eol=lf
 src/harness/native/linux/*.json text eol=lf
 src/harness/native/linux/*.exe -text
 src/harness/native/linux/facility -text
+# Re-capture tests reproduce fixture formatting byte for byte.
+test/fixtures/linux-runtime-recapture/*.json text eol=lf

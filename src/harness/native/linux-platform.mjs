@@ -107,9 +107,11 @@ export function observedWslNetworkingMode(text) {
   return ['nat', 'nat\n', 'nat\r\n'].includes(text) ? 'nat' : null;
 }
 
-class Unavailable extends Error { constructor(reason) { super(); this.reason = reason; } }
+class Unavailable extends Error { constructor(reason, drift) { super(); this.reason = reason; if (drift) this.drift = drift; } }
 class CheckFailed extends Error { constructor(error) { super(); this.error = error; } }
-const refuse = reason => { throw new Unavailable(reason); };
+const refuse = (reason, drift) => { throw new Unavailable(reason, drift); };
+// A stably read pinned file whose size or SHA-256 differs from its row; the descriptor names only the row, never host bytes or paths.
+const DRIFT = 'platform-record-drift';
 const unavailable = reason => ({ status: 'unavailable', reason });
 const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 async function readBounded(path, maximum, check) {
@@ -132,41 +134,61 @@ async function readBounded(path, maximum, check) {
   } finally { await handle.close(); }
 }
 
-async function matchFile(candidate, expected, check, executable = false) {
+const headerValid = (executable, chunk, bytesRead) => !executable ||
+  (executable === 'which-script' ? chunk.subarray(0, 11).equals(Buffer.from('#! /bin/sh\n')) :
+    bytesRead >= 20 && chunk.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) && chunk[4] === 2 && chunk[5] === 1 && chunk[6] === 1 &&
+    [2, 3].includes(chunk.readUInt16LE(16)) && chunk.readUInt16LE(18) === 62);
+const sameFile = (a, b, current) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs &&
+  current.dev === a.dev && current.ino === a.ino && !current.isSymbolicLink();
+
+async function matchFile(candidate, expected, check, executable = false, row = null) {
   await check();
   const path = await realpath(candidate);
   if (!safePath(path)) refuse('runtime-changed');
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.size !== expected.byteLength || executable && !(before.mode & 0o111)) refuse('runtime-changed');
+    if (!before.isFile() || executable && !(before.mode & 0o111)) refuse('runtime-changed');
+    if (before.size !== expected.byteLength) {
+      if (!row) refuse('runtime-changed');
+      // Label drift only after a small header read and an identity re-check; the wrong-size file is never hashed.
+      await check();
+      const head = Buffer.alloc(20), { bytesRead } = await handle.read(head, 0, Math.min(20, before.size), 0);
+      if (!bytesRead || !headerValid(executable, head, bytesRead)) refuse('runtime-changed');
+      if (!sameFile(before, await handle.stat(), await lstat(path))) refuse('runtime-changed');
+      refuse(DRIFT, row);
+    }
     const chunk = Buffer.alloc(65536), hash = createHash('sha256'); let offset = 0;
     while (offset < before.size) {
       await check();
       const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, before.size - offset), offset);
       if (!bytesRead) refuse('runtime-changed');
-      if (!offset && executable === 'which-script' && !chunk.subarray(0, 11).equals(Buffer.from('#! /bin/sh\n'))) refuse('runtime-changed');
-      if (!offset && executable && executable !== 'which-script' && (bytesRead < 20 || !chunk.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) ||
-          chunk[4] !== 2 || chunk[5] !== 1 || chunk[6] !== 1 || ![2, 3].includes(chunk.readUInt16LE(16)) || chunk.readUInt16LE(18) !== 62)) refuse('runtime-changed');
+      if (!offset && !headerValid(executable, chunk, bytesRead)) refuse('runtime-changed');
       hash.update(chunk.subarray(0, bytesRead)); offset += bytesRead;
     }
     const sha256 = hash.digest('hex'), after = await handle.stat(), current = await lstat(path);
-    if (sha256 !== expected.sha256 || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size ||
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size ||
         before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink()) refuse('runtime-changed');
+    if (sha256 !== expected.sha256) refuse(row ? DRIFT : 'runtime-changed', row);
     return { path, sha256, byteLength: offset };
   } finally { await handle.close(); }
 }
 
 async function searchRole(name, expected, check) {
+  let drift = null;
   const value = process.env.PATH ?? '';
   if (value.length > 32768) refuse('runtime-changed');
   const entries = value.split(':'); if (entries.length > 64) refuse('runtime-changed');
   const dirs = [...new Set(entries.filter(safePath))];
   for (const directory of dirs) {
     await check();
-    try { return await matchFile(posix.join(directory, name), expected, check, name === 'which' ? 'which-script' : true); }
-    catch (error) { if (!(error instanceof Unavailable) && !['ENOENT', 'ENOTDIR', 'EACCES', 'ELOOP'].includes(error.code)) throw error; }
+    try { return await matchFile(posix.join(directory, name), expected, check, name === 'which' ? 'which-script' : true, { table: 'roles', key: name }); }
+    catch (error) {
+      if (!(error instanceof Unavailable) && !['ENOENT', 'ENOTDIR', 'EACCES', 'ELOOP'].includes(error.code)) throw error;
+      if (error instanceof Unavailable && error.drift) drift ??= error.drift;
+    }
   }
+  if (drift) refuse(DRIFT, drift); // Only when no candidate matched and a stable candidate differed.
   refuse('runtime-changed');
 }
 
@@ -193,7 +215,7 @@ async function verifyAliasDirectory(record, check) {
       entries: [{ name: LOADER_NAME, uid: entryBefore.uid, type: entryBefore.isSymbolicLink() ? 'symlink' : 'other', target: await readlink(entryPath) }] };
     if (!validateLinuxLibraryAliasInventory(inventory) || await realpath(entryPath) !== LOADER) refuse('runtime-changed');
     const expected = record.libraries.find(row => row.path === LOADER);
-    const pin = await matchFile(LOADER, expected, check);
+    const pin = await matchFile(LOADER, expected, check, false, { table: 'libraries', key: record.libraries.indexOf(expected) });
     await check();
     if (!sameObject(before, await lstat(path)) || !sameObject(held, await handle.stat()) ||
         !sameObject(entryBefore, await lstat(entryPath)) || !sameObject(lib64Before, await lstat('/lib64')) ||
@@ -231,10 +253,10 @@ export async function resolveLinuxPlatform({ check: trustedCheck = () => {}, cli
     for (const name of ['bash', 'env', 'bwrap', 'socat', 'rg', 'which']) refs[name] = await searchRole(name, record.roles[name], check);
     const libraries = [], readFiles = [], extraPins = [], libraryParents = new Set(), libraryClosure = [];
     for (const [rows, result] of [[record.libraries, libraries], [record.readFiles, readFiles]]) {
-      for (const row of rows) {
+      for (const [index, row] of rows.entries()) {
         const base = row.role ? posix.dirname(refs.socat.path) : null;
         const logical = base ? posix.resolve(base, row.relative) : row.path;
-        const pin = await matchFile(logical, row, check, row.path === '/usr/bin/dash');
+        const pin = await matchFile(logical, row, check, row.path === '/usr/bin/dash', { table: rows === record.libraries ? 'libraries' : 'readFiles', key: index });
         const logicalAliases = (row.aliases ?? []).map(value => base ? posix.resolve(base, value) : value);
         for (const alias of logicalAliases) { await check(); if (await realpath(alias) !== pin.path) refuse('runtime-changed'); }
         for (const path of [pin.path, logical, ...logicalAliases]) if (!result.includes(path)) result.push(path);
@@ -269,7 +291,7 @@ export async function resolveLinuxPlatform({ check: trustedCheck = () => {}, cli
       libraryAliasDirectories: ['/usr/lib64'] }, libraryClosure, pins: uniquePins, ldLibraryPath: [...libraryParents].join(':'), platform };
   } catch (error) {
     if (error instanceof CheckFailed) throw error.error;
-    if (error instanceof Unavailable) return unavailable(error.reason);
+    if (error instanceof Unavailable) return error.drift ? { ...unavailable(error.reason), drift: Object.freeze({ ...error.drift }) } : unavailable(error.reason);
     return unavailable('runtime-changed'); // No raw native errors or path contents enter public evidence.
   }
 }
