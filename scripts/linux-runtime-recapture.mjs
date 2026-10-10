@@ -274,6 +274,7 @@ export function parseArguments(argv) {
         const eq = value.indexOf('=');
         const name = value.slice(0, eq);
         if (eq < 1 || eq === value.length - 1 || !ROLE_ORDER.includes(name)) throw new Error('--role expects <name>=<path> with a known role name');
+        if (Object.hasOwn(out.roles, name)) throw new Error(`--role ${name} may be given once`);
         out.roles[name] = value.slice(eq + 1);
       }
     } else throw new Error(`Unknown argument ${arg}`);

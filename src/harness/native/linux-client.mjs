@@ -27,12 +27,19 @@ export function observeLinuxNativePolicy(execution) {
   return observeLinuxManagedPolicy({ execution, windowsDirectory, windowsSourceKnown: windowsDirectory !== undefined });
 }
 
+const defaultDependencies = { observePolicy: observeLinuxNativePolicy, resolvePlatform: resolveLinuxPlatform };
+
 export async function resolveLinuxNativeClient({ definition, input, client, cell, check }) {
+  return resolveLinuxNativeClientWith(defaultDependencies, { definition, input, client, cell, check });
+}
+
+// Internal seam: tests substitute only managed-policy observation and platform resolution. Not re-exported by runtime.mjs.
+export async function resolveLinuxNativeClientWith({ observePolicy, resolvePlatform }, { definition, input, client, cell, check }) {
   const fail = reason => ({ outcome: 'unavailable', reason });
-  const managed = observeLinuxNativePolicy(definition.platform.execution);
+  const managed = observePolicy(definition.platform.execution);
   if (managed.outcome === 'restricted') return { outcome: 'restricted', reason: 'managed-restriction' };
   if (managed.outcome !== 'file-sources-clear') return fail('restriction-unobservable');
-  const platform = await resolveLinuxPlatform({ client, check }); check();
+  const platform = await resolvePlatform({ client, check }); check();
   if (platform.reason === 'platform-record-drift') publishNativePlatformDrift({ runSha256: sha256(cell.path), ...platform.drift });
   if (platform.status !== 'ready') return fail(platform.reason === 'restriction-unobservable' ? platform.reason : 'isolation-unobserved');
   const vendor = verifyLinuxVendorClosure({ check }); check();

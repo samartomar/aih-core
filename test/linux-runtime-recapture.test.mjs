@@ -289,6 +289,8 @@ test('argument parsing', () => {
   assert.throws(() => parseArguments(['--client', '/c', '--nope']));
   assert.throws(() => parseArguments(['--client', '/c', '--client', '/d']));
   assert.throws(() => parseArguments(['--client', '/c', '--fixture', 'a.json', '--fixture', 'b.json']));
+  assert.throws(() => parseArguments(['--client', '/c', '--role', 'node=/n', '--role', 'node=/m']), /--role node may be given once/);
+  assert.deepEqual(parseArguments(['--client', '/c', '--role', 'node=/n', '--role', 'bash=/b']).roles, { node: '/n', bash: '/b' });
 });
 
 test('the real source record is canonically formatted and valid', () => {
