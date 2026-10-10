@@ -14,17 +14,21 @@ import { resolveLinuxNativeClientWith } from '../../src/harness/native/linux-cli
 const native = new URL('../../src/harness/native/', import.meta.url);
 const LINUX = process.platform === 'linux' && process.arch === 'x64' && process.getuid?.() !== 0 && process.getuid?.() === process.geteuid?.();
 
-function capture(action) {
+function listen() {
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
   stream.subscribe(sink);
-  try { action(); } finally { stream.unsubscribe(sink); }
+  return { records, stop: () => stream.unsubscribe(sink) };
+}
+
+function capture(action) {
+  const { records, stop } = listen();
+  try { action(); } finally { stop(); }
   return records;
 }
 
 async function captureAsync(action) {
-  const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
-  stream.subscribe(sink);
-  try { await action(); } finally { stream.unsubscribe(sink); }
+  const { records, stop } = listen();
+  try { await action(); } finally { stop(); }
   return records;
 }
 
@@ -167,14 +171,16 @@ test('node, client and wslinfo keys are not publishable drift keys', () => {
 // resolveLinuxNativeClientWith is the internal seam: only managed-policy observation and platform resolution are
 // replaced, so the real publisher and the real diagnostics channel are observed. No host policy, sandbox or client runs.
 const wiringCell = { path: join(tmpdir(), 'aih-wiring-cell') };
-const wire = platformResult => {
-  const dependencies = { observePolicy: () => ({ outcome: 'file-sources-clear' }), resolvePlatform: async () => platformResult };
+const wire = (platformResult, observePolicy = () => ({ outcome: 'file-sources-clear' })) => {
+  let resolved = 0;
+  const dependencies = { observePolicy, resolvePlatform: async () => { resolved++; return platformResult; } };
   const request = { definition: { platform: { execution: 'native' } }, input: {}, client: { path: '/client' }, cell: wiringCell, check() {} };
-  let result; return captureAsync(async () => { result = await resolveLinuxNativeClientWith(dependencies, request); }).then(records => ({ records, result }));
+  let result; return captureAsync(async () => { result = await resolveLinuxNativeClientWith(dependencies, request); }).then(records => ({ records, result, resolved }));
 };
+const DRIFT = { table: 'roles', key: 'bash' };
 
 test('a platform-record-drift result publishes exactly one drift record bound to the cell path and stays isolation-unobserved', async () => {
-  const { records, result } = await wire({ status: 'unavailable', reason: 'platform-record-drift', drift: { table: 'roles', key: 'bash' } });
+  const { records, result } = await wire({ status: 'unavailable', reason: 'platform-record-drift', drift: DRIFT });
   assert.equal(records.length, 1);
   assert.equal(records[0].event, 'native-platform-drift');
   assert.equal(records[0].table, 'roles'); assert.equal(records[0].key, 'bash');
@@ -183,7 +189,16 @@ test('a platform-record-drift result publishes exactly one drift record bound to
 });
 
 test('an ordinary runtime-changed result publishes nothing and stays isolation-unobserved', async () => {
-  const { records, result } = await wire({ status: 'unavailable', reason: 'runtime-changed' });
+  // A stray drift descriptor must not publish: only the platform-record-drift reason does.
+  const { records, result } = await wire({ status: 'unavailable', reason: 'runtime-changed', drift: DRIFT });
   assert.deepEqual(records, []);
   assert.deepEqual(result, { outcome: 'unavailable', reason: 'isolation-unobserved' });
+});
+
+test('a managed-policy refusal returns before platform resolution and publishes nothing', async () => {
+  const drift = { status: 'unavailable', reason: 'platform-record-drift', drift: DRIFT };
+  const restricted = await wire(drift, () => ({ outcome: 'restricted' }));
+  assert.deepEqual([restricted.result, restricted.records, restricted.resolved], [{ outcome: 'restricted', reason: 'managed-restriction' }, [], 0]);
+  const unreadable = await wire(drift, () => ({ outcome: 'unreadable' }));
+  assert.deepEqual([unreadable.result, unreadable.records, unreadable.resolved], [{ outcome: 'unavailable', reason: 'restriction-unobservable' }, [], 0]);
 });

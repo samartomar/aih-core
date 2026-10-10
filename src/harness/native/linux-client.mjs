@@ -27,7 +27,7 @@ export function observeLinuxNativePolicy(execution) {
   return observeLinuxManagedPolicy({ execution, windowsDirectory, windowsSourceKnown: windowsDirectory !== undefined });
 }
 
-const defaultDependencies = { observePolicy: observeLinuxNativePolicy, resolvePlatform: resolveLinuxPlatform };
+const defaultDependencies = Object.freeze({ observePolicy: observeLinuxNativePolicy, resolvePlatform: resolveLinuxPlatform });
 
 export async function resolveLinuxNativeClient({ definition, input, client, cell, check }) {
   return resolveLinuxNativeClientWith(defaultDependencies, { definition, input, client, cell, check });
