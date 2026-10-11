@@ -74,6 +74,50 @@ aih help validate
 aih validate recipe recipe.json --json
 ```
 
+## Ask AIH Guide: setup and recovery
+
+The canonical [Ask AIH Guide (`aih-guide`)](https://github.com/samartomar/aih-extensions/blob/0a0ff98a0ab9846d6183b193cf6e4447b325ff9c/guide/MANUAL.md)
+is a self-contained manual for missing/broken AI CLIs, ignored instructions,
+settings and MCP/graph loading failures. [Save the raw Markdown](https://raw.githubusercontent.com/samartomar/aih-extensions/0a0ff98a0ab9846d6183b193cf6e4447b325ff9c/guide/MANUAL.md)
+before trouble; read it by hand or paste the entire saved manual into any working
+agent when Core, native guide loading, MCP or network access is unavailable.
+Opening a link alone does not create an offline copy.
+
+Extensions owns the guide source and native entries. This pointer selects source
+artifact **0.5.0**, integrated at `0a0ff98`; its [manifest](https://github.com/samartomar/aih-extensions/blob/0a0ff98a0ab9846d6183b193cf6e4447b325ff9c/guide/manifest.json)
+records source-input commit `5a233343ec63a436dd9a94fcf45613b3fe280c7d`, source-set
+SHA-256 and exact file hashes. Those hashes identify bytes, not publisher
+authenticity. Source integration is not registry/marketplace publication;
+optional Catalog-managed distribution is a separate channel, not a completed
+rollout or a prerequisite for reading the manual.
+
+After direct Extensions installation, the manual describes native selection
+where the installed client supports it: `kimi --agent aih-guide` in a new session,
+`claude --agent aih-guide` (or the supported plugin route), and
+`opencode --agent aih-guide`. Codex and Cursor use the saved-manual fallback.
+Check installed client help and actual loading; selection syntax alone proves
+neither a working conversation nor recovery. The dated [delivery evidence](https://github.com/samartomar/aih-extensions/blob/0a0ff98a0ab9846d6183b193cf6e4447b325ff9c/docs/guide-evidence.md)
+covers bounded Windows Kimi 2.1.1 conversations and a saved-manual controlled
+fixture. Claude conversation remains unverified; OpenCode has primary-agent
+parsing evidence only, with full installed-plugin startup timing out. No native
+guide sessions on macOS/Linux/WSL or real-user MCP recovery are established.
+
+Before choosing a Core/Harness operation, identify the trusted installed package
+and consult its version, help and public contracts; source availability does not
+establish installed capability. Preserve the existing Prepare/review/Apply flow
+and the actual user's authority. When no applicable installed operation exists,
+the guide describes the smallest authorized manual edit to developer-owned
+configuration, preserving unrelated content and a recoverable copy. Managed
+policy, enterprise credential provisioning and system trust controls belong to
+IT/admin; the guide grants no authority to bypass them.
+
+Retry the original failure and relevant client-native checks. Use an existing
+installed verifier only when its target, identity, prerequisites, launch authority,
+time budget and cleanup contract match. A successful write, Apply result or
+fixture does not establish native loading or admission; unavailable checks remain
+unverified. For session-sensitive MCP/graph recovery, verify discovery and a known
+read-only query in fresh intended sessions without reapplying setup.
+
 ## Inspect existing tools
 
 Inspection reads the locally bundled Harness definitions and reports the actual installed `@aihq/core` distribution version. It requires no policy, Catalog or Scan. It observes detected tools by default, runs only their declared bounded diagnostics, and makes no repair or history changes.
