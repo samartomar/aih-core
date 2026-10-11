@@ -35,7 +35,7 @@ $user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $allowed=@($user.Value,'S-1-5-18','S-1-5-32-544')
 if($Create -eq 'yes') {
   $acl=New-Object System.Security.AccessControl.DirectorySecurity
-  $acl.SetOwner($user)
+  # Preserve the filesystem-assigned owner; validate it against the allowed owners below.
   $acl.SetAccessRuleProtection($true,$false)
   foreach($sid in $allowed) {
     $identity=New-Object System.Security.Principal.SecurityIdentifier($sid)
