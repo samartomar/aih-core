@@ -1190,6 +1190,8 @@ async function executeProcess(invocation: PreparedProcess, runId: string, signal
   let executable: ResolvedExecutable;
   let work: { path: string; dir: string; pins: PathPin[] } | undefined;
   if ('material' in invocation.executable) {
+    // Provision the protected root before staging can create it with inherited ACLs.
+    protectState();
     const dir = join(stateRoot(), 'work', runId);
     pathPins(dir); mkdirSync(dir, { recursive: true, mode: 0o700 }); protectState([`work/${runId}`]);
     const path = join(dir, randomUUID() + (process.platform === 'win32' ? '.exe' : ''));
