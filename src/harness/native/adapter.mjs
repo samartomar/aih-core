@@ -565,7 +565,7 @@ function createNativeRuntime(module, dependencies) {
             // A parseable result is not finalized usage if the owned process then crashes.
             const exitMatchesResult = exit?.signal == null && exit?.reason == null && Number.isSafeInteger(exit?.code) &&
               (stream.resultSubtype === 'success' && exit.code === 0 ||
-                ['error_max_turns', 'error_max_budget_usd'].includes(stream.resultSubtype) && exit.code !== 0);
+                ['error_max_turns', 'error_max_budget_usd'].includes(stream.resultSubtype) && exit.code === 1);
             const reliableUsage = finalized && exitMatchesResult ? stream.usage ?? null : null;
             const unreliableResult = stream.resultUsageInvalid === true || finalized && stream.resultSeen && !reliableUsage;
             const unreliableLimitStop = unreliableResult && ['turn-limit-exhausted', 'estimated-cost-limit-exhausted'].includes(stopped);

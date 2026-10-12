@@ -61,7 +61,8 @@ for(const [subtype,reason] of [['error_max_turns','turn-limit-exhausted'],['erro
 for(const [subtype,is_error,exitStatus] of [
   ['success',false,{code:null,signal:'SIGSEGV'}],
   ['success',false,{code:1,signal:null}],
-  ['error_max_turns',true,{code:null,signal:'SIGSEGV'}]
+  ['error_max_turns',true,{code:null,signal:'SIGSEGV'}],
+  ['error_max_turns',true,{code:0xC0000005,signal:null}]
 ]) test(`the ${subtype} result followed by ${exitStatus.signal ?? `exit ${exitStatus.code}`} has unknown usage`,async t=>{
   const {handle,stdout,exit}=await session(t,{realParser:true});
   const sid='11111111-1111-4111-8111-111111111111';
