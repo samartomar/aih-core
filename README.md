@@ -197,6 +197,21 @@ No ambient credentials, arbitrary commands, callbacks, environment maps or
 collector endpoints are accepted. Dedicated OAuth provisioning is an operator
 step outside verification; the normal user profile is never its credential source.
 
+For supplied Claude bundles, the fixed installed adapter derives verifier-owned
+user settings from the independently verified server and query identities. It
+approves only that project server and allows only its fixed instruction-attestation
+tool and selected query; the built-in deny list and
+`enableAllProjectMcpServers=false` remain unchanged. Ambiguous or pattern-like
+identities, extra selected tools and additional project MCP servers are refused.
+The effective settings bytes, member lengths/hashes and guardrail tree digest are
+bound to staging, persistence and Linux launch protection. Selected bundle bytes
+and installed definition/admission metadata are unchanged; the bundled fixture
+retains its original settings bytes. Approvals live in the disposable user's
+`.claude/settings.json`, so a fresh home needs no remembered project approval.
+Actual discovery and restrictions still require native observations, and managed
+restrictions retain precedence. Controlled permission tests establish neither
+native two-session acceptance nor admission.
+
 Supplied configuration uses independent archive/member pins and exact starting
 and output trees. The bundled fixture proves only its mechanism; test content
 cannot establish production configuration. Both fresh sessions must separately

@@ -1,5 +1,20 @@
 # Windows native verification facilities
 
+For supplied Claude bundles, the fixed installed adapter derives verifier-owned
+user settings from the independently verified server and query identities. It
+approves only that project server and allows only its fixed instruction-attestation
+tool and selected query; the built-in deny list and
+`enableAllProjectMcpServers=false` remain unchanged. Ambiguous or pattern-like
+identities, extra selected tools and additional project MCP servers are refused.
+The effective settings bytes, member lengths/hashes and guardrail tree digest are
+bound to staging, persistence and Linux launch protection. Selected bundle bytes
+and installed definition/admission metadata are unchanged; the bundled fixture
+retains its original settings bytes. Approvals live in the disposable user's
+`.claude/settings.json`, so a fresh home needs no remembered project approval.
+Actual discovery and restrictions still require native observations, and managed
+restrictions retain precedence. Controlled permission tests establish neither
+native two-session acceptance nor admission.
+
 The bundled Claude Code 2.1.285 Windows x64 candidate remains unadmitted. Its
 selected OS release is `10.0.26200`. A successful facility test establishes
 process or IPC behavior; it does not establish native client acceptance.
