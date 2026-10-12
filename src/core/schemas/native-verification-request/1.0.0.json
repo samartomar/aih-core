@@ -5,11 +5,14 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "client"],
+  "dependentRequired": { "maxTurns": ["maxEstimatedCostUsd"], "maxEstimatedCostUsd": ["maxTurns"] },
   "properties": {
     "schema": { "const": "urn:aihq:core:native-verification-request:1.0.0" },
     "client": {
       "enum": ["claude", "codex", "cursor", "gemini", "copilot", "windsurf", "opencode", "kimi", "kiro", "antigravity", "zed"]
     },
+    "maxTurns": { "type": "integer", "minimum": 2, "maximum": 9007199254740991, "description": "Whole-attempt total tool-use turns; explicitly selected." },
+    "maxEstimatedCostUsd": { "type": "number", "exclusiveMinimum": 0, "maximum": 9007199254740991, "description": "Whole-attempt client-estimated USD threshold; can overshoot and is not a billing cap." },
     "configuration": {
       "oneOf": [
         {

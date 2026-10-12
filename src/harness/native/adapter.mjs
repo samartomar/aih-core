@@ -2,7 +2,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
 import { validateNativeVerificationDefinition } from './contracts.mjs';
-import { claudeConfigDirectory } from "./claude.mjs";
+import { claudeConfigDirectory, claudeSessionArgv } from "./claude.mjs";
 import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
@@ -378,6 +378,9 @@ function createNativeRuntime(module, dependencies) {
     },
     async startNativeSession(input) {
       checkTime(input);
+      let sessionArgv;
+      try { sessionArgv = claudeSessionArgv(input.definition.sessionArgv, input.limits); }
+      catch { return { outcome: 'unavailable', reason: 'finite-limits-required' }; }
       if (!adapters.has(input.definition.parserId) || !identitiesSupported.has(input.definition.identityAdapterId) || input.definition.client !== "claude") return { outcome: "unsupported", reason: "client-unsupported" };
       if (runtime.nativeManagedRestriction?.(input.definition)) return { outcome: "restricted", reason: "managed-restriction" };
       const linux = linuxVendor(input.definition);
@@ -448,7 +451,7 @@ function createNativeRuntime(module, dependencies) {
           admissionPublished = true;
           publishNativeAdmission({ phase: 'session', index: input.index, definition: input.definition.id,
             runSha256: sha256(input.cell.path), vendorTreeSha256: linuxClient.vendor.treeSha256,
-            innerArgv: [input.pin.executable, ...input.definition.sessionArgv], outerArgv: lifecycle?.argv,
+            innerArgv: [input.pin.executable, ...sessionArgv], outerArgv: lifecycle?.argv,
             isolation: context.isolationRecord(), restrictions: restrictionCounts, cleanupConfirmed: receipt.confirmed,
             authenticationProofKind: telemetryFinal?.outcome === 'passed' ? telemetryFinal.stats?.authenticationProofKind : null });
         }
@@ -482,7 +485,7 @@ function createNativeRuntime(module, dependencies) {
       });
       const ownedHandle = (observations) => ({
         pid: lifecycle.pid,
-        argv: linux ? lifecycle.argv : [input.pin.executable, ...input.definition.sessionArgv],
+        argv: linux ? lifecycle.argv : [input.pin.executable, ...sessionArgv],
         challenge: channel.challenge,
         get cleanupStartedAt() {
           return cleanupStartedAt;
@@ -508,7 +511,7 @@ function createNativeRuntime(module, dependencies) {
         };
         const prepared = observeFacility(await (linux ? module.prepareLinuxSandboxContext({ ...contextInput,
           cell: input.cell, runtime: linuxClient.runtime, vendor: linuxClient.vendor, collector: telemetry,
-          execution: input.definition.platform.execution, expectedArgv: input.definition.sessionArgv,
+          execution: input.definition.platform.execution, expectedArgv: sessionArgv,
           selectedPaths: [...new Set([...input.material.outputTree, ...(input.guardrails ?? input.definition.guardrails)].map(file => join(input.cell[file.root], ...file.path.split('/'))))]
         }) : module.prepareLifecycleContext(contextInput)));
         if (prepared?.status !== "ready" || !prepared.context) return await failed(facilityReason(prepared?.reason, "termination-unresolved"));
@@ -540,7 +543,7 @@ function createNativeRuntime(module, dependencies) {
           result: parsers[0].snapshot(), proxy: linux ? context.proxyDiagnostics?.() ?? null : null,
           runnerWarnings: linux ? context.runnerWarnings?.() ?? null : null,
           forwarder: linux ? context.forwarderDiagnostics?.() ?? null : null });
-        const capture = (streams, telemetryResult, evidence, finalized = false) => {
+        const capture = (streams, telemetryResult, evidence, finalized = false, exit = null) => {
             const stream = streams[0];
             const spec = { ...module.serverEvidenceSpec(resolved), queryTool: input.material.server.queryTool };
             const server = module.evaluateServerEvidence(evidence?.frames ?? [], spec);
@@ -559,8 +562,18 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" : stopped ?? (linux ? context.failureReason : undefined) ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
+            // A parseable result is not finalized usage if the owned process then crashes.
+            const exitMatchesResult = exit?.signal == null && exit?.reason == null && Number.isSafeInteger(exit?.code) &&
+              (stream.resultSubtype === 'success' && exit.code === 0 ||
+                ['error_max_turns', 'error_max_budget_usd'].includes(stream.resultSubtype) && exit.code === 1);
+            const reliableUsage = finalized && exitMatchesResult ? stream.usage ?? null : null;
+            const unreliableResult = stream.resultUsageInvalid === true || finalized && stream.resultSeen && !reliableUsage;
+            const unreliableLimitStop = unreliableResult && ['turn-limit-exhausted', 'estimated-cost-limit-exhausted'].includes(stopped);
+            const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" :
+              unreliableLimitStop ? 'usage-unavailable' : stopped ?? (linux ? context.failureReason : undefined) ??
+              (unreliableResult ? 'usage-unavailable' : stream.resultLimitReason) ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
+              usage: reliableUsage,
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
               loading: row("loading-mode")?.outcome === "passed" ? "observed" : row("loading-mode")?.reason === "configuration-not-loaded" ? "not-loaded" : "unobservable",
@@ -626,7 +639,7 @@ function createNativeRuntime(module, dependencies) {
         })() : [];
         const launched = await context.start({
           file: input.pin.executable,
-          argv: input.definition.sessionArgv,
+          argv: sessionArgv,
           cwd: input.cell.project,
           env, ...(linux ? { protectedValues } : {})
         });
@@ -696,7 +709,8 @@ function createNativeRuntime(module, dependencies) {
               await stop("limit-exceeded");
               stopped = "limit-exceeded";
             }
-            if (stopped) return { ...snapshot(), failure: { reason: stopped, outcome: "unavailable" } };
+            // Snapshot may have learned that a previously seen limit result was unreliable.
+            if (stopped) return snapshot();
             const streams = parsers.map((parser) => parser.finish());
             const stream = streams[0];
             collector.bindSession(stream.sessionId);
@@ -709,7 +723,7 @@ function createNativeRuntime(module, dependencies) {
               cleanupStartedAt ??= performance.now();
               await cleanup(Math.min(input.deadline, cleanupStartedAt + 10_000), 1000);
             }
-            return capture(streams, telemetryResult, evidence, true);
+            return capture(streams, telemetryResult, evidence, true, exit);
           } finally {
             detach();
           }

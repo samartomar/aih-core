@@ -24,6 +24,8 @@ export interface NativeClientPin {
 }
 export interface NativeIdentityCapture { credential: Buffer; expected: { accountUuid: string; organizationId: string }; sourceIdentity: unknown }
 export interface NativeSessionObservations {
+  /** Reliable final client estimates only; absent after crashes or ambiguous results. */
+  usage?: { turns: number; estimatedCostUsd: number } | null;
   sessionId: string | null; resumed: boolean;
   loading: 'observed' | 'bare' | 'unobservable' | 'not-loaded';
   restrictions: 'observed' | 'managed' | 'unobservable';
@@ -72,7 +74,7 @@ export interface NativeRuntime {
   protectNativeCell(cell: NativeCell, input: { deadline: number; signal?: AbortSignal }): Promise<boolean>;
   startNativeSession(input: { definition: NativeDefinition; pin: NativeClientPin; identity: NativeIdentityCapture; cell: NativeCell; material: NativeMaterial;
     guardrails?: NativeTreeFile[];
-    index: 1 | 2; challenge: string; deadline: number; signal?: AbortSignal; environment: Record<string, string>; prompt: string }): Promise<NativeSessionHandle | (NativeHelperFailure & { partial?: NativeSessionHandle })>;
+    index: 1 | 2; challenge: string; deadline: number; limits: { maxTurns: number; maxEstimatedCostUsd: number }; signal?: AbortSignal; environment: Record<string, string>; prompt: string }): Promise<NativeSessionHandle | (NativeHelperFailure & { partial?: NativeSessionHandle })>;
   /** Fixed client-owned state for a definition; see {@link NativeStateEntry}. */
   nativeStatePaths(definition: NativeDefinition): NativeStatePaths;
   /** Separate precedence check for an inspected state file: true only when its content cannot change loading or permissions. */

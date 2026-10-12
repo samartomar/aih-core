@@ -7,7 +7,9 @@ import type { NativeVerificationResult } from './native-contracts.js';
 
 const usage = 'aih verify-client <client-id> [--configuration <request-json-file>]\n' +
   '  [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>]\n' +
-  '  [--budget-ms <1000..600000>] [--candidate-smoke] [--json]\n';
+  '  [--budget-ms <1000..600000>] [--max-turns <total-turns>]\n' +
+  '  [--max-estimated-cost-usd <total-usd>] [--candidate-smoke] [--json]\n' +
+  'Both finite limits are required to launch. Estimated cost can overshoot; it is not a billing cap.\n';
 const examples = 'Examples:\n  aih verify-client claude --json\n' +
   '  aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json\n';
 const diagnostic = (reason: string) => ({ code: 'INPUT_INVALID', reason,
@@ -46,12 +48,12 @@ export async function runNativeClientCli(argv: string[], signal: AbortSignal): P
   let reason = 'request-field';
   try {
     const args = [...argv];
-    for (let index = 0; index < args.length; index++) if (args[index] === '--budget-ms' && /^-\d/.test(args[index + 1] ?? '')) {
-      args[index] = `--budget-ms=${args[index + 1]}`; args.splice(index + 1, 1);
+    for (let index = 0; index < args.length; index++) if (['--budget-ms', '--max-turns', '--max-estimated-cost-usd'].includes(args[index]!) && /^-\d/.test(args[index + 1] ?? '')) {
+      args[index] = `${args[index]}=${args[index + 1]}`; args.splice(index + 1, 1);
     }
     const { values, positionals, tokens } = parseArgs({ args, allowPositionals: true, strict: true, tokens: true,
       options: { configuration: { type: 'string' }, 'host-bindings': { type: 'string' },
-        'sandbox-root': { type: 'string' }, 'budget-ms': { type: 'string' },
+        'sandbox-root': { type: 'string' }, 'budget-ms': { type: 'string' }, 'max-turns': { type: 'string' }, 'max-estimated-cost-usd': { type: 'string' },
         'candidate-smoke': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
     json = values.json ?? false;
     const names = tokens.filter(token => token.kind === 'option').map(token => token.name);
@@ -68,6 +70,10 @@ export async function runNativeClientCli(argv: string[], signal: AbortSignal): P
     if (values['budget-ms'] !== undefined) {
       controls.budgetMs = /^[0-9]+$/.test(values['budget-ms']) ? Number(values['budget-ms']) : NaN;
     }
+    if (values['max-turns'] !== undefined)
+      controls.maxTurns = /^[0-9]+$/.test(values['max-turns']) ? Number(values['max-turns']) : NaN;
+    if (values['max-estimated-cost-usd'] !== undefined)
+      controls.maxEstimatedCostUsd = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(values['max-estimated-cost-usd']) ? Number(values['max-estimated-cost-usd']) : NaN;
     reason = 'strict-json';
     if (values.configuration !== undefined) {
       request = readInput(values.configuration);

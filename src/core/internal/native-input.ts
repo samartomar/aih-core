@@ -9,7 +9,7 @@ const id = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const hash = /^[a-f0-9]{64}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 export const nativeClients = ['claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro', 'antigravity', 'zed'] as const;
-export const nativeReasons = new Set(['schema-id', 'request-field', 'controls-field', 'client-id', 'budget-invalid', 'path-invalid', 'binding-invalid', 'strict-json',
+export const nativeReasons = new Set(['schema-id', 'request-field', 'controls-field', 'client-id', 'budget-invalid', 'finite-limits-invalid', 'finite-limits-required', 'turn-limit-exhausted', 'estimated-cost-limit-exhausted', 'usage-unavailable', 'path-invalid', 'binding-invalid', 'strict-json',
   'fixture-bytes-mismatch', 'material-path-unsafe', 'configuration-unavailable', 'sandbox-root-unavailable', 'staging-unavailable', 'client-absent', 'version-unreadable',
   'client-unsupported', 'version-unsupported', 'platform-unsupported', 'cell-not-admitted', 'transport-unsupported', 'configuration-channel-unsupported', 'authentication-channel-unsupported',
   'authentication-unavailable', 'identity-binding-invalid', 'session-launch-failed', 'executable-changed', 'session-identity-unobservable', 'session-not-fresh', 'loading-mode-unobservable',
@@ -80,8 +80,16 @@ export function validateNativeControls(value: unknown, request: Record<string, u
     }
     assertStrictJsonValueV1(json, 'native controls');
     if (Buffer.byteLength(canonicalJson(json)) > 65536) throw new NativeStop('strict-json');
-    const controls = closed(json, ['budgetMs', 'sandboxRoot', 'admission', 'testIdentity', 'configurationSources'], 'controls-field');
+    const controls = closed(json, ['budgetMs', 'maxTurns', 'maxEstimatedCostUsd', 'sandboxRoot', 'admission', 'testIdentity', 'configurationSources'], 'controls-field');
     if (Object.hasOwn(controls, 'budgetMs') && !(length(controls.budgetMs, 600000) && Number(controls.budgetMs) >= 1000)) throw new NativeStop('budget-invalid');
+    for (const key of ['maxTurns', 'maxEstimatedCostUsd']) {
+      if (Object.hasOwn(controls, key) && Object.hasOwn(request, key)) throw new NativeStop('finite-limits-invalid');
+    }
+    const maxTurns = Object.hasOwn(controls, 'maxTurns') ? controls.maxTurns : request.maxTurns;
+    const cost = Object.hasOwn(controls, 'maxEstimatedCostUsd') ? controls.maxEstimatedCostUsd : request.maxEstimatedCostUsd;
+    if (maxTurns !== undefined && !(typeof maxTurns === 'number' && Number.isSafeInteger(maxTurns) && maxTurns >= 2) ||
+        cost !== undefined && !(typeof cost === 'number' && Number.isFinite(cost) && cost / 2 > 0 && cost <= Number.MAX_SAFE_INTEGER) ||
+        (maxTurns === undefined) !== (cost === undefined)) throw new NativeStop('finite-limits-invalid');
     if (Object.hasOwn(controls, 'sandboxRoot') && !path(controls.sandboxRoot)) throw new NativeStop('path-invalid');
     if (Object.hasOwn(controls, 'admission') && !['admitted', 'candidate-smoke'].includes(controls.admission as string)) throw new NativeStop('controls-field');
     if (Object.hasOwn(controls, 'testIdentity')) {

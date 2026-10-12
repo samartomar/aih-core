@@ -34,7 +34,7 @@ export type NativeSessionDiagnostics = Readonly<{
   runnerWarnings: number | null;
   forwarder: NativeForwarderDiagnostics | null;
   init: Readonly<{ serverStatus: 'connected' | 'pending' | 'failed' | 'needs-auth' | 'disabled' | 'absent' | 'other' | 'unobserved' }>;
-  result: Readonly<{ seen: boolean; isError: boolean | null; subtype: 'none' | 'success' | 'error_max_turns' | 'error_during_execution' | 'other';
+  result: Readonly<{ seen: boolean; isError: boolean | null; subtype: 'none' | 'success' | 'error_max_turns' | 'error_max_budget_usd' | 'error_during_execution' | 'other';
     errorClass: import('./runtime.mjs').NativeErrorClass }>;
 }>;
 export function publishNativeDiagnostics(input: Record<string, unknown>): void;

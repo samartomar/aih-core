@@ -144,7 +144,8 @@
         "observedBytes": {"type":"integer","minimum":0},
         "telemetryEvents": {"type":"integer","minimum":0},
         "rpcMessages": {"type":"integer","minimum":0},
-        "evidenceTruncated": {"type":"boolean"}
+        "evidenceTruncated": {"type":"boolean"},
+        "finite": {"type":"object","additionalProperties":false,"required":["maxTurns","maxEstimatedCostUsd","turns","estimatedCostUsd"],"properties":{"maxTurns":{"type":"integer","minimum":2,"maximum":9007199254740991},"maxEstimatedCostUsd":{"type":"number","exclusiveMinimum":0,"maximum":9007199254740991},"turns":{"oneOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]},"estimatedCostUsd":{"oneOf":[{"type":"number","minimum":0},{"type":"null"}]}}}
       }
     }
   },
@@ -162,6 +163,11 @@
         "controls-field",
         "client-id",
         "budget-invalid",
+        "finite-limits-invalid",
+        "finite-limits-required",
+        "turn-limit-exhausted",
+        "estimated-cost-limit-exhausted",
+        "usage-unavailable",
         "path-invalid",
         "binding-invalid",
         "strict-json",
@@ -287,6 +293,8 @@
         "launchArgvDigest": {"$ref":"#/$defs/sha256"},
         "stagedConfigurationDigest": {"$ref":"#/$defs/sha256"},
         "challengeSha256": {"$ref":"#/$defs/sha256"},
+        "limits": {"type":"object","additionalProperties":false,"required":["maxTurns","maxEstimatedCostUsd"],"properties":{"maxTurns":{"type":"integer","minimum":1,"maximum":9007199254740991},"maxEstimatedCostUsd":{"type":"number","exclusiveMinimum":0,"maximum":9007199254740991}}},
+        "usage": {"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["turns","estimatedCostUsd"],"properties":{"turns":{"type":"integer","minimum":0,"maximum":9007199254740991},"estimatedCostUsd":{"type":"number","minimum":0}}}]},
         "stages": {"type":"array","maxItems":16,"items":{"$ref":"#/$defs/stage"}}
       }
     },

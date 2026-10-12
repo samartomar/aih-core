@@ -93,7 +93,7 @@ export function publishNativeDiagnostics(input) {
     ['connected', 'pending', 'failed', 'needs-auth', 'disabled', 'absent', 'other', 'unobserved'].includes(result.serverStatus)
       ? result.serverStatus : 'other';
   const seen = result.resultSeen === true;
-  const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
+  const subtype = !seen ? 'none' : ['success', 'error_max_turns', 'error_max_budget_usd', 'error_during_execution'].includes(result.resultSubtype) ? result.resultSubtype : 'other';
   const errorClass = admittedErrorClasses.includes(result.errorClass) ? result.errorClass : nativeErrorClasses.none;
   const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
     [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;

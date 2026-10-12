@@ -1,5 +1,19 @@
 # Linux native verification admission
 
+Native sessions require explicit whole-attempt `maxTurns` and
+`maxEstimatedCostUsd` controls (or the same request fields), with no defaults.
+The CLI accepts `--max-turns` and `--max-estimated-cost-usd`. Core reserves a
+fixed share for each of two fresh sessions, debits reliable first-session usage,
+and bounds session two by both its reserved share and the remaining total.
+Missing/ambiguous usage or exhausted allowance stops before session two.
+`error_max_turns` and `error_max_budget_usd` are incomplete acceptance, with the
+existing owned cleanup. Claude's estimated-cost threshold may overshoot and
+differ from billed charges; it is not a hard spending cap. Read the
+[finite-limit contract and evidence](native-claude-finite-limits.md) before
+selecting limits. This implementation adds no real-session qualification or
+automatic retry. The whole-check 180000 ms default (1000–600000 allowed) and
+additional 10000 ms cleanup allowance remain unchanged.
+
 For supplied Claude bundles, the fixed installed adapter derives verifier-owned
 user settings from the independently verified server and query identities. It
 approves only that project server and allows only its fixed instruction-attestation

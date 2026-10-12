@@ -119,6 +119,9 @@ export type ClaudeStreamObservation = { status: 'ok' | 'limit-exceeded' | 'malfo
   visibleSelectedTools: string[]; toolsListed: boolean; builtinTools: string[];
   permissionMode: string | null; attestationReturned: boolean; answerReturned: boolean; answerSha256: string | null; resultSeen: boolean; resultSubtype: string | null; resultIsError: boolean | null;
   errorClass: NativeErrorClass;
+  resultLimitReason: 'turn-limit-exhausted' | 'estimated-cost-limit-exhausted' | null;
+  resultUsageInvalid: boolean;
+  usage: { turns: number; estimatedCostUsd: number } | null;
   unselectedTools: number; unselectedToolUses: { name: string; permitted: boolean; beforeAttestation: boolean }[] };
 export function createClaudeStreamParser(options: ClaudeStreamOptions): { push(chunk: Uint8Array | string): void; snapshot(): ClaudeStreamObservation; finish(): ClaudeStreamObservation };
 export function claudeStreamOptions(resolved: ResolvedFixture, challenge: string): ClaudeStreamOptions;

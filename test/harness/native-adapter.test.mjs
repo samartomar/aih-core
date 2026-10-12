@@ -24,6 +24,73 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
+import { claudeSessionArgv } from '../../src/harness/native/claude.mjs';
+
+test('Claude numeric limits produce only the fixed supported arguments and reject overrides', () => {
+  const base=['-p','--verbose','--output-format','stream-json','--tools',''];
+  assert.deepEqual(claudeSessionArgv(base,{maxTurns:3,maxEstimatedCostUsd:0.25}),
+    [...base,'--max-turns','3','--max-budget-usd','0.25']);
+  assert.equal(base.length,6);
+  for(const limits of [undefined,{}, {maxTurns:0,maxEstimatedCostUsd:1}, {maxTurns:1.5,maxEstimatedCostUsd:1},
+    {maxTurns:1,maxEstimatedCostUsd:NaN}, {maxTurns:1,maxEstimatedCostUsd:'1'}, {maxTurns:1,maxEstimatedCostUsd:0},
+    {maxTurns:1,maxEstimatedCostUsd:1,argv:['--dangerously-skip-permissions']}])
+    assert.throws(()=>claudeSessionArgv(base,limits));
+  for(const flag of ['--max-turns','--max-turns=2','--max-budget-usd','--max-budget-usd=1'])
+    assert.throws(()=>claudeSessionArgv([...base,flag],{maxTurns:2,maxEstimatedCostUsd:1}));
+});
+
+test('the owned Windows session launch and digest argv carry both finite limits', async t => {
+  const {handle,launchInput,exit}=await session(t);
+  assert.deepEqual(launchInput().argv,['--max-turns','10','--max-budget-usd','1']);
+  assert.deepEqual(handle.argv,[process.execPath,...launchInput().argv]);
+  exit({code:0}); await handle.observations;
+});
+
+for(const [subtype,reason] of [['error_max_turns','turn-limit-exhausted'],['error_max_budget_usd','estimated-cost-limit-exhausted']])
+  test(`the adapter classifies ${subtype} as an owned incomplete stop`,async t=>{
+    const {handle,stdout,exit,terminationCount}=await session(t,{realParser:true});
+    const sid='11111111-1111-4111-8111-111111111111';
+    stdout.write(JSON.stringify({type:'system',subtype:'init',session_id:sid})+'\n');
+    stdout.write(JSON.stringify({type:'result',subtype,is_error:true,session_id:sid,num_turns:2,total_cost_usd:0.25})+'\n');
+    exit({code:1});
+    const observed=await handle.observations;
+    assert.equal(observed.failure.reason,reason);
+    const receipt=await handle.cleanup({deadline:performance.now()+1000,graceMs:0});
+    assert.equal(receipt.confirmed,true); assert.equal(terminationCount(),1);
+  });
+
+for(const [subtype,is_error,exitStatus] of [
+  ['success',false,{code:null,signal:'SIGSEGV'}],
+  ['success',false,{code:1,signal:null}],
+  ['error_max_turns',true,{code:null,signal:'SIGSEGV'}],
+  ['error_max_turns',true,{code:0xC0000005,signal:null}]
+]) test(`the ${subtype} result followed by ${exitStatus.signal ?? `exit ${exitStatus.code}`} has unknown usage`,async t=>{
+  const {handle,stdout,exit}=await session(t,{realParser:true});
+  const sid='11111111-1111-4111-8111-111111111111';
+  stdout.write(JSON.stringify({type:'system',subtype:'init',session_id:sid})+'\n');
+  stdout.write(JSON.stringify({type:'result',subtype,is_error,session_id:sid,num_turns:1,total_cost_usd:0.1})+'\n');
+  exit(exitStatus);
+  const observed=await handle.observations;
+  assert.equal(observed.usage,null);
+  assert.equal(observed.failure.reason,'usage-unavailable');
+  assert.equal((await handle.cleanup({deadline:performance.now()+1000,graceMs:0})).confirmed,true);
+});
+
+for(const shape of ['malformed-trailing','duplicate','missing-usage'])
+  test(`an unreliable ${shape} limit result reports unavailable usage`,async t=>{
+    const {handle,stdout,exit}=await session(t,{realParser:true});
+    const sid='11111111-1111-4111-8111-111111111111';
+    const result={type:'result',subtype:'error_max_turns',is_error:true,session_id:sid,
+      ...(shape==='missing-usage'?{}:{num_turns:2,total_cost_usd:0.25})};
+    stdout.write(JSON.stringify({type:'system',subtype:'init',session_id:sid})+'\n');
+    stdout.write(JSON.stringify(result)+'\n');
+    if(shape==='malformed-trailing')stdout.write('{broken\n');
+    if(shape==='duplicate')stdout.write(JSON.stringify(result)+'\n');
+    exit({code:1});
+    const observed=await handle.observations;
+    assert.equal(observed.failure.reason,'usage-unavailable'); assert.equal(observed.usage,null);
+    assert.equal((await handle.cleanup({deadline:performance.now()+1000,graceMs:0})).confirmed,true);
+  });
 
 test('the installed Core adapter exposes the admission and refuses tampered admitted descriptors', () => {
   const definition = installed.nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
@@ -107,9 +174,10 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     get failure() { return nativeFailure; },
     exited, terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; } };
   // The adapter now creates the lifecycle context before any client and starts the client through it.
+  let launchInput;
   const lifecycleContext = {
     createPipe: async () => ({ status: 'ready', transport: { endpoint: 'controlled-pipe', close: async () => {} } }),
-    start: async input => { environmentProbe?.(input.env); return { status: 'started', handle: processHandle }; },
+    start: async input => { launchInput=input; environmentProbe?.(input.env); return { status: 'started', handle: processHandle }; },
     terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; }
   };
   // A selected entry whose exact absolute module path is the running Node image, so the adapter's
@@ -131,6 +199,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     resolveLinuxNativeClient: async () => ({status:'resolved',pin:selectedPin,runtime:{},vendor:{}}),
     observeLinuxNativePolicy: () => ({outcome:'file-sources-clear'}),
     prepareLinuxSandboxContext: async input => {
+      assert.deepEqual(input.expectedArgv,['--max-turns','10','--max-budget-usd','1']);
       assert.ok(input.selectedPaths.includes(join(cell.home,'settings.json')));
       assert.ok(input.runtimePins.some(pin => pin.path===realpathSync.native(join(cell.home,'settings.json')) && pin.sha256===installed.sha256(effectiveBytes)));
       return {status:'unavailable',reason:'isolation-unobserved'};
@@ -159,7 +228,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     Object.assign(definition,{platform:{os:'linux',execution:'native'},lifecycleId:'linux-srt.v1',isolation:{mechanism:'vendor-runtime'}});
     assert.equal(await runtime.resolveNativeClient(definition,{deadline:performance.now()+5000,acquireCell:async()=>cell}),selectedPin);
   }
-  const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
+  const handle = await runtime.startNativeSession({ definition, index, limits: {maxTurns:10,maxEstimatedCostUsd:1}, signal: controller.signal,
     deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '',
       CLAUDE_CODE_DISABLE_FAST_MODE: 'false', MCP_CONNECTION_NONBLOCKING: 'true', mcp_connection_nonblocking: '1'
@@ -177,7 +246,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   assert.equal(typeof handle.snapshot, 'function', JSON.stringify(handle));
   t.after(async () => { controller.abort(); await handle.observations;
     await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 }); });
-  return { handle, telemetry, collector, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount,
+  return { handle, telemetry, collector, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount, launchInput: () => launchInput,
     setNativeFailure(value) { nativeFailure = value; } };
 }
 

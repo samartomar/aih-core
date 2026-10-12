@@ -6,7 +6,7 @@ import { nativeClients, nativeDiagnostic, ownNativeValue } from './native-input.
 
 export type NativeStage = NativeVerificationResult['stages'][number];
 const codes = new Set(['INPUT_INVALID', 'SCHEMA_UNSUPPORTED', 'PREREQUISITE_UNAVAILABLE', 'EXECUTION_FAILED', 'CANCELLED', 'INTERNAL_ERROR']);
-const validationReasons = new Set(['schema-id', 'request-field', 'controls-field', 'client-id', 'budget-invalid', 'path-invalid', 'binding-invalid', 'strict-json']);
+const validationReasons = new Set(['schema-id', 'request-field', 'controls-field', 'client-id', 'budget-invalid', 'finite-limits-invalid', 'path-invalid', 'binding-invalid', 'strict-json']);
 export function emptyNativeResult(request?: unknown, controls?: unknown): NativeVerificationResult {
   const client = ownNativeValue(request, 'client');
   const budget = ownNativeValue(controls, 'budgetMs');
@@ -55,10 +55,11 @@ export function finishNativeResult(result: NativeVerificationResult, started: nu
   result.limits.sessionsStarted = result.sessions.length;
   result.limits.stagesCompleted = rows.length;
   const failed = rows.some(stage => stage.outcome === 'failed');
+  const finiteStop = rows.some(stage => ['turn-limit-exhausted', 'estimated-cost-limit-exhausted', 'usage-unavailable'].includes(stage.reason));
   const verified = result.sessions.length === 2 && rows.length > 0 && rows.every(stage => stage.outcome === 'passed') &&
     result.cleanup.processes === 'confirmed' && result.cleanup.files === 'removed' && result.security.hostSecretIsolation.outcome === 'passed';
   result.verdict = failed ? 'failed' : verified ? 'verified' : 'unverified';
-  result.status = cancelled ? 'cancelled' : result.cleanup.processes === 'unresolved' || result.cleanup.files === 'retained' ? 'incomplete' : failed || verified ? 'complete' : 'incomplete';
+  result.status = cancelled ? 'cancelled' : finiteStop || result.cleanup.processes === 'unresolved' || result.cleanup.files === 'retained' ? 'incomplete' : failed || verified ? 'complete' : 'incomplete';
   if (result.verdict === 'verified' && !validateNativeVerificationResult(result).valid) {
     result.verdict = 'unverified'; result.status = 'incomplete';
   }
