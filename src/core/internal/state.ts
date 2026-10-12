@@ -13,10 +13,12 @@ export const stateRoot = (): string => join(userHomeRoot(), '.aih', 'core');
 export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; canonicalSha256?: string }
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
 export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
-export interface Ownership { schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
-/** A root is 1.1 exactly while it holds a hook-group descriptor; the last one leaves it 1.0 again. */
+export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
+export interface Ownership { schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
+/** INI/YAML/properties entries require 1.2; otherwise hook groups require 1.1, and ordinary members use 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
-  const schema = Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
+  const schema = Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
+    Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
   return value.schema === schema ? value : { ...value, schema };
 }
 export function stateFiles(): OwnedFileTransaction {
@@ -181,16 +183,17 @@ export function readOwnershipReceipts(check: () => void): { receipts: Ownership[
 export function validateOwnership(input: unknown, target: string): asserts input is Ownership {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('ownership-invalid');
   const value = input as Record<string, unknown>;
-  if (![OWNERSHIP_10, OWNERSHIP_11].includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
+  if (![OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12].includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
   if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
     if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256'].includes(key))) throw new Error('ownership-invalid');
-    // Hook custody exists only in a 1.1 root, and always carries its canonical digest.
+    // Hook custody exists only in a 1.1 or newer root, and always carries its canonical digest.
     if ((m.descriptor?.kind === 'hook') !== (m.canonicalSha256 !== undefined) ||
         m.canonicalSha256 !== undefined && (typeof m.canonicalSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(m.canonicalSha256)) ||
-        m.descriptor?.kind === 'hook' && value.schema !== OWNERSHIP_11) throw new Error('ownership-invalid');
+        m.descriptor?.kind === 'hook' && ![OWNERSHIP_11, OWNERSHIP_12].includes(value.schema as string) ||
+        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && value.schema !== OWNERSHIP_12) throw new Error('ownership-invalid');
     if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
     if (m.claims !== undefined && (!Array.isArray(m.claims) || !m.claims.length || m.claims.length > 4096 || !m.claims.every(validClaim) ||

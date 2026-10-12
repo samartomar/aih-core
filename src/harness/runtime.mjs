@@ -18,6 +18,18 @@ import { jvmRecipe, renderJvmRepair, prepareJvmRepair, renderJvmTrustFileRepair 
 export { validateBaselineStore, parseJvmTrustStore } from './jvm-trust.mjs';
 import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
+/** Definition-owned metadata prevents a convenience operation from treating
+ * earlier whole-file configuration custody as newly bounded ownership. Explicit
+ * authored whole-file lifecycle operations retain their original meaning. */
+export function managedRepairRemovalNeedsReconciliation({ managementId, scope, members, platform }) {
+  if (scope !== 'user') return false;
+  const definition = [userToolsRepair, jvmRepair].find(item => item.managementId === managementId);
+  const paths = definition?.variants.filter(item => item.os === platform).flatMap(item =>
+    item.configFiles.filter(file => file.target.root === 'userHome').map(file =>
+      file.target.segments.map(part => part.literal).join('/'))) ?? [];
+  return members.some(member => member.kind === 'file' && paths.some(path =>
+    platform === 'win32' ? member.path.toLowerCase() === path.toLowerCase() : member.path === path));
+}
 export { readGitHubPolicy } from './github-policy.mjs';
 export { macosSessionBudgets, macosSessionTrustKeys, renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';

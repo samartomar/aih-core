@@ -75,7 +75,8 @@ test('review shows exact pip effects and writes nothing before authorization', (
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const operation = prepared.review.operations.find(item => item.id === 'trust/pip-config');
   assert.equal(operation.effects, 'create-file');
-  assert.equal(operation.details.content, '[REDACTED]');
+  assert.equal(operation.kind, 'config.entries');
+  assert.equal(operation.details.format, 'ini');
   assert.ok(operation.details.target.endsWith(process.platform === 'win32' ? 'pip.ini' : 'pip.conf'));
   assert.equal(JSON.stringify(prepared.review).includes('use-feature'), false);
   assert.equal(prepared.review.inputs.package.name, '@aihq/core');
@@ -89,7 +90,7 @@ test('authorized offline pip repair writes preserved config and reports verifica
   fixtureTool('pip');
   const config = pipConfig();
   mkdirSync(join(config, '..'), { recursive: true });
-  writeFileSync(config, '[global]\nindex-url=https://r.example/simple\n');
+  writeFileSync(config, '[global]\ncert=/old/ca.pem\nindex-url=https://r.example/simple\n');
   const prepared = await prepare(request(source('apply.pem'), ['pip']), { logging: 'off' });
   assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
   assert.ok(prepared.diagnostics.some(item => item.code === 'STATE_CONFLICT'));
@@ -247,10 +248,8 @@ test('all selected config rewrites finish, retain private neighbors and repeat i
   }
   const input = request(source('all-configs.pem'), targets);
   const preview = await prepare(input, { logging: 'off' });
-  assert.equal(preview.status, 'partial');
-  const resolutions = files.map(file => ({ selectionId: 'trust', operationId: file.id,
-    choice: 'replace', observedSha256: sha256(readFileSync(file.path)) }));
-  const prepared = await prepare({ ...input, resolutions }, { logging: 'on' });
+  assert.equal(preview.status, 'ready');
+  const prepared = await prepare(input, { logging: 'on' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   assert.equal(JSON.stringify(prepared).includes(secret), false);
   assert.equal(prepared.record.status, 'written');
@@ -284,8 +283,7 @@ test('changed or new user configuration after review rejects before any effect',
   assert.equal(created.completion, 'rejected');
   assert.equal(created.diagnostics[0].code, 'REVIEW_STALE');
   const second = await prepare(request(source('stale-config.pem'), ['pip']), { logging: 'off' });
-  assert.equal(second.status, 'partial');
-  assert.ok(second.diagnostics.some(item => item.code === 'STATE_CONFLICT'));
+  assert.equal(second.status, 'ready');
   writeFileSync(config, '[global]\nindex-url=https://edited.example/simple\n');
   const changed = await apply(second.prepared, authorize(second), { logging: 'off' });
   assert.equal(changed.completion, 'rejected');

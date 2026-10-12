@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.37 gives user-tools and JVM repairs bounded entry/block custody,
+preserving neighboring settings through reviewed removal. New recipe/policy
+1.2.0 and prepared-work 1.4.0 contracts admit INI, top-level YAML scalar and
+properties entries without changing older schemas. Earlier whole-file repair
+configuration custody requires reconciliation through the convenience removal
+API. The local candidate has not been published to npm.
+
 Core 1.0.0-dev.36 adds `npm run pack:distribution`, the qualified cross-platform
 producer command. It normalizes the Linux facility's executable archive mode,
 checks its pinned bytes, and verifies that every other entry's bytes and metadata

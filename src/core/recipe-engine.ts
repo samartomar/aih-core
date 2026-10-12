@@ -76,6 +76,8 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
+const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0';
+const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
 const RECIPE_10 = 'urn:aihq:core:recipe:1.0.0';
 const RECIPE_11 = 'urn:aihq:core:recipe:1.1.0';
@@ -377,9 +379,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const recipeValidation = validateRecipe(recipe);
       if (!recipeValidation.valid) { result.diagnostics = recipeValidation.diagnostics; return finish(); }
       // The enclosing policy version gates the recipe version, including acquired bytes a reference never names.
-      if (policy.schema !== POLICY_11 && recipe.schema === RECIPE_11) {
+      if (recipe.schema === 'urn:aihq:core:recipe:1.2.0' && policy.schema !== POLICY_12 || policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && recipe.schema === RECIPE_11) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-          encountered: RECIPE_11, supported: [RECIPE_10], guidance: 'Author an execution-policy 1.1.0 document to select a recipe 1.1.0.' }];
+          encountered: recipe.schema, supported: policy.schema === POLICY_11 ? [RECIPE_10, RECIPE_11] : [RECIPE_10],
+          guidance: 'Use an execution policy version that admits the selected recipe version.' }];
         return finish();
       }
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) throw new Error('scope-mismatch');
@@ -702,6 +705,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
+      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12) {
+        result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
+          message: 'Bounded configuration custody requires execution-policy 1.2.0 for cleanup.', encountered: policy.schema, supported: [POLICY_12] }];
+        return finish();
+      }
       if (owner.managementId.startsWith('ca-export-') && !(trustParticipant?.allows(root,descriptor.path) ?? false)) throw new Error('trust-custody-conflict');
       guardTrustMember(root, descriptor.path, trustParticipant?.allows(root, descriptor.path) ?? false, trustParticipant?.macosSession === true);
       const live = transaction(root).inspect(descriptor.path);
@@ -714,7 +722,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined;
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
-        if (policy.schema !== POLICY_11) {
+        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12) {
           result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
             encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
           return finish();
@@ -738,7 +746,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       }
       else if (!matching) { effect = 'conflict'; conflicts.push({
         ...diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.'),
-        ...(policy.schema === POLICY_11 ? { guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.' } : {})
+        ...(policy.schema !== 'urn:aihq:core:execution-policy:1.0.0' ? { guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.' } : {})
       }); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
@@ -813,7 +821,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
-    const base = { schema: policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const base = { schema: policy.schema === POLICY_12 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
@@ -911,7 +919,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
-    result.schema = state.review.schema === PREPARED_11 ? RESULT_11 : RESULT_10;
+    result.schema = [PREPARED_11, PREPARED_14].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
     result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',

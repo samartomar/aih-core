@@ -17,6 +17,7 @@ async function exerciseConsumer() {
   const ajv = new Ajv2020({ strict: true });
   for (const name of ['prepared-work', 'run-result']) for (const version of ['1.0.0', '1.2.0'])
     ajv.addSchema((await import(`@aihq/core/schemas/${name}/${version}.json`, { with: { type: 'json' } })).default);
+  ajv.addSchema((await import('@aihq/core/schemas/prepared-work/1.4.0.json', { with: { type: 'json' } })).default);
   const targets = process.argv[4].split(',');
   const definition = repairIndex.find(item => item.id === 'user-tools-ca');
   const variant = definition.variants.find(item => item.os === process.platform && item.network === 'declared' &&

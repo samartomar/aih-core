@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.36",
+  "version": "1.0.0-dev.37",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": {
@@ -74,7 +74,11 @@
     "./schemas/run-result/1.2.0.json": "./dist/core/schemas/run-result/1.2.0.json",
     "./schemas/trust-custody/1.0.0.json": "./dist/core/schemas/trust-custody/1.0.0.json",
     "./harness/schemas/repair/1.1.0.json": "./dist/harness/schemas/repair/1.1.0.json",
-    "./harness/schemas/trust-capabilities/1.0.0.json": "./dist/harness/schemas/trust-capabilities/1.0.0.json"
+    "./harness/schemas/trust-capabilities/1.0.0.json": "./dist/harness/schemas/trust-capabilities/1.0.0.json",
+    "./schemas/recipe/1.2.0.json": "./dist/core/schemas/recipe/1.2.0.json",
+    "./schemas/execution-policy/1.2.0.json": "./dist/core/schemas/execution-policy/1.2.0.json",
+    "./schemas/prepared-work/1.4.0.json": "./dist/core/schemas/prepared-work/1.4.0.json",
+    "./schemas/managed-removal-preparation/1.1.0.json": "./dist/core/schemas/managed-removal-preparation/1.1.0.json"
   },
   "bin": {
     "aih": "dist/core/cli.js",

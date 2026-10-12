@@ -1,5 +1,7 @@
 import { applyEdits, findNodeAtLocation, modify, parseTree, type Node, type ParseError } from 'jsonc-parser';
 import type { Json } from '../types.js';
+import { editScalarLines, scalarLineMember } from './scalar-line-editor.js';
+import { editIni, iniMember } from './ini-editor.js';
 
 export class RecipeEditError extends Error {
   constructor(readonly reason: string) {
@@ -186,10 +188,12 @@ function tomlEdit(before: Buffer | null, entries: ConfigEntry[]): Buffer {
 }
 
 /** Applies narrowly selected object-key edits without replacing unrelated configuration text. */
-export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml', before: Buffer | null, entries: ConfigEntry[]): Buffer {
+export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, entries: ConfigEntry[]): Buffer {
   validateEntries(entries);
   if (format === 'json' || format === 'jsonc') return jsonEdit(format, before, entries);
   if (format === 'toml') return tomlEdit(before, entries);
+  if (format === 'ini') return editIni(before, entries);
+  if (format === 'yaml' || format === 'properties') return editScalarLines(format, before, entries);
   fail('unsupported-config-format');
 }
 
@@ -233,7 +237,9 @@ export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buf
 }
 
 /** Exact selected bytes, with the same ambiguity checks as the editor. */
-export function configMemberBytes(format: 'json' | 'jsonc' | 'toml', before: Buffer | null, path: string[]): Buffer | null {
+export function configMemberBytes(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, path: string[]): Buffer | null {
+  if (format === 'ini') return iniMember(before, path);
+  if (format === 'yaml' || format === 'properties') return scalarLineMember(format, before, path);
   const text = decode(before);
   if (before === null) return null;
   if (format === 'toml') {

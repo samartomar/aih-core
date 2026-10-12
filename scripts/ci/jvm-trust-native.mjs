@@ -256,6 +256,7 @@ async function loadPublicConsumer() {
   const ajv = new Ajv2020({ strict: true });
   for (const name of ['prepared-work', 'run-result']) for (const version of ['1.0.0', '1.2.0'])
     ajv.addSchema((await import(`@aihq/core/schemas/${name}/${version}.json`, { with: { type: 'json' } })).default);
+  ajv.addSchema((await import('@aihq/core/schemas/prepared-work/1.4.0.json', { with: { type: 'json' } })).default);
   return { prepare, apply, repairIndex, contractSupport, ajv };
 }
 
