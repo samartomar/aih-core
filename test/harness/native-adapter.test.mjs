@@ -58,6 +58,22 @@ for(const [subtype,reason] of [['error_max_turns','turn-limit-exhausted'],['erro
     assert.equal(receipt.confirmed,true); assert.equal(terminationCount(),1);
   });
 
+for(const [subtype,is_error,exitStatus] of [
+  ['success',false,{code:null,signal:'SIGSEGV'}],
+  ['success',false,{code:1,signal:null}],
+  ['error_max_turns',true,{code:null,signal:'SIGSEGV'}]
+]) test(`the ${subtype} result followed by ${exitStatus.signal ?? `exit ${exitStatus.code}`} has unknown usage`,async t=>{
+  const {handle,stdout,exit}=await session(t,{realParser:true});
+  const sid='11111111-1111-4111-8111-111111111111';
+  stdout.write(JSON.stringify({type:'system',subtype:'init',session_id:sid})+'\n');
+  stdout.write(JSON.stringify({type:'result',subtype,is_error,session_id:sid,num_turns:1,total_cost_usd:0.1})+'\n');
+  exit(exitStatus);
+  const observed=await handle.observations;
+  assert.equal(observed.usage,null);
+  assert.equal(observed.failure.reason,'usage-unavailable');
+  assert.equal((await handle.cleanup({deadline:performance.now()+1000,graceMs:0})).confirmed,true);
+});
+
 for(const shape of ['malformed-trailing','duplicate','missing-usage'])
   test(`an unreliable ${shape} limit result reports unavailable usage`,async t=>{
     const {handle,stdout,exit}=await session(t,{realParser:true});

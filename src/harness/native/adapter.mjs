@@ -543,7 +543,7 @@ function createNativeRuntime(module, dependencies) {
           result: parsers[0].snapshot(), proxy: linux ? context.proxyDiagnostics?.() ?? null : null,
           runnerWarnings: linux ? context.runnerWarnings?.() ?? null : null,
           forwarder: linux ? context.forwarderDiagnostics?.() ?? null : null });
-        const capture = (streams, telemetryResult, evidence, finalized = false) => {
+        const capture = (streams, telemetryResult, evidence, finalized = false, exit = null) => {
             const stream = streams[0];
             const spec = { ...module.serverEvidenceSpec(resolved), queryTool: input.material.server.queryTool };
             const server = module.evaluateServerEvidence(evidence?.frames ?? [], spec);
@@ -562,13 +562,18 @@ function createNativeRuntime(module, dependencies) {
               deniedBuiltins: module.claudeDeniedBuiltins
             });
             const row = (id) => evaluation.rows.find((value) => value.id === id);
-            const unreliableResult = stream.resultUsageInvalid === true || finalized && stream.resultSeen && !stream.usage;
+            // A parseable result is not finalized usage if the owned process then crashes.
+            const exitMatchesResult = exit?.signal == null && exit?.reason == null && Number.isSafeInteger(exit?.code) &&
+              (stream.resultSubtype === 'success' && exit.code === 0 ||
+                ['error_max_turns', 'error_max_budget_usd'].includes(stream.resultSubtype) && exit.code !== 0);
+            const reliableUsage = finalized && exitMatchesResult ? stream.usage ?? null : null;
+            const unreliableResult = stream.resultUsageInvalid === true || finalized && stream.resultSeen && !reliableUsage;
             const unreliableLimitStop = unreliableResult && ['turn-limit-exhausted', 'estimated-cost-limit-exhausted'].includes(stopped);
             const failure = ["cancelled", "budget-exhausted"].includes(stopped) ? stopped : lifecycle?.failure?.reason === "limit-exceeded" ? "limit-exceeded" :
               unreliableLimitStop ? 'usage-unavailable' : stopped ?? (linux ? context.failureReason : undefined) ??
               (unreliableResult ? 'usage-unavailable' : stream.resultLimitReason) ?? (streams.some(value => value.status === "limit-exceeded") || stream.status === "limit-exceeded" || evidence?.violation === "limit-exceeded" || telemetryResult.reason === "limit-exceeded" ? "limit-exceeded" : stream.status === "malformed" ? "session-identity-unobservable" : undefined);
             const observation = {
-              usage: finalized ? stream.usage ?? null : null,
+              usage: reliableUsage,
               sessionId: stream.sessionIdConsistent ? stream.sessionId : null,
               resumed: false,
               loading: row("loading-mode")?.outcome === "passed" ? "observed" : row("loading-mode")?.reason === "configuration-not-loaded" ? "not-loaded" : "unobservable",
@@ -718,7 +723,7 @@ function createNativeRuntime(module, dependencies) {
               cleanupStartedAt ??= performance.now();
               await cleanup(Math.min(input.deadline, cleanupStartedAt + 10_000), 1000);
             }
-            return capture(streams, telemetryResult, evidence, true);
+            return capture(streams, telemetryResult, evidence, true, exit);
           } finally {
             detach();
           }
