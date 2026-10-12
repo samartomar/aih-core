@@ -901,6 +901,14 @@ npm run build
 npm test
 ```
 
+Create a qualified Core distribution with `npm run pack:distribution --
+--pack-destination <existing directory>`. The command builds and packs the root
+package, preserves every archive entry's bytes and metadata except the Linux
+facility's executable mode, refuses to overwrite an existing artifact, and
+reports the final archive's SHA-256 and integrity. Use this command on all
+producer platforms; raw `npm pack` can preserve missing executable bits from a
+Windows producer. See the [Linux packaging checks](docs/native-linux-verification.md#build-records-and-development-checks).
+
 Linux native verification pins exact runtime bytes. After distro updates change a
 pinned library, verification refuses with `isolation-unobserved`; see
 [Re-capturing the platform record](docs/native-linux-verification.md#re-capturing-the-platform-record-after-distro-updates).

@@ -477,6 +477,30 @@ re-capture deliberately so the record changes in a reviewed version, not mid-bat
 
 ## Build records and development checks
 
+Build the qualified distribution with `npm run pack:distribution --
+--pack-destination <existing directory>`. This developer command builds, obtains
+npm's selected archive, and normalizes only the exact regular Linux facility
+entry to mode `0755` using the pinned tar library. It verifies every entry's
+bytes and metadata against the input archive, permits only that mode change,
+checks the helper against its build-record digest, and refuses to overwrite an
+existing artifact. Its JSON output identifies the final archive's size, SHA-256
+and integrity. Raw `npm pack` is not the qualified cross-platform producer path:
+npm can preserve a Windows producer's missing executable bits on nested binaries.
+
+The facility is also declared as the npm binary `aih-linux-facility`. Clean
+installs with lifecycle scripts disabled retain owner execution, including under
+umask `077`. npm creates its ordinary binary link or shim. This name exposes the
+internal helper protocol, not a supported user CLI; Harness launches the fixed
+installed `dist/harness/native/linux/facility` path directly. No installation
+script compiles, copies or repairs its permissions. Its bytes remain pinned by
+the build record and observer lock.
+
+`npm exec -- node --test test/native-linux-package.test.mjs` checks the actual
+archive header from a producer fixture without executable bits, then checks
+clean scripts-disabled Linux x64 installs under umasks `077` and `022`. It
+verifies the supplied binary digest and direct executable startup with protocol
+EOF, without starting any client.
+
 The package carries helper source, executable and build record. Linux CI compiles
 the helper twice with fixed hardening flags, compares both outputs, and verifies
 the committed binary. `scripts/build-linux-facility.mjs --check` is a developer/CI

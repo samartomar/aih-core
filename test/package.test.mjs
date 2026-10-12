@@ -44,7 +44,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       throw error;
     }
   };
-  const pack = cwd => JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], cwd))[0];
+  const pack = cwd => JSON.parse(npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--pack-destination', root], cwd))[0];
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
