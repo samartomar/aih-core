@@ -1,7 +1,7 @@
 {
   "schema": "aih.trust.acceptance.v1",
   "cellId": "export-p7b-win32-declared",
-  "subjectSha256": "61c8571a8bad42f9ca25916596dcbf7a7aec5471dad6b8d9833f00f1c99e70e0",
+  "subjectSha256": "5d0a59c9714b1efedadb1a5b4aed3e7858b4279a0521e31dbc41d0e7dbe2aa36",
   "cell": {
     "id": "export-p7b-win32-declared",
     "definitionId": "certificate-export",
@@ -24,7 +24,7 @@
       "id": "p7b-custody-recorded",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
     },
     {
       "id": "p7b-custom-store-import",
@@ -36,55 +36,55 @@
       "id": "p7b-deterministic-bytes",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
     },
     {
       "id": "p7b-independent-parse-set",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Strict independent parsing found the exact two CA DER identities in the certificate-only container."
     },
     {
       "id": "p7b-public-api-write",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
     },
     {
       "id": "p7b-refresh-replace-reviewed",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Same-ID replacement reviewed certificate removal and persisted the exact new source set."
     },
     {
       "id": "p7b-reject-key-material",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Private-key material rejected the complete source and preserved the existing output bytes."
     },
     {
       "id": "p7b-reject-output-extension-mismatch",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "An output extension mismatch rejected before output effects."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. An output extension mismatch rejected before output effects."
     },
     {
       "id": "p7b-reject-unsafe-path",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Parent-traversal output rejected before effects and preserved the owned output."
     },
     {
       "id": "p7b-removal-reconciled",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Managed public removal retired the output and protected provenance with its ordinary ownership."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Managed public removal retired the output and protected provenance with its ordinary ownership."
     },
     {
       "id": "p7b-serializer-failure-unavailable",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Fixed serializer backend loading failure returned unavailable without a substituted encoding."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Fixed serializer backend loading failure returned unavailable without a substituted encoding."
     }
   ],
   "limitations": [
@@ -92,6 +92,8 @@
     "no-native-client-claim",
     "supplied-only-export",
     "windows-os-discovery-incomplete",
-    "native-node-npm-unavailable"
+    "native-node-npm-unavailable",
+    "controlled-platform-selection",
+    "no-new-native-os-evidence"
   ]
 }
