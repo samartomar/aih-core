@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.35 derives narrow verifier-owned Claude permissions and project
+server approval from independently pinned supplied bundle identities. Only the
+fixed instruction-attestation tool and selected query are granted; ambiguous
+names, additional tools and additional project MCP servers are refused before
+client resolution. Effective guardrail bytes and digests are carried through
+staging, persistence and Linux launch protection without changing installed
+definition/admission metadata or selected bundle bytes. Bundled fixture bytes,
+managed restrictions and closed public schemas are unchanged. Controlled tests
+cover written fresh-home settings and tampering, not native acceptance. This
+candidate has not been published to npm.
+
 Core 1.0.0-dev.34 adds a test of the connection between Linux platform-record
 drift and its diagnostic. `resolveLinuxNativeClient` now delegates to an
 internal `resolveLinuxNativeClientWith` export of the Linux client module, which

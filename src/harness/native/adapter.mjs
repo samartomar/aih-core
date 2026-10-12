@@ -7,6 +7,7 @@ import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } fro
 import { sha256 } from "./digest.mjs";
 import { CREDENTIAL_DESTINATION } from "./identity.mjs";
 import { publishNativeAdmission, publishNativeDiagnostics, publishNativePersistenceDiagnostics } from './admission.mjs';
+import { deriveClaudeGuardrails } from './guardrails.mjs';
 import { createPersistenceDiagnosticClassifier } from './persistence-diagnostics.mjs';
 const sameWindowsPath = (a, b) => typeof a === "string" && typeof b === "string" && win32.isAbsolute(a) && win32.isAbsolute(b) && win32.normalize(a).toLowerCase() === win32.normalize(b).toLowerCase();
 const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
@@ -105,7 +106,7 @@ function createNativeRuntime(module, dependencies) {
       };
       addPin(pin.executable, pin, "executable-changed");
       for (const value of pin.runtime) addPin(value.path, value, "executable-changed", nativeReadPinnedRuntime);
-      if (linuxVendor(input.definition)) for (const file of [...material.outputTree, ...(input.definition.guardrails ?? [])]) {
+      if (linuxVendor(input.definition)) for (const file of [...material.outputTree, ...(input.guardrails ?? input.definition.guardrails ?? [])]) {
         const canonical = realpathSync.native(join(cell[file.root], ...file.path.split('/')));
         if (!pathKey(canonical).startsWith(cellRoot)) throw new NativeStop('material-path-unsafe', 'failed');
         addPin(canonical, file.member, 'fixture-bytes-mismatch');
@@ -195,6 +196,7 @@ function createNativeRuntime(module, dependencies) {
     nativeBundledFixture(definition, input) {
       return fixture(definition, input.check);
     },
+    nativeGuardrails: (definition, material, baseline) => deriveClaudeGuardrails(definition, material, baseline, NativeStop),
     nativeServerEvidenceAvailable(material) {
       if (material.server.evidenceAdapterId === module.recorderId) {
         try {
@@ -507,7 +509,7 @@ function createNativeRuntime(module, dependencies) {
         const prepared = observeFacility(await (linux ? module.prepareLinuxSandboxContext({ ...contextInput,
           cell: input.cell, runtime: linuxClient.runtime, vendor: linuxClient.vendor, collector: telemetry,
           execution: input.definition.platform.execution, expectedArgv: input.definition.sessionArgv,
-          selectedPaths: [...new Set([...input.material.outputTree, ...input.definition.guardrails].map(file => join(input.cell[file.root], ...file.path.split('/'))))]
+          selectedPaths: [...new Set([...input.material.outputTree, ...(input.guardrails ?? input.definition.guardrails)].map(file => join(input.cell[file.root], ...file.path.split('/'))))]
         }) : module.prepareLifecycleContext(contextInput)));
         if (prepared?.status !== "ready" || !prepared.context) return await failed(facilityReason(prepared?.reason, "termination-unresolved"));
         context = prepared.context;

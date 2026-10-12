@@ -134,6 +134,9 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     check(); validateMaterialTrees(material);
     if (material.adapterId !== definition.id && material.adapterId !== definition.parserId) throw new NativeStop('configuration-channel-unsupported', 'unsupported');
     const guardrailBytes = captureNativeInstalledMembers([...definition.runtimeMembers, ...definition.guardrails.map(file => file.member)], check, bundled.bytes);
+    const baselineGuardrails = { files: definition.guardrails, bytes: guardrailBytes, sha256: definition.guardrailsSha256 };
+    const effectiveGuardrails = runtime.nativeGuardrails?.(definition, material, baselineGuardrails) ?? baselineGuardrails;
+    validateMaterialTrees({ outputTree: effectiveGuardrails.files, outputTreeSha256: effectiveGuardrails.sha256, instructions: [] });
     result.adapter = { id: definition.id, sha256: sha256(canonicalJson({ definition, helpersSha256: helpers.sha256 })) };
     result.proofScope = material.scope;
     row('fixture-integrity', 'passed', 'observed', null, { kind: 'digest', sha256: material.manifestSha256 });
@@ -181,15 +184,15 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     if (!await runtime.revalidateNativeIdentity(identity, { check })) throw new NativeStop('identity-binding-invalid');
     // Fixed client-owned state, validated before any write; inspection stays in the installed adapter.
     const inspector = runtime.inspectNativeState?.bind(runtime);
-    const statePlan = nativeStatePlan(runtime.nativeStatePaths(definition), [...material.outputTree, ...definition.guardrails],
+    const statePlan = nativeStatePlan(runtime.nativeStatePaths(definition), [...material.outputTree, ...effectiveGuardrails.files],
       definition.credentialDestination.path, inspector ? (root, path, bytes, diagnose) => inspector(definition, { root, path, bytes, diagnose }) : undefined,
       runtime.classifyNativePersistence ? fact => runtime.classifyNativePersistence!(definition, fact) : undefined);
     const persistence = (stage: 'before-session-2' | 'after-session-2') => checkNativePersistence(cell!, statePlan, check,
       diagnostics => runtime.publishNativePersistence?.({ cell: cell!, stage, diagnostics }));
-    const stagedConfigurationDigest = stageNativeCell(cell, material, definition.guardrails, guardrailBytes, definition.guardrailsSha256,
+    const stagedConfigurationDigest = stageNativeCell(cell, material, effectiveGuardrails.files, effectiveGuardrails.bytes, effectiveGuardrails.sha256,
       { destination: definition.credentialDestination.path, bytes: identity.credential }, check);
     result.content = { bundleId: material.id, manifestSha256: material.manifestSha256, archiveSha256: material.archiveSha256,
-      outputTreeSha256: material.outputTreeSha256, guardrailsSha256: definition.guardrailsSha256, stagedConfigurationDigest };
+      outputTreeSha256: material.outputTreeSha256, guardrailsSha256: effectiveGuardrails.sha256, stagedConfigurationDigest };
     row('cell-staging', 'passed', 'observed', null, { kind: 'digest', sha256: stagedConfigurationDigest });
     for (const index of [1, 2] as const) {
       check();
@@ -204,7 +207,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       const challenge = randomBytes(32).toString('hex');
       const queryArguments = material.server.challenge.mode === 'argument' ? { ...material.server.queryArguments, [material.server.challenge.field]: challenge } : material.server.queryArguments;
       const sessionDeadline = index === 1 ? performance.now() + Math.max(0, deadline - performance.now()) / 2 : deadline;
-      const launched = await runtime.startNativeSession({ definition, pin, identity, cell, material, index, challenge, deadline: sessionDeadline,
+      const launched = await runtime.startNativeSession({ definition, pin, identity, cell, material, guardrails: effectiveGuardrails.files, index, challenge, deadline: sessionDeadline,
         signal: host.signal, environment: environment(cell, pin.executable, pin.runtime.map(value => value.path)),
         prompt: `Perform explicit native verification. Attest the initially loaded instructions with the session challenge ${challenge}. Discover the configured server tools and call ${material.server.queryTool} with ${canonicalJson(queryArguments)}. Return the exact server answer.` });
       if ('outcome' in launched && !launched.partial) {

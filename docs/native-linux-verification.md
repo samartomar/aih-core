@@ -1,5 +1,20 @@
 # Linux native verification admission
 
+For supplied Claude bundles, the fixed installed adapter derives verifier-owned
+user settings from the independently verified server and query identities. It
+approves only that project server and allows only its fixed instruction-attestation
+tool and selected query; the built-in deny list and
+`enableAllProjectMcpServers=false` remain unchanged. Ambiguous or pattern-like
+identities, extra selected tools and additional project MCP servers are refused.
+The effective settings bytes, member lengths/hashes and guardrail tree digest are
+bound to staging, persistence and Linux launch protection. Selected bundle bytes
+and installed definition/admission metadata are unchanged; the bundled fixture
+retains its original settings bytes. Approvals live in the disposable user's
+`.claude/settings.json`, so a fresh home needs no remembered project approval.
+Actual discovery and restrictions still require native observations, and managed
+restrictions retain precedence. Controlled permission tests establish neither
+native two-session acceptance nor admission.
+
 The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
 Claude Code 2.1.285 on Linux x64 WSL2, osRelease
 `6.18.33.2-microsoft-standard-WSL2`, with `clientVersions: ["2.1.285"]`.

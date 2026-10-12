@@ -54,9 +54,12 @@ export interface NativeSessionHandle {
 }
 export type NativeHelperFailure = { outcome: 'unsupported' | 'unavailable' | 'failed' | 'restricted'; reason: string;
   cleanup?: NativeSessionCleanup; cleanupStartedAt?: number; probeBytes?: number };
+export interface NativeGuardrails { files: NativeTreeFile[]; bytes: Map<string, Buffer>; sha256: string }
 export interface NativeRuntime {
   nativeDefinitions: readonly NativeDefinition[];
   nativeBundledFixture(definition: NativeDefinition, input: { check: () => void }): Promise<NativeMaterial> | NativeMaterial;
+  /** Fixed installed adapter may derive verifier-owned guardrails from verified material. */
+  nativeGuardrails?(definition: NativeDefinition, material: NativeMaterial, baseline: NativeGuardrails): NativeGuardrails;
   nativeCapabilities(definition: NativeDefinition, input?: { deadline: number; signal?: AbortSignal }):
     { lifecycle: boolean; peerIdentity: boolean; credentialChannel: boolean; reason?: string } |
     Promise<{ lifecycle: boolean; peerIdentity: boolean; credentialChannel: boolean; reason?: string }>;
@@ -68,6 +71,7 @@ export interface NativeRuntime {
   revalidateNativeIdentity(identity: NativeIdentityCapture, input: { check: () => void }): boolean | Promise<boolean>;
   protectNativeCell(cell: NativeCell, input: { deadline: number; signal?: AbortSignal }): Promise<boolean>;
   startNativeSession(input: { definition: NativeDefinition; pin: NativeClientPin; identity: NativeIdentityCapture; cell: NativeCell; material: NativeMaterial;
+    guardrails?: NativeTreeFile[];
     index: 1 | 2; challenge: string; deadline: number; signal?: AbortSignal; environment: Record<string, string>; prompt: string }): Promise<NativeSessionHandle | (NativeHelperFailure & { partial?: NativeSessionHandle })>;
   /** Fixed client-owned state for a definition; see {@link NativeStateEntry}. */
   nativeStatePaths(definition: NativeDefinition): NativeStatePaths;

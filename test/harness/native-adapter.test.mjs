@@ -83,7 +83,7 @@ test('the Linux branch delegates exactly the platform client pin shape', async (
 
 // This controlled helper seam never launches a client or authenticates a peer.
 // It checks when the adapter considers already-received proof complete.
-async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track, environmentProbe, reads } = {}) {
+async function session(t, { query = 'answered', receipt = false, realParser = false, realCollector = false, index = 1, track, environmentProbe, reads, linuxGuardrails = false } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'aihq-adapter-')));
   const cell = { path: root, observations: join(root, 'observations'), home: join(root, 'home'), scratch: join(root, 'scratch'), project: join(root, 'project') };
   for (const directory of [cell.observations, cell.home, cell.scratch, cell.project]) mkdirSync(directory);
@@ -102,7 +102,7 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
     builtinTools: [], unselectedTools: 0, unselectedToolUses: [], attestationReturned: true,
     answerReturned: receipt, answerSha256: receipt ? installed.sha256('leaf') : null };
   const evidence = { peer: 'authenticated', violation: null, frames: [], bytes: 0 };
-  const processHandle = { pid: 1234, stdin: new PassThrough(), stdout, stderr: new PassThrough(),
+  const processHandle = { pid: 1234, argv: [process.execPath], stdin: new PassThrough(), stdout, stderr: new PassThrough(),
     ...(track ? { track } : {}),
     get failure() { return nativeFailure; },
     exited, terminate: async () => { terminationCount++; return { processes: 'confirmed', survivors: [] }; } };
@@ -120,9 +120,21 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   const configurationBytes = Buffer.from(JSON.stringify({ mcpServers: { controlled: { command: 'node', args: ['server.mjs'] } } }));
   const configurationMember = { path: 'mcp.json', sha256: installed.sha256(configurationBytes), byteLength: configurationBytes.length };
   writeFileSync(join(cell.project, '.mcp.json'), configurationBytes);
+  const effectiveBytes = Buffer.from('controlled derived guardrails');
+  const effectiveGuardrails = [{ root: 'home', path: 'settings.json', member: {path:'guardrails',sha256:installed.sha256(effectiveBytes),byteLength:effectiveBytes.length} }];
+  if (linuxGuardrails) writeFileSync(join(cell.home,'settings.json'),effectiveBytes);
   const nodeSha256 = installed.sha256(readFileSync(process.execPath));
+  const selectedPin = { executable: process.execPath, sha256: nodeSha256, observedVersion:'2.1.285', runtime: [{path:process.execPath,sha256:nodeSha256}] };
   const module = { ...installed,
     lifecycleAvailability: async () => ({ status: 'available' }),
+    pinExecutable: async () => ({status:'pinned',path:process.execPath,sha256:nodeSha256,byteLength:readFileSync(process.execPath).length}),
+    resolveLinuxNativeClient: async () => ({status:'resolved',pin:selectedPin,runtime:{},vendor:{}}),
+    observeLinuxNativePolicy: () => ({outcome:'file-sources-clear'}),
+    prepareLinuxSandboxContext: async input => {
+      assert.ok(input.selectedPaths.includes(join(cell.home,'settings.json')));
+      assert.ok(input.runtimePins.some(pin => pin.path===realpathSync.native(join(cell.home,'settings.json')) && pin.sha256===installed.sha256(effectiveBytes)));
+      return {status:'unavailable',reason:'isolation-unobserved'};
+    },
     observeClaudeManagedSettings: () => ({ outcome: 'clear' }),
     createClaudeCollector: realCollector ? input => (collector = installed.createClaudeCollector(input)) : () => ({ start: async () => ({ endpoint: 'controlled', token: 'controlled' }),
       bindSession() {}, snapshot: () => telemetry, drain: async () => telemetry, cancel: async () => {} }),
@@ -142,13 +154,18 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
   runtime.nativeServerEvidenceAvailable = () => true;
   const definition = { client: 'claude', parserId: 'claude-stream-json.v1', identityAdapterId: 'claude-oauth-otel.v1',
     platform: { os: 'win32' }, lifecycleId: 'windows-job.v1', sessionArgv: [],
-    credentialDestination: { root: 'home', path: '.claude/.credentials.json' } };
+    credentialDestination: { root: 'home', path: '.claude/.credentials.json' }, guardrails: [{root:'home',path:'wrong-installed-settings.json',member:{path:'fixed',sha256:'0'.repeat(64),byteLength:1}}] };
+  if (linuxGuardrails) {
+    Object.assign(definition,{platform:{os:'linux',execution:'native'},lifecycleId:'linux-srt.v1',isolation:{mechanism:'vendor-runtime'}});
+    assert.equal(await runtime.resolveNativeClient(definition,{deadline:performance.now()+5000,acquireCell:async()=>cell}),selectedPin);
+  }
   const handle = await runtime.startNativeSession({ definition, index, signal: controller.signal,
     deadline: performance.now() + 5000, prompt: 'controlled', challenge: 'a'.repeat(64), environment: {
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0', CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '',
       CLAUDE_CODE_DISABLE_FAST_MODE: 'false', MCP_CONNECTION_NONBLOCKING: 'true', mcp_connection_nonblocking: '1'
     },
-    pin: { executable: process.execPath, sha256: nodeSha256, runtime: [{ path: process.execPath, sha256: nodeSha256 }] },
+    ...(linuxGuardrails ? {guardrails:effectiveGuardrails} : {}),
+    pin: selectedPin,
     identity: { expected: { accountUuid: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' } },
     cell,
     material: { server: { name: 'controlled', evidenceAdapterId: 'controlled', toolNames: ['attest', 'query'],
@@ -156,7 +173,8 @@ async function session(t, { query = 'answered', receipt = false, realParser = fa
       outputTree: [{ root: 'project', path: 'server.mjs', member }, { root: 'project', path: '.mcp.json', member: configurationMember }],
       bytes: new Map([['mcp.json', configurationBytes]]),
       instructions: [{ evidence: 'marker', markerSha256: 'd'.repeat(64) }] } });
-  assert.equal(typeof handle.snapshot, 'function');
+  if (linuxGuardrails) { assert.equal(handle.reason,'isolation-unobserved',JSON.stringify(handle)); return {handle}; }
+  assert.equal(typeof handle.snapshot, 'function', JSON.stringify(handle));
   t.after(async () => { controller.abort(); await handle.observations;
     await handle.cleanup({ deadline: performance.now() + 1000, graceMs: 0 }); });
   return { handle, telemetry, collector, stream, stdout, exit, controller, cell, terminationCount: () => terminationCount,
@@ -662,4 +680,10 @@ test('launch planning reads runtime pins through the runtime reader and everythi
   assert.deepEqual(reads.slice(0, 2), [['strict', node], ['runtime', node]]);
   assert.deepEqual(reads.filter(([kind]) => kind === 'runtime'), [['runtime', node]]);
   assert.ok(reads.filter(([kind]) => kind === 'strict').length > 1);
+});
+
+
+test('Linux launch protection pins effective guardrails rather than the installed bundled tree', async t => {
+  const {handle} = await session(t,{linuxGuardrails:true});
+  assert.equal(handle.reason,'isolation-unobserved');
 });
