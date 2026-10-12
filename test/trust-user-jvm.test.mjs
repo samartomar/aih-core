@@ -241,7 +241,7 @@ test('previous whole-file repair custody requires reconciliation and cannot be r
   }] };
   const p = await prepare({ useCase: 'policy', target: { project: home }, policy }, { logging: 'off' });
   assert.equal((await apply(p.prepared, approve(p), { logging: 'off' })).completion, 'complete');
-  const receipt = join(home, '.aih', 'core', 'ownership', createHash('sha256').update(home).digest('hex') + '.json');
+  const receipt = join(home, '.aih', 'core', 'ownership', createHash('sha256').update(realpathSync.native(home)).digest('hex') + '.json');
   const before = readFileSync(receipt);
   const removal = await prepareManagedRemoval({ target: { project: home }, managementId: 'user-tools-trust', scope: 'user', mode: 'vibe' }, { logging: 'off' });
   assert.equal(removal.disposition, 'reconcile-required', JSON.stringify(removal.diagnostics));
