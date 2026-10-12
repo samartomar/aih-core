@@ -56,7 +56,9 @@ test('a 1.1 policy admits hook.group and mixed 1.0/1.1 recipes; a 1.0 policy nev
   const oldRecipe = structuredClone(document.selections[0].recipe.inline); oldRecipe.schema = 'urn:aihq:core:recipe:1.0.0';
   assert.equal(validateRecipe(oldRecipe).valid, false);
   assert.equal(validatePolicy(policy()).valid, true);
-  const future = valid(); future.schema = 'urn:aihq:core:execution-policy:1.2.0';
+  const current = valid(); current.schema = 'urn:aihq:core:execution-policy:1.2.0';
+  assert.equal(validatePolicy(current).valid, true);
+  const future = valid(); future.schema = 'urn:aihq:core:execution-policy:99.0.0';
   assert.equal(validatePolicy(future).diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
 });
 

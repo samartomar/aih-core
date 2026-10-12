@@ -8,60 +8,6 @@ const literal = value => ({ literal: value });
 const input = name => ({ input: name });
 const cwd = { root: 'userHome', segments: [] };
 const target = segments => ({ root: 'userHome', segments: segments.map(literal) });
-const trim = text => text.replace(/[\r\n]+$/, '');
-
-// Extracted from certs/ini.ts. Preserve EOL style and all neighboring lines.
-function upsertIniKey(existing, key, value, { section, separator = '=', caseInsensitive = false } = {}) {
-  const crlf = existing.includes('\r\n');
-  const text = trim(existing.replaceAll('\r\n', '\n'));
-  const rows = text ? text.split('\n') : [];
-  const header = `[${section}]`;
-  let begin = rows.findIndex(row => {
-    const found = row.match(/^\s*\[([^\]]+)\]\s*(?:[#;].*)?$/)?.[1];
-    return caseInsensitive ? found?.toLowerCase() === section.toLowerCase() : found === section;
-  });
-  if (begin < 0) rows.push(header, `${key}${separator}${value}`);
-  else {
-    let end = begin + 1;
-    while (end < rows.length && !/^\s*\[[^\]]+\]\s*(?:[#;].*)?$/.test(rows[end])) end++;
-    const match = rows.findIndex((row, i) => {
-      const found = row.match(/^\s*([A-Za-z0-9_.-]+)\s*=/)?.[1];
-      return i > begin && i < end && (caseInsensitive ? found?.toLowerCase() === key.toLowerCase() : found === key);
-    });
-    if (match < 0) rows.splice(begin + 1, 0, `${key}${separator}${value}`);
-    else rows[match] = `${key}${separator}${value}`;
-  }
-  const output = `${rows.join('\n')}\n`;
-  return crlf ? output.replaceAll('\n', '\r\n') : output;
-}
-function pipConfig(existing, path) {
-  const output = upsertIniKey(existing, 'cert', path, { section: 'global', caseInsensitive: true });
-  if (output.includes('use-feature')) return output;
-  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
-  return trim(output) + eol + '# pip >= 24.2 on Python 3.10+ can instead verify via the OS store:' + eol +
-    '#   use-feature = truststore' + eol;
-}
-function cargoConfig(existing, path) {
-  return upsertIniKey(upsertIniKey(existing, 'cainfo', JSON.stringify(path.replaceAll('\\', '/')),
-    { section: 'http', separator: ' = ' }), 'git-fetch-with-cli', 'true', { section: 'net', separator: ' = ' });
-}
-function gitConfig(existing, path) {
-  // Git quoted values retain backslashes/quotes in Windows paths.
-  return upsertIniKey(existing, 'sslCAInfo', JSON.stringify(path.replaceAll('\\', '/')),
-    { section: 'http', separator: ' = ', caseInsensitive: true });
-}
-function condarcConfig(existing, path) {
-  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
-  const rows = trim(existing.replaceAll('\r\n', '\n')).split('\n').filter((_, i, all) => all.length !== 1 || all[0]);
-  let replaced = false;
-  const out = rows.map(row => {
-    if (/^ssl_verify\s*:/.test(row)) { replaced = true; return `ssl_verify: ${JSON.stringify(path)}`; }
-    return row;
-  });
-  if (!replaced) out.push(`ssl_verify: ${JSON.stringify(path)}`);
-  return out.join(eol) + eol;
-}
-const transforms = { 'pip-config': pipConfig, 'git-config': gitConfig, 'cargo-config': cargoConfig, 'conda-config': condarcConfig };
 const invalid = (reason, message, code = 'INPUT_INVALID') => ({ status: code === 'STATE_CONFLICT' || code === 'PREREQUISITE_UNAVAILABLE' ? 'blocked' : 'invalid', diagnostics: [{ code, reason, message }] });
 
 function variantFor(request) {
@@ -110,7 +56,8 @@ export function renderUserToolsRepair(request) {
       return invalid('config-ambiguous', 'Use an unambiguous equals-separated pip cert entry before preparing this CA repair.');
     // Duplicate managed keys or ambiguous syntax must never become an apparently verified rewrite.
     if (ambiguousConfig(file.operationId, text)) return invalid('config-ambiguous', 'The selected user configuration has ambiguous trust entries.');
-    privateBindings[file.operationId.replace('-config', 'Config')] = transforms[file.operationId](text, request.bundlePath);
+    if (file.operationId === 'git-config') bindings.gitCaValue = JSON.stringify(request.bundlePath.replaceAll('\\', '/'));
+    if (file.operationId === 'cargo-config') bindings.cargoCaValue = request.bundlePath.replaceAll('\\', '/');
     bindings[file.operationId.replace('-config', 'ConfigPath')] = join(homedir(), ...file.target.segments.map(item => item.literal));
   }
   return { status: 'completed', bindings, privateBindings };
@@ -118,6 +65,18 @@ export function renderUserToolsRepair(request) {
 function ambiguousConfig(id, text) {
   if (id === 'conda-config') return text.split(/\r?\n/).filter(line => /^ssl_verify\s*:/.test(line)).length > 1 ||
     /^(?:---|\.\.\.)\s*$/m.test(text) || /^\s+ssl_verify\s*:/m.test(text);
+  if (id === 'git-config') for (const row of text.split(/\r?\n/)) {
+    if (!row.trim() || /^\s*[#;]/.test(row)) continue;
+    // Git joins backslash continuations and treats section names without case.
+    // The generic INI subset must not mistake either for a separate owned key.
+    if ((row.match(/\\+$/)?.[0].length ?? 0) % 2 || /^\s*\[http\]/i.test(row) && !/^\s*\[http\]/.test(row)) return true;
+    let quoted = false;
+    for (let i = 0; i < row.length; i++) {
+      if (row[i] === '\\') { i++; continue; }
+      if (row[i] === '"') quoted = !quoted;
+    }
+    if (quoted) return true;
+  }
   const wanted = id === 'pip-config' ? { global: ['cert'] } : id === 'git-config' ? { http: ['sslcainfo', 'sslverify', 'sslbackend'] } :
     { http: ['cainfo', 'ssl-verify'], net: ['git-fetch-with-cli'] };
   let section = ''; const seen = new Set();
@@ -359,7 +318,7 @@ export function userToolsRecipe(variant) {
   }
   for (const file of variant.configFiles) {
     const id = file.operationId.split('-')[0];
-    inputs[`${id}Config`] = { type: 'string', required: true, sensitive: true, maxLength: 2 * 1024 * 1024 };
+    if (id === 'git' || id === 'cargo') inputs[`${id}CaValue`] = { type: 'string', required: true, maxLength: 8192 };
     inputs[`${id}ConfigPath`] = { type: 'string', required: true, maxLength: 4096 };
     checks.push(check(`${id}-installed`, `Require the selected existing ${id} executable`, id, ['--version']));
     const selectedChecks = [`${id}-installed`];
@@ -373,8 +332,12 @@ export function userToolsRecipe(variant) {
       requires: [], checks: [...selectedChecks] });
     if (variant.network !== 'off') selectedChecks.push(`${id}-behavior`);
     const keys = { pip: '[global] cert', git: '[http] sslCAInfo', cargo: '[http] cainfo and [net] git-fetch-with-cli=true', conda: 'ssl_verify' };
-    operations.push({ id: file.operationId, purpose: `Set ${id} ${keys[id]} using the reviewed CA path; preserve neighboring configuration privately`,
-      kind: 'file.write', scope: 'user', target: structuredClone(file.target), content: input(`${id}Config`),
+    operations.push({ id: file.operationId, purpose: `Set ${id} ${keys[id]} using the reviewed CA path; preserve neighboring configuration`,
+      ...({ pip: { kind: 'config.entries', format: 'ini', entries: [{ path: ['global', 'cert'], action: 'set', value: input('bundlePath') }] },
+        git: { kind: 'config.entries', format: 'ini', entries: [{ path: ['http', 'sslCAInfo'], action: 'set', value: input('gitCaValue') }] },
+        cargo: { kind: 'config.entries', format: 'toml', entries: [{ path: ['http', 'cainfo'], action: 'set', value: input('cargoCaValue') }, { path: ['net', 'git-fetch-with-cli'], action: 'set', value: literal(true) }] },
+        conda: { kind: 'config.entries', format: 'yaml', entries: [{ path: ['ssl_verify'], action: 'set', value: input('bundlePath') }] }
+      }[id]), scope: 'user', target: structuredClone(file.target),
       requires: ['material', `${id}-ready`], checks: selectedChecks });
     if (variant.network === 'off') continue;
     if (id === 'pip') checks.push({ id: 'pip-behavior', purpose: 'Check effective pip CA configuration and HTTPS package index query', kind: 'process.exit',
@@ -387,7 +350,7 @@ export function userToolsRecipe(variant) {
       'conda', ['run', '--no-capture-output', '-n', 'base', 'python', '-c', condaTls],
       { CONDARC: input('condaConfigPath'), AIHQ_EXPECTED_CA: input('bundlePath') }, 30000));
   }
-  return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'user-tools-ca', description: userToolsRepair.description,
+  return { schema: variant.targets.some(id => ['pip', 'git', 'conda'].includes(id)) ? 'urn:aihq:core:recipe:1.2.0' : 'urn:aihq:core:recipe:1.0.0', id: 'user-tools-ca', description: userToolsRepair.description,
     inputs, materials: [], targets: ['user'], prerequisites: [], operations, checks };
 }
 

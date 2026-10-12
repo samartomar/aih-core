@@ -1,7 +1,7 @@
 {
   "schema": "aih.trust.acceptance.v1",
   "cellId": "export-pem-win32-declared",
-  "subjectSha256": "0b43f28b59c7cd627189409f1d210a56e1d99801eea213036d52a7798639b204",
+  "subjectSha256": "f726cbdd21b762f248091745aeef80ca01ada16bd7f503bb8e4f096b5dd41bfa",
   "cell": {
     "id": "export-pem-win32-declared",
     "definitionId": "certificate-export",
@@ -24,55 +24,55 @@
       "id": "pem-custody-recorded",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
     },
     {
       "id": "pem-deterministic-bytes",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
     },
     {
       "id": "pem-independent-parse-set",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Strict independent parsing found the exact two CA DER identities in the certificate-only container."
     },
     {
       "id": "pem-public-api-write",
       "kind": "positive",
       "outcome": "passed",
-      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
     },
     {
       "id": "pem-refresh-replace-reviewed",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Same-ID replacement reviewed certificate removal and persisted the exact new source set."
     },
     {
       "id": "pem-reject-key-material",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Private-key material rejected the complete source and preserved the existing output bytes."
     },
     {
       "id": "pem-reject-output-extension-mismatch",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "An output extension mismatch rejected before output effects."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. An output extension mismatch rejected before output effects."
     },
     {
       "id": "pem-reject-unsafe-path",
       "kind": "negative",
       "outcome": "passed",
-      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Parent-traversal output rejected before effects and preserved the owned output."
     },
     {
       "id": "pem-removal-reconciled",
       "kind": "persistence",
       "outcome": "passed",
-      "summary": "Managed public removal retired the output and protected provenance with its ordinary ownership."
+      "summary": "Controlled platform selection of 10.0.26200 on actual host 10.0.26300; no new native OS evidence. Managed public removal retired the output and protected provenance with its ordinary ownership."
     }
   ],
   "limitations": [
@@ -80,6 +80,8 @@
     "no-native-client-claim",
     "supplied-only-export",
     "windows-os-discovery-incomplete",
-    "native-node-npm-unavailable"
+    "native-node-npm-unavailable",
+    "controlled-platform-selection",
+    "no-new-native-os-evidence"
   ]
 }

@@ -1,10 +1,11 @@
+import { renderConfigurations } from './config-fixture.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareRepairDefinition, getRepairRecipe, repairObservationRequests, assessRepairObservations } from '../../dist/harness/runtime.mjs';
+import { prepareRepairDefinition, getRepairRecipe, repairObservationRequests, assessRepairObservations, managedRepairRemovalNeedsReconciliation } from '../../dist/harness/runtime.mjs';
 import { repairIndex } from '../../dist/harness/contracts.mjs';
 
 const environmentKeys = ['APPDATA', 'XDG_CONFIG_HOME', 'CARGO_HOME', 'CONDARC', 'GIT_CONFIG_GLOBAL',
@@ -19,25 +20,43 @@ after(() => { for (const [key, value] of Object.entries(savedEnvironment)) {
 } });
 
 const ca = readFileSync(new URL('./fixtures/root-a.pem', import.meta.url));
+
+test('repair definitions identify earlier whole-file configuration custody on every portable platform', () => {
+  for (const definition of repairIndex.filter(item => ['user-tools-trust', 'jvm-trust'].includes(item.managementId))) {
+    for (const variant of definition.variants) for (const file of variant.configFiles) {
+      const path = file.target.segments.map(part => part.literal).join('/');
+      const request = { managementId: definition.managementId, scope: 'user', platform: variant.os, members: [{ kind: 'file', path }] };
+      assert.equal(managedRepairRemovalNeedsReconciliation(request), true, `${variant.recipeRef}: ${path}`);
+      assert.equal(managedRepairRemovalNeedsReconciliation({ ...request, scope: 'project' }), false);
+      assert.equal(managedRepairRemovalNeedsReconciliation({ ...request, managementId: 'authored' }), false);
+      assert.equal(managedRepairRemovalNeedsReconciliation({ ...request, members: [{ kind: 'entry', path }] }), false);
+    }
+  }
+});
 const variantRef = targets => `user-tools-ca/${process.platform}/${targets.join('+')}/off`;
-const prepare = (targets, configSnapshots = {}, extra = {}) => prepareRepairDefinition({
+const prepare = (targets, configSnapshots = {}, extra = {}) => renderConfigurations(prepareRepairDefinition({
   id: 'user-tools-ca', variantRef: variantRef(targets), targets, files: { caFile: ca },
   configSnapshots, managedPath: '/x/ca.pem', offline: true, ...extra
-});
+}), getRepairRecipe(variantRef(targets)), configSnapshots);
 
-test('selected pip repair retains neighboring settings and donor truststore guidance', () => {
+test('selected pip repair supplies bounded INI ownership without copying neighboring settings', () => {
   const result = prepare(['pip'], { 'pip-config': Buffer.from('[global]\nindex-url=https://r.example/simple\n[install]\nupgrade=true\n') });
   assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
-  assert.equal(result.privateBindings.pipConfig, '[global]\ncert=/x/ca.pem\nindex-url=https://r.example/simple\n[install]\nupgrade=true\n# pip >= 24.2 on Python 3.10+ can instead verify via the OS store:\n#   use-feature = truststore\n');
+  assert.equal(result.privateBindings.pipConfig, undefined);
+  const recipe = getRepairRecipe(variantRef(['pip']));
+  assert.equal(recipe.schema, 'urn:aihq:core:recipe:1.2.0');
+  const operation = recipe.operations.find(o => o.id === 'pip-config');
+  assert.equal(operation.kind, 'config.entries');
+  assert.deepEqual(operation.entries, [{ path: ['global', 'cert'], action: 'set', value: { input: 'bundlePath' } }]);
 });
 
 test('full transformed user configuration stays in sensitive bindings', () => {
   const result = prepare(['pip'], { 'pip-config': Buffer.from('[global]\nindex-url=https://user:private-secret@r.example/simple\n') });
   assert.equal(result.status, 'completed');
-  assert.ok(result.privateBindings.pipConfig.includes('private-secret'));
+  assert.equal(result.privateBindings.pipConfig, undefined);
   assert.equal(JSON.stringify(result.bindings).includes('private-secret'), false);
   const recipe = getRepairRecipe(variantRef(['pip']));
-  assert.equal(recipe.inputs.pipConfig.sensitive, true);
+  assert.equal(recipe.inputs.pipConfig, undefined);
 });
 
 test('Cargo retains both donor keys, Windows path safety, neighboring TOML and idempotence', () => {
@@ -46,9 +65,9 @@ test('Cargo retains both donor keys, Windows path safety, neighboring TOML and i
   const original = '# keep\r\n[http]\r\nproxy = "https://proxy.example"\r\n[net]\r\nretry = 2\r\n';
   const first = prepare(['cargo'], { 'cargo-config': Buffer.from(original) }, { managedPath: path });
   assert.equal(first.status, 'completed', JSON.stringify(first.diagnostics));
-  assert.equal(first.privateBindings.cargoConfig, `# keep\r\n[http]\r\ncainfo = ${serialized}\r\nproxy = "https://proxy.example"\r\n[net]\r\ngit-fetch-with-cli = true\r\nretry = 2\r\n`);
-  const twice = prepare(['cargo'], { 'cargo-config': Buffer.from(first.privateBindings.cargoConfig) }, { managedPath: path });
-  assert.equal(twice.privateBindings.cargoConfig, first.privateBindings.cargoConfig);
+  assert.equal(first.renderedConfigs.cargoConfig, `# keep\r\n[http]\r\nproxy = "https://proxy.example"\r\ncainfo = ${serialized}\r\n[net]\r\nretry = 2\r\ngit-fetch-with-cli = true\r\n`);
+  const twice = prepare(['cargo'], { 'cargo-config': Buffer.from(first.renderedConfigs.cargoConfig) }, { managedPath: path });
+  assert.equal(twice.renderedConfigs.cargoConfig, first.renderedConfigs.cargoConfig);
 });
 
 test('Cargo refuses inherited TLS bypass before any repair definition is produced', () => {
@@ -260,10 +279,10 @@ test('Git and conda retain neighboring user configuration and are byte-idempoten
   const result = prepare(targets, { 'git-config': Buffer.from('[user]\nname = Developer\n'),
     'conda-config': Buffer.from('channels:\n  - defaults\nssl_verify: /old/ca.pem\n') });
   assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
-  assert.equal(result.privateBindings.gitConfig, '[user]\nname = Developer\n[http]\nsslCAInfo = "/x/ca.pem"\n');
-  assert.equal(result.privateBindings.condaConfig, 'channels:\n  - defaults\nssl_verify: "/x/ca.pem"\n');
-  const twice = prepare(targets, { 'git-config': Buffer.from(result.privateBindings.gitConfig),
-    'conda-config': Buffer.from(result.privateBindings.condaConfig) }, { existing: Buffer.from(result.bundle) });
+  assert.equal(result.renderedConfigs.gitConfig, '[user]\nname = Developer\n[http]\nsslCAInfo="/x/ca.pem"\n');
+  assert.equal(result.renderedConfigs.condaConfig, 'channels:\n  - defaults\nssl_verify: "/x/ca.pem"\n');
+  const twice = prepare(targets, { 'git-config': Buffer.from(result.renderedConfigs.gitConfig),
+    'conda-config': Buffer.from(result.renderedConfigs.condaConfig) }, { existing: Buffer.from(result.bundle) });
   assert.deepEqual(twice.bindings, result.bindings);
   assert.equal(twice.bundle, result.bundle);
 });
@@ -277,7 +296,7 @@ test('native conda behavior uses its selected CA and rejects a mismatched path',
       const prepared = prepare(['conda'], {}, { managedPath: caPath });
       assert.equal(prepared.status, 'completed');
       writeFileSync(caPath, prepared.bundle);
-      writeFileSync(configPath, prepared.privateBindings.condaConfig);
+      writeFileSync(configPath, prepared.renderedConfigs.condaConfig);
       const probe = getRepairRecipe(`user-tools-ca/${process.platform}/conda/declared`).checks.find(item => item.id === 'conda-behavior');
       const env = { ...process.env, HOME: root, USERPROFILE: root, APPDATA: root, LOCALAPPDATA: root, TEMP: root, TMP: root,
         CONDARC: configPath, AIHQ_EXPECTED_CA: caPath };

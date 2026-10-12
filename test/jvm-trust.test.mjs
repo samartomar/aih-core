@@ -6,9 +6,13 @@ import { dirname, join } from 'node:path';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { prepare, apply } from '@aihq/core';
+import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
 import { repairIndex } from '@aihq/core/harness';
 import { getRepairRecipe } from '@aihq/core/harness/runtime';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+
+const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aih-jvm-trust-')));
 const home = join(scratch, 'home');
@@ -102,6 +106,8 @@ for (const change of ['ca source', 'baseline source', 'Gradle config', 'Maven co
     if (config) { mkdirSync(dirname(config), { recursive: true }); writeFileSync(config, '# user content added after review\n'); }
     const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
     assert.equal(applied.completion, 'rejected', JSON.stringify(applied.diagnostics));
+    assert.equal(validateLegacyRun(applied), true, JSON.stringify(validateLegacyRun.errors));
+    assert.equal(applied.schema, 'urn:aihq:core:run-result:1.0.0');
     assert.ok(applied.diagnostics.some(item => item.code === 'REVIEW_STALE'));
     assert.equal(existsSync(join(home, '.aih')), false);
     if (config) assert.equal(readFileSync(config, 'utf8'), '# user content added after review\n');
@@ -337,19 +343,14 @@ test('boundary fixture: offline configuration preserves reviewed neighbors and r
     '# keep this comment\nexport MAVEN_OPTS="-Xmx256m"\n';
   writeFileSync(gradleFile, gradleText); writeFileSync(mavenFile, mavenText);
   const input = source('offline.pem');
-  const unresolved = await prepare(request(input), { logging: 'off' });
-  assert.equal(unresolved.status, 'partial', JSON.stringify(unresolved.diagnostics));
-  assert.ok(unresolved.review.conflicts.some(item => item.path === '.gradle/gradle.properties'));
-  assert.ok(unresolved.review.conflicts.some(item => item.path === (process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc')));
+  const prepared = await prepare(request(input), { logging: 'off' });
   assert.equal(readFileSync(gradleFile, 'utf8'), gradleText);
   assert.equal(readFileSync(mavenFile, 'utf8'), mavenText);
-  const prepared = await prepare({ ...request(input), resolutions: [
-    { selectionId: 'trust', operationId: 'gradle-config', choice: 'replace', observedSha256: sha256(gradleText) },
-    { selectionId: 'trust', operationId: 'maven-config', choice: 'replace', observedSha256: sha256(mavenText) }
-  ] }, { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
   assert.equal(applied.completion, 'incomplete', JSON.stringify(applied));
+  assert.equal(validateLegacyRun(applied), true, JSON.stringify(validateLegacyRun.errors));
+  assert.equal(applied.schema, 'urn:aihq:core:run-result:1.0.0');
   for (const target of ['gradle', 'maven']) {
     const operation = applied.operations.find(item => item.id === `trust/${target}-config`);
     assert.equal(operation.application, 'applied');
@@ -362,4 +363,10 @@ test('boundary fixture: offline configuration preserves reviewed neighbors and r
   assert.match(readFileSync(mavenFile, 'utf8'), /keep this comment/);
   assert.match(readFileSync(mavenFile, 'utf8'), /-Xmx256m/);
   assert.ok(applied.diagnostics.some(item => item.code === 'VERIFICATION_UNAVAILABLE' && item.reason === 'offline'));
+  const removal = await prepareManagedRemoval({ target: { project: home }, managementId: 'jvm-trust', scope: 'user', mode: 'vibe' }, { logging: 'off' });
+  assert.equal(removal.disposition, 'prepared', JSON.stringify(removal));
+  assert.equal((await apply(removal.preparation.prepared, authorize(removal.preparation), { logging: 'off' })).completion, 'complete');
+  assert.equal(readFileSync(gradleFile, 'utf8'), gradleText);
+  assert.equal(readFileSync(mavenFile, 'utf8'), mavenText);
+
 }));

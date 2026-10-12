@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { buildJvmTrustStore, renderJvmTrustFileRepair, validateBaselineStore } from '../../src/harness/jvm-trust.mjs';
+import { renderConfigurations } from './config-fixture.mjs';
 
 const fixture = name => readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -201,9 +202,14 @@ test('renderer returns the fixed file.write JKS recipe and precomputed store byt
   const sensitiveNames = Object.keys(result.recipe.inputs).filter(name => result.recipe.inputs[name].sensitive && name !== 'bundle').sort();
   assert.deepEqual(Object.keys(result.bindings).sort(), publicNames);
   assert.deepEqual(Object.keys(result.privateBindings).sort(), sensitiveNames);
-  // Config rewrites reference the reviewed fixed JKS path and keep neighbors.
-  assert.ok(result.privateBindings.gradleConfig.startsWith('org.gradle.parallel=true\n'));
-  assert.ok(result.privateBindings.gradleConfig.includes(`systemProp.javax.net.ssl.trustStore=${result.bindings.jksPath.replaceAll('\\', '/')}`));
+  // Bounded configuration operations reference the reviewed fixed JKS path.
+  assert.equal(operations['gradle-config'].kind, 'config.entries');
+  assert.equal(operations['gradle-config'].format, 'properties');
+  assert.equal(operations['maven-config'].kind, 'text.block');
+  renderConfigurations(result, result.recipe, request().configSnapshots);
+  assert.ok(result.renderedConfigs.gradleConfig.startsWith('org.gradle.parallel=true\n'));
+  assert.ok(result.renderedConfigs.gradleConfig.includes(`systemProp.javax.net.ssl.trustStore=${result.bindings.jksPath.replaceAll('\\', '/')}`));
+  assert.ok(result.renderedConfigs.mavenConfig.startsWith(process.platform === 'win32' ? 'REM user maven rc\n' : '# user maven rc\n'));
   assert.ok(result.privateBindings.mavenConfig.includes(`-Djavax.net.ssl.trustStore=${result.bindings.jksPath}`));
   // Deterministic across renders.
   const twice = renderJvmTrustFileRepair(request());
@@ -214,10 +220,13 @@ test('renderer returns the fixed file.write JKS recipe and precomputed store byt
   assert.deepEqual(twice.privateBindings, result.privateBindings);
   // Re-rendering with the previously rewritten config is byte-idempotent.
   const replayed = renderJvmTrustFileRepair(request({ configSnapshots: {
-    'gradle-config': Buffer.from(result.privateBindings.gradleConfig),
-    'maven-config': Buffer.from(result.privateBindings.mavenConfig) } }));
+    'gradle-config': Buffer.from(result.renderedConfigs.gradleConfig),
+    'maven-config': Buffer.from(result.renderedConfigs.mavenConfig) } }));
   assert.equal(replayed.status, 'completed', JSON.stringify(replayed.diagnostics));
   assert.deepEqual(replayed.privateBindings, result.privateBindings);
+  renderConfigurations(replayed, replayed.recipe, {
+    'gradle-config': result.renderedConfigs.gradleConfig, 'maven-config': result.renderedConfigs.mavenConfig });
+  assert.deepEqual(replayed.renderedConfigs, result.renderedConfigs);
 });
 
 test('renderer keeps the legacy environment and configuration guardrails', () => {

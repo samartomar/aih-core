@@ -48,7 +48,7 @@ export interface FileOperation extends OperationBase {
 export interface ConfigEntrySet { path: string[]; action: 'set'; value: Slot }
 export interface ConfigEntryRemove { path: string[]; action: 'remove' }
 export interface ConfigOperation extends OperationBase {
-  kind: 'config.entries'; target: TargetPath; format: 'json' | 'jsonc' | 'toml';
+  kind: 'config.entries'; target: TargetPath; format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties';
   entries: (ConfigEntrySet | ConfigEntryRemove)[];
 }
 export interface TextBlockOperation extends OperationBase {
@@ -85,7 +85,7 @@ export interface MaterialRecipeReference {
 }
 export type Prerequisite = { kind: 'platform'; os: string; architectures: string[] } | { kind: 'executable'; name: string };
 export interface Recipe {
-  schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0';
+  schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0' | 'urn:aihq:core:recipe:1.2.0';
   id: string;
   description: string;
   inputs: Record<string, InputSpec>;
@@ -105,7 +105,7 @@ export interface Selection {
   recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
 }
 export interface ExecutionPolicy {
-  schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0';
+  schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0' | 'urn:aihq:core:execution-policy:1.2.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
   /** Optional assessment references; never execution authority or a findings gate. */

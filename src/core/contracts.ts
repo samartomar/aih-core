@@ -4,6 +4,10 @@ import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'j
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import preparedSchema from './schemas/prepared-work/1.0.0.json' with { type: 'json' };
 import resultSchema from './schemas/run-result/1.0.0.json' with { type: 'json' };
+import policySchema12 from './schemas/execution-policy/1.2.0.json' with { type: 'json' };
+import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
+import preparedSchema14 from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
+import managedRemovalSchema11 from './schemas/managed-removal-preparation/1.1.0.json' with { type: 'json' };
 import policySchema11 from './schemas/execution-policy/1.1.0.json' with { type: 'json' };
 import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
 import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: 'json' };
@@ -36,7 +40,7 @@ export type * from './trust-contracts.js';
 export {
   validateTrustRepairRequest, validateTrustRepairInputs,
   validateCertificateExportRequest, validateCertificateExportInputs,
-  validatePreparedWork12, validateRunResult12, validateTrustCustody
+  validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody
 } from './trust-contracts.js';
 export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
   NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
@@ -47,8 +51,11 @@ export { validateNativeVerificationRequest, validateNativeVerificationResult,
 const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
 validator.addSchema(recipeSchema11);
+validator.addSchema(recipeSchema12);
 const checkPolicy = validator.compile(policySchema);
 const checkPolicy11 = validator.compile(policySchema11);
+const checkPolicy12 = validator.compile(policySchema12);
+const checkRecipe12 = validator.getSchema(recipeSchema12.$id)! as ValidateFunction;
 const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
 const checkRecipe11 = validator.getSchema(recipeSchema11.$id)! as ValidateFunction;
 const checkOrganization = validator.compile(organizationSchema);
@@ -68,9 +75,9 @@ export const contractSupport = Object.freeze({
   contracts: [
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
-      managedInventorySchema, managedRemovalSchema].map(schema => ({
+      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11].map(schema => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
-        managedInventorySchema, managedRemovalSchema].includes(schema as never) ? 'produces' : 'accepts',
+        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
     ...trustContractSchemas.map(schema => ({
@@ -118,13 +125,13 @@ function validate(value: unknown, accepted: Accepted, semantics: (document: neve
         message: 'This format is not supported.', path: '/schema', encountered: found, supported: Object.keys(accepted) }]
     };
     // A 1.0.0 policy cannot carry a 1.1.0 recipe, even when that recipe's own schema is valid.
-    const selections = found === policySchema.$id && safe && typeof safe === 'object' ?
+    const selections = [policySchema.$id, policySchema11.$id].includes(found as string) && safe && typeof safe === 'object' ?
       (safe as { selections?: unknown }).selections : undefined;
     if (Array.isArray(selections)) for (const [index, selection] of selections.entries()) {
       const inline = (selection as { recipe?: { inline?: { schema?: unknown } } } | null)?.recipe?.inline;
-      if (inline?.schema === recipeSchema11.$id) return { valid: false, schema: policySchema.$id, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED',
+      if (inline?.schema === recipeSchema12.$id || found === policySchema.$id && inline?.schema === recipeSchema11.$id) return { valid: false, schema: found as string, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED',
         reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-        path: `/selections/${index}/recipe/inline/schema`, encountered: recipeSchema11.$id, supported: [recipeSchema.$id] }] };
+        path: `/selections/${index}/recipe/inline/schema`, encountered: inline.schema, supported: found === policySchema11.$id ? [recipeSchema.$id, recipeSchema11.$id] : [recipeSchema.$id] }] };
     }
     const check = typeof found === 'string' ? accepted[found]! : Object.values(accepted)[0]!;
     const schema = typeof found === 'string' ? found : Object.keys(accepted)[0]!;
@@ -141,9 +148,9 @@ function validate(value: unknown, accepted: Accepted, semantics: (document: neve
   }
 }
 export const validatePolicy = (value: unknown): ValidationResult =>
-  validate(value, { [policySchema.$id]: checkPolicy, [policySchema11.$id]: checkPolicy11 }, policySemantics as never);
+  validate(value, { [policySchema.$id]: checkPolicy, [policySchema11.$id]: checkPolicy11, [policySchema12.$id]: checkPolicy12 }, policySemantics as never);
 export const validateRecipe = (value: unknown): ValidationResult =>
-  validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11 }, recipeSemantics as never);
+  validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12 }, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
   validate(value, { [organizationSchema.$id]: checkOrganization }, organizationSemantics as never);
 export function parsePolicy(text: string): ParseResult {

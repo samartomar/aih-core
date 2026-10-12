@@ -1,0 +1,3011 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.4.0",
+  "title": "Core prepared work with bounded configuration entry reviews",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/policy"
+    },
+    {
+      "$ref": "#/$defs/repair"
+    },
+    {
+      "$ref": "#/$defs/trust"
+    }
+  ],
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "scanId": {
+                "type": "string",
+                "pattern": "^scan:sha256:[a-f0-9]{64}$"
+              },
+              "status": {
+                "enum": [
+                  "skipped",
+                  "authenticated",
+                  "unverifiable"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "not-supplied",
+                  "not-requested",
+                  "unavailable",
+                  "unsupported-artifact",
+                  "malformed",
+                  "id-mismatch",
+                  "byte-mismatch",
+                  "unsigned",
+                  "unknown-producer",
+                  "untrusted-key",
+                  "invalid-signature",
+                  "resource-limit"
+                ]
+              },
+              "producerIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "keyId": {
+                "type": "string",
+                "pattern": "^ed25519:[a-f0-9]{64}$"
+              },
+              "reportRead": {
+                "enum": [
+                  "supported",
+                  "unsupported",
+                  "not-requested"
+                ]
+              }
+            }
+          }
+        },
+        "schema": {
+          "const": "urn:aihq:core:prepared-work:1.4.0"
+        },
+        "useCase": {
+          "enum": [
+            "policy"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "vibe",
+            "enterprise",
+            "standalone"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "enum": [
+                "project",
+                "user"
+              ]
+            },
+            "project": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "project"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "organization": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "const": "github"
+                    },
+                    "repository": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "name"
+                      ]
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "commit",
+                            "branch",
+                            "tag"
+                          ]
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "repository",
+                    "path",
+                    "revision"
+                  ]
+                },
+                "resolvedCommit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "blobId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "contentDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "policyId": {
+                  "type": "string"
+                },
+                "helper": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "const": "github-policy-reader"
+                    },
+                    "package": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "version"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "package"
+                  ]
+                }
+              },
+              "required": [
+                "source",
+                "resolvedCommit",
+                "blobId",
+                "contentDigest",
+                "policyId",
+                "helper"
+              ]
+            },
+            "sourceSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "helperSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "candidateKind": {
+              "enum": [
+                "system-ca",
+                "extra-ca"
+              ]
+            },
+            "certificates": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "package": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "candidateKind": {
+                    "const": "system-ca"
+                  }
+                },
+                "required": [
+                  "candidateKind"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "certificates": {
+                    "type": "array",
+                    "maxItems": 0
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "certificates": {
+                    "type": "array",
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ],
+          "oneOf": [
+            {
+              "properties": {
+                "policySha256": {}
+              },
+              "required": [
+                "policySha256"
+              ]
+            },
+            {
+              "properties": {
+                "sourceSha256": {},
+                "helperSha256": {},
+                "certificates": {}
+              },
+              "required": [
+                "sourceSha256",
+                "helperSha256",
+                "certificates"
+              ]
+            }
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "file.write",
+                  "config.entries",
+                  "text.block",
+                  "file.remove",
+                  "process.run",
+                  "hook.group"
+                ]
+              },
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "effects": {
+                "enum": [
+                  "create-file",
+                  "replace-file",
+                  "remove-file",
+                  "already-satisfied",
+                  "conflict",
+                  "opaque-process",
+                  "unavailable"
+                ]
+              },
+              "ownership": {
+                "enum": [
+                  "managed",
+                  "unowned"
+                ]
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "$ref": "#/$defs/policy/$defs/reviewDetails"
+                    },
+                    "kind": {
+                      "enum": [
+                        "file.sha256",
+                        "process.exit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "purpose",
+                    "kind",
+                    "details"
+                  ]
+                }
+              },
+              "details": {
+                "$ref": "#/$defs/policy/$defs/reviewDetails"
+              }
+            },
+            "required": [
+              "id",
+              "purpose",
+              "kind",
+              "scope",
+              "effects",
+              "ownership",
+              "requires",
+              "checks",
+              "details"
+            ],
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "hook.group"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "details": {
+                  "type": "object",
+                  "properties": {
+                    "hookGroup": {}
+                  },
+                  "required": [
+                    "hookGroup"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "details": {
+                  "not": {
+                    "type": "object",
+                    "properties": {
+                      "hookGroup": {}
+                    },
+                    "required": [
+                      "hookGroup"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "reason"
+            ]
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "encountered": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ]
+          }
+        },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "encountered": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ]
+          }
+        },
+        "effectiveOptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logging": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "enum": [
+                    "on",
+                    "off"
+                  ]
+                },
+                "origin": {
+                  "enum": [
+                    "default",
+                    "explicit"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "origin"
+              ]
+            },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "origin": {
+                    "enum": [
+                      "default",
+                      "explicit",
+                      "private"
+                    ]
+                  }
+                },
+                "required": [
+                  "origin"
+                ]
+              }
+            }
+          },
+          "required": [
+            "logging",
+            "inputs"
+          ]
+        },
+        "reviewDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "enterprise"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "policySha256": {},
+                  "organization": {}
+                },
+                "required": [
+                  "policySha256",
+                  "organization"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "not": {
+                  "properties": {
+                    "organization": {}
+                  },
+                  "required": [
+                    "organization"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "$defs": {
+        "effectiveInteger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "origin"
+          ],
+          "properties": {
+            "value": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          }
+        },
+        "reviewDetails": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 511
+            },
+            "executable": {
+              "type": "string"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "stdinProtected": {
+              "type": "boolean"
+            },
+            "material": {
+              "type": "string"
+            },
+            "timeoutMs": {
+              "$ref": "#/$defs/policy/$defs/effectiveInteger"
+            },
+            "maxOutputBytes": {
+              "$ref": "#/$defs/policy/$defs/effectiveInteger"
+            },
+            "declaredEffects": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            },
+            "materialSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "materialBytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "executableSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "acceptedExitCodes": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "format": {
+              "enum": [
+                "json",
+                "jsonc",
+                "toml",
+                "ini",
+                "yaml",
+                "properties"
+              ]
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "enum": [
+                      "set",
+                      "remove"
+                    ]
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "path",
+                  "action"
+                ]
+              }
+            },
+            "blockId": {
+              "type": "string"
+            },
+            "startMarker": {
+              "type": "string"
+            },
+            "endMarker": {
+              "type": "string"
+            },
+            "blockAction": {
+              "enum": [
+                "set",
+                "remove"
+              ]
+            },
+            "stdin": {
+              "type": "string"
+            },
+            "hookGroup": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "container",
+                "groupId",
+                "selector",
+                "action",
+                "matchedIndex",
+                "memberBeforeSha256",
+                "memberAfterSha256",
+                "targetBeforeSha256",
+                "desiredGroup"
+              ],
+              "properties": {
+                "container": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "valueSha256"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        ]
+                      }
+                    },
+                    "valueSha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  }
+                },
+                "action": {
+                  "enum": [
+                    "set",
+                    "remove"
+                  ]
+                },
+                "matchedIndex": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "memberBeforeSha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "memberAfterSha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "targetBeforeSha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "desiredGroup": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "schema",
+        "useCase",
+        "mode",
+        "target",
+        "inputs",
+        "operations",
+        "observations",
+        "conflicts",
+        "omissions",
+        "effectiveOptions",
+        "reviewDigest"
+      ]
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "scanId": {
+                "type": "string",
+                "pattern": "^scan:sha256:[a-f0-9]{64}$"
+              },
+              "status": {
+                "enum": [
+                  "skipped",
+                  "authenticated",
+                  "unverifiable"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "not-supplied",
+                  "not-requested",
+                  "unavailable",
+                  "unsupported-artifact",
+                  "malformed",
+                  "id-mismatch",
+                  "byte-mismatch",
+                  "unsigned",
+                  "unknown-producer",
+                  "untrusted-key",
+                  "invalid-signature",
+                  "resource-limit"
+                ]
+              },
+              "producerIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "keyId": {
+                "type": "string",
+                "pattern": "^ed25519:[a-f0-9]{64}$"
+              },
+              "reportRead": {
+                "enum": [
+                  "supported",
+                  "unsupported",
+                  "not-requested"
+                ]
+              }
+            }
+          }
+        },
+        "schema": {
+          "const": "urn:aihq:core:prepared-work:1.4.0"
+        },
+        "useCase": {
+          "enum": [
+            "repair"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "vibe",
+            "enterprise",
+            "standalone"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "enum": [
+                "project",
+                "user"
+              ]
+            },
+            "project": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "project"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policySha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "organization": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "const": "github"
+                    },
+                    "repository": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "name"
+                      ]
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "commit",
+                            "branch",
+                            "tag"
+                          ]
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "repository",
+                    "path",
+                    "revision"
+                  ]
+                },
+                "resolvedCommit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "blobId": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "contentDigest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                "policyId": {
+                  "type": "string"
+                },
+                "helper": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "const": "github-policy-reader"
+                    },
+                    "package": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "version"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "package"
+                  ]
+                }
+              },
+              "required": [
+                "source",
+                "resolvedCommit",
+                "blobId",
+                "contentDigest",
+                "policyId",
+                "helper"
+              ]
+            },
+            "sourceSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "helperSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "candidateKind": {
+              "enum": [
+                "system-ca",
+                "extra-ca"
+              ]
+            },
+            "certificates": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "package": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ]
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "candidateKind": {
+                    "const": "system-ca"
+                  }
+                },
+                "required": [
+                  "candidateKind"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "certificates": {
+                    "type": "array",
+                    "maxItems": 0
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "certificates": {
+                    "type": "array",
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ],
+          "oneOf": [
+            {
+              "properties": {
+                "policySha256": {}
+              },
+              "required": [
+                "policySha256"
+              ]
+            },
+            {
+              "properties": {
+                "sourceSha256": {},
+                "helperSha256": {},
+                "certificates": {}
+              },
+              "required": [
+                "sourceSha256",
+                "helperSha256",
+                "certificates"
+              ]
+            }
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "file.write",
+                  "config.entries",
+                  "text.block",
+                  "file.remove",
+                  "process.run"
+                ]
+              },
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "effects": {
+                "enum": [
+                  "create-file",
+                  "replace-file",
+                  "remove-file",
+                  "already-satisfied",
+                  "conflict",
+                  "opaque-process",
+                  "unavailable"
+                ]
+              },
+              "ownership": {
+                "enum": [
+                  "managed",
+                  "unowned"
+                ]
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "$ref": "#/$defs/repair/$defs/reviewDetails"
+                    },
+                    "kind": {
+                      "enum": [
+                        "file.sha256",
+                        "process.exit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "purpose",
+                    "kind",
+                    "details"
+                  ]
+                }
+              },
+              "details": {
+                "$ref": "#/$defs/repair/$defs/reviewDetails"
+              }
+            },
+            "required": [
+              "id",
+              "purpose",
+              "kind",
+              "scope",
+              "effects",
+              "ownership",
+              "requires",
+              "checks",
+              "details"
+            ]
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "reason"
+            ]
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "encountered": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ]
+          }
+        },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "encountered": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ]
+          }
+        },
+        "effectiveOptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logging": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "enum": [
+                    "on",
+                    "off"
+                  ]
+                },
+                "origin": {
+                  "enum": [
+                    "default",
+                    "explicit"
+                  ]
+                }
+              },
+              "required": [
+                "value",
+                "origin"
+              ]
+            },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "origin": {
+                    "enum": [
+                      "default",
+                      "explicit",
+                      "private"
+                    ]
+                  }
+                },
+                "required": [
+                  "origin"
+                ]
+              }
+            }
+          },
+          "required": [
+            "logging",
+            "inputs"
+          ]
+        },
+        "reviewDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "enterprise"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "policySha256": {},
+                  "organization": {}
+                },
+                "required": [
+                  "policySha256",
+                  "organization"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "not": {
+                  "properties": {
+                    "organization": {}
+                  },
+                  "required": [
+                    "organization"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "$defs": {
+        "effectiveInteger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "origin"
+          ],
+          "properties": {
+            "value": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          }
+        },
+        "reviewDetails": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 511
+            },
+            "executable": {
+              "type": "string"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "stdinProtected": {
+              "type": "boolean"
+            },
+            "material": {
+              "type": "string"
+            },
+            "timeoutMs": {
+              "$ref": "#/$defs/repair/$defs/effectiveInteger"
+            },
+            "maxOutputBytes": {
+              "$ref": "#/$defs/repair/$defs/effectiveInteger"
+            },
+            "declaredEffects": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            },
+            "materialSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "materialBytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "executableSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "acceptedExitCodes": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "format": {
+              "enum": [
+                "json",
+                "jsonc",
+                "toml",
+                "ini",
+                "yaml",
+                "properties"
+              ]
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "enum": [
+                      "set",
+                      "remove"
+                    ]
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "path",
+                  "action"
+                ]
+              }
+            },
+            "blockId": {
+              "type": "string"
+            },
+            "startMarker": {
+              "type": "string"
+            },
+            "endMarker": {
+              "type": "string"
+            },
+            "blockAction": {
+              "enum": [
+                "set",
+                "remove"
+              ]
+            },
+            "stdin": {
+              "type": "string"
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "schema",
+        "useCase",
+        "mode",
+        "target",
+        "inputs",
+        "operations",
+        "observations",
+        "conflicts",
+        "omissions",
+        "effectiveOptions",
+        "reviewDigest"
+      ]
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "scanId": {
+                "type": "string",
+                "pattern": "^scan:sha256:[a-f0-9]{64}$"
+              },
+              "status": {
+                "enum": [
+                  "skipped",
+                  "authenticated",
+                  "unverifiable"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "not-supplied",
+                  "not-requested",
+                  "unavailable",
+                  "unsupported-artifact",
+                  "malformed",
+                  "id-mismatch",
+                  "byte-mismatch",
+                  "unsigned",
+                  "unknown-producer",
+                  "untrusted-key",
+                  "invalid-signature",
+                  "resource-limit"
+                ]
+              },
+              "producerIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "keyId": {
+                "type": "string",
+                "pattern": "^ed25519:[a-f0-9]{64}$"
+              },
+              "reportRead": {
+                "enum": [
+                  "supported",
+                  "unsupported",
+                  "not-requested"
+                ]
+              }
+            }
+          }
+        },
+        "schema": {
+          "const": "urn:aihq:core:prepared-work:1.4.0"
+        },
+        "useCase": {
+          "enum": [
+            "repair",
+            "certificate-export"
+          ]
+        },
+        "mode": {
+          "const": "standalone"
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "project"
+          ],
+          "properties": {
+            "scope": {
+              "const": "user"
+            },
+            "project": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "trust"
+          ],
+          "properties": {
+            "trust": {
+              "$ref": "#/$defs/trust/$defs/trustInputs"
+            }
+          }
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "file.write",
+                  "config.entries",
+                  "text.block",
+                  "file.remove",
+                  "process.run",
+                  "hook.group"
+                ]
+              },
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "effects": {
+                "enum": [
+                  "create-file",
+                  "replace-file",
+                  "remove-file",
+                  "already-satisfied",
+                  "conflict",
+                  "opaque-process",
+                  "unavailable"
+                ]
+              },
+              "ownership": {
+                "enum": [
+                  "managed",
+                  "unowned"
+                ]
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "$ref": "#/$defs/trust/$defs/reviewDetails"
+                    },
+                    "kind": {
+                      "enum": [
+                        "file.sha256",
+                        "process.exit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "purpose",
+                    "kind",
+                    "details"
+                  ]
+                }
+              },
+              "details": {
+                "$ref": "#/$defs/trust/$defs/reviewDetails"
+              }
+            },
+            "required": [
+              "id",
+              "purpose",
+              "kind",
+              "scope",
+              "effects",
+              "ownership",
+              "requires",
+              "checks",
+              "details"
+            ],
+            "if": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "hook.group"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "details": {
+                  "type": "object",
+                  "properties": {
+                    "hookGroup": {}
+                  },
+                  "required": [
+                    "hookGroup"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "type": "object",
+              "properties": {
+                "details": {
+                  "not": {
+                    "type": "object",
+                    "properties": {
+                      "hookGroup": {}
+                    },
+                    "required": [
+                      "hookGroup"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "reason"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "conflicts": {
+          "$ref": "#/$defs/trust/$defs/diagnostics"
+        },
+        "omissions": {
+          "$ref": "#/$defs/trust/$defs/diagnostics"
+        },
+        "effectiveOptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "logging",
+            "inputs"
+          ],
+          "properties": {
+            "logging": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "origin"
+              ],
+              "properties": {
+                "value": {
+                  "enum": [
+                    "on",
+                    "off"
+                  ]
+                },
+                "origin": {
+                  "enum": [
+                    "default",
+                    "explicit"
+                  ]
+                }
+              }
+            },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "origin"
+                ],
+                "properties": {
+                  "origin": {
+                    "enum": [
+                      "default",
+                      "explicit",
+                      "private"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reviewDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "schema",
+        "useCase",
+        "mode",
+        "target",
+        "inputs",
+        "operations",
+        "observations",
+        "conflicts",
+        "omissions",
+        "effectiveOptions",
+        "reviewDigest"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "useCase": {
+                "const": "certificate-export"
+              }
+            },
+            "required": [
+              "useCase"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "trust": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "const": "export"
+                      },
+                      "definition": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "const": "certificate-export"
+                          }
+                        }
+                      },
+                      "targets": {
+                        "type": "array",
+                        "maxItems": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "trust": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "enum": [
+                          "native",
+                          "file"
+                        ]
+                      },
+                      "definition": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "enum": [
+                              "node-npm-ca",
+                              "user-tools-ca",
+                              "jvm-ca"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "trust": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "const": "native"
+                      }
+                    },
+                    "required": [
+                      "route"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "trust": {
+                    "type": "object",
+                    "properties": {
+                      "sourceSetSha256": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "trust": {
+                    "type": "object",
+                    "properties": {
+                      "sourceSetSha256": {
+                        "$ref": "#/$defs/trust/$defs/sha256"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "$defs": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "partitionId": {
+          "type": "string",
+          "pattern": "^(?:os|node-bundled-default|jvm-baseline|supplied:[A-Za-z0-9][A-Za-z0-9._-]{0,127})$"
+        },
+        "boundedLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "reason",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "encountered": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "nullableSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            }
+          ]
+        },
+        "trustInputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "route",
+            "definition",
+            "helperSha256",
+            "package",
+            "bindingSha256",
+            "sourceSetSha256",
+            "targets",
+            "sources",
+            "certificates",
+            "outputs"
+          ],
+          "properties": {
+            "route": {
+              "enum": [
+                "native",
+                "file",
+                "export"
+              ]
+            },
+            "definition": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "schema"
+              ],
+              "properties": {
+                "id": {
+                  "enum": [
+                    "node-npm-ca",
+                    "user-tools-ca",
+                    "jvm-ca",
+                    "certificate-export"
+                  ]
+                },
+                "schema": {
+                  "const": "urn:aihq:harness:repair:1.1.0"
+                }
+              }
+            },
+            "helperSha256": {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            },
+            "package": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "version"
+              ],
+              "properties": {
+                "name": {
+                  "const": "@aihq/core"
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              }
+            },
+            "bindingSha256": {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            },
+            "sourceSetSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/trust/$defs/targetReview"
+              }
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/trust/$defs/sourceReview"
+              }
+            },
+            "certificates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/trust/$defs/certificateReview"
+              }
+            },
+            "outputs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/trust/$defs/outputReview"
+              }
+            }
+          }
+        },
+        "targetReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "route",
+            "admission",
+            "reason",
+            "cellId",
+            "client",
+            "policy",
+            "configurationSha256",
+            "secondarySources",
+            "verification"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/trust/$defs/sourceId"
+            },
+            "route": {
+              "enum": [
+                "native",
+                "file"
+              ]
+            },
+            "admission": {
+              "enum": [
+                "admitted",
+                "unavailable"
+              ]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/trust/$defs/boundedLabel"
+                }
+              ]
+            },
+            "cellId": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/trust/$defs/sourceId"
+                }
+              ]
+            },
+            "client": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "version",
+                    "executableSha256",
+                    "backend",
+                    "backendVersion",
+                    "applicationId"
+                  ],
+                  "properties": {
+                    "version": {
+                      "$ref": "#/$defs/trust/$defs/boundedLabel"
+                    },
+                    "executableSha256": {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    },
+                    "backend": {
+                      "$ref": "#/$defs/trust/$defs/boundedLabel"
+                    },
+                    "backendVersion": {
+                      "$ref": "#/$defs/trust/$defs/boundedLabel"
+                    },
+                    "applicationId": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "policy": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "projection",
+                    "binding",
+                    "observationSha256",
+                    "scope"
+                  ],
+                  "properties": {
+                    "projection": {
+                      "enum": [
+                        "windows-effective-server-auth-v1",
+                        "macos-effective-server-auth-v1",
+                        "ubuntu-24.04-system-openssl-v1"
+                      ]
+                    },
+                    "binding": {
+                      "enum": [
+                        "live-os",
+                        "snapshot"
+                      ]
+                    },
+                    "observationSha256": {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  }
+                }
+              ]
+            },
+            "configurationSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "secondarySources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "disposition",
+                  "sha256"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/trust/$defs/partitionId"
+                  },
+                  "disposition": {
+                    "enum": [
+                      "participates",
+                      "ignored"
+                    ]
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/trust/$defs/nullableSha256"
+                  }
+                }
+              }
+            },
+            "verification": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "reason",
+                "checkIds"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "planned",
+                    "skipped",
+                    "unavailable"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "checkIds": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/trust/$defs/boundedLabel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "sourceReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "adapter",
+            "scope",
+            "completeness",
+            "policySha256",
+            "sourceSha256",
+            "runtimeVersion",
+            "reason",
+            "fingerprints"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/trust/$defs/partitionId"
+            },
+            "kind": {
+              "enum": [
+                "os",
+                "supplied",
+                "node-bundled",
+                "jvm-baseline"
+              ]
+            },
+            "adapter": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "version",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "id": {
+                      "$ref": "#/$defs/trust/$defs/sourceId"
+                    },
+                    "version": {
+                      "$ref": "#/$defs/trust/$defs/boundedLabel"
+                    },
+                    "sha256": {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    }
+                  }
+                }
+              ]
+            },
+            "scope": {
+              "enum": [
+                "effective-current-user",
+                "explicit-source",
+                "runtime-bundled",
+                "selected-jvm-baseline"
+              ]
+            },
+            "completeness": {
+              "enum": [
+                "complete",
+                "incomplete",
+                "unavailable"
+              ]
+            },
+            "policySha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "sourceSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "runtimeVersion": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/trust/$defs/boundedLabel"
+                }
+              ]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/trust/$defs/boundedLabel"
+                }
+              ]
+            },
+            "fingerprints": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/trust/$defs/sha256"
+              }
+            }
+          }
+        },
+        "certificateReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fingerprint",
+            "subject",
+            "issuer",
+            "notBefore",
+            "notAfter",
+            "beforeSources",
+            "afterSources",
+            "disposition",
+            "reasons"
+          ],
+          "properties": {
+            "fingerprint": {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            },
+            "subject": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "issuer": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "notBefore": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+            },
+            "notAfter": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+            },
+            "beforeSources": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/trust/$defs/partitionId"
+              }
+            },
+            "afterSources": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/trust/$defs/partitionId"
+              }
+            },
+            "disposition": {
+              "enum": [
+                "added",
+                "removed",
+                "retained",
+                "provenance-changed",
+                "excluded"
+              ]
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            }
+          }
+        },
+        "outputReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selectionId",
+            "operationId",
+            "managementId",
+            "path",
+            "pathKey",
+            "format",
+            "consumerProfile",
+            "beforeSha256",
+            "afterSha256",
+            "custodyBeforeSha256",
+            "certificateCount",
+            "effect"
+          ],
+          "properties": {
+            "selectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "managementId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "pathKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "format": {
+              "enum": [
+                "pem",
+                "pkcs7-der",
+                "jks"
+              ]
+            },
+            "consumerProfile": {
+              "$ref": "#/$defs/trust/$defs/boundedLabel"
+            },
+            "beforeSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "afterSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "custodyBeforeSha256": {
+              "$ref": "#/$defs/trust/$defs/nullableSha256"
+            },
+            "certificateCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "effect": {
+              "enum": [
+                "create",
+                "unchanged",
+                "replace",
+                "conflict",
+                "unavailable"
+              ]
+            }
+          }
+        },
+        "reviewDetails": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 511
+            },
+            "executable": {
+              "type": "string"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "stdinProtected": {
+              "type": "boolean"
+            },
+            "material": {
+              "type": "string"
+            },
+            "timeoutMs": {
+              "$ref": "#/$defs/trust/$defs/effectiveInteger"
+            },
+            "maxOutputBytes": {
+              "$ref": "#/$defs/trust/$defs/effectiveInteger"
+            },
+            "declaredEffects": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string"
+            },
+            "materialSha256": {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            },
+            "materialBytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "executableSha256": {
+              "$ref": "#/$defs/trust/$defs/sha256"
+            },
+            "acceptedExitCodes": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "format": {
+              "enum": [
+                "json",
+                "jsonc",
+                "toml",
+                "ini",
+                "yaml",
+                "properties"
+              ]
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "action"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "enum": [
+                      "set",
+                      "remove"
+                    ]
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "blockId": {
+              "type": "string"
+            },
+            "startMarker": {
+              "type": "string"
+            },
+            "endMarker": {
+              "type": "string"
+            },
+            "blockAction": {
+              "enum": [
+                "set",
+                "remove"
+              ]
+            },
+            "stdin": {
+              "type": "string"
+            },
+            "hookGroup": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "container",
+                "groupId",
+                "selector",
+                "action",
+                "matchedIndex",
+                "memberBeforeSha256",
+                "memberAfterSha256",
+                "targetBeforeSha256",
+                "desiredGroup"
+              ],
+              "properties": {
+                "container": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "groupId": {
+                  "type": "string"
+                },
+                "selector": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "valueSha256"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        ]
+                      }
+                    },
+                    "valueSha256": {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    }
+                  }
+                },
+                "action": {
+                  "enum": [
+                    "set",
+                    "remove"
+                  ]
+                },
+                "matchedIndex": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "memberBeforeSha256": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    }
+                  ]
+                },
+                "memberAfterSha256": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    }
+                  ]
+                },
+                "targetBeforeSha256": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/trust/$defs/sha256"
+                    }
+                  ]
+                },
+                "desiredGroup": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "effectiveInteger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "origin"
+          ],
+          "properties": {
+            "value": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "origin": {
+              "enum": [
+                "default",
+                "explicit"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

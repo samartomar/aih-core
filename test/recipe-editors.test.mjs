@@ -1,6 +1,59 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderConfigEntries, renderTextBlock } from '../dist/core/internal/recipe-editors.js';
+import { renderConfigEntries, renderTextBlock, configMemberBytes } from '../dist/core/internal/recipe-editors.js';
+
+test('INI owns one scalar option, retaining neighboring sections, comments, continuations and CRLF bytes', () => {
+  const original = '# keep\r\n[global]\r\ntimeout=15\r\nfind-links=\r\n  https://one.example/\r\n  https://two.example/\r\n[install]\r\nupgrade=true\r\n';
+  const set = [{ path: ['global', 'cert'], action: 'set', value: 'C:\\trust\\team.pem' }];
+  const after = renderConfigEntries('ini', Buffer.from(original), set);
+  assert.equal(after.toString(), original.replace('[global]\r\n', '[global]\r\ncert=C:\\trust\\team.pem\r\n'));
+  assert.deepEqual(renderConfigEntries('ini', after, set), after);
+  assert.equal(configMemberBytes('ini', after, ['global', 'CERT']).toString(), 'C:\\trust\\team.pem');
+  assert.equal(renderConfigEntries('ini', after, [{ path: ['global', 'cert'], action: 'remove' }]).toString(), original);
+  assert.equal(renderConfigEntries('ini', Buffer.from('[global]'), set).toString(), '[global]\ncert=C:\\trust\\team.pem\n');
+});
+
+test('INI refuses duplicate sections/options, selected continuations and unsafe scalar syntax', () => {
+  const set = [{ path: ['global', 'cert'], action: 'set', value: '/trust.pem' }];
+  for (const text of ['[global]\n[global]\n', '[global]\ncert=/one\nCERT=/two\n',
+    '[global]\ncert=/one\n  /two\n', '[global]\ntimeout=15\n  cert=/other\n', '\uFEFF[global]\n', '[global]\ncert=\0\n'])
+    assert.throws(() => renderConfigEntries('ini', Buffer.from(text), set));
+  for (const value of ['/one\ncert=/two', ' leading', '', false, 3, ['path']])
+    assert.throws(() => renderConfigEntries('ini', null, [{ ...set[0], value }]), /unsupported-ini-value/);
+  assert.throws(() => renderConfigEntries('ini', null, [set[0], { ...set[0], path: ['global', 'CERT'] }]), /overlapping-entry-paths/);
+});
+
+test('INI preserves indented neighboring options and opaque unrelated subsections', () => {
+  const before = '[user]\n  name=Native Acceptance\n[credential "https://example.test"]\n  helper=manager\n[http]\n  proxy=https://proxy.test\n';
+  const set = [{ path: ['http', 'sslCAInfo'], action: 'set', value: '"/team.pem"' }];
+  const after = renderConfigEntries('ini', Buffer.from(before), set);
+  assert.equal(after.toString(), before.replace('[http]\n', '[http]\n  sslCAInfo="/team.pem"\n'));
+  assert.equal(renderConfigEntries('ini', after, [{ path: ['http', 'sslCAInfo'], action: 'remove' }]).toString(), before);
+});
+
+for (const format of ['yaml', 'properties']) test(`${format} owns a scalar line and preserves neighboring configuration`, () => {
+  const original = format === 'yaml' ? '# keep\r\nchannels:\r\n  - defaults\r\n' : '# keep\r\norg.gradle.parallel=false\r\n';
+  const path = [format === 'yaml' ? 'ssl_verify' : 'systemProp.javax.net.ssl.trustStore'];
+  const after = renderConfigEntries(format, Buffer.from(original), [{ path, action: 'set', value: '/team/store' }]);
+  assert.ok(after.toString().startsWith(original));
+  assert.deepEqual(renderConfigEntries(format, after, [{ path, action: 'set', value: '/team/store' }]), after);
+  assert.equal(renderConfigEntries(format, after, [{ path, action: 'remove' }]).toString(), original);
+  assert.ok(configMemberBytes(format, after, path));
+});
+
+test('bounded scalar formats refuse duplicates, selected multiline values, aliases and escaped properties', () => {
+  const set = (path) => [{ path: [path], action: 'set', value: '/team.pem' }];
+  for (const text of ['ssl_verify: /one\nssl_verify: /two\n', 'ssl_verify: |\n  /one\n',
+    'ssl_verify: /one\n  /two\n', 'ssl_verify: &ca /one\n', '<<: *defaults\n', '---\nssl_verify: /one\n',
+    'ssl_verify: [one, two]\n', '\uFEFFssl_verify: /one\n'])
+    assert.throws(() => renderConfigEntries('yaml', Buffer.from(text), set('ssl_verify')));
+  for (const text of ['store=/one\nstore=/two\n', 'store=/one\\\n  /two\n', '\\u0073tore=/one\n', 'store: /one\n'])
+    assert.throws(() => renderConfigEntries('properties', Buffer.from(text), set('store')));
+  for (const format of ['yaml', 'properties']) {
+    assert.throws(() => renderConfigEntries(format, null, [{ path: ['a', 'b'], action: 'set', value: 'x' }]));
+    assert.throws(() => renderConfigEntries(format, null, [{ path: ['a'], action: 'set', value: 'x\ny' }]));
+  }
+});
 
 test('JSONC edits nested object keys while retaining unrelated comments and formatting', () => {
   const before = Buffer.from('{\n  // keep this note\n  "other": 1,\n  "nested": { "old": true }\n}\n');

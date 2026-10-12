@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validatePreparedWork12 } from '../dist/core/contracts.js';
+import { validatePreparedWork12, validatePreparedWork14 } from '../dist/core/contracts.js';
 
 const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
 function fixture() {
@@ -137,7 +137,7 @@ test('versioned supplied pip repair resolves document-relative sources and previ
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const prepared = JSON.parse(result.stdout);
     assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
-    assert.equal(validatePreparedWork12(prepared.review).valid, true);
+    assert.equal(validatePreparedWork14(prepared.review).valid, true);
     assert.ok(prepared.review.operations.some(operation => operation.id === 'trust/pip-config' && operation.effects === 'create-file'));
     assert.equal(prepared.review.inputs.trust.sources.find(source => source.id === 'supplied:corporate').completeness, 'complete');
     assert.equal(prepared.review.inputs.trust.targets[0].verification.status, 'skipped');

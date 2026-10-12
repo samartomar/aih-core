@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
-import { validatePreparedWork12, validateRunResult12 } from '@aihq/core/contracts';
+import { validatePreparedWork12, validatePreparedWork14, validateRunResult12 } from '@aihq/core/contracts';
 import { trustCapabilities, selectTrustCell } from '@aihq/core/harness';
 import { detectTrustPlatform, parseTrustOutput, verifyTrustAdmissionEvidence } from '@aihq/core/harness/runtime';
 
@@ -41,7 +41,7 @@ const userRequest = { schema: 'urn:aihq:core:repair-request:1.0.0', useCase: 're
   repairs: [{ id: 'user-tools-ca', targets: ['pip'], inputs: {} }], network: 'off' };
 const userRepair = await prepare(userRequest, { logging: 'off' });
 assert.equal(userRepair.status, 'ready', JSON.stringify(userRepair.diagnostics));
-assert.equal(validatePreparedWork12(userRepair.review).valid, true);
+assert.equal(validatePreparedWork14(userRepair.review).valid, true);
 assert.ok(userRepair.review.operations.some(operation => operation.id === 'trust/pip-config'));
 assert.ok(userRepair.review.inputs.trust.sources.some(item => item.kind === 'supplied' && item.id === 'supplied:company'));
 const userDocument = join(process.cwd(), 'user-trust-inputs.json');
@@ -53,7 +53,7 @@ const userCli = spawnSync(process.execPath, [cli, 'repair', 'user-tools-ca', '--
 });
 assert.equal(userCli.status, 0, userCli.stdout + userCli.stderr);
 const userPreview = JSON.parse(userCli.stdout);
-assert.equal(userPreview.status, 'ready'); assert.equal(validatePreparedWork12(userPreview.review).valid, true);
+assert.equal(userPreview.status, 'ready'); assert.equal(validatePreparedWork14(userPreview.review).valid, true);
 for (const [id, targets] of [['user-tools-ca', ['python', 'pip', 'git', 'cargo', 'conda']], ['jvm-ca', ['gradle', 'maven']]]) {
   const unavailable = await prepare({ schema: userRequest.schema, useCase: 'repair', route: 'native',
     repairs: [{ id, targets, inputs: {} }], network: 'off' }, { logging: 'off' });

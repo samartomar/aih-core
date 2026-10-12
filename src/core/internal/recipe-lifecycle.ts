@@ -6,14 +6,16 @@ export interface Claim { managementId: string; scope: 'project' | 'user'; sets: 
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
 export type MemberDescriptor = { path: string; kind: 'file' } | HookDescriptor |
-  { path: string; kind: 'entry'; format: 'json' | 'jsonc' | 'toml'; entry: string[] } |
+  { path: string; kind: 'entry'; format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties'; entry: string[] } |
   { path: string; kind: 'block'; blockId: string; startMarker: string; endMarker: string };
 export function memberKey(member: MemberDescriptor): string {
   if (member.kind === 'file') return process.platform === 'win32' ? member.path.toLowerCase() : member.path;
   // The selector is deliberately outside identity: a changed selector under one group ID is detected, not re-keyed.
   if (member.kind === 'hook') return 'member:' + sha256(canonicalJson({ path: process.platform === 'win32' ? member.path.toLowerCase() : member.path,
     kind: member.kind, format: member.format, container: member.container, groupId: member.groupId }));
-  return 'member:' + sha256(canonicalJson({ ...member, path: process.platform === 'win32' ? member.path.toLowerCase() : member.path }));
+  return 'member:' + sha256(canonicalJson({ ...member,
+    ...(member.kind === 'entry' && member.format === 'ini' ? { entry: [member.entry[0], member.entry[1]?.toLowerCase()] } : {}),
+    path: process.platform === 'win32' ? member.path.toLowerCase() : member.path }));
 }
 /** Whole-file, entry and block members only: a hook member is decided by `decideHookStep` / `decideHookCleanup`, never by raw member bytes. */
 export type ByteMember = Exclude<MemberDescriptor, HookDescriptor>;
@@ -37,7 +39,7 @@ export function validDescriptor(value: unknown): value is MemberDescriptor {
   if (Object.keys(member).some(key => !keys.includes(key)) || keys.some(key => !Object.hasOwn(member, key))) return false;
   if (member.kind === 'hook') return validHook(member);
   try {
-    if (member.kind === 'entry') { renderConfigEntries(member.format, null, [{ path: member.entry, action: 'set', value: true }]); return true; }
+    if (member.kind === 'entry') { renderConfigEntries(member.format, null, [{ path: member.entry, action: 'set', value: ['ini', 'yaml', 'properties'].includes(member.format) ? 'value' : true }]); return true; }
     if (member.kind === 'block') { renderTextBlock(null, { ...member, action: 'remove' }); return true; }
     return member.kind === 'file';
   } catch { return false; }
@@ -92,7 +94,11 @@ export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor, byt
   if (a.kind === 'hook' && b.kind === 'hook') return a.format !== b.format || prefix(a.container, b.container) && a.container.length !== b.container.length || prefix(b.container, a.container) && a.container.length !== b.container.length;
   if (a.kind === 'hook' && b.kind === 'entry') return prefix(b.entry, a.container) || prefix(a.container, b.entry);
   if (a.kind === 'entry' && b.kind === 'hook') return prefix(a.entry, b.container) || prefix(b.container, a.entry);
-  if (a.kind === 'entry' && b.kind === 'entry') return a.entry.slice(0, b.entry.length).join('\0') === b.entry.join('\0') || b.entry.slice(0, a.entry.length).join('\0') === a.entry.join('\0');
+  if (a.kind === 'entry' && b.kind === 'entry') {
+    const entry = (member: typeof a) => member.format === 'ini' ? [member.entry[0]!, member.entry[1]!.toLowerCase()] : member.entry;
+    const left = entry(a), right = entry(b);
+    return a.format !== b.format && [a.format, b.format].some(format => ['ini', 'yaml', 'properties'].includes(format)) || left.slice(0, right.length).join('\0') === right.join('\0') || right.slice(0, left.length).join('\0') === left.join('\0');
+  }
   if (a.kind === 'block' && b.kind === 'block') {
     if (a.blockId === b.blockId || [a.startMarker, a.endMarker].some(marker => [b.startMarker, b.endMarker].includes(marker))) return true;
     if (!bytes) return false;

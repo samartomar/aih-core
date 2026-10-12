@@ -6,7 +6,11 @@ import { dirname, join } from 'node:path';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
-import { validatePreparedWork12, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
+import { validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+
+const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 
 // Public repair API over the shared trust source for existing non-Node families.
 // Fixture executables only prove discovery/launch wiring, never native TLS behavior.
@@ -50,7 +54,7 @@ const repair = (id, targets, extra = {}) => ({ schema: 'urn:aihq:core:repair-req
   network: 'off', repairs: [{ id, targets, inputs: {} }], ...extra });
 const pipConfig = () => process.platform === 'win32' ? join(appData, 'pip', 'pip.ini') : join(home, '.config', 'pip', 'pip.conf');
 const custody = () => JSON.parse(readFileSync(join(home, '.aih', 'core', 'trust-custody.json')));
-const valid = (validator, value) => { const checked = validator(value); assert.equal(checked.valid, true, JSON.stringify(checked.diagnostics)); };
+const valid = (validator, value) => { const checked = value.schema === 'urn:aihq:core:prepared-work:1.4.0' ? validatePreparedWork14(value) : validator(value); assert.equal(checked.valid, true, JSON.stringify(checked.diagnostics)); };
 
 test('supplied-only pip repair writes the original pip transform with paired custody and refreshes from retained custody', () => withPath(async () => {
   fixtureTool('pip');
@@ -62,7 +66,7 @@ test('supplied-only pip repair writes the original pip transform with paired cus
   assert.ok(trust.sources.some(s => s.id === 'supplied:team' && s.completeness === 'complete'));
   assert.deepEqual(trust.targets.map(t => [t.id, t.admission, t.verification.status]), [['pip', 'admitted', 'skipped']]);
   assert.equal(p.review.operations.find(o => o.id === 'trust/pip-config').effects, 'create-file');
-  assert.equal(p.review.operations.find(o => o.id === 'trust/pip-config').details.content, '[REDACTED]');
+  assert.deepEqual(p.review.operations.find(o => o.id === 'trust/pip-config').details.entries.map(e => [e.path, e.action]), [[['global', 'cert'], 'set']]);
   assert.equal(trust.outputs.length, 1); assert.equal(trust.outputs[0].managementId, 'user-tools-trust');
   assert.equal(existsSync(pipConfig()), false); assert.equal(existsSync(trust.outputs[0].path), false);
 
@@ -172,6 +176,85 @@ test('new custody refuses legacy user-tools requests and is retired by managed r
   assert.equal(existsSync(p.review.inputs.trust.outputs[0].path), false); assert.deepEqual(custody().entries, []);
 }));
 
+for (const route of ['shared', 'legacy']) test(`${route} reviewed user-tools removal preserves pre-existing unrelated configuration`, () => withPath(async () => {
+  fixtureTool('pip');
+  mkdirSync(dirname(pipConfig()), { recursive: true });
+  const original = '# keep\r\n[global]\r\ntimeout=15\r\n[install]\r\nupgrade=true\r\n';
+  writeFileSync(pipConfig(), original);
+  const neighbors = [[join(home, '.gitconfig'), '[user]\n  name=Native Acceptance\n'], [join(home, '.cargo', 'config.toml'), '[net]\nretry=0\n'], [join(home, '.condarc'), 'channels:\n  - defaults\n']];
+  for (const [path, text] of neighbors) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
+  for (const id of ['git', 'cargo', 'conda']) fixtureTool(id);
+  const file = source('removal.pem');
+  const request = route === 'shared' ? repair('user-tools-ca', ['pip', 'git', 'cargo', 'conda'], {
+    sources: { os: false, supplied: [{ id: 'team', file }] },
+    resolutions: [{ selectionId: 'trust', operationId: 'pip-config', choice: 'replace', observedSha256: createHash('sha256').update(readFileSync(pipConfig())).digest('hex') }],
+  }) : { useCase: 'repair', network: 'off', repairs: [{ id: 'user-tools-ca', targets: ['pip', 'git', 'cargo', 'conda'], inputs: { caFile: file } }] };
+  const p = await prepare(request, { logging: 'off' });
+  assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
+  const repaired = await apply(p.prepared, approve(p), { logging: 'off' });
+  assert.equal(repaired.completion, route === 'shared' ? 'complete' : 'incomplete', JSON.stringify(repaired.diagnostics));
+  if (route === 'legacy') {
+    assert.equal(validateLegacyRun(repaired), true, JSON.stringify(validateLegacyRun.errors));
+    assert.equal(repaired.schema, 'urn:aihq:core:run-result:1.0.0');
+  } else valid(validateRunResult12, repaired);
+  assert.ok(repaired.operations.some(o => o.id === 'trust/pip-config' && o.application === 'applied'));
+  valid(validatePreparedWork14, p.review);
+  const npm = await prepare(repair('node-npm-ca', ['npm'], { sources: { os: false, supplied: [{ id: 'npm', file }] } }), { logging: 'off' });
+  assert.equal(npm.status, 'ready', JSON.stringify(npm.diagnostics));
+  assert.equal((await apply(npm.prepared, approve(npm), { logging: 'off' })).completion, 'complete');
+  const unrelated = custody().entries.filter(e => e.managementId !== 'user-tools-trust');
+  const npmBytes = readFileSync(join(home, '.npmrc'));
+  // Changes outside the owned option are independent of trust ownership.
+  writeFileSync(pipConfig(), readFileSync(pipConfig(), 'utf8').replace('timeout=15', 'timeout=15\r\nretries=3'));
+  const before = readFileSync(pipConfig());
+  assert.match(readFileSync(pipConfig(), 'utf8'), /timeout=15/);
+  const removal = await prepareManagedRemoval({ target: { project: home }, managementId: 'user-tools-trust', scope: 'user', mode: 'vibe' }, { logging: 'off' });
+  assert.equal(removal.disposition, 'prepared', JSON.stringify(removal.diagnostics));
+  assert.deepEqual(readFileSync(pipConfig()), before);
+  assert.equal(removal.schema, 'urn:aihq:core:managed-removal-preparation:1.1.0');
+  valid(validatePreparedWork14, removal.preparation.review);
+  assert.equal(removal.preparation.review.operations.find(o => o.details.format === 'ini').kind, 'config.entries');
+  const removed = await apply(removal.preparation.prepared, approve(removal.preparation), { logging: 'off' });
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed.diagnostics));
+  assert.equal(existsSync(pipConfig()), true, 'unrelated pip timeout must survive removal');
+  assert.equal(readFileSync(pipConfig(), 'utf8'), original.replace('timeout=15', 'timeout=15\r\nretries=3'));
+  assert.doesNotMatch(readFileSync(pipConfig(), 'utf8'), /^cert=/m);
+  const material = p.review.operations.find(o => o.id === 'trust/material').details.target;
+  assert.equal(existsSync(material), false);
+  for (const [path, text] of neighbors) assert.equal(readFileSync(path, 'utf8').replace(/\[(?:http|global)\]\r?\n/g, ''), text);
+  assert.deepEqual(custody().entries, unrelated);
+  assert.deepEqual(readFileSync(join(home, '.npmrc')), npmBytes);
+}));
+
+test('previous whole-file repair custody requires reconciliation and cannot be relabeled by reapplication', () => withPath(async () => {
+  fixtureTool('pip');
+  const original = '[global]\ncert=/previous.pem\ntimeout=15\n';
+  const segments = process.platform === 'win32' ? ['AppData', 'Roaming', 'pip', 'pip.ini'] : ['.config', 'pip', 'pip.conf'];
+  const policy = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
+    id: 'trust', managementId: 'user-tools-trust', scope: 'user', requires: [], configuration: {}, recipe: { inline: {
+      schema: 'urn:aihq:core:recipe:1.0.0', id: 'previous-repair', description: 'Previous whole-file configuration custody',
+      inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [], operations: [{
+        id: 'pip-config', kind: 'file.write', purpose: 'Write complete configuration', scope: 'user',
+        target: { root: 'userHome', segments: segments.map(literal => ({ literal })) }, content: { literal: original }, requires: [], checks: [],
+      }],
+    } },
+  }] };
+  const p = await prepare({ useCase: 'policy', target: { project: home }, policy }, { logging: 'off' });
+  assert.equal((await apply(p.prepared, approve(p), { logging: 'off' })).completion, 'complete');
+  const receipt = join(home, '.aih', 'core', 'ownership', createHash('sha256').update(realpathSync.native(home)).digest('hex') + '.json');
+  const before = readFileSync(receipt);
+  const removal = await prepareManagedRemoval({ target: { project: home }, managementId: 'user-tools-trust', scope: 'user', mode: 'vibe' }, { logging: 'off' });
+  assert.equal(removal.disposition, 'reconcile-required', JSON.stringify(removal.diagnostics));
+  assert.equal(removal.preparation, undefined);
+  assert.deepEqual(readFileSync(receipt), before);
+  assert.equal(readFileSync(pipConfig(), 'utf8'), original);
+  const again = await prepare(repair('user-tools-ca', ['pip'], { sources: { os: false, supplied: [{ id: 'team', file: source('previous.pem') }] } }), { logging: 'off' });
+  assert.equal(again.status, 'partial', JSON.stringify(again.diagnostics));
+  assert.ok(again.review.operations.some(o => o.id === 'trust/pip-config' && o.effects === 'conflict'));
+  assert.deepEqual(readFileSync(receipt), before);
+  assert.equal(readFileSync(pipConfig(), 'utf8'), original);
+}));
+
 // A genuine JKS trust-only fixture generated with keytool from root-a.pem (shared with test/jvm-trust.test.mjs).
 // It is a public boundary input; it does not stand in for native manager proof.
 const baseline = Buffer.from(
@@ -216,6 +299,9 @@ const certificateFingerprint = pem => createHash('sha256').update(new X509Certif
 
 test('JVM launch boundary: Apply commits both outputs and custody before configuration, retains sources and removes the pair', t => withPath(async () => {
   if (!keytoolBoundary(t, [rootA, rootB].map(certificateFingerprint))) return;
+  const gradlePath = join(home, '.gradle', 'gradle.properties'); const mavenPath = join(home, process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc');
+  mkdirSync(dirname(gradlePath), { recursive: true }); writeFileSync(gradlePath, 'org.gradle.parallel=false\n');
+  const mavenNeighbor = process.platform === 'win32' ? 'REM user comment\n' : '# user comment\n'; writeFileSync(mavenPath, mavenNeighbor);
   const baselineStore = source('apply-baseline.jks', baseline);
   const request = { ...jvm(baselineStore), repairs: [{ id: 'jvm-ca', targets: ['gradle', 'maven'], inputs: { baselineStore } }] };
   const p = await prepare(request, { logging: 'off' });
@@ -242,6 +328,8 @@ test('JVM launch boundary: Apply commits both outputs and custody before configu
   assert.equal(removal.disposition, 'prepared', JSON.stringify(removal.diagnostics));
   assert.equal((await apply(removal.preparation.prepared, approve(removal.preparation), { logging: 'off' })).completion, 'complete');
   assert.ok(r.trust.outputs.every(o => !existsSync(o.path))); assert.deepEqual(custody().entries, []);
+  assert.equal(readFileSync(gradlePath, 'utf8'), 'org.gradle.parallel=false\n');
+  assert.equal(readFileSync(mavenPath, 'utf8'), mavenNeighbor);
 }));
 
 test('JVM launch boundary: failed store verification never releases dependent configuration', t => withPath(async () => {

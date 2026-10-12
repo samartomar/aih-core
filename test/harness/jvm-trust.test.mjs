@@ -1,3 +1,4 @@
+import { renderConfigurations } from './config-fixture.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -42,11 +43,11 @@ const baseline = jksFixture([['jdk-root-b', Buffer.from(readFileSync(new URL('./
 
 const managedPath = process.platform === 'win32' ? 'C:\\x\\trust.pem' : '/x/trust.pem';
 const variantRef = (targets, network = 'off') => `jvm-ca/${process.platform}/${targets.join('+')}/${network}`;
-const prepare = (targets, configSnapshots = {}, extra = {}) => prepareRepairDefinition({
+const prepare = (targets, configSnapshots = {}, extra = {}) => renderConfigurations(prepareRepairDefinition({
   id: 'jvm-ca', variantRef: variantRef(targets, extra.offline === false ? 'declared' : 'off'), targets,
   files: { caFile: ca, baselineStore: baseline }, configSnapshots, managedPath,
   offline: true, ...extra
-});
+}), getRepairRecipe(variantRef(targets)), configSnapshots);
 
 test('jvm-ca definition ships fixed variants, baseline input, executable bindings and config snapshots', () => {
   const definition = repairIndex.find(item => item.id === 'jvm-ca');
@@ -107,7 +108,7 @@ test('fixed JVM graph gates configuration behind baseline bytes and successful k
     assert.ok(operations['jks-materialize'].requires.includes(dependency), `jks-materialize requires ${dependency}`);
   assert.ok(operations['jks-materialize'].checks.includes('jks-content'));
   for (const id of ['gradle-config', 'maven-config']) {
-    assert.equal(operations[id].kind, 'file.write');
+    assert.equal(operations[id].kind, id === 'gradle-config' ? 'config.entries' : 'text.block');
     assert.deepEqual(operations[id].requires, ['jks-materialize'],
       `${id} must never persist a reference to a truststore that failed to materialize`);
     assert.deepEqual(operations[id].checks, [], `${id} has no behavior check offline`);
@@ -115,7 +116,7 @@ test('fixed JVM graph gates configuration behind baseline bytes and successful k
   assert.ok(!recipe.checks.some(item => item.id.endsWith('-behavior')), 'offline variant ships no behavior checks');
   const checks = Object.fromEntries(recipe.checks.map(item => [item.id, item]));
   for (const id of ['material-digest', 'baseline-digest', 'keytool-available', 'jks-content']) assert.ok(checks[id], id);
-  for (const name of ['bundle', 'baselineStoreBase64', 'gradleConfig', 'mavenConfig'])
+  for (const name of ['bundle', 'baselineStoreBase64', 'mavenConfig'])
     assert.equal(recipe.inputs[name].sensitive, true, `${name} stays out of public review values`);
   for (const name of ['bundlePath', 'bundleSha256', 'baselineStoreSha256', 'jksPath', 'fingerprintCsv',
     'baselineFilePath', 'keytoolExecutable', 'gradleConfigPath', 'mavenConfigPath'])
@@ -157,14 +158,14 @@ test('Gradle transform retains neighboring settings, normalizes the store path a
   const first = prepare(['gradle'], { 'gradle-config': Buffer.from(original) });
   assert.equal(first.status, 'completed', JSON.stringify(first.diagnostics));
   const normalized = first.bindings.jksPath.replaceAll('\\', '/');
-  assert.equal(first.privateBindings.gradleConfig,
+  assert.equal(first.renderedConfigs.gradleConfig,
     '# keep\r\norg.gradle.parallel=true\r\nsystemProp.http.proxyHost=proxy.example\r\n' +
     `systemProp.javax.net.ssl.trustStore=${normalized}\r\nsystemProp.javax.net.ssl.trustStorePassword=changeit\r\n`);
   assert.equal(JSON.stringify(first.bindings).includes('proxy.example'), false,
     'neighboring private settings never enter public bindings');
-  const twice = prepare(['gradle'], { 'gradle-config': Buffer.from(first.privateBindings.gradleConfig) });
+  const twice = prepare(['gradle'], { 'gradle-config': Buffer.from(first.renderedConfigs.gradleConfig) });
   assert.equal(twice.status, 'completed');
-  assert.equal(twice.privateBindings.gradleConfig, first.privateBindings.gradleConfig);
+  assert.equal(twice.renderedConfigs.gradleConfig, first.renderedConfigs.gradleConfig);
   assert.deepEqual(twice.bindings, first.bindings);
 });
 
@@ -173,7 +174,7 @@ test('Gradle comments and unrelated javax keys survive untouched', () => {
   const result = prepare(['gradle'], { 'gradle-config': Buffer.from(original) });
   assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
   const normalized = result.bindings.jksPath.replaceAll('\\', '/');
-  assert.equal(result.privateBindings.gradleConfig,
+  assert.equal(result.renderedConfigs.gradleConfig,
     '# systemProp.javax.net.ssl.trustStore=/commented.jks\n! another comment\nsystemProp.javax.net.ssl.keyStore=/keep.jks\n' +
     `systemProp.javax.net.ssl.trustStore=${normalized}\nsystemProp.javax.net.ssl.trustStorePassword=changeit\n`);
 });
@@ -203,12 +204,12 @@ test('Maven rc block preserves neighboring lines and is byte-idempotent', () => 
   const block = win ?
     `REM BEGIN AIHQ MAVEN CA\r\nset "MAVEN_OPTS=%MAVEN_OPTS% ${opts}"\r\nREM END AIHQ MAVEN CA\r\n` :
     `# BEGIN AIHQ MAVEN CA\nMAVEN_OPTS="\${MAVEN_OPTS:-} ${opts}"\nexport MAVEN_OPTS\n# END AIHQ MAVEN CA\n`;
-  assert.equal(first.privateBindings.mavenConfig, original + block);
+  assert.equal(first.renderedConfigs.mavenConfig, original + block);
   assert.equal(JSON.stringify(first.bindings).includes('FOO=bar'), false,
     'neighboring private settings never enter public bindings');
-  const twice = prepare(['maven'], { 'maven-config': Buffer.from(first.privateBindings.mavenConfig) });
+  const twice = prepare(['maven'], { 'maven-config': Buffer.from(first.renderedConfigs.mavenConfig) });
   assert.equal(twice.status, 'completed', JSON.stringify(twice.diagnostics));
-  assert.equal(twice.privateBindings.mavenConfig, first.privateBindings.mavenConfig);
+  assert.equal(twice.renderedConfigs.mavenConfig, first.renderedConfigs.mavenConfig);
 });
 
 test('Gradle refuses continuations and escaped property keys before a rewrite can change neighboring values', () => {
@@ -235,9 +236,9 @@ test('Maven replaces its earlier managed block instead of stacking a second one'
   const stale = `setx HOME 1\n${begin}\nstale trust options\n${end}\n`;
   const result = prepare(['maven'], { 'maven-config': Buffer.from(stale) });
   assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
-  assert.equal(result.privateBindings.mavenConfig.split(begin).length - 1, 1);
-  assert.ok(!result.privateBindings.mavenConfig.includes('stale trust options'));
-  assert.ok(result.privateBindings.mavenConfig.startsWith('setx HOME 1\n'));
+  assert.equal(result.renderedConfigs.mavenConfig.split(begin).length - 1, 1);
+  assert.ok(!result.renderedConfigs.mavenConfig.includes('stale trust options'));
+  assert.ok(result.renderedConfigs.mavenConfig.startsWith('setx HOME 1\n'));
 });
 
 test('Maven refuses continued lines and uncertain shell block contexts before changing neighboring values', () => {
@@ -678,7 +679,7 @@ test('native Gradle consumes the repaired truststore and reaches its declared en
         { encoding: 'utf8', timeout: materialize.timeoutMs, windowsHide: true }).status, 0,
         'real store materialized');
       const configPath = join(home, '.gradle', 'gradle.properties');
-      writeFileSync(configPath, prepared.privateBindings.gradleConfig);
+      writeFileSync(configPath, prepared.renderedConfigs.gradleConfig);
       const check = recipe.checks.find(item => item.id === 'gradle-behavior');
       const env = { ...process.env, HOME: home, USERPROFILE: home,
         AIH_EXPECTED_FINGERPRINTS: prepared.bindings.fingerprintCsv, AIH_EXPECTED_STORE: jksPath,
@@ -719,7 +720,7 @@ test('native Maven consumes the repaired truststore and reaches its declared end
         { encoding: 'utf8', timeout: materialize.timeoutMs, windowsHide: true }).status, 0,
         'real store materialized');
       const configPath = join(home, process.platform === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc');
-      writeFileSync(configPath, prepared.privateBindings.mavenConfig);
+      writeFileSync(configPath, prepared.renderedConfigs.mavenConfig);
       const check = recipe.checks.find(item => item.id === 'maven-behavior');
       const env = { ...process.env, HOME: home, USERPROFILE: home,
         AIH_EXPECTED_FINGERPRINTS: prepared.bindings.fingerprintCsv, AIH_EXPECTED_STORE: jksPath,

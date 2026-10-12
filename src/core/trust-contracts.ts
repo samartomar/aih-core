@@ -11,6 +11,7 @@ import repairInputsSchema from './schemas/repair-inputs/1.0.0.json' with { type:
 import certificateExportRequestSchema from './schemas/certificate-export-request/1.0.0.json' with { type: 'json' };
 import certificateExportInputsSchema from './schemas/certificate-export-inputs/1.0.0.json' with { type: 'json' };
 import preparedWork12Schema from './schemas/prepared-work/1.2.0.json' with { type: 'json' };
+import preparedWork14Schema from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
 import runResult12Schema from './schemas/run-result/1.2.0.json' with { type: 'json' };
 import trustCustodySchema from './schemas/trust-custody/1.0.0.json' with { type: 'json' };
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
@@ -240,6 +241,7 @@ export const trustContractSchemas = Object.freeze([
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 for (const schema of trustContractSchemas) ajv.addSchema(schema);
+const checkPreparedWork14 = ajv.compile(preparedWork14Schema);
 const checkTrustRepairRequest = ajv.getSchema(repairRequestSchema.$id) as ValidateFunction;
 const checkTrustRepairInputs = ajv.getSchema(repairInputsSchema.$id) as ValidateFunction;
 const checkCertificateExportRequest = ajv.getSchema(certificateExportRequestSchema.$id) as ValidateFunction;
@@ -276,7 +278,7 @@ function validateAgainst(
 ): ValidationResult {
   // Complete produced facts are governed by discovery/output limits, never the
   // optional history cap. Private provenance has its own exact 1 MiB limit.
-  const maxBytes = expected === PREPARED_WORK_1_2_0 || expected === RUN_RESULT_1_2_0 ? undefined :
+  const maxBytes = expected === PREPARED_WORK_1_2_0 || expected === 'urn:aihq:core:prepared-work:1.4.0' || expected === RUN_RESULT_1_2_0 ? undefined :
     expected === TRUST_CUSTODY_1_0_0 ? 1_048_576 : 1_000_000;
   const inspected = inspect(value, maxBytes);
   if ('diagnostic' in inspected) return { valid: false, diagnostics: [inspected.diagnostic] };
@@ -446,6 +448,10 @@ export const validateCertificateExportInputs = (value: unknown): ValidationResul
   validateAgainst(value, certificateExportInputsSchema.$id, checkCertificateExportInputs, certificateExportInputsSemantics);
 export const validatePreparedWork12 = (value: unknown): ValidationResult =>
   validateAgainst(value, preparedWork12Schema.$id, checkPreparedWork12, preparedWork12Semantics);
+/** Bounded configuration review; previous review validators remain strict to their own IDs. */
+export const validatePreparedWork14 = (value: unknown): ValidationResult =>
+  validateAgainst(value, preparedWork14Schema.$id, checkPreparedWork14, value =>
+    isObject(value.inputs) && Object.hasOwn(value.inputs, 'trust') ? preparedWork12Semantics(value) : []);
 export const validateRunResult12 = (value: unknown): ValidationResult =>
   validateAgainst(value, runResult12Schema.$id, checkRunResult12, runResult12Semantics);
 export const validateTrustCustody = (value: unknown): ValidationResult =>

@@ -409,12 +409,16 @@ export function jvmRecipe(variant) {
   for (const file of variant.configFiles) {
     if (file.operationId !== 'gradle-config' && file.operationId !== 'maven-config') continue;
     const id = file.operationId.split('-')[0];
-    inputs[`${id}Config`] = { type: 'string', required: true, sensitive: true, maxLength: 2 * 1024 * 1024 };
+    if (id === 'maven') inputs.mavenConfig = { type: 'string', required: true, sensitive: true, maxLength: 16384 };
+    else inputs.gradleStoreValue = { type: 'string', required: true, maxLength: 4096 };
     inputs[`${id}ConfigPath`] = { type: 'string', required: true, maxLength: 4096 };
     const behavior = `${id}-behavior`;
     operations.push({ id: file.operationId, purpose: `Set ${id === 'gradle' ?
       'Gradle JVM truststore properties' : 'Maven JVM truststore options'} using the reviewed store; preserve neighboring configuration privately`,
-      kind: 'file.write', scope: 'user', target: structuredClone(file.target), content: input(`${id}Config`),
+      ...(id === 'gradle' ? { kind: 'config.entries', format: 'properties', entries: [
+        { path: ['systemProp.javax.net.ssl.trustStore'], action: 'set', value: input('gradleStoreValue') },
+        { path: ['systemProp.javax.net.ssl.trustStorePassword'], action: 'set', value: literal(STORE_PASSWORD) }] } :
+        { kind: 'text.block', blockId: 'maven-ca', startMarker: mavenMarkers(variant.os)[0], endMarker: mavenMarkers(variant.os)[1], action: 'set', content: input('mavenConfig') }), scope: 'user', target: structuredClone(file.target),
       requires: ['jks-materialize'], checks: declared ? [behavior] : [] });
     if (!declared) continue;
     const gradle = id === 'gradle';
@@ -426,7 +430,7 @@ export function jvmRecipe(variant) {
         AIH_ENDPOINT: literal(gradle ? GRADLE_ENDPOINT : MAVEN_ENDPOINT) },
       timeoutMs: gradle ? 240000 : 540000, maxOutputBytes: 16384 });
   }
-  return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'jvm-ca', description: jvmRepair.description,
+  return { schema: variant.targets.includes('gradle') ? 'urn:aihq:core:recipe:1.2.0' : 'urn:aihq:core:recipe:1.0.0', id: 'jvm-ca', description: jvmRepair.description,
     inputs, materials: [], targets: ['user'], prerequisites: [], operations, checks };
 }
 
@@ -458,28 +462,6 @@ function gradleConfigAmbiguous(text) {
     }
   }
   return false;
-}
-
-// Extracted from the donor gradleProperties upsert. Preserve EOL style and all
-// neighboring lines; Java properties parsing treats backslash as escape.
-function gradlePropertiesConfig(existing, jksPath) {
-  const eol = existing.includes('\r\n') ? '\r\n' : '\n';
-  const src = existing.replace(/[\r\n]+$/, '').replaceAll('\r\n', '\n');
-  const rows = src ? src.split('\n') : [];
-  const values = [['systemProp.javax.net.ssl.trustStore', jksPath.replaceAll('\\', '/')],
-    ['systemProp.javax.net.ssl.trustStorePassword', STORE_PASSWORD]];
-  const done = new Set();
-  const out = rows.map(row => {
-    for (const [key, value] of values) {
-      if (new RegExp(`^\\s*${key.replaceAll('.', '\\.')}=`).test(row)) {
-        done.add(key);
-        return `${key}=${value}`;
-      }
-    }
-    return row;
-  });
-  for (const [key, value] of values) if (!done.has(key)) out.push(`${key}=${value}`);
-  return out.join(eol) + eol;
 }
 
 function mavenMarkers(os) {
@@ -595,11 +577,11 @@ export function renderJvmRepair(request) {
     if (text.includes('\0')) return invalid('config-encoding', 'User configuration contains invalid text.');
     if (file.operationId === 'gradle-config') {
       if (gradleConfigAmbiguous(text)) return invalid('config-ambiguous', 'The selected Gradle user configuration has ambiguous trust entries.');
-      privateBindings.gradleConfig = gradlePropertiesConfig(text, jksPath);
+      bindings.gradleStoreValue = jksPath.replaceAll('\\', '/');
       bindings.gradleConfigPath = join(homedir(), '.gradle', 'gradle.properties');
     } else if (file.operationId === 'maven-config') {
       if (mavenRcAmbiguous(text, variant.os)) return invalid('config-ambiguous', 'The selected Maven user configuration has conflicting trust entries.');
-      privateBindings.mavenConfig = mavenRcConfig(text, jksPath, variant.os);
+      privateBindings.mavenConfig = mavenRcConfig('', jksPath, variant.os).trimEnd().split('\n').slice(1, -1).join('\n');
       bindings.mavenConfigPath = join(homedir(), variant.os === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc');
     } else if (/trustStore/i.test(text))
       return invalid('config-ambiguous', 'A later Windows Maven rc file sets JVM trust options and would override the repaired settings.');
@@ -881,12 +863,16 @@ function buildJvmTrustFileRecipe(variant) {
   for (const file of variant.configFiles) {
     if (file.operationId !== 'gradle-config' && file.operationId !== 'maven-config') continue;
     const id = file.operationId.split('-')[0];
-    inputs[`${id}Config`] = { type: 'string', required: true, sensitive: true, maxLength: 2 * 1024 * 1024 };
+    if (id === 'maven') inputs.mavenConfig = { type: 'string', required: true, sensitive: true, maxLength: 16384 };
+    else inputs.gradleStoreValue = { type: 'string', required: true, maxLength: 4096 };
     inputs[`${id}ConfigPath`] = { type: 'string', required: true, maxLength: 4096 };
     const behavior = `${id}-behavior`;
     operations.push({ id: file.operationId, purpose: `Set ${id === 'gradle' ?
       'Gradle JVM truststore properties' : 'Maven JVM truststore options'} using the reviewed store; preserve neighboring configuration privately`,
-      kind: 'file.write', scope: 'user', target: structuredClone(file.target), content: input(`${id}Config`),
+      ...(id === 'gradle' ? { kind: 'config.entries', format: 'properties', entries: [
+        { path: ['systemProp.javax.net.ssl.trustStore'], action: 'set', value: input('gradleStoreValue') },
+        { path: ['systemProp.javax.net.ssl.trustStorePassword'], action: 'set', value: literal(STORE_PASSWORD) }] } :
+        { kind: 'text.block', blockId: 'maven-ca', startMarker: mavenMarkers(variant.os)[0], endMarker: mavenMarkers(variant.os)[1], action: 'set', content: input('mavenConfig') }), scope: 'user', target: structuredClone(file.target),
       requires: [JKS_OPERATION_ID], checks: declared ? [behavior] : [] });
     if (!declared) continue;
     const gradle = id === 'gradle';
@@ -898,7 +884,7 @@ function buildJvmTrustFileRecipe(variant) {
         AIH_ENDPOINT: literal(gradle ? GRADLE_ENDPOINT : MAVEN_ENDPOINT) },
       timeoutMs: gradle ? 240000 : 540000, maxOutputBytes: 16384 });
   }
-  return { schema: 'urn:aihq:core:recipe:1.0.0', id: 'jvm-ca', description: jvmRepair.description,
+  return { schema: variant.targets.includes('gradle') ? 'urn:aihq:core:recipe:1.2.0' : 'urn:aihq:core:recipe:1.0.0', id: 'jvm-ca', description: jvmRepair.description,
     inputs, materials: [], targets: ['user'], prerequisites: [], operations, checks };
 }
 
@@ -954,11 +940,11 @@ export function renderJvmTrustFileRepair(request) {
     if (text.includes('\0')) return invalid('config-encoding', 'User configuration contains invalid text.');
     if (file.operationId === 'gradle-config') {
       if (gradleConfigAmbiguous(text)) return invalid('config-ambiguous', 'The selected Gradle user configuration has ambiguous trust entries.');
-      privateBindings.gradleConfig = gradlePropertiesConfig(text, jksPath);
+      bindings.gradleStoreValue = jksPath.replaceAll('\\', '/');
       bindings.gradleConfigPath = join(homedir(), '.gradle', 'gradle.properties');
     } else if (file.operationId === 'maven-config') {
       if (mavenRcAmbiguous(text, variant.os)) return invalid('config-ambiguous', 'The selected Maven user configuration has conflicting trust entries.');
-      privateBindings.mavenConfig = mavenRcConfig(text, jksPath, variant.os);
+      privateBindings.mavenConfig = mavenRcConfig('', jksPath, variant.os).trimEnd().split('\n').slice(1, -1).join('\n');
       bindings.mavenConfigPath = join(homedir(), variant.os === 'win32' ? 'mavenrc_pre.cmd' : '.mavenrc');
     } else if (/trustStore/i.test(text))
       return invalid('config-ambiguous', 'A later Windows Maven rc file sets JVM trust options and would override the repaired settings.');

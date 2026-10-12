@@ -441,6 +441,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
       let fixed = rendered!.recipe;
       if (fixed === undefined) { const shipped = getTrustRecipe(variant!.recipeRef); if (shipped?.status !== 'recipe' || !shipped.recipe) throw new Error('harness-unsupported'); fixed = shipped.recipe; }
       recipe = cloneJsonValueStructureV1(fixed,'recipe',32) as Recipe;
+      if (recipe.schema === 'urn:aihq:core:recipe:1.2.0') review.schema = 'urn:aihq:core:prepared-work:1.4.0';
       configuration = { ...rendered!.bindings }; privateBindings = { ...rendered!.privateBindings ?? {} };
       recipe.materials = descriptors;
       for (const [index,item] of outputs.entries()) {
@@ -516,7 +517,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
       ...(Object.keys(privateBindings).length ? { privateInputs:{ [selectionId]:privateBindings } } : {}) };
     const unavailable = unavailableExecutableInvocations(recipe,executables);
     const missing = Object.keys(unavailable.operations).length + Object.keys(unavailable.checks).length > 0;
-    const prepared = await preparePolicy({ useCase:'policy',target:{ project:home },policy:{ schema:'urn:aihq:core:execution-policy:1.0.0',mode:'vibe',
+    const prepared = await preparePolicy({ useCase:'policy',target:{ project:home },policy:{ schema:recipe.schema === 'urn:aihq:core:recipe:1.2.0' ? 'urn:aihq:core:execution-policy:1.2.0' : 'urn:aihq:core:execution-policy:1.0.0',mode:'vibe',
       selections:[{ id:selectionId,managementId,scope:'user',configuration,requires:[],recipe:{ inline:recipe } }] },
       ...(policyResolutions?.length ? { resolutions:[...policyResolutions] }: {}) },policyControls,missing ? unavailable : undefined,undefined,participant);
     if (!prepared.review || !prepared.prepared || prepared.status !== 'ready') {
@@ -530,6 +531,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
       configs:Object.fromEntries(Object.entries(configs).map(([key,item]) => [key,{ sha256:item.sha256,pins:item.pins }])),absences,
       executables:Object.fromEntries(Object.entries(executables).map(([key,item]) => [key,{ path:item.path,launchPath:item.launchPath,sha256:item.sha256 }])),
       observations:observations.map(o => ({id:o.id,sha256:sha256(o.raw)})) });
+    if (recipe.schema === 'urn:aihq:core:recipe:1.2.0') review.schema = 'urn:aihq:core:prepared-work:1.4.0';
     review.operations = prepared.review.operations; review.conflicts = prepared.review.conflicts; review.omissions = prepared.review.omissions;
     const { reviewDigest:_digest,...content } = review; review.reviewDigest = hash({ review:content,policyDigest:prepared.review.reviewDigest });
     review = deepFreezeStrictJsonV1(review);

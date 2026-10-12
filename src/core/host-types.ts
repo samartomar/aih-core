@@ -41,7 +41,7 @@ export interface ReviewOperation {
     materialSha256?: string; materialBytes?: number; executableSha256?: string;
     timeoutMs?: Effective<number>; maxOutputBytes?: Effective<number>; acceptedExitCodes?: number[];
     declaredEffects?: string[]; reason?: string;
-    format?: 'json' | 'jsonc' | 'toml'; entries?: { path: string[]; action: 'set' | 'remove'; value?: string }[];
+    format?: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties'; entries?: { path: string[]; action: 'set' | 'remove'; value?: string }[];
     blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove';
     /** Present exactly for `hook.group` operations (prepared-work 1.1.0). */
     hookGroup?: HookGroupReview };
@@ -58,7 +58,7 @@ export interface OrganizationBinding {
   helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
 }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';

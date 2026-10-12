@@ -2,6 +2,7 @@ import { prepare as preparePolicy, validateControls, dataObject, isManagedConten
 import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './internal/state.js';
 import { installedDistribution } from './internal/installed-distribution.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
+import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, type Claim } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner, custodyParticipant, type TrustPendingImage, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
@@ -21,7 +22,7 @@ export interface ManagedRemovalRequest {
 }
 export type ManagedRemovalDisposition = 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable' | 'invalid' | 'cancelled';
 export interface ManagedRemovalPreparationResult {
-  schema: 'urn:aihq:core:managed-removal-preparation:1.0.0';
+  schema: 'urn:aihq:core:managed-removal-preparation:1.0.0' | 'urn:aihq:core:managed-removal-preparation:1.1.0';
   package: { name: string; version: string };
   disposition: ManagedRemovalDisposition;
   target?: { project: string }; scope?: 'project' | 'user'; mode?: 'vibe' | 'enterprise'; managementId?: string;
@@ -184,6 +185,12 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
     try { lstatSync(path); return false; } catch(error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
   };
   if (!custody.claimed && !trustEntries.length) return done('absent', known);
+  const members = [...image.receipts.values()].flatMap(stored => Object.entries(stored.value.members)
+    .filter(([, owner]) => owner.claims?.some(claim => claim.managementId === managementId && claim.scope === scope))
+    .map(([path, owner]) => owner.descriptor ?? { kind: 'file' as const, path }));
+  if (managedRepairRemovalNeedsReconciliation({ managementId, scope, members, platform: process.platform }))
+    return done('reconcile-required', known, [diagnostic('STATE_CONFLICT', 'repair-custody-reconcile',
+      'An earlier repair owns a complete configuration file. Reconcile that receipt and its configuration manually before using bounded removal.')]);
   if (trustEntries.length) {
     try {
       for (const entry of trustEntries) {
@@ -201,7 +208,8 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   if (mode === 'enterprise' && custody.members === 0) return unavailable('metadata-only-removal',
     'Organization removal admission does not cover a custody-only change.', 'AUTHORITY_DENIED');
 
-  const policy: ExecutionPolicy = { schema: POLICY_11, mode, selections: [], removals: [{ managementId, scope }] };
+  const hasBoundedConfig = members.some(member => member.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(member.format));
+  const policy: ExecutionPolicy = { schema: hasBoundedConfig ? 'urn:aihq:core:execution-policy:1.2.0' : POLICY_11, mode, selections: [], removals: [{ managementId, scope }] };
   const forwarded: HostControls = { ...(controls.signal === undefined ? {} : { signal: controls.signal }),
     ...(controls.logging === undefined ? {} : { logging: controls.logging }),
     ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) };
@@ -221,5 +229,6 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
   if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
-  return done('prepared', { ...known, preparation });
+  return done('prepared', { ...known, preparation,
+    ...(preparation.review?.schema === 'urn:aihq:core:prepared-work:1.4.0' ? { schema: 'urn:aihq:core:managed-removal-preparation:1.1.0' as const } : {}) });
 }

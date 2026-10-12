@@ -614,6 +614,44 @@ Each invocation prepares again. `--yes` requires `--apply`. Interactive review g
 
 An author may use `config.entries` for selected JSON/JSONC or unambiguous scalar TOML keys, `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. The prepared review shows resolved edits and checks, including executable byte hashes, argv, environment, accepted exit codes and bounds; private values are redacted. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
 
+Recipe and execution-policy **1.2.0** additionally admit `config.entries` with
+`format: "ini"`. Each path is exactly `[section, option]`; section names are case
+sensitive and option names are case insensitive. Names use ASCII letters, digits,
+underscore, dot or hyphen. Set values are nonempty, single-line strings without
+surrounding whitespace. The bounded editor preserves bytes outside the selected
+option line, including other sections, comments, line endings and unrelated
+multiline values. It refuses duplicate sections/options, ambiguous indented
+assignments, selected multiline values, BOMs and invalid UTF-8. Removal deletes
+only the option line and leaves section headers intact. Fresh review can preserve
+unrelated edits; any file change after Prepare still makes Apply stale.
+
+`format: "yaml"` and `format: "properties"` select one top-level key per path.
+YAML set values are JSON-quoted strings; block/flow values, uncertain quoted
+strings, aliases, merge keys, duplicate keys and document markers are refused.
+Selected continuations are refused; unrelated simple indented YAML collections
+are retained. This is a bounded subset, rather than a complete YAML parser. Properties admit
+unescaped equals-separated scalar keys and refuse continued lines or escaped
+selected values. Both preserve unrelated lines and comments byte for byte.
+
+These operations produce prepared-work **1.4.0**, whose explicit branches cover
+policy, supplied-file repair and shared-source trust review. Use
+`validatePreparedWork14` from `@aihq/core/contracts`; validators for older review
+versions remain strict. Run results retain their existing policy 1.1.0,
+supplied-file repair 1.0.0 or shared-source trust 1.2.0 identities because their
+result shapes are unchanged. Ownership roots use 1.2.0 while they contain INI, YAML or properties
+entries, so older Core versions refuse custody they cannot interpret. Removing
+the last entry requiring 1.2.0 returns the receipt to its remaining supported format.
+
+Both supplied-file and shared-source repairs own only their selected trust settings:
+pip/Git INI options, Cargo TOML entries, conda top-level YAML scalar and Gradle
+properties entries. Maven owns its marked trust block; Python retains its marked
+profile block. Settings and comments outside those members survive reviewed
+removal. Pip no longer appends advisory comments. Convenience removal of a
+previous whole-file user-tools or JVM configuration repair receipt returns `reconcile-required`; reapplication does not silently
+convert that receipt to entry ownership. Reconcile the earlier receipt and its
+configuration manually before using the new recipe. Explicit authored whole-file
+operations retain their original whole-file behavior.
+
 Referenced recipes bind a strict recipe JSON member and its complete named material closure by byte length and SHA-256. A caller supplies selected local source handles with `controls.materialRoots` or `--material-root id=/absolute/path`; archive sources require an explicit HTTPS URL and pinned compressed bytes. The preparation-wide captured-material declaration limit is 512 MiB across selections and is checked before acquisition. Acquisition never runs package scripts or helpers. The CLI also accepts `--resolutions file.json` for exact observed replacement/adoption choices, for example:
 
 ```json
@@ -684,7 +722,7 @@ Target paths are explicitly scoped and reject traversal, links, unsafe host file
 
 ## Managed lifecycle
 
-`managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
+`managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML/INI/YAML/properties entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
 
 A policy can name complete desired sets:
 
@@ -699,6 +737,11 @@ For selected removal use `"removals": [{"managementId":"team-guidance","scope":"
 `listManagedSelections({ target: { project }, scope: 'project' | 'user' | 'both' }, { signal?, budgetMs? })` reads the current user's protected custody without creating state or inspecting target bytes. Its `complete` result lists stable management IDs, scope, claim versus legacy reconciliation, and member and shared-member counts. Project scope uses the exact resolved project; user scope also covers Core-managed content roots. A corrupt or unverifiable relevant receipt makes the result `incomplete`, so a partial list must not be treated as all custody. The default budget is 30 seconds (1–120,000 ms); receipt count, bytes and output are bounded. `aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]` defaults to the current directory and both scopes. The public result schema is `@aihq/core/schemas/managed-inventory-result/1.0.0.json`.
 
 `prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy 1.1 Prepare to the existing engine. `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.
+
+When relevant custody contains INI, YAML or properties entries, the convenience helper uses policy
+1.2.0 and returns managed-removal-preparation 1.1.0 with prepared-work 1.4.0.
+Other removals retain the previous identities. All four new schema files are
+exported under their versioned `@aihq/core/schemas/...` paths.
 
 `aih managed remove <managementId> --scope project|user --mode vibe|enterprise [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--no-log] [--json]` previews by default and requires the same explicit review approval as `aih policy`. Its JSON projection omits the live handle and validates against `@aihq/core/schemas/managed-removal-preparation/1.0.0.json`.
 

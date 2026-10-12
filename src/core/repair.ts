@@ -360,7 +360,7 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         sensitiveNames.some(name => typeof suppliedPrivate[name] !== 'string'))
       return fail('invalid', 'INPUT_INVALID', 'repair-bindings');
     const prepared = await preparePolicy({ useCase: 'policy', target: { project: home },
-      policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
+      policy: { schema: recipe.schema === 'urn:aihq:core:recipe:1.2.0' ? 'urn:aihq:core:execution-policy:1.2.0' : 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{
         id: 'trust', managementId: definition.managementId, scope: 'user', configuration: rendered.bindings,
         requires: [], recipe: { inline: recipe }
       }] }, ...(policyResolutions.length ? { resolutions: policyResolutions } : {}) },
@@ -516,7 +516,7 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       }
     }
   }
-  return recordRun({ ...result, useCase: 'repair', inputs: state.inputs,
+  return recordRun({ ...result, schema: 'urn:aihq:core:run-result:1.0.0', useCase: 'repair', inputs: state.inputs,
     followUp: [...result.followUp,
       'The managed copy remains after the original CA file changes; repeat repair to update it.',
       'User processes may require restart or explicit environment inheritance.'] }, controls);

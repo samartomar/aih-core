@@ -26,6 +26,10 @@ export declare function validateBaselineStore(bytes: Uint8Array):
 export declare function parseJvmTrustStore(bytes: Uint8Array):
   { status: 'parsed'; certificates: import('./trust.mjs').ParsedCertificate[] } | { status: 'invalid'; reason: string };
 export declare function getRepairRecipe(recipeRef: string): object | undefined;
+/** Definition-owned migration assessment; does not read or mutate custody. */
+export declare function managedRepairRemovalNeedsReconciliation(request: {
+  managementId: string; scope: 'project' | 'user'; platform: string; members: { kind: string; path: string }[];
+}): boolean;
 export declare function assessRepairCandidate(request: { id: string; inputs: Record<string, string | boolean | number> },
   controls?: { signal?: AbortSignal; budgetMs?: number }): Promise<
     { kind: 'unresolved'; reason: string; probes: number; elapsedMs?: number } |

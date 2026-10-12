@@ -44,7 +44,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       throw error;
     }
   };
-  const pack = cwd => JSON.parse(npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--pack-destination', root], cwd))[0];
+  const pack = cwd => JSON.parse(execFileSync(process.execPath,
+    [join(cwd, 'scripts/pack-distribution.mjs'), '--pack-destination', root],
+    { cwd, env, encoding: 'utf8', timeout: 120_000, windowsHide: true }))[0];
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
@@ -392,7 +394,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
       import assert from 'node:assert/strict';
-      import {readFileSync,writeFileSync} from 'node:fs';
+      import {readFileSync,writeFileSync,statSync} from 'node:fs';
       import {join,resolve} from 'node:path';
       import {prepare,apply,inspect,checkFileState,listManagedSelections,prepareManagedRemoval,writeSupportReport} from '@aihq/core';
       import {parsePolicy,contractSupport,validateRecipe} from '@aihq/core/contracts';
@@ -496,7 +498,18 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         inputs:{caFile:resolve('ca.pem')}}],network:'off'},{logging:'off'});
       assert.ok(gitRepair.review,JSON.stringify(gitRepair.diagnostics));
       assert.equal(JSON.stringify(gitRepair).includes(privateSentinel),false,'preserved credentials stay private');
-      assert.equal(gitRepair.review.operations.find(item=>item.id==='trust/git-config').details.content,'[REDACTED]');
+      assert.equal(gitRepair.review.schema,'urn:aihq:core:prepared-work:1.4.0');
+      assert.equal(ajv.validate(gitRepair.review.schema,gitRepair.review),true,JSON.stringify(ajv.errors));
+      const gitConfig=gitRepair.review.operations.find(item=>item.id==='trust/git-config');
+      assert.equal(gitConfig.kind,'config.entries');
+      assert.deepEqual(Object.keys(gitConfig.details).sort(),['entries','format','mode','target']);
+      assert.equal(gitConfig.details.format,'ini');
+      assert.equal(gitConfig.details.target,join(process.env.HOME,'.gitconfig'));
+      assert.equal(gitConfig.details.mode,statSync(join(process.env.HOME,'.gitconfig')).mode&0o777);
+      assert.deepEqual(gitConfig.details.entries.map(({path,action})=>({path,action})),
+        [{path:['http','sslCAInfo'],action:'set'}]);
+      assert.equal(typeof gitConfig.details.entries[0].value,'string');
+      assert.equal(Object.hasOwn(gitConfig.details,'content'),false,'neighboring configuration is never a review snapshot');
       console.log('packed API, Harness runtime, repair and schemas passed');
     `);
     assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
