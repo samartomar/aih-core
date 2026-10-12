@@ -1,14 +1,15 @@
-# Claude native verification: finite-limit feasibility
+# Claude native verification: finite limits and feasibility
 
 Assessed 2026-10-12 for Claude Code **2.1.285**, the dedicated
 `claude-oauth-otel.v1` identity route and Core source
 `5da3ca97bad7ca102ea1ecbdd098d17dd7fc3ebf` (`1.0.0-dev.35`).
 
-**No compliant execution is available when the requirement is a strict USD
-spending ceiling across the two fresh native sessions.** Claude has turn and
-estimated-cost stopping controls, but its cost control does not guarantee that
-actual charges stay below the requested amount. This assessment adds no launch
-controls, model execution, admission or replacement package artifact.
+**Claude's estimated-cost stopping control does not guarantee that actual charges
+stay below the requested amount.** The implementation now supports explicit
+finite turns and client-estimated USD thresholds, with accepted possible
+overshoot. The dated static evidence below remains evidence for the pinned
+client, not native acceptance of the new launch controls. This change makes no
+provider requests and establishes no replacement package artifact or admission.
 
 ## What each bound means
 
@@ -17,8 +18,8 @@ controls, model execution, admission or replacement package artifact.
 | Acceptance attempts | The operator can reserve one verifier invocation, with no automatic retry. This is an operation rule, not a new Core attempt-limit field. |
 | Sessions | Core starts at most two distinct fresh processes, stages once and stops on a failed/unavailable gate. Each process has its own client accounting. |
 | Wall clock | Existing `budgetMs` defaults to 180000, accepts integers 1000–600000, and covers the whole check. Session one gets half the remaining time; session two gets the remaining whole-check deadline. Cleanup has one additional 10000 ms allowance. None of these limits caps charges. |
-| Turns | Claude's `--max-turns` limits agentic tool-use round trips in print mode. A turn can contain several tool calls; a turn count is neither a tool-call count nor a dollar limit. Core's existing closed controls do not expose it. |
-| Estimated USD | Claude's `--max-budget-usd` stops against locally accounted cost. It is a positive amount, evaluated after responses. It permits overshoot and is not an authoritative billing cap. Core's fixed argv does not currently pass it. |
+| Turns | Claude's `--max-turns` limits agentic tool-use round trips in print mode. A turn can contain several tool calls; a turn count is neither a tool-call count nor a dollar limit. Core validates an explicit whole-attempt `maxTurns` and passes a fixed numeric per-session `--max-turns` argument. |
+| Estimated USD | Claude's `--max-budget-usd` stops against locally accounted cost. It is a positive amount, evaluated after responses. It permits overshoot and is not an authoritative billing cap. Core validates an explicit whole-attempt `maxEstimatedCostUsd` and passes a fixed numeric per-session `--max-budget-usd` argument. |
 | Total actual USD | Neither the existing Core contract nor the examined client establishes a strict total charge ceiling on the selected OAuth route. Two per-process thresholds do not provide that guarantee. |
 
 Anthropic's [CLI reference](https://code.claude.com/docs/en/cli-reference#cli-flags)
@@ -60,7 +61,7 @@ OAuth billing, provider enforcement, native limit termination or a Windows
 binary's behavior. No client help/version command, credential access or provider
 request was needed. No strict cap can be inferred from these static observations.
 
-## OAuth and the remaining decision
+## OAuth and the selected estimated-threshold contract
 
 The selected verifier stages an independently provisioned dedicated OAuth file;
 it excludes ambient authentication and retains independent expected account and
@@ -72,28 +73,61 @@ describes account/organization usage-credit and spend settings. Those settings
 are separate provider controls; this investigation neither inspected nor changed
 them and establishes no exact two-session hard cap through them.
 
-The smallest alternatives require an explicit owner decision:
+The selected implementation uses **client-estimated stopping thresholds with
+accepted possible overshoot**, finite turns, one attempt and the existing
+deadline. Retaining a strict actual-charge ceiling would require a separately
+qualified provider enforcement boundary; no suitable boundary is established
+here. There is no implicit authentication/provider fallback.
 
-1. Revise the requirement to a **client-estimated stopping threshold with accepted
-   overshoot**, plus finite turns, one attempt and the existing deadline. A later
-   implementation must validate closed numeric controls, define per-session and
-   total accounting, pass only supported fixed arguments, stop before session two
-   when its allocation is exhausted, classify limit termination and verify owned
-   cleanup with nonbillable tests. It must not label the threshold a hard USD cap.
-2. Retain a strict actual-charge ceiling and qualify an independently enforced
-   provider spending boundary for the dedicated account/route. Its scope,
-   concurrent usage, enforcement delay and overshoot semantics must be verified;
-   no such suitable boundary is established here. A different authentication or
-   provider route requires separate selection and qualification, not an implicit
-   fallback.
-3. Keep native execution unavailable and use the existing nonbillable staging and
-   controlled mechanism checks, without claiming native acceptance.
+The closed request accepts optional numeric `maxTurns` and
+`maxEstimatedCostUsd` fields together. The closed host controls accept the same
+pair; supplying a limit in both locations is invalid. Legacy requests without
+limits can report prerequisites/unsupported outcomes, but cannot launch a client
+session. The CLI uses `--max-turns` and `--max-estimated-cost-usd`. No numeric
+turn or spending defaults are selected. Turns must be safe integers 2 through
+9007199254740991; USD must be finite, positive and at most 9007199254740991,
+with a positive representable half. Strings, booleans, null, NaN, infinities,
+noninteger turns, incomplete pairs and unknown fields are refused before effects.
 
-Splitting a desired total `B` into `B/2` for each process still permits overshoot
-in both processes. Subtracting the first result's estimate before session two
-would improve estimated accounting but would not establish a strict charge cap.
-No partial turn-only change resolves the present spending requirement, so the
-public types, schemas, generated bindings and fixed adapter argv remain unchanged.
+For total turns `T` and estimated USD `B`, the first session's fixed allowance
+is `floor(T/2)` and `B/2`; session two reserves `ceil(T/2)` and `B/2` before
+the first launch. After first-session usage `t1` and `b1`, session two gets
+`min(ceil(T/2), T-t1)` turns and `min(B/2, B-b1)` estimated USD. Unused share is
+not transferred. A nonpositive remaining allowance stops before session two.
+A first-session estimate can overshoot its share, reducing or exhausting the
+second allowance; separate per-session thresholds never establish a billing cap.
+The fixed installed adapter appends only `--max-turns <allowance>` and
+`--max-budget-usd <allowance>` to its existing argv; caller-supplied commands,
+flags and environment overrides remain forbidden. Linux expected argv,
+containment observations and launch digests use those same effective arguments.
+
+Reliable usage requires exactly one final result bound to the observed fresh
+session, a safe nonnegative integer `num_turns`, a finite nonnegative
+`total_cost_usd`, and a supported success/limit subtype with its matching error
+flag. Missing fields, wrong session, duplicate/trailing records, parser limits,
+malformed output, crashes or interrupted live snapshots cannot establish usage.
+Only finalized usage is debited. An unknown result stops with `usage-unavailable`
+and null totals; it never implies zero consumption. Public results expose each
+session's `limits` and `usage`, and whole-attempt totals in `limits.finite`.
+The published validators check those allocations and sums. Historical result
+shapes remain readable; newly launched sessions always carry finite accounting.
+
+`error_max_turns` is `turn-limit-exhausted`; `error_max_budget_usd` is
+`estimated-cost-limit-exhausted`. Both produce incomplete acceptance, even if
+instruction/query proof already arrived. No retry or replacement session follows
+such a stop. Cancellation, deadline, limits and unknown usage preserve the
+existing owned descendants/IPC/collector cleanup and exact-cell removal. Cleanup
+cannot undo charges. The 180000 ms whole-check default, integer 1000–600000 range,
+first-session half of remaining time, and one extra 10000 ms cleanup allowance
+are unchanged.
+
+[CLI reference](https://code.claude.com/docs/en/cli-reference) and
+[headless output documentation](https://code.claude.com/docs/en/headless) describe
+these flags and client-reported cost. Nonbillable parser, closed-contract,
+synthetic-session and argv tests verify this implementation's propagation and
+fail-closed behavior. They do not establish live OAuth accounting, enforcement,
+loading or two-session native acceptance. The later native operator must select
+numeric limits and a dedicated identity and separately authorize the one attempt.
 
 ## Qualification handoff for the selected Linux cell
 
@@ -120,7 +154,7 @@ while claiming to use the immutable archive above. See the
 [Linux verification guide](native-linux-verification.md) for facility and pin
 qualification; bundled admission does not automatically admit supplied content.
 
-Once the spending decision and packaging prerequisite are resolved, the native
+Once the selected estimated-threshold semantics and packaging prerequisite are qualified, the native
 owner must independently select the executor/cell, dedicated identity, trusted
 expected account/organization, supported numeric limits and explicit run
 authorization. Reserve **one acceptance attempt, two fresh sessions, no automatic

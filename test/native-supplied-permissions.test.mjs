@@ -56,7 +56,7 @@ export function createNativeRuntime(_module,dependencies) {
      discovery:{complete:true,clientTools:server.toolNames,serverList:true},serverPeerBound:true,
      instructions:{nativeSha256:[],attestations:input.material.instructions.map(i=>({markerSha256:i.markerSha256,challengeMatched:true,clientReceipt:true})),rejected:false,alternateRead:false},
      query:{correlated:true,challengeMatched:true,resultSha256:server.expectedResultSha256,answerSha256:installed.sha256(server.expectedAnswer)},isolation:'unobservable',
-     counts:{observedBytes:0,telemetryEvents:0,rpcMessages:0}})};
+     usage:{turns:2,estimatedCostUsd:0.125},counts:{observedBytes:0,telemetryEvents:0,rpcMessages:0}})};
  };
  return runtime;
 }`;
@@ -83,7 +83,7 @@ export function createNativeRuntime(_module,dependencies) {
   const cells=join(directory,'cells');mkdirSync(cells);
   const api=await import(pathToFileURL(join(directory,'entry.mjs')).href);
   const result=await api.verifyNativeClient({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',configuration:{kind:'supplied',input:'reviewed',bundleId:bundle.id,manifestSha256}},
-    {admission:'candidate-smoke',sandboxRoot:realpathSync.native(cells),testIdentity:{adapterId:'claude-oauth-otel.v1',provisionedRoot:directory,manifestSha256:'a'.repeat(64),expected:{accountUuid:'11111111-1111-4111-8111-111111111111',organizationId:'22222222-2222-4222-8222-222222222222'}},
+    {maxTurns:20,maxEstimatedCostUsd:2,admission:'candidate-smoke',sandboxRoot:realpathSync.native(cells),testIdentity:{adapterId:'claude-oauth-otel.v1',provisionedRoot:directory,manifestSha256:'a'.repeat(64),expected:{accountUuid:'11111111-1111-4111-8111-111111111111',organizationId:'22222222-2222-4222-8222-222222222222'}},
       configurationSources:{reviewed:{archivePath,archiveSha256:hash(archive),archiveBytes:archive.length,manifestPath:'package/m.json',manifestSha256,manifestBytes:manifest.length}}});
   assert.deepEqual(validateNativeVerificationResult(result).diagnostics,[]);
   return {result,observed:JSON.parse(readFileSync(recordPath)),bundle,definition};

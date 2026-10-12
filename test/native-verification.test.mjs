@@ -10,6 +10,50 @@ import { verifyNativeClient } from '@aihq/core';
 import { validateNativeVerificationBundle, validateNativeVerificationResult } from '@aihq/core/contracts';
 
 const request = { schema: 'urn:aihq:core:native-verification-request:1.0.0', client: 'claude' };
+test('finite limits require closed numeric totals before any session and preserve owned cleanup', async t => {
+  const missing = await controlled(t, 'limits-missing');
+  assert.equal(missing.status, 'incomplete'); assert.equal(missing.sessions.length, 0);
+  assert.ok(missing.stages.some(row => row.reason === 'finite-limits-required'));
+  assert.equal(missing.cleanup.files, 'removed');
+  for (const controls of [{maxTurns:1,maxEstimatedCostUsd:1}, {maxTurns:2.5,maxEstimatedCostUsd:1},
+    {maxTurns:2,maxEstimatedCostUsd:0}, {maxTurns:2,maxEstimatedCostUsd:'1'}, {maxTurns:'2',maxEstimatedCostUsd:1},
+    {maxTurns:2,maxEstimatedCostUsd:Infinity}, {maxTurns:2,maxEstimatedCostUsd:NaN},
+    {maxTurns:2,maxEstimatedCostUsd:Number.MIN_VALUE}, {maxTurns:null,maxEstimatedCostUsd:null},
+    {maxTurns:2}, {maxEstimatedCostUsd:1}]) {
+    const result = await verifyNativeClient(request, controls);
+    assert.equal(result.status, 'invalid'); assert.equal(result.sessions.length, 0);
+    assert.equal(result.cleanup.files, 'not-created');
+    assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
+  }
+  const duplicate=await verifyNativeClient({...request,maxTurns:8,maxEstimatedCostUsd:1},{maxTurns:8,maxEstimatedCostUsd:1});
+  assert.equal(duplicate.status,'invalid'); assert.equal(duplicate.sessions.length,0);
+});
+test('fixed session allocations reserve half and debit reliable total usage without reclaiming unused share', async t => {
+  const result = await controlled(t, 'healthy', {maxTurns:9,maxEstimatedCostUsd:2});
+  assert.equal(result.verdict, 'verified');
+  assert.deepEqual(result.sessions.map(session => session.limits), [
+    {maxTurns:4,maxEstimatedCostUsd:1}, {maxTurns:5,maxEstimatedCostUsd:1}]);
+  assert.deepEqual(result.limits.finite, {maxTurns:9,maxEstimatedCostUsd:2,turns:4,estimatedCostUsd:0.25});
+  const fromRequest = await controlled(t, 'request-limits');
+  assert.equal(fromRequest.verdict, 'verified'); assert.equal(fromRequest.limits.finite.maxTurns, 9);
+  const overshoot = await controlled(t, 'cost-overshoot');
+  assert.equal(overshoot.verdict, 'verified');
+  assert.equal(overshoot.sessions[1].limits.maxEstimatedCostUsd, 0.5);
+  assert.equal(overshoot.limits.finite.estimatedCostUsd, 1.625);
+  assert.deepEqual(validateNativeVerificationResult(overshoot).diagnostics, []);
+});
+for (const [scenario, reason, sessions] of [
+  ['usage-missing','usage-unavailable',1], ['usage-missing-second','usage-unavailable',2],
+  ['cost-depleted','estimated-cost-limit-exhausted',1], ['turn-depleted','turn-limit-exhausted',1],
+  ['turn-stop','turn-limit-exhausted',1], ['cost-stop','estimated-cost-limit-exhausted',1]
+]) test(`finite ${scenario} stops the one attempt and cleans up without retry`, async t => {
+  const result = await controlled(t, scenario);
+  assert.equal(result.status, 'incomplete'); assert.equal(result.verdict, 'unverified');
+  assert.equal(result.sessions.length, sessions);
+  assert.ok(result.stages.some(stage => stage.reason === reason));
+  assert.equal(result.cleanup.processes, 'confirmed'); assert.equal(result.cleanup.files, 'removed');
+  assert.deepEqual(validateNativeVerificationResult(result).diagnostics, []);
+});
 test('controlled selected configuration mutation emits persistence diagnosis with unchanged verdict', async t => {
   const records = [], stream = channel('aih.native.diagnostics.v1'), sink = value => records.push(value);
   stream.subscribe(sink);
@@ -213,7 +257,12 @@ export async function startNativeSession(input){
   if(scenario==='pre-client-cleanup-unresolved')return {outcome:'unavailable',reason:'server-evidence-unavailable',cleanup:{confirmed:false,survivors:[{pid:65000,role:'helper'}]},cleanupStartedAt:performance.now()};
   if(scenario==='spawn-rejected')return {outcome:'unavailable',reason:'session-launch-failed'};
   const child=spawn(process.execPath,['-e',childScript],{cwd:input.cell.project,env:input.environment,stdio:['pipe','pipe','pipe'],windowsHide:true});
-  const observations={sessionId:scenario==='reused'?'controlled-session':'controlled-session-'+input.index,resumed:false,loading:'observed',restrictions:scenario==='managed'?'managed':'observed',authentication:scenario==='identity-conflict'?'conflict':'matched',discovery:{complete:true,clientTools:['attest','query'],serverList:true},instructions:{nativeSha256:[],attestations:[{markerSha256:scenario==='bad-attestation'?hash('wrong'):marker,challengeMatched:true,clientReceipt:true}],rejected:false,alternateRead:scenario==='later-read'},query:{correlated:true,challengeMatched:!scenario.startsWith('bad-challenge'),resultSha256:scenario.startsWith('bad-query')?hash('wrong'):expectedResultSha256,answerSha256:hash('leaf'),rejectedCalls:scenario==='early-query'||scenario.endsWith('-refused')},isolation:scenario==='hygiene'?'unobservable':'observed',serverPeerBound:true,counts:{observedBytes:0,telemetryEvents:1,rpcMessages:3}};
+  const observations={sessionId:scenario==='reused'?'controlled-session':'controlled-session-'+input.index,resumed:false,loading:'observed',restrictions:scenario==='managed'?'managed':'observed',authentication:scenario==='identity-conflict'?'conflict':'matched',discovery:{complete:true,clientTools:['attest','query'],serverList:true},instructions:{nativeSha256:[],attestations:[{markerSha256:scenario==='bad-attestation'?hash('wrong'):marker,challengeMatched:true,clientReceipt:true}],rejected:false,alternateRead:scenario==='later-read'},query:{correlated:true,challengeMatched:!scenario.startsWith('bad-challenge'),resultSha256:scenario.startsWith('bad-query')?hash('wrong'):expectedResultSha256,answerSha256:hash('leaf'),rejectedCalls:scenario==='early-query'||scenario.endsWith('-refused')},isolation:scenario==='hygiene'?'unobservable':'observed',serverPeerBound:true,usage:{turns:2,estimatedCostUsd:0.125},counts:{observedBytes:0,telemetryEvents:1,rpcMessages:3}};
+  if(scenario==='usage-missing'||scenario==='usage-missing-second'&&input.index===2)observations.usage=null;
+  if(scenario==='cost-depleted')observations.usage.estimatedCostUsd=2;
+  if(scenario==='cost-overshoot'&&input.index===1)observations.usage.estimatedCostUsd=1.5;
+  if(scenario==='turn-depleted')observations.usage.turns=20;
+  if(scenario==='turn-stop'||scenario==='cost-stop')observations.failure={reason:scenario==='turn-stop'?'turn-limit-exhausted':'estimated-cost-limit-exhausted',outcome:'unavailable'};
   let initStatus;
   if(scenario.startsWith('mcp-init-')){
     const status=scenario.slice('mcp-init-'.length).replace(/^managed-/,'');
@@ -325,7 +374,7 @@ async function controlled(t, scenario, controls = {}, clock) {
     api.setCleanupClock(clock);
     t.mock.method(performance, 'now', () => clock.now);
   }
-  let selected = request;
+  let selected = scenario === 'request-limits' ? { ...request, maxTurns: 9, maxEstimatedCostUsd: 2 } : request;
   if (scenario === 'supplied-healthy') {
     const instruction = Buffer.from('Initial controlled instruction.');
     const release = Buffer.from('{}'); const recipe = Buffer.from('{}');
@@ -369,6 +418,7 @@ async function controlled(t, scenario, controls = {}, clock) {
   }
   const cancellation = scenario.startsWith('cancel-snapshot-') ? new AbortController() : undefined;
   const pending = api.verifyNativeClient(selected, { ...(['admitted-default', 'candidate-default'].includes(scenario) ? {} : { admission: 'candidate-smoke' }), testIdentity: identity,
+    ...(['limits-missing', 'request-limits'].includes(scenario) ? {} : { maxTurns: 20, maxEstimatedCostUsd: 2 }),
     ...(scenario === 'default-temp' ? {} : { sandboxRoot }), ...controls, ...(cancellation ? { signal: cancellation.signal } : {}) });
   if (cancellation) {
     // Cancellation tests need actual proof readiness, independently of deadline tests.

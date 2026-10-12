@@ -35,6 +35,22 @@ const parse = (records, extra = options) => {
   return parser.finish();
 };
 
+test('client usage is final, session-bound and unavailable for ambiguous or interrupted results', () => {
+  const usage = {...done,num_turns:3,total_cost_usd:0.125};
+  assert.deepEqual(parse([init(),usage]).usage,{turns:3,estimatedCostUsd:0.125});
+  for (const records of [[init()], [init(),done], [init(),usage,usage], [init(),usage,init()],
+    [init(),{...usage,total_cost_usd:'0.125'}], [init(),{...usage,total_cost_usd:-1}],
+    [init(),{...usage,num_turns:1.5}], [init(),{...usage,num_turns:-1}],
+    [init(),{...usage,session_id:'22222222-2222-4222-8222-222222222222'}],
+    [init(),{...usage,subtype:'error_during_execution',is_error:true}]]) assert.equal(parse(records).usage,null);
+  const parser=createClaudeStreamParser(options);
+  parser.push([init(),usage].map(line).join(''));
+  assert.equal(parser.snapshot().usage,null,'a live snapshot is not final usage');
+  assert.deepEqual(parser.finish().usage,{turns:3,estimatedCostUsd:0.125});
+  for (const [subtype,reason] of [['error_max_turns','turn-limit-exhausted'],['error_max_budget_usd','estimated-cost-limit-exhausted']])
+    assert.equal(parse([init(),{...usage,subtype,is_error:true}]).resultLimitReason,reason);
+});
+
 test('provider result errors are reduced to closed classes without retaining client text', () => {
   const cases = [
     ['authentication', '401 authentication failed secret-marker'],
@@ -374,6 +390,8 @@ test('the declared stream observation carries result presence and the closed err
       'declare const observation: ClaudeStreamObservation;',
       'export const resultSeen: boolean = observation.resultSeen;',
       'export const observed: NativeErrorClass = observation.errorClass;',
+      'export const usage: {turns:number;estimatedCostUsd:number} | null = observation.usage;',
+      "export const finiteStop: 'turn-limit-exhausted' | 'estimated-cost-limit-exhausted' | null = observation.resultLimitReason;",
       `export const classes: Record<NativeErrorClass, true> = ${JSON.stringify(Object.fromEntries(classes.map(name => [name, true])))};`,
       `export const runtime: Record<${classes.map(name => JSON.stringify(name)).join(' | ')}, true> = classes;`, ''].join('\n'));
     const manifest = createRequire(import.meta.url).resolve('typescript/package.json');

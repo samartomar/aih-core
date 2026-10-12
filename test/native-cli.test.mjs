@@ -31,6 +31,8 @@ test('verify-client help describes explicit bounded native verification', () => 
   assert.match(output.stdout, /aih verify-client <client-id>/);
   assert.match(output.stdout, /--host-bindings/);
   assert.match(output.stdout, /--candidate-smoke/);
+  assert.match(output.stdout, /--max-turns/);
+  assert.match(output.stdout, /--max-estimated-cost-usd/);
 });
 test('native CLI rejects duplicate, unknown and effect flags with full safe results', () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-native-cli-'));
@@ -38,7 +40,10 @@ test('native CLI rejects duplicate, unknown and effect flags with full safe resu
     for (const flags of [['--json', '--json'], ['--budget-ms=1000', '--budget-ms=1000'],
       ['--apply'], ['--yes'], ['--no-log'], ['--resolutions=anything'], ['--unknown'],
       ['--sandbox-root=relative'], ['--budget-ms=999'], ['--budget-ms=600001'],
-      ['--budget-ms=1e3'], ['--budget-ms=-1'], ['--candidate-smoke=false']])
+      ['--budget-ms=1e3'], ['--budget-ms=-1'], ['--candidate-smoke=false'],
+      ['--max-turns=2'], ['--max-estimated-cost-usd=1'], ['--max-turns=1','--max-estimated-cost-usd=1'],
+      ['--max-turns=2','--max-estimated-cost-usd=0'], ['--max-turns=2','--max-estimated-cost-usd=NaN'],
+      ['--max-turns=2','--max-estimated-cost-usd=-1'], ['--max-turns=2','--max-turns=2','--max-estimated-cost-usd=1']])
       invalid(run(['verify-client', 'claude', ...flags, ...(flags.includes('--json') ? [] : ['--json'])], root));
     assert.deepEqual(readdirSync(root), []);
   } finally { rmSync(root, { recursive: true, force: true }); }

@@ -151,7 +151,9 @@ Native verification uses explicit input, a disposable cell and bounded evidence.
 import { verifyNativeClient } from '@aihq/core';
 const result = await verifyNativeClient({
   schema: 'urn:aihq:core:native-verification-request:1.0.0',
-  client: 'claude'
+  client: 'claude',
+  maxTurns: selectedTotalTurns,
+  maxEstimatedCostUsd: selectedTotalEstimatedUsd
 });
 ```
 
@@ -188,10 +190,38 @@ JSON output contains one result and no raw process output. Exit codes are 0 for
 `complete/verified`, 2 for invalid input, 130 for cancellation and 1 otherwise.
 No verification result grants Apply approval or organization authority.
 
+Launching sessions also requires explicit `maxTurns` and `maxEstimatedCostUsd`
+totals, in the request or controls (never both). CLI equivalents are
+`--max-turns` and `--max-estimated-cost-usd`; flags must not duplicate limits in
+the request file. Both limits must be supplied together. Turns are safe integers
+at least 2; estimated USD is finite and positive, at most `Number.MAX_SAFE_INTEGER`,
+and its half must remain positive. There are no default turn or spend numbers.
+These controls select one attempt, at most two fresh sessions and no automatic retry.
+
+Before session one, Core reserves half the estimated USD for each session and
+splits turns into `floor(maxTurns/2)` and `ceil(maxTurns/2)`. Session two receives
+the lesser of its reserved share and the remaining total after session one's
+reported usage. Unused first-session share is not added to session two's share.
+Only one final, session-bound Claude result with numeric `num_turns` and
+`total_cost_usd` establishes usage. Missing, malformed, duplicate or interrupted
+results stop the attempt with `usage-unavailable`; absence of usage never means
+zero cost. Results record each session's allowance and usage and the total in
+`limits.finite`. Unknown totals are null.
+
+The fixed adapter passes `--max-turns` and `--max-budget-usd`. Turn counts measure
+agentic tool-use round trips, not individual tools. Estimated USD uses Claude's
+local pricing/accounting: the response crossing a threshold finishes, so it can
+overshoot and differ from actual charges. A first-session overshoot can reduce
+or exhaust session two's remaining allowance. Neither the threshold nor the
+deadline is an actual-charge hard cap. Limit termination produces incomplete
+acceptance, even if some proof already passed, and follows the same owned-process
+cleanup. Dedicated identity, exact artifacts, numeric limits and execution
+authorization still require independent operator selection.
+
 The [Claude finite-limit assessment](https://github.com/samartomar/aih-core/blob/main/docs/native-claude-finite-limits.md)
-documents why the pinned client's estimated-cost stopping flag cannot satisfy a
-strict two-session USD spending ceiling, and records the remaining qualification
-gates. Existing wall-clock controls do not enforce a spending cap.
+documents the implemented estimated stopping semantics, their limitations and
+the remaining native qualification gates. No real provider requests were needed
+to test these controls.
 
 The complete request may come from `--configuration <request-json-file>`; its
 client must match the positional client. `--host-bindings <host-json-file>`

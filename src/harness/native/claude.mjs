@@ -15,6 +15,16 @@ export const nativeErrorClasses = Object.freeze({
 });
 
 const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Only these numeric arguments are derived from caller-selected limits. No argv override is admitted.
+export function claudeSessionArgv(base, limits) {
+  if (!isRecord(limits) || Object.keys(limits).length !== 2 ||
+      !Number.isSafeInteger(limits.maxTurns) || limits.maxTurns < 1 ||
+      typeof limits.maxEstimatedCostUsd !== 'number' || !Number.isFinite(limits.maxEstimatedCostUsd) ||
+      limits.maxEstimatedCostUsd <= 0 || limits.maxEstimatedCostUsd > Number.MAX_SAFE_INTEGER ||
+      !Array.isArray(base) || base.some(arg => typeof arg !== 'string' ||
+        ['--max-turns', '--max-budget-usd'].includes(arg.split('=')[0]))) throw Error('finite-limits-invalid');
+  return [...base, '--max-turns', String(limits.maxTurns), '--max-budget-usd', String(limits.maxEstimatedCostUsd)];
+}
 const SERVER_STATUSES = ['connected', 'pending', 'failed', 'needs-auth', 'disabled'];
 const textOf = content => typeof content === 'string' ? [content]
   : Array.isArray(content) ? content.filter(b => isRecord(b) && b.type === 'text' && typeof b.text === 'string').map(b => b.text) : [];
@@ -44,13 +54,15 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
   const expectedAnswerSha256 = sha256(expectedAnswer);
   const state = { status: 'ok', bytes: 0, records: 0, sessionId: null, ids: new Set(), initSeen: false,
     serverStatus: null, visible: [], permissionMode: null, attestationReturned: false, answerReturned: false, answerSha256: null,
-    resultSeen: false, resultSubtype: null, resultIsError: null, errorClass: nativeErrorClasses.none, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
+    resultSeen: false, resultSubtype: null, resultIsError: null, resultLimitReason: null, resultCount: 0,
+    usage: null, usageAmbiguous: false, errorClass: nativeErrorClasses.none, unselected: [], toolsListed: false, builtin: [], unselectedTools: 0 };
   const calls = new Map();
   let pending = '';
   const stop = status => { if (state.status === 'ok') state.status = status; };
 
   const record = value => {
     state.records += 1;
+    if (state.resultSeen) state.usageAmbiguous = true;
     const errorMessage = value.type === 'result' && (value.is_error === true ||
       typeof value.subtype === 'string' && value.subtype.startsWith('error_')) ||
       value.type === 'assistant' && (typeof value.error === 'string' || isRecord(value.error) || value.is_error === true) ||
@@ -113,9 +125,20 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
         }
       }
     } else if (value.type === 'result') {
+      state.resultCount += 1;
       state.resultSeen = true;
       state.resultSubtype = typeof value.subtype === 'string' ? value.subtype.slice(0, 64) : null;
       state.resultIsError = typeof value.is_error === 'boolean' ? value.is_error : null;
+      if (value.subtype === 'error_max_turns') state.resultLimitReason ??= 'turn-limit-exhausted';
+      if (value.subtype === 'error_max_budget_usd') state.resultLimitReason ??= 'estimated-cost-limit-exhausted';
+      if (Number.isSafeInteger(value.num_turns) && value.num_turns >= 0 &&
+          typeof value.total_cost_usd === 'number' && Number.isFinite(value.total_cost_usd) &&
+          value.total_cost_usd >= 0 && value.total_cost_usd <= Number.MAX_SAFE_INTEGER &&
+          value.session_id === state.sessionId && state.initSeen &&
+          (value.subtype === 'success' && value.is_error === false ||
+            ['error_max_turns', 'error_max_budget_usd'].includes(value.subtype) && value.is_error === true))
+        state.usage = { turns: value.num_turns, estimatedCostUsd: value.total_cost_usd };
+      else state.usageAmbiguous = true;
     }
   };
 
@@ -128,12 +151,16 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     record(value);
   };
 
-  const snapshot = () => ({ status: state.status, bytes: state.bytes, records: state.records, sessionId: state.sessionId,
+  const snapshot = (finalized = false) => ({ status: state.status, bytes: state.bytes, records: state.records, sessionId: state.sessionId,
     sessionIdConsistent: state.initSeen && state.sessionId !== null && [...state.ids].every(id => id === state.sessionId),
     serverStatus: state.serverStatus, visibleSelectedTools: state.visible.slice(), toolsListed: state.toolsListed,
     builtinTools: state.builtin.slice(), unselectedTools: state.unselectedTools, permissionMode: state.permissionMode,
     attestationReturned: state.attestationReturned, answerReturned: state.answerReturned, answerSha256: state.answerSha256,
     resultSeen: state.resultSeen, resultSubtype: state.resultSubtype, resultIsError: state.resultIsError, errorClass: state.errorClass,
+    resultLimitReason: state.resultLimitReason,
+    resultUsageInvalid: state.resultSeen && (state.status !== 'ok' || state.usageAmbiguous || state.usage === null),
+    usage: finalized && state.status === 'ok' && state.resultCount === 1 && !state.usageAmbiguous &&
+      [...state.ids].every(id => id === state.sessionId) ? state.usage : null,
     unselectedToolUses: state.unselected.map(value => ({ ...value })) });
   return {
     snapshot,
@@ -154,7 +181,7 @@ export function createClaudeStreamParser({ serverName, attestTool, queryTool, ex
     finish() {
       if (pending.trim() !== '') line(pending);
       pending = '';
-      return snapshot();
+      return snapshot(true);
     }
   };
 }

@@ -18,6 +18,9 @@ import { nativeRuntime } from './internal/native-runtime.js';
 export interface NativeVerificationControls {
   signal?: AbortSignal;
   budgetMs?: number;
+  /** Whole-attempt totals. Both are required to launch; estimated USD can overshoot. */
+  maxTurns?: number;
+  maxEstimatedCostUsd?: number;
   sandboxRoot?: string;
   admission?: 'admitted' | 'candidate-smoke';
   testIdentity?: { adapterId: 'claude-oauth-otel.v1'; provisionedRoot: string; manifestSha256: string;
@@ -65,6 +68,11 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     host = validateNativeControls(controls, selected as unknown as Record<string, unknown>);
   } catch (error) { return invalidNativeResult([nativeDiagnostic(error instanceof NativeStop ? error.reason : 'strict-json')], request, controls); }
   const result = emptyNativeResult(selected, host); result.status = 'incomplete';
+  const maxTurns = host.maxTurns ?? selected.maxTurns;
+  const maxEstimatedCostUsd = host.maxEstimatedCostUsd ?? selected.maxEstimatedCostUsd;
+  const finiteLimits = maxTurns !== undefined && maxEstimatedCostUsd !== undefined
+    ? { maxTurns, maxEstimatedCostUsd, turns: 0 as number | null, estimatedCostUsd: 0 as number | null } : undefined;
+  if (finiteLimits) result.limits.finite = finiteLimits;
   const started = performance.now(); const deadline = started + result.limits.budgetMs;
   const check = () => { if (host.signal?.aborted) throw new NativeStop('cancelled'); if (performance.now() >= deadline) throw new NativeStop('budget-exhausted'); };
   const row = (id: string, outcome: NativeStage['outcome'], reason: string, session: 1 | 2 | null = null, evidence: NativeStage['evidence'] = { kind: 'none' }) => appendNativeStage(result, { id, outcome, reason, session, evidence });
@@ -196,6 +204,16 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     row('cell-staging', 'passed', 'observed', null, { kind: 'digest', sha256: stagedConfigurationDigest });
     for (const index of [1, 2] as const) {
       check();
+      activeStage = 'session-start';
+      if (!finiteLimits) throw new NativeStop('finite-limits-required');
+      const sessionLimits = {
+        maxTurns: Math.min(index === 1 ? Math.floor(finiteLimits.maxTurns / 2) : Math.ceil(finiteLimits.maxTurns / 2),
+          finiteLimits.maxTurns - (finiteLimits.turns ?? finiteLimits.maxTurns)),
+        maxEstimatedCostUsd: Math.min(finiteLimits.maxEstimatedCostUsd / 2,
+          finiteLimits.maxEstimatedCostUsd - (finiteLimits.estimatedCostUsd ?? finiteLimits.maxEstimatedCostUsd))
+      };
+      if (sessionLimits.maxTurns < 1) throw new NativeStop('turn-limit-exhausted');
+      if (sessionLimits.maxEstimatedCostUsd <= 0) throw new NativeStop('estimated-cost-limit-exhausted');
       if (index === 2) {
         activeStage = 'configuration-unchanged';
         if (!persistence('before-session-2')) throw new NativeStop('configuration-changed', 'failed');
@@ -207,7 +225,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       const challenge = randomBytes(32).toString('hex');
       const queryArguments = material.server.challenge.mode === 'argument' ? { ...material.server.queryArguments, [material.server.challenge.field]: challenge } : material.server.queryArguments;
       const sessionDeadline = index === 1 ? performance.now() + Math.max(0, deadline - performance.now()) / 2 : deadline;
-      const launched = await runtime.startNativeSession({ definition, pin, identity, cell, material, guardrails: effectiveGuardrails.files, index, challenge, deadline: sessionDeadline,
+      const launched = await runtime.startNativeSession({ definition, pin, identity, cell, material, guardrails: effectiveGuardrails.files, index, challenge, deadline: sessionDeadline, limits: sessionLimits,
         signal: host.signal, environment: environment(cell, pin.executable, pin.runtime.map(value => value.path)),
         prompt: `Perform explicit native verification. Attest the initially loaded instructions with the session challenge ${challenge}. Discover the configured server tools and call ${material.server.queryTool} with ${canonicalJson(queryArguments)}. Return the exact server answer.` });
       if ('outcome' in launched && !launched.partial) {
@@ -225,7 +243,8 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       handle = 'outcome' in launched ? launched.partial! : launched;
       if (!Number.isSafeInteger(handle.pid) || handle.pid <= 0) throw new NativeStop('native-internal');
       const session: NativeVerificationResult['sessions'][number] = { index, process: { pid: handle.pid, clientSessionId: null }, launchArgvDigest: sha256(canonicalJson(handle.argv)),
-        stagedConfigurationDigest, challengeSha256: sha256(handle.challenge && /^[a-f0-9]{64}$/.test(handle.challenge) ? handle.challenge : challenge), stages: [] };
+        stagedConfigurationDigest, challengeSha256: sha256(handle.challenge && /^[a-f0-9]{64}$/.test(handle.challenge) ? handle.challenge : challenge), stages: [],
+        limits: sessionLimits, usage: null };
       result.sessions.push(session); row('session-start', 'passed', 'observed', index);
       activeStage = 'stop';
       let observations = blankObservations(); let sessionStop: string | undefined = 'outcome' in launched ? launched.reason : undefined;
@@ -240,6 +259,22 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
       }
       // Session-local failures stop another session; completed proof survives their interruption.
       sessionStop ??= observations.failure?.reason;
+      const usage = observations.usage;
+      if (usage && Number.isSafeInteger(usage.turns) && usage.turns >= 0 &&
+          Number.isFinite(usage.estimatedCostUsd) && usage.estimatedCostUsd >= 0 && usage.estimatedCostUsd <= Number.MAX_SAFE_INTEGER) {
+        session.usage = { ...usage };
+        finiteLimits.turns = finiteLimits.turns === null ? null : finiteLimits.turns + usage.turns;
+        finiteLimits.estimatedCostUsd = finiteLimits.estimatedCostUsd === null ? null : finiteLimits.estimatedCostUsd + usage.estimatedCostUsd;
+        if (!Number.isSafeInteger(finiteLimits.turns) || !Number.isFinite(finiteLimits.estimatedCostUsd)) {
+          session.usage = null; finiteLimits.turns = null; finiteLimits.estimatedCostUsd = null; sessionStop ??= 'usage-unavailable';
+        } else if (usage.turns > sessionLimits.maxTurns || finiteLimits.turns! > finiteLimits.maxTurns || index === 1 && finiteLimits.turns! >= finiteLimits.maxTurns)
+          sessionStop ??= 'turn-limit-exhausted';
+        else if (finiteLimits.estimatedCostUsd! > finiteLimits.maxEstimatedCostUsd || index === 1 && finiteLimits.estimatedCostUsd! >= finiteLimits.maxEstimatedCostUsd)
+          sessionStop ??= 'estimated-cost-limit-exhausted';
+      } else {
+        finiteLimits.turns = null; finiteLimits.estimatedCostUsd = null;
+        sessionStop ??= 'usage-unavailable';
+      }
       if (!Object.values(observations.counts).every(value => Number.isSafeInteger(value) && value >= 0)) {
         sessionStop = 'native-internal'; observations.counts = { observedBytes: 0, telemetryEvents: 0, rpcMessages: 0 };
       } else if (observations.counts.observedBytes > 8 * 1024 * 1024 || observations.counts.telemetryEvents > 512 || observations.counts.rpcMessages > 512) sessionStop = 'limit-exceeded';

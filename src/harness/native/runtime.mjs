@@ -21,7 +21,7 @@ export { resolveLinuxNativeClient, observeLinuxNativePolicy } from './linux-clie
 export { prepareLinuxSandboxContext } from './linux-sandbox.mjs';
 export { verifyLinuxVendorClosure } from './linux-runtime.mjs';
 export { createClaudeCollector } from './collector.mjs';
-export { createClaudeStreamParser, buildClaudeEnvironment, claudePrompt, claudeSessionsAreFresh,
+export { createClaudeStreamParser, claudeSessionArgv, buildClaudeEnvironment, claudePrompt, claudeSessionsAreFresh,
   observeClaudeManagedSettings } from './claude.mjs';
 export { evaluateServerEvidence } from './evidence.mjs';
 export { evaluateClaudeSession } from './session.mjs';

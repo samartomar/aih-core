@@ -18,6 +18,9 @@ export interface NativeTreeFile { root: 'home' | 'project'; path: string; member
 export interface NativeVerificationRequest {
   schema: 'urn:aihq:core:native-verification-request:1.0.0';
   client: NativeClientId;
+  /** Explicit whole-attempt totals; no default spend or turn allowance. */
+  maxTurns?: number;
+  maxEstimatedCostUsd?: number;
   configuration?:
     | { kind: 'bundled'; id: 'aihq.native-fixture.v1' }
     | { kind: 'supplied'; input: string; bundleId: string; manifestSha256: Sha256 };
@@ -63,7 +66,9 @@ export interface NativeVerificationResult {
     outputTreeSha256: Sha256; guardrailsSha256: Sha256; stagedConfigurationDigest: Sha256 } | null;
   sessions: { index: 1 | 2; process: { pid: number; clientSessionId: string | null };
     launchArgvDigest: Sha256; stagedConfigurationDigest: Sha256;
-    challengeSha256: Sha256; stages: NativeStage[] }[];
+    challengeSha256: Sha256; stages: NativeStage[];
+    limits?: { maxTurns: number; maxEstimatedCostUsd: number };
+    usage?: { turns: number; estimatedCostUsd: number } | null }[];
   stages: NativeStage[];
   security: { sandbox: { level: 'observed-os-boundary' | 'hygiene-only' | 'not-started';
     mechanism: string | null; reason: string };
@@ -75,7 +80,8 @@ export interface NativeVerificationResult {
   diagnostics: Diagnostic[];
   limits: { budgetMs: number; elapsedMs: number; sessionsStarted: number;
     stagesCompleted: number; observedBytes: number; telemetryEvents: number;
-    rpcMessages: number; evidenceTruncated: boolean };
+    rpcMessages: number; evidenceTruncated: boolean;
+    finite?: { maxTurns: number; maxEstimatedCostUsd: number; turns: number | null; estimatedCostUsd: number | null } };
 }
 
 const REQUEST_SCHEMA_ID = 'urn:aihq:core:native-verification-request:1.0.0';
@@ -216,9 +222,26 @@ function resultSemantics(document: NativeVerificationResult): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string) => diagnostics.push(diagnostic('INPUT_INVALID', reason, path));
   const rows = [...document.stages, ...document.sessions.flatMap(session => session.stages)];
+  if (rows.some(stage => ['turn-limit-exhausted', 'estimated-cost-limit-exhausted', 'usage-unavailable'].includes(stage.reason)) &&
+      !['incomplete', 'cancelled'].includes(document.status)) invalid('result-field', '/status');
   if (rows.length > 32) invalid('result-limit', '/stages');
   if (document.limits.sessionsStarted !== document.sessions.length || document.limits.stagesCompleted !== rows.length)
     invalid('result-field', '/limits');
+  const finite = document.limits.finite;
+  if (finite) {
+    let turns: number | null = 0; let cost: number | null = 0;
+    for (const [index, session] of document.sessions.entries()) {
+      const expectedTurns = Math.min(index === 0 ? Math.floor(finite.maxTurns / 2) : Math.ceil(finite.maxTurns / 2), finite.maxTurns - (turns ?? finite.maxTurns));
+      const expectedCost = Math.min(finite.maxEstimatedCostUsd / 2, finite.maxEstimatedCostUsd - (cost ?? finite.maxEstimatedCostUsd));
+      if (!session.limits || session.limits.maxTurns !== expectedTurns || session.limits.maxEstimatedCostUsd !== expectedCost)
+        invalid('result-field', `/sessions/${index}/limits`);
+      turns = turns === null || !session.usage ? null : turns + session.usage.turns;
+      cost = cost === null || !session.usage ? null : cost + session.usage.estimatedCostUsd;
+    }
+    if (finite.turns !== turns || finite.estimatedCostUsd !== cost) invalid('result-field', '/limits/finite');
+    if (document.verdict === 'verified' && (turns === null || cost === null || turns > finite.maxTurns || cost > finite.maxEstimatedCostUsd ||
+        document.sessions.some(session => !session.usage || session.usage.turns > session.limits!.maxTurns))) invalid('result-field', '/limits/finite');
+  } else if (document.sessions.some(session => session.limits !== undefined || session.usage !== undefined)) invalid('result-field', '/limits/finite');
   const sessionRows = ['session-freshness', 'loading-mode', 'tool-restrictions', 'provider-authentication',
     'tool-discovery', 'instruction-loading', 'read-only-query', 'isolation', 'cleanup'];
   for (const [index, session] of document.sessions.entries()) {
@@ -301,7 +324,11 @@ const checkResultSchema = ajv.compile(resultSchema);
 const checkBundleSchema = ajv.compile(bundleSchema);
 
 export function validateNativeVerificationRequest(value: unknown): ValidationResult {
-  return validateDocument(value, 'request', REQUEST_SCHEMA_ID, checkRequestSchema, () => []);
+  return validateDocument(value, 'request', REQUEST_SCHEMA_ID, checkRequestSchema, document => {
+    const request = document as unknown as NativeVerificationRequest;
+    return request.maxEstimatedCostUsd !== undefined && request.maxEstimatedCostUsd / 2 <= 0
+      ? [diagnostic('INPUT_INVALID', 'request-field', '/maxEstimatedCostUsd')] : [];
+  });
 }
 export function validateNativeVerificationResult(value: unknown): ValidationResult {
   return validateDocument(value, 'result', RESULT_SCHEMA_ID, checkResultSchema,

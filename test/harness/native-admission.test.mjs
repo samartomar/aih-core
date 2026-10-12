@@ -183,7 +183,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
       init: { serverStatus: 'unobserved' },
       proxy: null, runnerWarnings: null, forwarder: null, result: { seen: true, isError: null, subtype: 'other', errorClass: 'none' }
     });
-    for (const subtype of ['success', 'error_max_turns', 'error_during_execution', 'other']) {
+  for (const subtype of ['success', 'error_max_turns', 'error_max_budget_usd', 'error_during_execution', 'other']) {
       admission.publishNativeDiagnostics({ result: { resultSeen: true, resultIsError: false, resultSubtype: subtype } });
       assert.deepEqual(records.at(-1).result, { seen: true, isError: false, subtype, errorClass: 'none' });
     }

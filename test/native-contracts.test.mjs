@@ -165,6 +165,35 @@ test('bundle validation pins trees, instructions, tagged choices and safe paths'
     startingTree: unsafeTree, startingTreeSha256: treeDigest(unsafeTree) }).valid, false);
 });
 
+test('finite request totals are paired numeric fields with no argv or callback channel', () => {
+  const request={schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',maxTurns:8,maxEstimatedCostUsd:0.25};
+  assert.equal(validateNativeVerificationRequest(request).valid,true);
+  for(const patch of [{maxTurns:1},{maxTurns:2.5},{maxTurns:'8'},{maxTurns:null},{maxEstimatedCostUsd:0},
+    {maxEstimatedCostUsd:'0.25'},{maxEstimatedCostUsd:Number.MIN_VALUE},{argv:['--max-turns','8']}])
+    assert.equal(validateNativeVerificationRequest({...request,...patch}).valid,false);
+  const {maxTurns,...costOnly}=request; const {maxEstimatedCostUsd,...turnsOnly}=request;
+  assert.equal(validateNativeVerificationRequest(costOnly).valid,false);
+  assert.equal(validateNativeVerificationRequest(turnsOnly).valid,false);
+});
+
+test('finite result validation binds reserved allocations, usage sums and verified completion', () => {
+  const result=observedResult();
+  result.limits.finite={maxTurns:8,maxEstimatedCostUsd:2,turns:4,estimatedCostUsd:0.25};
+  for(const session of result.sessions){session.limits={maxTurns:4,maxEstimatedCostUsd:1};session.usage={turns:2,estimatedCostUsd:0.125};}
+  assert.equal(validateNativeVerificationResult(result).valid,true);
+  for(const mutate of [value=>value.sessions[1].limits.maxEstimatedCostUsd=1.5,
+    value=>value.sessions[0].usage=null, value=>value.limits.finite.turns=0,
+    value=>value.limits.finite.estimatedCostUsd=0, value=>delete value.limits.finite]){
+    const changed=structuredClone(result);mutate(changed);
+    assert.equal(validateNativeVerificationResult(changed).valid,false);
+  }
+  const stopped=structuredClone(result);stopped.verdict='unverified';stopped.status='incomplete';
+  stopped.stages.push({id:'stop',session:null,outcome:'unavailable',reason:'turn-limit-exhausted',evidence:{kind:'none'}});
+  stopped.limits.stagesCompleted++;
+  assert.equal(validateNativeVerificationResult(stopped).valid,true);
+  stopped.status='complete';assert.equal(validateNativeVerificationResult(stopped).valid,false);
+});
+
 test('bundle validation rejects duplicated or overlapping output paths', () => {
   const bundle = suppliedBundle();
   const parent = { root: 'project', path: 'config', member: member('package/config/a', 'a') };
