@@ -112,14 +112,17 @@ async function prepareContext(input) {
   });
 }
 
+const HAPPY_PATH_PREPARATION_MS = 30_000;
+
 async function readyContext({ directory, selectedEntries = [] } = {}) {
   const dir = directory ?? tempDirectory();
   const controller = new AbortController();
+  const runtimePins = [await pinExecutable(process.execPath)];
   const prepared = await prepareContext({
     directory: dir,
-    deadline: performance.now() + 20_000,
+    deadline: performance.now() + HAPPY_PATH_PREPARATION_MS,
     signal: controller.signal,
-    runtimePins: [await pinExecutable(process.execPath)],
+    runtimePins,
     selectedEntries
   });
   return { directory: dir, controller, prepared };
