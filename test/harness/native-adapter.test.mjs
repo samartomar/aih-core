@@ -24,18 +24,19 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as installed from '../../src/harness/native/runtime.mjs';
+import { claudeSessionArgv } from '../../src/harness/native/claude.mjs';
 
 test('Claude numeric limits produce only the fixed supported arguments and reject overrides', () => {
   const base=['-p','--verbose','--output-format','stream-json','--tools',''];
-  assert.deepEqual(installed.claudeSessionArgv(base,{maxTurns:3,maxEstimatedCostUsd:0.25}),
+  assert.deepEqual(claudeSessionArgv(base,{maxTurns:3,maxEstimatedCostUsd:0.25}),
     [...base,'--max-turns','3','--max-budget-usd','0.25']);
   assert.equal(base.length,6);
   for(const limits of [undefined,{}, {maxTurns:0,maxEstimatedCostUsd:1}, {maxTurns:1.5,maxEstimatedCostUsd:1},
     {maxTurns:1,maxEstimatedCostUsd:NaN}, {maxTurns:1,maxEstimatedCostUsd:'1'}, {maxTurns:1,maxEstimatedCostUsd:0},
     {maxTurns:1,maxEstimatedCostUsd:1,argv:['--dangerously-skip-permissions']}])
-    assert.throws(()=>installed.claudeSessionArgv(base,limits));
+    assert.throws(()=>claudeSessionArgv(base,limits));
   for(const flag of ['--max-turns','--max-turns=2','--max-budget-usd','--max-budget-usd=1'])
-    assert.throws(()=>installed.claudeSessionArgv([...base,flag],{maxTurns:2,maxEstimatedCostUsd:1}));
+    assert.throws(()=>claudeSessionArgv([...base,flag],{maxTurns:2,maxEstimatedCostUsd:1}));
 });
 
 test('the owned Windows session launch and digest argv carry both finite limits', async t => {
