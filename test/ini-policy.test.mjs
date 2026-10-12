@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { prepare, apply, prepareManagedRemoval, checkFileState } from '../dist/core/index.js';
@@ -58,7 +58,7 @@ test('INI shared claims survive first removal; final removal preserves fresh nei
     const original = '; keep\n[global]\ntimeout=15\n[install]\nupgrade=true\n';
     s.write('settings.ini', original);
     await install(s, document());
-    const receipt = join(s.home, '.aih', 'core', 'ownership', createHash('sha256').update(s.project).digest('hex') + '.json');
+    const receipt = join(s.home, '.aih', 'core', 'ownership', createHash('sha256').update(realpathSync.native(s.project)).digest('hex') + '.json');
     assert.equal(JSON.parse(readFileSync(receipt)).schema, 'urn:aihq:core:ownership:1.2.0');
     await install(s, document('two', '/team.pem', 'CERT'), [{ selectionId: 'two', operationId: 'config', choice: 'adopt', observedSha256: createHash('sha256').update(s.read('settings.ini')).digest('hex') }]);
     const changed = await prepare(request(s, document('two', '/different.pem')), { logging: 'off' });

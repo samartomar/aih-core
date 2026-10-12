@@ -25,13 +25,15 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
   const env = { ...process.env, HOME: join(root, 'home'), USERPROFILE: join(root, 'home') };
   mkdirSync(env.HOME);
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
-  const npm = (args, cwd, mask) => {
+  const run = (args, cwd, mask) => {
     // Set umask in the child alone; other package tests may run concurrently.
-    const launcher = 'if(process.platform!=="win32")process.umask(Number(process.argv[1]));process.argv.splice(1,1);await import(process.argv[1]);';
-    return execFileSync(process.execPath, ['--input-type=module', '-e', launcher, String(mask), process.env.npm_execpath, ...args],
-      { cwd, env, encoding: 'utf8', timeout: 120_000 });
+    const launcher = 'import{pathToFileURL}from"node:url";if(process.platform!=="win32")process.umask(Number(process.argv[1]));process.argv.splice(1,1);await import(pathToFileURL(process.argv[1]));';
+    return execFileSync(process.execPath, ['--input-type=module', '-e', launcher, String(mask), ...args],
+      { cwd, env, encoding: 'utf8', timeout: 120_000, windowsHide: true });
   };
-  const packed = JSON.parse(npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--build', '--pack-destination', root], producer, 0o022))[0];
+  const npm = (args, cwd, mask) => run([process.env.npm_execpath, ...args], cwd, mask);
+  const pack = args => run([join(producer, 'scripts/pack-distribution.mjs'), ...args], producer, 0o022);
+  const packed = JSON.parse(pack(['--build', '--pack-destination', root]))[0];
   assert.equal(packed.files.find(value => value.path === member)?.mode, 0o755,
     'the archive must declare the facility executable even when producer files have no executable bits');
   // Read the actual archive header independently of the packaging summary.
@@ -45,7 +47,7 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
   const identityFile = join(producer, 'dist/distribution.mjs');
   const identityBefore = lstatSync(identityFile, { bigint: true });
   const secondDestination = join(root, 'second'); mkdirSync(secondDestination);
-  npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--pack-destination', secondDestination], producer, 0o022);
+  pack(['--pack-destination', secondDestination]);
   const identityAfter = lstatSync(identityFile, { bigint: true });
   assert.deepEqual([identityAfter.ino, identityAfter.mtimeNs, identityAfter.ctimeNs],
     [identityBefore.ino, identityBefore.mtimeNs, identityBefore.ctimeNs], 'packing must leave built inputs untouched');
