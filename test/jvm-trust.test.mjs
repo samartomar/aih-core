@@ -9,6 +9,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
 import { repairIndex } from '@aihq/core/harness';
 import { getRepairRecipe } from '@aihq/core/harness/runtime';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+
+const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aih-jvm-trust-')));
 const home = join(scratch, 'home');
@@ -102,6 +106,8 @@ for (const change of ['ca source', 'baseline source', 'Gradle config', 'Maven co
     if (config) { mkdirSync(dirname(config), { recursive: true }); writeFileSync(config, '# user content added after review\n'); }
     const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
     assert.equal(applied.completion, 'rejected', JSON.stringify(applied.diagnostics));
+    assert.equal(validateLegacyRun(applied), true, JSON.stringify(validateLegacyRun.errors));
+    assert.equal(applied.schema, 'urn:aihq:core:run-result:1.0.0');
     assert.ok(applied.diagnostics.some(item => item.code === 'REVIEW_STALE'));
     assert.equal(existsSync(join(home, '.aih')), false);
     if (config) assert.equal(readFileSync(config, 'utf8'), '# user content added after review\n');
@@ -343,6 +349,8 @@ test('boundary fixture: offline configuration preserves reviewed neighbors and r
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const applied = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
   assert.equal(applied.completion, 'incomplete', JSON.stringify(applied));
+  assert.equal(validateLegacyRun(applied), true, JSON.stringify(validateLegacyRun.errors));
+  assert.equal(applied.schema, 'urn:aihq:core:run-result:1.0.0');
   for (const target of ['gradle', 'maven']) {
     const operation = applied.operations.find(item => item.id === `trust/${target}-config`);
     assert.equal(operation.application, 'applied');

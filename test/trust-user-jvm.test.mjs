@@ -7,6 +7,10 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
 import { validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+
+const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 
 // Public repair API over the shared trust source for existing non-Node families.
 // Fixture executables only prove discovery/launch wiring, never native TLS behavior.
@@ -189,6 +193,10 @@ for (const route of ['shared', 'legacy']) test(`${route} reviewed user-tools rem
   assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
   const repaired = await apply(p.prepared, approve(p), { logging: 'off' });
   assert.equal(repaired.completion, route === 'shared' ? 'complete' : 'incomplete', JSON.stringify(repaired.diagnostics));
+  if (route === 'legacy') {
+    assert.equal(validateLegacyRun(repaired), true, JSON.stringify(validateLegacyRun.errors));
+    assert.equal(repaired.schema, 'urn:aihq:core:run-result:1.0.0');
+  } else valid(validateRunResult12, repaired);
   assert.ok(repaired.operations.some(o => o.id === 'trust/pip-config' && o.application === 'applied'));
   valid(validatePreparedWork14, p.review);
   const npm = await prepare(repair('node-npm-ca', ['npm'], { sources: { os: false, supplied: [{ id: 'npm', file }] } }), { logging: 'off' });

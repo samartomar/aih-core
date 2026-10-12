@@ -516,7 +516,7 @@ export async function applyRepair(handle: PreparedHandle, authorization: Authori
       }
     }
   }
-  return recordRun({ ...result, useCase: 'repair', inputs: state.inputs,
+  return recordRun({ ...result, schema: 'urn:aihq:core:run-result:1.0.0', useCase: 'repair', inputs: state.inputs,
     followUp: [...result.followUp,
       'The managed copy remains after the original CA file changes; repeat repair to update it.',
       'User processes may require restart or explicit environment inheritance.'] }, controls);
