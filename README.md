@@ -188,6 +188,11 @@ JSON output contains one result and no raw process output. Exit codes are 0 for
 `complete/verified`, 2 for invalid input, 130 for cancellation and 1 otherwise.
 No verification result grants Apply approval or organization authority.
 
+The [Claude finite-limit assessment](https://github.com/samartomar/aih-core/blob/main/docs/native-claude-finite-limits.md)
+documents why the pinned client's estimated-cost stopping flag cannot satisfy a
+strict two-session USD spending ceiling, and records the remaining qualification
+gates. Existing wall-clock controls do not enforce a spending cap.
+
 The complete request may come from `--configuration <request-json-file>`; its
 client must match the positional client. `--host-bindings <host-json-file>`
 accepts only `testIdentity` and `configurationSources`, independently selected
