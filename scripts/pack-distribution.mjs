@@ -11,6 +11,8 @@ import { create, list } from 'tar';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
+const build = args[0] === '--build';
+if (build) args.shift();
 assert.ok(args.length === 0 || (args.length === 2 && args[0] === '--pack-destination'),
   'Use npm run pack:distribution -- [--pack-destination <existing directory>]');
 assert.ok(process.env.npm_execpath, 'Run through npm run pack:distribution');
@@ -38,7 +40,9 @@ async function inventory(file) {
 
 try {
   // Send build diagnostics to stderr; stdout identifies only the final artifact.
-  execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], { cwd: root, stdio: ['ignore', 2, 2] });
+  // The public npm command requests a build. Direct developer/test invocation
+  // packs existing output without replacing files concurrent readers may use.
+  if (build) execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], { cwd: root, stdio: ['ignore', 2, 2] });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
   const [packed] = JSON.parse(execFileSync(process.execPath, [process.env.npm_execpath,

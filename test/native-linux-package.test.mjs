@@ -31,7 +31,7 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
     return execFileSync(process.execPath, ['--input-type=module', '-e', launcher, String(mask), process.env.npm_execpath, ...args],
       { cwd, env, encoding: 'utf8', timeout: 120_000 });
   };
-  const packed = JSON.parse(npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--pack-destination', root], producer, 0o022))[0];
+  const packed = JSON.parse(npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--build', '--pack-destination', root], producer, 0o022))[0];
   assert.equal(packed.files.find(value => value.path === member)?.mode, 0o755,
     'the archive must declare the facility executable even when producer files have no executable bits');
   // Read the actual archive header independently of the packaging summary.
@@ -40,6 +40,15 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
     if (entry.path === `package/${member}`) headers.push({ mode: entry.mode, type: entry.type });
   } });
   assert.deepEqual(headers, [{ mode: 0o755, type: 'File' }]);
+  // Packing an already-built tree must not rebuild it: other test processes
+  // and consumers may be reading the same output at the same time.
+  const identityFile = join(producer, 'dist/distribution.mjs');
+  const identityBefore = lstatSync(identityFile, { bigint: true });
+  const secondDestination = join(root, 'second'); mkdirSync(secondDestination);
+  npm(['exec', '--', 'node', 'scripts/pack-distribution.mjs', '--pack-destination', secondDestination], producer, 0o022);
+  const identityAfter = lstatSync(identityFile, { bigint: true });
+  assert.deepEqual([identityAfter.ino, identityAfter.mtimeNs, identityAfter.ctimeNs],
+    [identityBefore.ino, identityBefore.mtimeNs, identityBefore.ctimeNs], 'packing must leave built inputs untouched');
   if (process.platform !== 'linux' || process.arch !== 'x64') return;
   const record = JSON.parse(readFileSync(join(producer, 'dist/harness/native/linux/build-record.json'), 'utf8'));
   const pin = record.resources.find(value => value.name === 'facility');

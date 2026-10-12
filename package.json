@@ -106,7 +106,7 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "pack:distribution": "node scripts/pack-distribution.mjs",
+    "pack:distribution": "node scripts/pack-distribution.mjs --build",
     "typecheck": "tsc --noEmit",
     "verify:report-consumer": "node scripts/verify-report-consumer.mjs",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
