@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.36 adds `npm run pack:distribution`, the qualified cross-platform
+producer command. It normalizes the Linux facility's executable archive mode,
+checks its pinned bytes, and verifies that every other entry's bytes and metadata
+are preserved. It refuses to overwrite an existing artifact and reports the
+final archive identity. Raw `npm pack` remains unqualified for Windows producers.
+The pinned Linux facility is also declared as an npm executable.
+Clean installs with lifecycle scripts disabled work under restrictive umask
+`077`. npm creates an `aih-linux-facility` helper link or shim; this internal
+protocol is not a user CLI. Harness still launches the same fixed installed path
+and verifies the same binary bytes. Archive and clean-install regressions cover
+permissions and direct helper startup without starting a client. No admission
+or native client acceptance changes. This candidate has not been published to
+npm.
+
 Core 1.0.0-dev.35 derives narrow verifier-owned Claude permissions and project
 server approval from independently pinned supplied bundle identities. Only the
 fixed instruction-attestation tool and selected query are granted; ambiguous
