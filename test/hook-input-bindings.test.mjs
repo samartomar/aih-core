@@ -77,3 +77,64 @@ test('hook bindings refuse unknown inputs, ambiguous paths, type changes and sel
     assert.equal(validateRecipe(recipe).valid, false, name);
   }
 });
+
+test('private hook scalar bindings are redacted from review while apply retains their values', async () => {
+  const fixture = sandbox();
+  try {
+    const policy = boundPolicy();
+    const recipe = policy.selections[0].recipe.inline;
+    const op = recipe.operations[0];
+    for (const [name, type, placeholder] of [['secretText', 'string', ''], ['secretNumber', 'integer', 0], ['secretFlag', 'boolean', false]]) {
+      recipe.inputs[name] = { type, required: true, sensitive: true };
+      op.group.literal[name] = placeholder;
+      op.groupBindings.push({ path: [name], value: { input: name } });
+    }
+    op.group.literal.publicNumber = 8675309;
+    op.group.literal.publicFlag = true;
+    const values = { secretText: 'private-hook-value', secretNumber: 8675309, secretFlag: true };
+    const prepared = await prepare({ useCase: 'policy', policy, target: { project: fixture.project } },
+      { logging: 'off', privateInputs: { framework: values } });
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    const desired = prepared.review.operations[0].details.hookGroup.desiredGroup;
+    for (const name of Object.keys(values)) assert.equal(desired[name], '[REDACTED]', name);
+    assert.equal(desired.publicNumber, 8675309);
+    assert.equal(desired.publicFlag, true);
+    const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
+    assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
+    const applied = JSON.parse(fixture.read(SETTINGS)).hooks.PreToolUse[0];
+    for (const [name, value] of Object.entries(values)) assert.equal(applied[name], value);
+  } finally { fixture.dispose(); }
+});
+
+test('file-state rejects omitted public hook slots before observation but leaves private omissions unavailable', async () => {
+  const fixture = sandbox();
+  try {
+    for (const slot of ['selector', 'group']) {
+      const policy = boundPolicy();
+      const selection = policy.selections[0];
+      const recipe = selection.recipe.inline;
+      let name = 'guardCommand';
+      if (slot === 'group') {
+        name = 'optionalCount';
+        recipe.inputs[name] = { type: 'integer', required: false };
+        recipe.operations[0].group.literal.count = 0;
+        recipe.operations[0].groupBindings.push({ path: ['count'], value: { input: name } });
+      } else {
+        recipe.inputs[name].required = false;
+        delete selection.configuration[name];
+      }
+      const request = { policy, target: { project: fixture.project } };
+      for (const signal of [undefined, AbortSignal.abort()]) {
+        const observed = await checkFileState(request, { signal });
+        assert.equal(observed.status, 'invalid', `${slot}: ${JSON.stringify(observed)}`);
+        assert.equal(observed.coverage.comparedTargets, 0);
+      }
+      recipe.inputs[name].sensitive = true;
+      const privateOmitted = await checkFileState(request);
+      assert.equal(privateOmitted.status, 'incomplete', JSON.stringify(privateOmitted));
+      assert.equal(privateOmitted.fileState, 'unverified');
+      assert.equal(privateOmitted.targets[0].reason, 'input-unavailable');
+    }
+    assert.equal(fixture.read(SETTINGS), null);
+  } finally { fixture.dispose(); }
+});

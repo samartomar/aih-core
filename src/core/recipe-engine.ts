@@ -9,7 +9,7 @@ import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtim
 import { admitOrganizationSelections, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
-import { bindHookGroup } from './internal/hook-bindings.js';
+import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
@@ -495,7 +495,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;
             if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
-            const desiredGroup = decision.details.desiredGroup ? redactJson(decision.details.desiredGroup, privateValues) as typeof decision.details.desiredGroup : null;
+            const desiredGroup = decision.details.desiredGroup ? redactJson(redactHookBindings(decision.details.desiredGroup, op, recipe.inputs), privateValues) as typeof decision.details.desiredGroup : null;
             details = { target: safeText(target.absolute, privateValues), format: op.format, mode: mode!,
               ...(decision.reason ? { reason: decision.reason } : {}), hookGroup: { ...decision.details, desiredGroup } };
             if (effect === 'conflict') {

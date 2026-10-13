@@ -65,6 +65,16 @@ export interface BoundHookGroup {
   format: 'json' | 'jsonc'; container: string[]; groupId: string;
   selector: { path: Path; value: string }; action: 'set' | 'remove'; group?: JsonObject;
 }
+/** Review copy only: private bound leaves are hidden regardless of scalar type. */
+export function redactHookBindings(group: JsonObject, op: HookGroupOperation, inputs: Record<string, InputSpec>): JsonObject {
+  const review = structuredClone(group);
+  for (const binding of op.groupBindings ?? []) {
+    if (!('input' in binding.value) || !inputs[binding.value.input]?.sensitive) continue;
+    const at = leaf(review, binding.path);
+    if (at) at.parent[at.key] = '[REDACTED]';
+  }
+  return review;
+}
 export function bindHookGroup(op: HookGroupOperation, inputs: Record<string, Json>): BoundHookGroup {
   const resolve = (slot: Slot): Json => {
     if ('literal' in slot) return slot.literal;

@@ -138,6 +138,8 @@ function admitAuthoredSlots(recipe: Recipe, bound: Bound): void {
     path(op.target, true);
     if (op.kind === 'file.write' || op.kind === 'text.block') slots([op.content]);
     else if (op.kind === 'config.entries') slots(op.entries.map(entry => entry.action === 'set' ? entry.value : undefined));
+    else if (op.kind === 'hook.group') slots([...(op.groupBindings ?? []).map(binding => binding.value),
+      ...('input' in op.selector ? [{ input: op.selector.input }] : [])]);
   }
   for (const check of recipe.checks) {
     if (check.kind === 'process.exit') { if (referenced.has(check.id)) invocation(check); }
@@ -456,7 +458,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
               ...(content === undefined ? {} : { content }) });
           } else if (op.kind === 'hook.group') {
             const requested = [...(op.groupBindings ?? []).map(binding => binding.value), ...('input' in op.selector ? [{ input: op.selector.input }] : [])];
-            if (requested.some(slot => 'input' in slot && !Object.hasOwn(bound, slot.input))) reason = 'input-unavailable';
+            if (requested.some(slot => missingInput(recipe, bound, slot))) reason = 'input-unavailable';
             else { const authored = bindHookGroup(op, bound); fold = before => foldHookGroup(authored, before); }
           } else fold = () => null;
         }
