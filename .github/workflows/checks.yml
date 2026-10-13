@@ -2,14 +2,46 @@ name: Core package checks
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: core-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      suite: ${{ steps.route.outputs.suite }}
+      matrix: ${{ steps.route.outputs.matrix }}
+      nativeLinux: ${{ steps.route.outputs.nativeLinux }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - id: route
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          FULL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$FULL" = true ]; then
+            node scripts/select-checks.mjs --full --changes '[]'
+          else
+            node scripts/select-checks.mjs --base "$BASE" --head "$HEAD"
+          fi
+      - run: node --test test/ci-routing.test.mjs
   native-linux-build:
+    needs: select
+    if: needs.select.outputs.nativeLinux == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -25,23 +57,17 @@ jobs:
           path: .scratch/native-linux-build/
           if-no-files-found: error
   package:
+    needs: select
+    if: needs.select.outputs.suite != 'none'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['24']
-        include:
-          - os: ubuntu-latest
-            node: '24.15.0'
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    # Windows subprocess/packed-consumer checks already approach 20-25 minutes on
-    # hosted runners. Keep room for the packed fixtures' own npm budgets to
-    # expire and report before the job is cancelled.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # The old-Core compatibility test builds the pre-feature base commit from history; a shallow clone would skip it.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -50,4 +76,21 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run build
-      - run: npm test
+      - run: npm test -- --suite ${{ needs.select.outputs.suite }}
+  verify:
+    name: Core checks result
+    needs: [select, native-linux-build, package]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - env:
+          SELECT: ${{ needs.select.result }}
+          PACKAGE: ${{ needs.package.result }}
+          NATIVE: ${{ needs.native-linux-build.result }}
+          SUITE: ${{ needs.select.outputs.suite }}
+          NEED_NATIVE: ${{ needs.select.outputs.nativeLinux }}
+        run: node scripts/check-ci-result.mjs

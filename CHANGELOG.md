@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Add recipe and execution-policy 1.3.0 for generic input-bound hook groups.
+One immutable recipe can register commands containing machine-local paths,
+update an owned command, and remove its group while preserving user settings.
+Bindings are limited to existing scalar leaves and remain subject to declared
+input constraints and Enterprise organization authority. Earlier schema bytes
+are unchanged. This local candidate is unpublished.
+
 Core 1.0.0-dev.37 gives user-tools and JVM repairs bounded entry/block custody,
 preserving neighboring settings through reviewed removal. New recipe/policy
 1.2.0 and prepared-work 1.4.0 contracts admit INI, top-level YAML scalar and

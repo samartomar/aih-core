@@ -1,3 +1,4 @@
+import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
@@ -37,12 +38,6 @@ export function dependencyOrder<T extends { id: string; requires: string[] }>(it
   return ordered;
 }
 
-const HOOK_GROUP_MAX_BYTES = 65_536;
-const HOOK_GROUP_MAX_DEPTH = 16;
-function jsonDepth(value: Json): number {
-  if (!value || typeof value !== 'object') return 0;
-  return 1 + Math.max(0, ...(Array.isArray(value) ? value : Object.values(value)).map(jsonDepth));
-}
 export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path,
@@ -112,17 +107,7 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
       const identity = canonicalJson({ target: op.target, format: op.format, container: op.container, groupId: op.groupId });
       if (hookIdentities.has(identity)) invalid('hook-duplicate-group', path);
       hookIdentities.add(identity);
-      if (op.action === 'set') {
-        const group = op.group!.literal;
-        if (new TextEncoder().encode(canonicalJson(group)).length > HOOK_GROUP_MAX_BYTES || jsonDepth(group) > HOOK_GROUP_MAX_DEPTH) invalid('hook-group-bounds', `${path}/group`);
-        // The selected scalar must be an existing field of the group, never injected metadata.
-        let node: Json | undefined = group;
-        for (const part of op.selector.path) {
-          node = typeof part === 'number' ? Array.isArray(node) ? node[part] : undefined :
-            node && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, part) ? node[part] : undefined;
-        }
-        if (node !== op.selector.value) invalid('hook-selector-value', `${path}/selector`);
-      }
+      for (const issue of hookBindingIssues(op, recipe.inputs)) invalid(issue.reason, path + issue.path);
     }
   });
   recipe.checks.forEach((check, index) => {

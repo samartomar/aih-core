@@ -4,6 +4,8 @@ import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'j
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import preparedSchema from './schemas/prepared-work/1.0.0.json' with { type: 'json' };
 import resultSchema from './schemas/run-result/1.0.0.json' with { type: 'json' };
+import policySchema13 from './schemas/execution-policy/1.3.0.json' with { type: 'json' };
+import recipeSchema13 from './schemas/recipe/1.3.0.json' with { type: 'json' };
 import policySchema12 from './schemas/execution-policy/1.2.0.json' with { type: 'json' };
 import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
 import preparedSchema14 from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
@@ -19,6 +21,7 @@ import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.js
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
 import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
+import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { trustContractSchemas } from './trust-contracts.js';
 import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
@@ -52,6 +55,9 @@ const validator = new Ajv2020({ allErrors: true, strict: true });
 validator.addSchema(recipeSchema);
 validator.addSchema(recipeSchema11);
 validator.addSchema(recipeSchema12);
+validator.addSchema(recipeSchema13);
+const checkPolicy13 = validator.compile(policySchema13);
+const checkRecipe13 = validator.getSchema(recipeSchema13.$id)! as ValidateFunction;
 const checkPolicy = validator.compile(policySchema);
 const checkPolicy11 = validator.compile(policySchema11);
 const checkPolicy12 = validator.compile(policySchema12);
@@ -75,7 +81,7 @@ export const contractSupport = Object.freeze({
   contracts: [
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
-      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11].map(schema => ({
+      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13].map(schema => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -124,14 +130,14 @@ function validate(value: unknown, accepted: Accepted, semantics: (document: neve
       valid: false, schema: found, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED', reason: 'schema-id',
         message: 'This format is not supported.', path: '/schema', encountered: found, supported: Object.keys(accepted) }]
     };
-    // A 1.0.0 policy cannot carry a 1.1.0 recipe, even when that recipe's own schema is valid.
-    const selections = [policySchema.$id, policySchema11.$id].includes(found as string) && safe && typeof safe === 'object' ?
+    const supportedRecipes = recipeFormatsForPolicy(found);
+    const selections = supportedRecipes.length && safe && typeof safe === 'object' ?
       (safe as { selections?: unknown }).selections : undefined;
     if (Array.isArray(selections)) for (const [index, selection] of selections.entries()) {
       const inline = (selection as { recipe?: { inline?: { schema?: unknown } } } | null)?.recipe?.inline;
-      if (inline?.schema === recipeSchema12.$id || found === policySchema.$id && inline?.schema === recipeSchema11.$id) return { valid: false, schema: found as string, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED',
+      if (typeof inline?.schema === 'string' && !supportedRecipes.includes(inline.schema)) return { valid: false, schema: found as string, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED',
         reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-        path: `/selections/${index}/recipe/inline/schema`, encountered: inline.schema, supported: found === policySchema11.$id ? [recipeSchema.$id, recipeSchema11.$id] : [recipeSchema.$id] }] };
+        path: `/selections/${index}/recipe/inline/schema`, encountered: inline.schema, supported: supportedRecipes }] };
     }
     const check = typeof found === 'string' ? accepted[found]! : Object.values(accepted)[0]!;
     const schema = typeof found === 'string' ? found : Object.keys(accepted)[0]!;
@@ -148,9 +154,9 @@ function validate(value: unknown, accepted: Accepted, semantics: (document: neve
   }
 }
 export const validatePolicy = (value: unknown): ValidationResult =>
-  validate(value, { [policySchema.$id]: checkPolicy, [policySchema11.$id]: checkPolicy11, [policySchema12.$id]: checkPolicy12 }, policySemantics as never);
+  validate(value, { [policySchema.$id]: checkPolicy, [policySchema11.$id]: checkPolicy11, [policySchema12.$id]: checkPolicy12, [policySchema13.$id]: checkPolicy13 }, policySemantics as never);
 export const validateRecipe = (value: unknown): ValidationResult =>
-  validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12 }, recipeSemantics as never);
+  validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12, [recipeSchema13.$id]: checkRecipe13 }, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
   validate(value, { [organizationSchema.$id]: checkOrganization }, organizationSemantics as never);
 export function parsePolicy(text: string): ParseResult {

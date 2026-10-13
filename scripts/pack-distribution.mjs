@@ -42,11 +42,11 @@ try {
   // Send build diagnostics to stderr; stdout identifies only the final artifact.
   // The public npm command requests a build. Direct developer/test invocation
   // packs existing output without replacing files concurrent readers may use.
-  if (build) execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], { cwd: root, stdio: ['ignore', 2, 2] });
+  if (build) execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], { cwd: root, stdio: ['ignore', 2, 2], windowsHide: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
   const [packed] = JSON.parse(execFileSync(process.execPath, [process.env.npm_execpath,
-    'pack', '--ignore-scripts', '--json', '--pack-destination', scratch], { cwd: root, env, encoding: 'utf8', timeout: 120_000 }));
+    'pack', '--ignore-scripts', '--json', '--pack-destination', scratch], { cwd: root, env, encoding: 'utf8', timeout: 120_000, windowsHide: true }));
   assert.equal(packed.filename, filename);
   const input = join(scratch, filename), output = join(scratch, 'distribution.tgz');
   const before = await inventory(input);

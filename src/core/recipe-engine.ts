@@ -9,6 +9,8 @@ import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtim
 import { admitOrganizationSelections, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
+import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
@@ -76,6 +78,7 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
+const POLICY_13 = 'urn:aihq:core:execution-policy:1.3.0';
 const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0';
 const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
@@ -379,10 +382,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const recipeValidation = validateRecipe(recipe);
       if (!recipeValidation.valid) { result.diagnostics = recipeValidation.diagnostics; return finish(); }
       // The enclosing policy version gates the recipe version, including acquired bytes a reference never names.
-      if (recipe.schema === 'urn:aihq:core:recipe:1.2.0' && policy.schema !== POLICY_12 || policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && recipe.schema === RECIPE_11) {
+      const supportedRecipes = recipeFormatsForPolicy(policy.schema);
+      if (!supportedRecipes.includes(recipe.schema)) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-          encountered: recipe.schema, supported: policy.schema === POLICY_11 ? [RECIPE_10, RECIPE_11] : [RECIPE_10],
-          guidance: 'Use an execution policy version that admits the selected recipe version.' }];
+          encountered: recipe.schema, supported: supportedRecipes, guidance: 'Use an execution policy version that admits the selected recipe version.' }];
         return finish();
       }
       if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) throw new Error('scope-mismatch');
@@ -454,9 +457,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const projected: Ownership = { ...stored.value, members: { ...stored.value.members } };
           for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly))) updateCustody(projected, prior);
           if (op.kind === 'hook.group') {
-            const selectorSha = sha256(op.selector.value);
+            const authored = bindHookGroup(op, bound);
+            const selectorSha = sha256(authored.selector.value);
             const descriptor: HookDescriptor = { path, kind: 'hook', format: op.format, container: op.container, groupId: op.groupId,
-              selector: { path: op.selector.path, valueSha256: selectorSha } };
+              selector: { path: authored.selector.path, valueSha256: selectorSha } };
             const hookKey = memberKey(descriptor); ownerKey = hookKey;
             const mine = (candidate: Claim): boolean => candidate.managementId === selection.managementId && candidate.scope === selection.scope;
             const claim: Claim = { managementId: selection.managementId, scope: selection.scope,
@@ -478,8 +482,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }
             const priorConflict = hookConflicts.get(`${root}:${hookKey}`);
             if (priorConflict) requires.push(priorConflict);
-            const stepInput: HookStepInput = { authored: { format: op.format, container: op.container, groupId: op.groupId,
-              selector: op.selector, action: op.action, ...(op.group ? { group: op.group.literal } : {}) }, path, key: hookKey, before,
+            const stepInput: HookStepInput = { authored, allowSelectorChange: 'input' in op.selector, path, key: hookKey, before,
               owner: projected.members[hookKey], retained, resolution: undefined, isMine: mine, addMine, recipeIdentity, mode: mode!,
               ...(priorConflict ? { forced: 'hook-prior-conflict' } : incompatible ? { forced: 'existing-content' } : {}) };
             const decideWith = (option: 'replace' | 'adopt' | undefined): HookDecision => decideHookStep({ ...stepInput, resolution: option });
@@ -492,7 +495,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;
             if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
-            const desiredGroup = decision.details.desiredGroup ? redactJson(decision.details.desiredGroup, privateValues) as typeof decision.details.desiredGroup : null;
+            const desiredGroup = decision.details.desiredGroup ? redactJson(redactHookBindings(decision.details.desiredGroup, op, recipe.inputs), privateValues) as typeof decision.details.desiredGroup : null;
             details = { target: safeText(target.absolute, privateValues), format: op.format, mode: mode!,
               ...(decision.reason ? { reason: decision.reason } : {}), hookGroup: { ...decision.details, desiredGroup } };
             if (effect === 'conflict') {
@@ -705,7 +708,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
-      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12) {
+      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
           message: 'Bounded configuration custody requires execution-policy 1.2.0 for cleanup.', encountered: policy.schema, supported: [POLICY_12] }];
         return finish();
@@ -722,7 +725,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined;
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
-        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12) {
+        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13) {
           result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
             encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
           return finish();
@@ -821,7 +824,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
-    const base = { schema: policy.schema === POLICY_12 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const base = { schema: policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,

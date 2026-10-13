@@ -185,6 +185,9 @@ export function validateOwnership(input: unknown, target: string): asserts input
   const value = input as Record<string, unknown>;
   if (![OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12].includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
   if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
+  // Reuse the resolved home only within this synchronous validation call.
+  let resolvedHome: string | undefined;
+  const homeRoot = (): string => resolvedHome ??= userHomeRoot();
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
@@ -198,13 +201,13 @@ export function validateOwnership(input: unknown, target: string): asserts input
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
     if (m.claims !== undefined && (!Array.isArray(m.claims) || !m.claims.length || m.claims.length > 4096 || !m.claims.every(validClaim) ||
       new Set(m.claims.map(claim => `${claim.scope}:${claim.managementId}`)).size !== m.claims.length)) throw new Error('ownership-invalid');
-    if (m.claims?.some(claim => claim.scope === 'user' && target !== userHomeRoot() && !/^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), target).replaceAll('\\', '/')))) throw new Error('ownership-invalid');
+    if (m.claims?.some(claim => claim.scope === 'user' && target !== homeRoot() && !/^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), target).replaceAll('\\', '/')))) throw new Error('ownership-invalid');
     if (typeof m.managementId !== 'string' || typeof m.recipeIdentity !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(m.recipeIdentity) || !/^[a-f0-9]{64}$/.test(m.sha256) || !Number.isInteger(m.mode) || m.mode < 0 || m.mode > 0o7777) throw new Error('ownership-invalid');
   }
   if (value.selections !== undefined) {
     if (!value.selections || typeof value.selections !== 'object' || Array.isArray(value.selections) || Object.keys(value.selections).length > 4096) throw new Error('ownership-invalid');
     for (const [key, selection] of Object.entries(value.selections)) {
-      if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== userHomeRoot()) throw new Error('ownership-invalid');
+      if (!validClaim(selection) || key !== claimIdentity(selection.scope, selection.managementId, target) || selection.scope === 'user' && target !== homeRoot()) throw new Error('ownership-invalid');
     }
   }
 }

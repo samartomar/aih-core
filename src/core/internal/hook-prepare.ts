@@ -40,6 +40,8 @@ export interface HookStepInput {
   recipeIdentity: string; mode: number;
   /** A fixed conflict reason decided before any observation (an earlier step on this member conflicted). */
   forced?: string;
+  /** A declared input may change the selector only while replacing verified owned bytes. */
+  allowSelectorChange?: boolean;
 }
 const digestOf = (bytes: Buffer | null): string | null => bytes === null ? null : sha256(bytes);
 const canonicalDigest = (value: unknown): string => sha256(canonicalJson(value));
@@ -96,10 +98,11 @@ export function decideHookStep(i: HookStepInput): HookDecision {
   const conflict = (reason: string, neighbor?: string): HookDecision => ({ effect: 'conflict', reason, after: i.before, custody: owner ?? null, custodyOnly: false,
     managed: false, details: shell(location, null), ...(neighbor ? { neighbor } : {}) });
   if (i.forced) return conflict(i.forced);
-  try { location = locateHookGroups(a.format, i.before, a.container, selector); }
-  catch (error) { if (error instanceof RecipeEditError) return conflict(error.reason); throw error; }
   const hook = owner?.descriptor?.kind === 'hook' ? owner.descriptor : undefined;
-  if (hook && !sameSelector(hook.selector, selector)) return conflict('hook-selector-changed');
+  const selectorChanged = !!hook && !sameSelector(hook.selector, selector);
+  if (selectorChanged && (!i.allowSelectorChange || a.action !== 'set' || !mine || others.length)) return conflict('hook-selector-changed');
+  try { location = locateHookGroups(a.format, i.before, a.container, selectorChanged ? hook!.selector : selector); }
+  catch (error) { if (error instanceof RecipeEditError) return conflict(error.reason); throw error; }
   if (location.candidates.length > 1) return conflict('hook-selector-ambiguous');
   const found: HookElement | undefined = location.candidates[0];
   const descriptor: HookDescriptor = { path: i.path, kind: 'hook', format: a.format, container: a.container, groupId: a.groupId, selector };

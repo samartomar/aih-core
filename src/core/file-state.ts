@@ -10,6 +10,8 @@ import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } 
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type InlineMaterialDescriptor, type MaterialRecipeReference } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
+import { bindHookGroup } from './internal/hook-bindings.js';
+import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { foldHookGroup } from './internal/hook-prepare.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
 import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
@@ -136,6 +138,8 @@ function admitAuthoredSlots(recipe: Recipe, bound: Bound): void {
     path(op.target, true);
     if (op.kind === 'file.write' || op.kind === 'text.block') slots([op.content]);
     else if (op.kind === 'config.entries') slots(op.entries.map(entry => entry.action === 'set' ? entry.value : undefined));
+    else if (op.kind === 'hook.group') slots([...(op.groupBindings ?? []).map(binding => binding.value),
+      ...('input' in op.selector ? [{ input: op.selector.input }] : [])]);
   }
   for (const check of recipe.checks) {
     if (check.kind === 'process.exit') { if (referenced.has(check.id)) invocation(check); }
@@ -307,11 +311,10 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         const recipeValidation = validateRecipe(recipe);
         if (!recipeValidation.valid) return failWith('validation', recipeValidation.diagnostics);
         // The enclosing policy version gates acquired recipe bytes exactly as Prepare does.
-        if (recipe.schema === 'urn:aihq:core:recipe:1.2.0' && policy.schema !== 'urn:aihq:core:execution-policy:1.2.0' ||
-            policy.schema === 'urn:aihq:core:execution-policy:1.0.0' && recipe.schema === 'urn:aihq:core:recipe:1.1.0')
+        const supportedRecipes = recipeFormatsForPolicy(policy.schema);
+        if (!supportedRecipes.includes(recipe.schema))
           return failWith('recipe-schema', [{ code: 'SCHEMA_UNSUPPORTED', reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-            encountered: recipe.schema, supported: policy.schema === 'urn:aihq:core:execution-policy:1.1.0' ?
-              ['urn:aihq:core:recipe:1.0.0', 'urn:aihq:core:recipe:1.1.0'] : ['urn:aihq:core:recipe:1.0.0'],
+            encountered: recipe.schema, supported: supportedRecipes,
             guidance: 'Use an execution policy version that admits the selected recipe version.' }]);
         const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength }))
           .sort((a, b) => codeUnitCompare(a.id, b.id));
@@ -454,9 +457,9 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
               startMarker: op.startMarker, endMarker: op.endMarker, action: op.action,
               ...(content === undefined ? {} : { content }) });
           } else if (op.kind === 'hook.group') {
-            const authored = { format: op.format, container: op.container, groupId: op.groupId, selector: op.selector, action: op.action,
-              ...(op.group ? { group: op.group.literal } : {}) };
-            fold = before => foldHookGroup(authored, before);
+            const requested = [...(op.groupBindings ?? []).map(binding => binding.value), ...('input' in op.selector ? [{ input: op.selector.input }] : [])];
+            if (requested.some(slot => missingInput(recipe, bound, slot))) reason = 'input-unavailable';
+            else { const authored = bindHookGroup(op, bound); fold = before => foldHookGroup(authored, before); }
           } else fold = () => null;
         }
         let group = groups.get(key);
