@@ -118,7 +118,8 @@
     "typecheck": "tsc --noEmit",
     "verify:report-consumer": "node scripts/verify-report-consumer.mjs",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
-    "test": "node --test --test-concurrency=4 test/*.test.mjs test/harness/*.test.mjs",
+    "verify:recipe-input-consumer": "node scripts/verify-recipe-input-consumer.mjs",
+    "test": "node scripts/run-ci-tests.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {

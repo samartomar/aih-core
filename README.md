@@ -978,6 +978,24 @@ npm run build
 npm test
 ```
 
+Ordinary CI runs on pull requests and pushes to `main`, with superseded runs
+cancelled. Feature pushes do not duplicate PR checks. Documentation-only edits
+report an explicit no-applicable-tests result. Portable reporting changes run
+their owning tests and affected package consumers on Linux; platform-facility
+changes run the full suite on their affected OS. Shared contracts, dependencies,
+build/workflow changes, unknown paths and deleted/renamed paths use the full
+four-cell OS/Node matrix. The **Run workflow** action explicitly selects that
+full matrix. `Core checks result` fails if any selected job fails or is cancelled.
+Other native acceptance and publication workflows retain their own triggers.
+
+Use `npm test -- --suite report` for reporting iteration, or
+`npm test -- --files <test paths>` for a focused local check. `npm test` retains
+the complete suite. After building, `npm run verify:recipe-input-consumer --
+--output <new directory>` packs and installs an independent consumer, proves
+false/empty/zero input values and exact material binding, and writes a receipt
+with source commit, archive SHA-256 and installed package identity. Its targets
+and home stay under the new output directory.
+
 Create a qualified Core distribution with `npm run pack:distribution --
 --pack-destination <existing directory>`. The command builds and packs the root
 package, preserves every archive entry's bytes and metadata except the Linux
