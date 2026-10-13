@@ -38,6 +38,22 @@ export function dependencyOrder<T extends { id: string; requires: string[] }>(it
   return ordered;
 }
 
+export function inputDefinitionSemantics(inputs: Record<string, InputSpec>): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const invalid = (reason: string, path: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path,
+    message: 'The recipe has an invalid dependency, input definition or binding.' });
+  for (const [name, spec] of Object.entries(inputs)) {
+    const path = `/inputs/${name}`;
+    if ((spec.type !== 'string' && (spec.minLength !== undefined || spec.maxLength !== undefined)) ||
+        ((spec.type === 'string' || spec.type === 'boolean') && (spec.minimum !== undefined || spec.maximum !== undefined)) ||
+        (spec.minLength !== undefined && spec.maxLength !== undefined && spec.minLength > spec.maxLength) ||
+        (spec.minimum !== undefined && spec.maximum !== undefined && spec.minimum > spec.maximum)) invalid('input-bounds', path);
+    if (spec.default !== undefined && (!inputAccepts(spec, spec.default) || spec.sensitive)) invalid('input-default', path);
+    if (spec.enum?.some(value => !inputAccepts({ ...spec, enum: undefined }, value))) invalid('input-enum', path);
+  }
+  return diagnostics;
+}
+
 export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path,
@@ -53,15 +69,7 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     if (materialIds.has(material.id)) invalid('duplicate-material', `/materials/${index}/id`);
     materialIds.add(material.id);
   }
-  for (const [name, spec] of Object.entries(recipe.inputs)) {
-    const path = `/inputs/${name}`;
-    if ((spec.type !== 'string' && (spec.minLength !== undefined || spec.maxLength !== undefined)) ||
-        ((spec.type === 'string' || spec.type === 'boolean') && (spec.minimum !== undefined || spec.maximum !== undefined)) ||
-        (spec.minLength !== undefined && spec.maxLength !== undefined && spec.minLength > spec.maxLength) ||
-        (spec.minimum !== undefined && spec.maximum !== undefined && spec.minimum > spec.maximum)) invalid('input-bounds', path);
-    if (spec.default !== undefined && (!inputAccepts(spec, spec.default) || spec.sensitive)) invalid('input-default', path);
-    if (spec.enum?.some(value => !inputAccepts({ ...spec, enum: undefined }, value))) invalid('input-enum', path);
-  }
+  diagnostics.push(...inputDefinitionSemantics(recipe.inputs));
   const checkSlot = (slot: Slot, path: string, stringOnly: boolean) => {
     if ('input' in slot ? !Object.hasOwn(recipe.inputs, slot.input) ||
         stringOnly && recipe.inputs[slot.input]!.type !== 'string' : stringOnly && typeof slot.literal !== 'string')

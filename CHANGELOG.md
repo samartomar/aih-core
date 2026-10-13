@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Add portable `deriveRecipeIdentity` and `previewOrganizationAdmission` helpers
+to `@aihq/core/contracts`. Authors can validate exact recipe declarations and
+explain organization denials through the same identity and admission semantics
+as Prepare. Preview remains advisory; current authority, material capture and
+live Prepare/Apply handles remain host-owned. Existing schema identifiers and
+recipe-identity:1.0.0 semantics are unchanged. This candidate is unpublished.
+
 Add recipe and execution-policy 1.3.0 for generic input-bound hook groups.
 One immutable recipe can register commands containing machine-local paths,
 update an owned command, and remove its group while preserving user settings.

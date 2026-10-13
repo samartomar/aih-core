@@ -38,6 +38,14 @@ const MESSAGES = {
   'lifecycle-remove': 'No organization entry permits removing this selection.'
 } as const;
 
+function admitIdentity(entry: OrganizationSelection, item: Pick<AdmissionSelection, 'recipeIdentity' | 'scope' | 'path'>,
+    finding: Finding): void {
+  if (entry.recipeIdentity !== item.recipeIdentity)
+    finding('AUTHORITY_DENIED', 'recipe-identity', `${item.path}/recipeIdentity`, MESSAGES['recipe-identity']);
+  if (!entry.scopes.includes(item.scope))
+    finding('AUTHORITY_DENIED', 'scope', `${item.path}/scope`, MESSAGES['scope']);
+}
+
 function isAllowDeclared(permission: OrganizationInputPermission): permission is { allowDeclared: true } {
   return 'allowDeclared' in permission;
 }
@@ -102,10 +110,7 @@ export function admitOrganizationSelections(organization: OrganizationPolicy, se
       finding('AUTHORITY_DENIED', 'selection-not-admitted', selection.path, MESSAGES['selection-not-admitted']);
       continue;
     }
-    if (entry.recipeIdentity !== selection.recipeIdentity)
-      finding('AUTHORITY_DENIED', 'recipe-identity', `${selection.path}/recipeIdentity`, MESSAGES['recipe-identity']);
-    if (!entry.scopes.includes(selection.scope))
-      finding('AUTHORITY_DENIED', 'scope', `${selection.path}/scope`, MESSAGES['scope']);
+    admitIdentity(entry, selection, finding);
     admitInputs(entry, selection, finding);
   }
   for (const item of lifecycle) {
@@ -122,6 +127,12 @@ export function admitOrganizationSelections(organization: OrganizationPolicy, se
     }
     const entry = item.organizationSelectionId === undefined ? undefined :
       organization.selections.find(candidate => candidate.selectionId === item.organizationSelectionId);
+    // Prepare supplies lifecycle tuples from its already-compared selections. Public
+    // advisory callers may supply standalone tuples; check those without duplicating
+    // the existing paired-selection findings or changing host admission diagnostics.
+    const alreadyCompared = selections.some(selection => selection.organizationSelectionId === item.organizationSelectionId &&
+      selection.recipeIdentity === item.recipeIdentity && selection.scope === item.scope);
+    if (entry && !alreadyCompared) admitIdentity(entry, item, finding);
     const granted = item.action === 'replace' ? entry?.lifecycle?.replace === true : entry?.lifecycle?.adopt === true;
     if (!granted) finding('AUTHORITY_DENIED', `lifecycle-${item.action}`, item.path, MESSAGES[`lifecycle-${item.action}`]);
   }

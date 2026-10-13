@@ -8,6 +8,7 @@ import { contractSupport, parseOrganizationPolicy, validatePolicy, validateRecip
 import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
 import { admitOrganizationSelections, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
+import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
@@ -403,8 +404,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         bound[name] = value;
         inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
-      const recipeIdentity = `sha256:${digest({ schema: 'urn:aihq:core:recipe-identity:1.0.0', recipeSha256,
-        materials: recipe.materials.map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id)) })}`;
+      const recipeIdentity = `sha256:${digest(recipeIdentityDescriptor(recipeSha256, recipe.materials))}`;
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
         privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
