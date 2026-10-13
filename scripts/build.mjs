@@ -18,7 +18,7 @@ if (manifest.name !== '@aihq/core' || typeof manifest.version !== 'string' || !m
 const dist = new URL('../dist/', import.meta.url);
 rmSync(dist, { recursive: true, force: true });
 execFileSync(process.execPath, [resolve(dirname(compilerManifest), compiler), '-p', 'tsconfig.json'],
-  { cwd: root, stdio: 'inherit' });
+  { cwd: root, stdio: 'inherit', windowsHide: true });
 mkdirSync(new URL('harness/', dist), { recursive: true });
 cpSync(new URL('../src/harness/schemas/', import.meta.url), new URL('harness/schemas/', dist), { recursive: true });
 cpSync(new URL('../src/harness/native/', import.meta.url), new URL('harness/native/', dist), { recursive: true });

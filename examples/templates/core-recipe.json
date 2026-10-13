@@ -1,0 +1,80 @@
+{
+  "schema": "urn:aihq:core:recipe:1.3.0",
+  "id": "example-project-guard",
+  "description": "Register one supplied command while preserving other project hooks.",
+  "inputs": {
+    "guardCommand": {
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "The complete command for this installation, supplied by the host."
+    }
+  },
+  "materials": [],
+  "targets": [
+    "project"
+  ],
+  "prerequisites": [],
+  "operations": [
+    {
+      "id": "register-guard",
+      "purpose": "Keep one owned guard beside the user’s other hooks.",
+      "kind": "hook.group",
+      "scope": "project",
+      "target": {
+        "root": "project",
+        "segments": [
+          {
+            "literal": ".tool"
+          },
+          {
+            "literal": "settings.json"
+          }
+        ]
+      },
+      "format": "json",
+      "container": [
+        "hooks",
+        "PreToolUse"
+      ],
+      "groupId": "example-project-guard",
+      "selector": {
+        "path": [
+          "hooks",
+          0,
+          "command"
+        ],
+        "input": "guardCommand"
+      },
+      "action": "set",
+      "group": {
+        "literal": {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "",
+              "timeout": 10
+            }
+          ]
+        }
+      },
+      "groupBindings": [
+        {
+          "path": [
+            "hooks",
+            0,
+            "command"
+          ],
+          "value": {
+            "input": "guardCommand"
+          }
+        }
+      ],
+      "requires": [],
+      "checks": []
+    }
+  ],
+  "checks": []
+}

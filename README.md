@@ -64,6 +64,10 @@ Trust/export contracts expose `validateTrustRepairRequest`, `validateTrustRepair
 `@aihq/core/contracts`. These validators inspect bounded data without observing
 the host. New trust Prepare controls accept only `signal` and `logging`.
 
+## Readable templates
+
+[Read a Core template](docs/templates.md) explains a complete recipe and its deployment inputs. Recipe and execution-policy 1.3.0 add bounded hook input bindings; existing formats remain supported.
+
 ## Discover the CLI
 
 `aih --version` (or `-V`) prints `@aihq/core <version>` from the installed package; with `--json` it emits `{"name","version"}`. `aih --help`, `-h` or `aih help` lists every command; `aih help <command>` or `aih <command> --help` adds concise examples. `aih validate <execution-policy|organization-policy|recipe> <file> [--json]` checks a file with the portable validators and returns `{status, kind, schema, diagnostics}` (exit 0 valid, 2 invalid) with their diagnostics unchanged. Version, help and validate read only the named file: no target inspection, network access, history or state. Unknown commands, kinds or option combinations exit 2 with the usual `INPUT_INVALID` refusal. Nothing checks for updates.
