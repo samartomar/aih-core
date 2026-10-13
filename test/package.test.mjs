@@ -31,7 +31,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const started = Date.now();
     try {
       const output = execFileSync(process.execPath, [process.env.npm_execpath, ...args],
-        { cwd, env, encoding: 'utf8', timeout });
+        { cwd, env, encoding: 'utf8', timeout, windowsHide: true });
       // Report each fixture command's duration so its budget can be reviewed against runner timings.
       console.log(`Package fixture command took ${Date.now() - started} ms of ${timeout} ms:`, args.join(' '));
       return output;
@@ -54,7 +54,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer, 300_000);
   };
   const run = (file, extraEnv = {}, timeout = 30_000) => execFileSync(process.execPath, [file],
-    { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout });
+    { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout, windowsHide: true });
   let failure;
   try {
     const packed = pack(packageRoot);
@@ -175,7 +175,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
     execFileSync(process.execPath, [compiler,
       '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
-      '--target', 'ES2023', 'contracts.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+      '--target', 'ES2023', 'contracts.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     writeFileSync(join(consumer, 'native-public.mjs'), `
       import assert from 'node:assert/strict';
       import {spawnSync} from 'node:child_process';
@@ -387,13 +387,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.match(run('lifecycle.mjs'), /packed lifecycle passed/);
     const lifecycleCli = execFileSync(process.execPath, [join(installed, 'dist/core/cli.js'), 'policy',
       join(consumer, 'lifecycle-empty.json'), '--project', join(project, 'lifecycle'), '--apply', '--yes', '--json'],
-      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     assert.equal(JSON.parse(lifecycleCli).completion, 'complete');
     const localContent = 'Local notes.\n';
     writeFileSync(join(project, 'TEAM.md'), localContent);
     const policyPreview = spawnSync(process.execPath, [join(installed, 'dist/core/cli.js'), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--json'],
-      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     assert.equal(policyPreview.status, 1, policyPreview.stdout + policyPreview.stderr);
     const policyHintPreview = JSON.parse(policyPreview.stdout);
     assert.deepEqual(policyHintPreview.resolutionInputs, [{ selectionId: 'guidance', operationId: 'write',
@@ -573,12 +573,12 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.deepEqual([...supportGlobals.support], ['function', 'function', 'invalid', 'invalid']);
     const cliResult = execFileSync(process.execPath, [join(installed, manifest.bin.aih), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--apply', '--yes', '--json'],
-      { cwd: consumer, env, encoding: 'utf8', timeout: 20_000 });
+      { cwd: consumer, env, encoding: 'utf8', timeout: 20_000, windowsHide: true });
     assert.equal(JSON.parse(cliResult).operations[0].application, 'applied');
 
     // The installed bin serves version, pure validation and --no-log runs.
     const bin = (args, binEnv = env) => spawnSync(process.execPath, [join(installed, manifest.bin.aih), ...args],
-      { cwd: consumer, env: binEnv, encoding: 'utf8', timeout: 30_000 });
+      { cwd: consumer, env: binEnv, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     const binVersion = bin(['--version']);
     assert.equal(binVersion.status, 0, binVersion.stdout + binVersion.stderr);
     assert.equal(binVersion.stdout, `@aihq/core ${manifest.version}\n`);

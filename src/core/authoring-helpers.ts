@@ -58,7 +58,14 @@ const checkPreview = validator.compile({ type: 'object', additionalProperties: f
 /** Advisory comparison only. Prepare and Apply independently acquire current authority. */
 export function previewOrganizationAdmission(request: PreviewOrganizationAdmissionRequest): AuthoringResult<OrganizationAdmissionPreview> {
   let safe: PreviewOrganizationAdmissionRequest;
-  try { safe = checkedJson(request) as PreviewOrganizationAdmissionRequest; }
+  try {
+    const descriptor = request && typeof request === 'object' ? Object.getOwnPropertyDescriptor(request, 'organization') : undefined;
+    if (descriptor && 'value' in descriptor) {
+      const checked = validateOrganizationPolicy(descriptor.value);
+      if (!checked.valid) return refused('organization-input-spec', '/organization', checked.diagnostics);
+    }
+    safe = checkedJson(request) as PreviewOrganizationAdmissionRequest;
+  }
   catch { return refused('input-value', ''); }
   if (!checkPreview(safe)) return refused('input-value', checkPreview.errors?.[0]?.instancePath ?? '',
     (checkPreview.errors ?? []).map(e => ({ code: 'INPUT_INVALID', reason: e.keyword, path: e.instancePath,
@@ -113,9 +120,9 @@ export async function deriveRecipeIdentity(request: DeriveRecipeIdentityRequest)
         Object.getOwnPropertySymbols(request).length || Object.values(Object.getOwnPropertyDescriptors(request)).some(d => !('value' in d)))
       return refused('recipe-invalid', '');
     if (exact(request, ['recipe'])) {
-      recipe = checkedJson(request.recipe) as Recipe;
-      const checked = validateRecipe(recipe);
+      const checked = validateRecipe(request.recipe);
       if (!checked.valid) return refused(checked.diagnostics.some(d => d.code === 'SCHEMA_UNSUPPORTED') ? 'unsupported-schema' : 'recipe-invalid', '/recipe', checked.diagnostics);
+      recipe = checkedJson(request.recipe) as Recipe;
       if (recipe.materials.some(item => !('source' in item))) return refused('material-closure', '/recipe/materials');
       try { checkedInlineMaterials(recipe.materials); }
       catch (error) { return refused('recipe-invalid', '/recipe/materials', [{ code: 'INPUT_INVALID',
@@ -126,11 +133,11 @@ export async function deriveRecipeIdentity(request: DeriveRecipeIdentityRequest)
       if (!(request.recipeBytes instanceof Uint8Array) || request.recipeBytes.byteLength > 1_000_000)
         return refused('recipe-bytes-mismatch', '/recipeBytes');
       const bytes = new Uint8Array(request.recipeBytes);
-      const reference = checkedJson(request.reference) as MaterialRecipeReference;
       const checked = validatePolicy({ schema: 'urn:aihq:core:execution-policy:1.3.0', mode: 'vibe', selections: [{
-        id: 'identity', managementId: 'identity', scope: 'project', configuration: {}, requires: [], recipe: { reference }
+        id: 'identity', managementId: 'identity', scope: 'project', configuration: {}, requires: [], recipe: { reference: request.reference }
       }] });
       if (!checked.valid) return refused('recipe-invalid', '/reference', checked.diagnostics);
+      const reference = checkedJson(request.reference) as MaterialRecipeReference;
       try { checkedReference(reference); }
       catch (error) { return refused('recipe-invalid', '/reference', [{ code: 'INPUT_INVALID',
         reason: error instanceof MaterialCaptureError ? error.reason : 'invalid-reference', path: '/reference',

@@ -40,6 +40,13 @@ test('referenced identity binds exact bytes and refuses unsupported, malformed o
   const unsupported = await contracts.deriveRecipeIdentity({ recipe: { ...recipe, schema: 'unknown' } });
   assert.deepEqual(unsupported.diagnostics[0].details, { owner: 'core', diagnostics:
     contracts.validateRecipe({ ...recipe, schema: 'unknown' }).diagnostics });
+  const oversized = { ...recipe, description: 'x'.repeat(1_000_001) };
+  const bounded = await contracts.deriveRecipeIdentity({ recipe: oversized });
+  assert.deepEqual(bounded.diagnostics[0].details, { owner: 'core', diagnostics: contracts.validateRecipe(oversized).diagnostics });
+  const hugeReference = { ...reference, path: 'x'.repeat(1_000_001) };
+  const referenceBound = await contracts.deriveRecipeIdentity({ recipeBytes, reference: hugeReference });
+  assert.equal(referenceBound.diagnostics[0].details.owner, 'core');
+  assert.equal(referenceBound.diagnostics[0].details.diagnostics[0].reason, 'strict-json');
 });
 
 test('preview compares validated selections and returns denials inside a successful advisory result', async () => {
@@ -107,6 +114,9 @@ test('preview validates every record, preserves owning diagnostics and covers ea
   const badOrg = { ...organization, schema: 'urn:aihq:core:organization-policy:2.0.0' };
   const refused = contracts.previewOrganizationAdmission({ ...request, organization: badOrg });
   assert.deepEqual(refused.diagnostics[0].details, { owner: 'core', diagnostics: contracts.validateOrganizationPolicy(badOrg).diagnostics });
+  const oversizedOrg = { ...organization, metadata: { text: 'x'.repeat(1_000_001) } };
+  const organizationBound = contracts.previewOrganizationAdmission({ ...request, organization: oversizedOrg });
+  assert.deepEqual(organizationBound.diagnostics[0].details, { owner: 'core', diagnostics: contracts.validateOrganizationPolicy(oversizedOrg).diagnostics });
   const before = JSON.stringify(request);
   assert.deepEqual(contracts.previewOrganizationAdmission(request), contracts.previewOrganizationAdmission(structuredClone(request)));
   assert.equal(JSON.stringify(request), before);
@@ -127,4 +137,22 @@ test('identity rejects unsafe referenced paths and incomplete inline material de
   const result = await contracts.deriveRecipeIdentity({ recipeBytes, reference });
   assert.equal(result.status, 'refused');
   assert.equal(result.diagnostics[0].details.diagnostics[0].reason, 'unsafe-member-path');
+});
+
+test('standalone replace and adopt preview cannot borrow a grant for a different recipe or scope', () => {
+  const recipeIdentity = 'sha256:' + '1'.repeat(64);
+  const organization = { schema: 'urn:aihq:core:organization-policy:1.0.0', id: 'team', selections: [{
+    selectionId: 'entry', recipeIdentity, scopes: ['project'], inputs: {}, lifecycle: { replace: true, adopt: true }
+  }] };
+  for (const action of ['replace', 'adopt']) {
+    const valid = { action, scope: 'project', recipeIdentity, organizationSelectionId: 'entry' };
+    assert.equal(contracts.previewOrganizationAdmission({ organization, selections: [], lifecycle: [valid] }).value.admitted, true);
+    for (const [change, reason] of [[{ scope: 'user' }, 'scope'], [{ recipeIdentity: 'sha256:' + '2'.repeat(64) }, 'recipe-identity']]) {
+      const result = contracts.previewOrganizationAdmission({ organization, selections: [], lifecycle: [{ ...valid, ...change }] });
+      assert.equal(result.status, 'ok');
+      assert.equal(result.value.admitted, false);
+      assert.equal(result.value.diagnostics[0].reason, reason);
+      assert.equal(result.value.diagnostics[0].path, `/lifecycle/0/${reason === 'scope' ? 'scope' : 'recipeIdentity'}`);
+    }
+  }
 });

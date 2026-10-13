@@ -78,6 +78,8 @@ try {
     assert.equal(preview(organization).value.admitted, true);
     const prepared = await prepare(request, controls);
     assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    const previewHandle = await apply(preview(organization), approve(prepared), controls);
+    assert.equal(previewHandle.completion, 'rejected');
     const serialized = await apply(JSON.parse(JSON.stringify(prepared.review)), approve(prepared), controls);
     assert.equal(serialized.completion, 'rejected');
     currentOrganization = deniedOrganization;
@@ -93,7 +95,7 @@ try {
     assert.deepEqual(readFileSync(join(project, 'NOTE.md')), payload);
     assert.deepEqual(JSON.parse(readFileSync(join(project, 'settings.json'))), selection.configuration);
     cases.push({ name, variant: index ? 'referenced' : 'inline', identity: identity.value,
-      admitted: true, denied: true, changedAuthorityRefused: true, serializedReviewRefused: true, applied: true });
+      admitted: true, denied: true, changedAuthorityRefused: true, previewHandleRefused: true, serializedReviewRefused: true, applied: true });
   }
 } finally { globalThis.fetch = originalFetch; }
 process.stdout.write(JSON.stringify({ package: contractSupport.package, transport: 'fixture-github-rest', cases }) + '\n');
