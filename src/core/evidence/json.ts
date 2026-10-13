@@ -5,6 +5,8 @@ import {
   parseStrictJsonV1,
   StrictJsonBoundErrorV1,
 } from "./strict-json.js";
+import { sha256 } from '../internal/sha256.js';
+export { sha256 } from '../internal/sha256.js';
 
 export class ContractError extends TypeError {
   constructor(
@@ -71,11 +73,6 @@ export function strictParse(bytes: Uint8Array, label: string, maxBytes: number):
   }
   assertControlJson(value);
   return value;
-}
-export async function sha256(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", copy);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export async function scanIdFor(bytes: Uint8Array): Promise<`scan:sha256:${string}`> {
   const prefix = new TextEncoder().encode("aih.scan.report.v1\0");

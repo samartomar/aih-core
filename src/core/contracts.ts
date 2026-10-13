@@ -38,6 +38,8 @@ export { validateMacosRepairRequest, validateMacosRepairInputs, validateMacosSes
   MACOS_REPAIR_REQUEST_SCHEMA, MACOS_REPAIR_INPUTS_SCHEMA, MACOS_PREPARED_WORK_SCHEMA, MACOS_RUN_RESULT_SCHEMA,
   MACOS_SESSION_CUSTODY_SCHEMA, MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA, MACOS_SESSION_VERIFICATION_RESULT_SCHEMA } from './macos-session-contracts.js';
 export type * from './types.js';
+export { deriveRecipeIdentity, previewOrganizationAdmission } from './authoring-helpers.js';
+export type * from './authoring-helpers.js';
 export type * from './file-state-types.js';
 export type * from './trust-contracts.js';
 export {

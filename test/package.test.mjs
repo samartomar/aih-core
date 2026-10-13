@@ -115,6 +115,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {verifyNativeClient} from '@aihq/core';
       import type {NativeVerificationRequest, NativeVerificationResult, NativeVerificationControls} from '@aihq/core';
       import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {deriveRecipeIdentity,previewOrganizationAdmission} from '@aihq/core/contracts';
+      import type {DeriveRecipeIdentityRequest,RecipeIdentity,AuthoringResult,AuthoringDiagnostic,PreviewOrganizationAdmissionRequest,OrganizationAdmissionPreview} from '@aihq/core/contracts';
+      const identityInput: DeriveRecipeIdentityRequest = {recipe: ${JSON.stringify(policy().selections[0].recipe.inline)}};
+      const identityResult: Promise<AuthoringResult<RecipeIdentity>> = deriveRecipeIdentity(identityInput);
+      // @ts-expect-error Identity variants are exclusive.
+      const invalidIdentityInput: DeriveRecipeIdentityRequest = {...identityInput,recipeBytes:new Uint8Array(),reference:{}};
+      const previewInput: PreviewOrganizationAdmissionRequest = {organization:{schema:'urn:aihq:core:organization-policy:1.0.0',id:'team',selections:[]},selections:[],lifecycle:[]};
+      const previewResult: AuthoringResult<OrganizationAdmissionPreview> = previewOrganizationAdmission(previewInput);
+      if(previewResult.status==='refused') { const diagnostic: AuthoringDiagnostic = previewResult.diagnostics[0]!; }
       import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       import type {NativeVerificationBundle} from '@aihq/core/contracts';
       // @ts-expect-error Host controls belong only in the Node entry.
@@ -514,11 +523,14 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     `);
     assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
-      import {parsePolicy,contractSupport,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {parsePolicy,contractSupport,deriveRecipeIdentity,previewOrganizationAdmission,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers,nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
         contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length,
         verificationPublishers.length,selectVerificationPublishers('scan-report').status];
+      globalThis.authoring = deriveRecipeIdentity({recipe:${JSON.stringify(policy().selections[0].recipe.inline)}}).then(identity=>[
+        identity.status,previewOrganizationAdmission({organization:{schema:'urn:aihq:core:organization-policy:1.0.0',id:'team',selections:[]},selections:[],lifecycle:[]}).value.admitted
+      ]);
       globalThis.nativePortable = [
         validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'}).valid,
         validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',command:'untrusted'}).valid,
@@ -530,8 +542,11 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/harness\/(?:runtime|ca|candidate|user-trust)\.mjs$/.test(name)), false);
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/core\/evidence\/|@sigstore\//.test(name)), false);
-    const browserGlobals = { TextEncoder, TextDecoder, atob, btoa };
+    const browserGlobals = { TextEncoder, TextDecoder, atob, btoa, crypto: globalThis.crypto };
     runInNewContext(browser.outputFiles[0].text, browserGlobals, { timeout: 5000 });
+    const portableAuthoring = await browserGlobals.authoring;
+    assert.equal(portableAuthoring[0], 'ok');
+    assert.equal(portableAuthoring[1], true);
     assert.equal(browserGlobals.portable[0], true);
     assert.equal(browserGlobals.portable[1].name, '@aihq/core');
     assert.equal(browserGlobals.portable[2].version, version);

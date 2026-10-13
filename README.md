@@ -11,7 +11,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
+| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
@@ -67,6 +67,105 @@ the host. New trust Prepare controls accept only `signal` and `logging`.
 ## Readable templates
 
 [Read a Core template](docs/templates.md) explains a complete recipe and its deployment inputs. Recipe and execution-policy 1.3.0 add bounded hook input bindings; existing formats remain supported.
+
+## Author exact organization selections
+
+Authors can derive an identity and compare proposed selections with a supplied
+organization document through `@aihq/core/contracts`. These portable helpers
+perform no filesystem, network, process or installation effects. Identity hashing
+is asynchronous and requires standard Web Crypto (`globalThis.crypto.subtle`).
+Preview is synchronous. Both accept bounded plain JSON; referenced recipe bytes
+are explicitly a `Uint8Array`. They never mutate their inputs.
+
+```js
+import { deriveRecipeIdentity, previewOrganizationAdmission } from '@aihq/core/contracts';
+
+const recipe = {
+  schema: 'urn:aihq:core:recipe:1.0.0', id: 'team-note', description: 'Team note',
+  inputs: { text: { type: 'string', required: true, maxLength: 4096 } },
+  materials: [], targets: ['project'], prerequisites: [], checks: [],
+  operations: [{ id: 'write', purpose: 'Write team note', kind: 'file.write',
+    scope: 'project', target: { root: 'project', segments: [{ literal: 'TEAM.md' }] },
+    content: { input: 'text' }, requires: [], checks: [] }]
+};
+const identity = await deriveRecipeIdentity({ recipe });
+if (identity.status === 'refused') throw new Error(JSON.stringify(identity.diagnostics));
+const organization = {
+  schema: 'urn:aihq:core:organization-policy:1.0.0', id: 'team',
+  selections: [{ selectionId: 'team-note', recipeIdentity: identity.value.recipeIdentity,
+    scopes: ['project'], inputs: { text: { allowDeclared: true } } }]
+};
+const selection = { id: 'note', organizationSelectionId: 'team-note', scope: 'project',
+  recipeIdentity: identity.value.recipeIdentity, inputs: recipe.inputs,
+  configuration: { text: 'Read CONTRIBUTING.md' }, privateInputs: [] };
+const comparison = previewOrganizationAdmission({ organization, selections: [selection], lifecycle: [] });
+// comparison.status === 'ok'; comparison.value.admitted === true
+const denied = previewOrganizationAdmission({ organization: { ...organization, selections: [] },
+  selections: [selection], lifecycle: [] });
+// denied.status === 'ok'; denied.value.admitted === false
+// denied.value.diagnostics[0]: AUTHORITY_DENIED / selection-not-admitted at /selections/0
+```
+
+`deriveRecipeIdentity` accepts exactly one variant: `{recipe}` or
+`{recipeBytes,reference}` where `reference` is a `MaterialRecipeReference`.
+Inline mode hashes the existing canonical recipe representation. Its materials
+must have inline source declarations. Referenced mode hashes the **exact bytes**,
+checks the declared SHA-256 and byte length, parses strict UTF-8 JSON, and requires
+exact identity-only recipe materials matching the reference's closure. Both return
+`{recipeIdentity,recipeSha256,materials}` with materials sorted by ID in UTF-16
+code-unit order. This freezes `recipe-identity:1.0.0`; it describes supplied
+declarations, never captured material authenticity. Prepare still acquires and
+verifies real material, binds inputs, checks targets and evaluates prerequisites.
+
+Supported recipe IDs are `urn:aihq:core:recipe:1.0.0`, `1.1.0`, `1.2.0` and
+`1.3.0` (each version uses the same full prefix); organization preview accepts
+`urn:aihq:core:organization-policy:1.0.0`. Unsupported versions refuse without
+rewriting the original artifact. Package versions are separate from schema IDs.
+Existing strict JSON, one-million-byte document, 4,096-selection/lifecycle and
+material declaration bounds remain; no helper truncates an oversized input.
+
+Preview selection fields are exactly those in the example. `inputs` is the
+recipe's `InputSpec` map; `privateInputs` contains **names only**, with actual
+secret values supplied separately to the host. Lifecycle records are
+`{action:'replace'|'adopt'|'remove',scope,recipeIdentity,organizationSelectionId?}`.
+The caller describes proposed lifecycle actions; preview does not observe installed
+state or infer actions. Malformed records refuse before comparison. Well-formed
+requests return an advisory `{admitted,diagnostics}`, including denied comparisons.
+
+All helpers return `{status:'ok',value,diagnostics:[]}` or
+`{status:'refused',diagnostics}`. `AuthoringDiagnostic` has `code`, JSON-pointer
+`path`, explanatory `message`, optional `reason`, `related` and `details`.
+Core validation failures retain the original public `Diagnostic[]` in
+`details:{owner:'core',diagnostics}`; unsupported schema details retain encountered
+and supported IDs. Messages may change; codes, reason identifiers and path meanings
+are the machine interface. Refusals contain no executable partial policy.
+
+| Code / stable reason | Meaning |
+| --- | --- |
+| `INPUT_INVALID` / `recipe-invalid` | Invalid request, recipe, reference or declaration bounds; inspect Core details when present |
+| `INPUT_INVALID` / `recipe-bytes-mismatch` | Exact supplied bytes differ in hash or length, at `/recipeBytes` |
+| `INPUT_INVALID` / `material-closure` | Recipe/reference material identities disagree, or inline sources are incomplete |
+| `INPUT_INVALID` / `unsupported-schema` | Recipe schema ID is unsupported; retain the original artifact |
+| `AUTHORITY_DENIED` / `selection-not-admitted`, `recipe-identity`, `scope` | No organization entry, wrong recipe identity or forbidden scope |
+| `AUTHORITY_DENIED` / `input-not-permitted`, `input-value`, `organization-permission-incomplete` | Unpermitted input/value or missing required permission/default |
+| `INPUT_INVALID` / `organization-input-spec` | Organization validation failed, or a permission value contradicts the recipe input spec |
+| `INPUT_INVALID` / `input-value` | Malformed preview request, input definition or configured value; comparison refused |
+| `AUTHORITY_DENIED` / `lifecycle-replace`, `lifecycle-adopt`, `lifecycle-remove` | Supplied action lacks the corresponding organization permission |
+
+An incompatible organization permission is a valid **denied comparison** with
+`INPUT_INVALID / organization-input-spec` in `value.diagnostics`; an invalid
+organization document instead refuses with owning validator details.
+An admitted preview may differ from later authority. The Node host must independently
+select current authority at Prepare and reread it at Apply. Neither preview,
+serialized review nor consumer metadata grants effects or acts as a live handle.
+
+After committing and building, `npm run verify:authoring-consumer -- --output
+<new directory>` creates a qualified archive and installs its exact bytes outside
+the source tree. It proves inline/referenced authoring, different material/configuration
+data, admitted/denied Prepare agreement, changed-authority Apply refusal and rejection
+of a serialized review as a handle. The GitHub REST transport is a deterministic
+fixture; this is package-boundary evidence, not real organization/native acceptance.
+The receipt records source commit, archive digest and installed package identity.
 
 ## Discover the CLI
 

@@ -1,3 +1,7 @@
+import { MATERIAL_LIMITS, MaterialCaptureError, plain, exact, memberPath, checkedReference, checkedInlineMaterials,
+  type MaterialMemberDescriptor, type InlineMaterialDescriptor, type MaterialRecipeReference, type CheckedReference, type CheckedInline } from './material-descriptors.js';
+export { MATERIAL_LIMITS, MaterialCaptureError } from './material-descriptors.js';
+export type { MaterialMemberDescriptor, InlineMaterialDescriptor, MaterialRecipeReference } from './material-descriptors.js';
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -5,29 +9,8 @@ import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import { pathPins, pinsMatch, type PathPin } from './host-files.js';
 
-export const MATERIAL_LIMITS = Object.freeze({
-  compressedBytes: 64 * 1024 * 1024,
-  expandedBytes: 256 * 1024 * 1024,
-  regularMembers: 4096,
-  memberBytes: 16 * 1024 * 1024,
-  recipeBytes: 1_000_000,
-  capturedBytes: 512 * 1024 * 1024,
-  acquisitionMs: 60_000,
-  pathBytes: 4096,
-  pathSegments: 64,
-});
+function fail(reason: string): never { throw new MaterialCaptureError(reason); }
 
-export interface MaterialMemberDescriptor { id: string; path: string; sha256: string; byteLength: number }
-export interface InlineMaterialDescriptor extends MaterialMemberDescriptor {
-  source: MaterialRecipeReference['source'];
-}
-export interface MaterialRecipeReference {
-  source: { kind: 'archive'; url: string; sha256: string; byteLength: number } | { kind: 'local'; input: string };
-  path: string;
-  sha256: string;
-  byteLength: number;
-  materials: MaterialMemberDescriptor[];
-}
 export interface CapturedRecipeReference {
   readonly recipeSha256: string;
   readonly materials: readonly Readonly<MaterialMemberDescriptor>[];
@@ -42,90 +25,8 @@ export interface CapturedInlineMaterials {
   recheck(): Promise<boolean>;
 }
 
-export class MaterialCaptureError extends Error {
-  constructor(readonly reason: string) {
-    super(`Material capture failed: ${reason}`);
-    this.name = 'MaterialCaptureError';
-  }
-}
-function fail(reason: string): never { throw new MaterialCaptureError(reason); }
-const hex = /^[a-f0-9]{64}$/u;
-const reserved = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
 const fatalUtf8 = new TextDecoder('utf-8', { fatal: true });
 function hash(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
-function plain(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) &&
-    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) &&
-    Reflect.ownKeys(value).every(key => typeof key === 'string' &&
-      Object.getOwnPropertyDescriptor(value, key)?.enumerable === true &&
-      'value' in (Object.getOwnPropertyDescriptor(value, key) ?? {}));
-}
-function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return plain(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
-}
-function byteLength(value: unknown, limit: number): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= limit;
-}
-function digest(value: unknown): value is string { return typeof value === 'string' && hex.test(value); }
-function memberPath(value: unknown): string {
-  if (typeof value !== 'string' || !value || Buffer.byteLength(value, 'utf8') > MATERIAL_LIMITS.pathBytes ||
-      value.startsWith('/') || value.startsWith('\\') || isAbsolute(value)) fail('unsafe-member-path');
-  const segments = value.split('/');
-  if (segments.length > MATERIAL_LIMITS.pathSegments || segments.some(segment => !segment || segment === '.' ||
-      segment === '..' || segment.includes('\\') || segment.includes(':') || /[. ]$/u.test(segment) ||
-      /[\u0000-\u001f\u007f]/u.test(segment) || /\p{C}/u.test(segment) ||
-      segment.normalize('NFC') !== segment || reserved.test(segment))) fail('unsafe-member-path');
-  return value;
-}
-function memberDescriptor(value: unknown): MaterialMemberDescriptor {
-  if (!exact(value, ['id', 'path', 'sha256', 'byteLength']) ||
-      typeof value.id !== 'string' || !value.id || value.id.length > 256 ||
-      !digest(value.sha256) || !byteLength(value.byteLength, MATERIAL_LIMITS.memberBytes)) fail('invalid-member-descriptor');
-  return { id: value.id, path: memberPath(value.path), sha256: value.sha256, byteLength: value.byteLength };
-}
-type CheckedReference = Omit<MaterialRecipeReference, 'materials'> & { materials: MaterialMemberDescriptor[] };
-function checkedSource(source: unknown): MaterialRecipeReference['source'] {
-  if (!plain(source) || (source.kind !== 'local' && source.kind !== 'archive')) fail('invalid-source');
-  if (source.kind === 'local') {
-    if (!exact(source, ['kind', 'input']) || typeof source.input !== 'string' ||
-        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(source.input)) fail('invalid-local-source');
-  } else {
-    if (!exact(source, ['kind', 'url', 'sha256', 'byteLength']) || typeof source.url !== 'string' ||
-        !digest(source.sha256) || !byteLength(source.byteLength, MATERIAL_LIMITS.compressedBytes)) fail('invalid-archive-source');
-    let url: URL;
-    try { url = new URL(source.url); } catch { fail('invalid-archive-url'); }
-    if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.hash ||
-        (url.port && url.port !== '443')) fail('invalid-archive-url');
-  }
-  return source as MaterialRecipeReference['source'];
-}
-function checkedReference(value: unknown): CheckedReference {
-  if (!exact(value, ['source', 'path', 'sha256', 'byteLength', 'materials']) ||
-      !digest(value.sha256) || !byteLength(value.byteLength, MATERIAL_LIMITS.recipeBytes) ||
-      !Array.isArray(value.materials) || value.materials.length > MATERIAL_LIMITS.regularMembers) fail('invalid-reference');
-  const path = memberPath(value.path);
-  const source = checkedSource(value.source);
-  const materials = value.materials.map(memberDescriptor);
-  const ids = new Set<string>();
-  const paths = new Map<string, string>();
-  let total = value.byteLength;
-  for (const material of materials) {
-    if (ids.has(material.id)) fail('duplicate-material-id');
-    ids.add(material.id);
-    const samePath = paths.get(material.path);
-    const identity = `${material.sha256}:${material.byteLength}`;
-    if (samePath !== undefined && samePath !== identity) fail('inconsistent-material-path');
-    paths.set(material.path, identity);
-    if (samePath === undefined && material.path !== path) total += material.byteLength;
-  }
-  if (materials.some((item, index) => index > 0 && materials[index - 1]!.id >= item.id)) fail('unsorted-materials');
-  const recipePathIdentity = paths.get(path);
-  if (recipePathIdentity !== undefined && recipePathIdentity !== `${value.sha256}:${value.byteLength}`)
-    fail('inconsistent-material-path');
-  if (total > MATERIAL_LIMITS.capturedBytes) fail('captured-byte-limit');
-  return { source, path, sha256: value.sha256,
-    byteLength: value.byteLength, materials };
-}
 function referenceDeclaredBytes(reference: CheckedReference): number {
   const paths = new Set([reference.path]);
   let total = reference.byteLength;
@@ -134,40 +35,6 @@ function referenceDeclaredBytes(reference: CheckedReference): number {
     total += material.byteLength;
   }
   return total;
-}
-type CheckedInline = InlineMaterialDescriptor[];
-function checkedInlineMaterials(value: unknown): { materials: CheckedInline; bytes: number } {
-  if (!Array.isArray(value) || value.length > MATERIAL_LIMITS.regularMembers) fail('invalid-inline-materials');
-  const materials: CheckedInline = value.map(item => {
-    if (!exact(item, ['id', 'path', 'sha256', 'byteLength', 'source'])) fail('invalid-inline-material');
-    const member = memberDescriptor({ id: item.id, path: item.path, sha256: item.sha256,
-      byteLength: item.byteLength });
-    return { ...member, source: checkedSource(item.source) };
-  });
-  const ids = new Set<string>();
-  const paths = new Map<string, string>();
-  const archives = new Map<string, string>();
-  let bytes = 0;
-  for (const [index, item] of materials.entries()) {
-    if (ids.has(item.id)) fail('duplicate-material-id');
-    if (index > 0 && materials[index - 1]!.id >= item.id) fail('unsorted-materials');
-    ids.add(item.id);
-    const sourceKey = item.source.kind === 'archive' ? `archive:${item.source.url}` : `local:${item.source.input}`;
-    const key = `${sourceKey}\0${item.path}`;
-    const identity = `${item.sha256}:${item.byteLength}`;
-    const previous = paths.get(key);
-    if (previous !== undefined && previous !== identity) fail('inconsistent-material-path');
-    paths.set(key, identity);
-    if (previous === undefined) bytes += item.byteLength;
-    if (item.source.kind === 'archive') {
-      const archiveIdentity = `${item.source.sha256}:${item.source.byteLength}`;
-      const prior = archives.get(item.source.url);
-      if (prior !== undefined && prior !== archiveIdentity) fail('inconsistent-archive-source');
-      archives.set(item.source.url, archiveIdentity);
-    }
-  }
-  if (bytes > MATERIAL_LIMITS.capturedBytes) fail('captured-byte-limit');
-  return { materials, bytes };
 }
 function referenceDeclaration(reference: CheckedReference): string {
   return JSON.stringify(['reference', sourceDeclaration(reference.source), reference.path, reference.sha256,

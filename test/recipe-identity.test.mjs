@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepare } from '../dist/core/index.js';
+import { deriveRecipeIdentity } from '../dist/core/contracts.js';
 import { orgSource, orgRoutes, fakeFetch } from './fixtures/github-org.mjs';
 
 const sha256hex = value => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -86,6 +87,16 @@ test('the literal vectors are self-consistent known answers', () => {
   assert.equal(`sha256:${sha256hex(DESCRIPTOR_MIXED_LEGACY_JSON)}`, IDENTITY_MIXED_LEGACY);
   assert.equal(sha256hex(RECIPE_PAIR_JSON), RECIPE_PAIR_SHA256);
   assert.equal(`sha256:${sha256hex(DESCRIPTOR_PAIR_JSON)}`, IDENTITY_PAIR);
+});
+
+test('public identity authoring preserves the independent recipe-identity:1.0.0 vectors', async () => {
+  for (const [json, recipeSha256, recipeIdentity] of [[RECIPE_MIXED_JSON, RECIPE_MIXED_SHA256, IDENTITY_MIXED_CODE_UNIT],
+    [RECIPE_PAIR_JSON, RECIPE_PAIR_SHA256, IDENTITY_PAIR]]) {
+    const result = await deriveRecipeIdentity({ recipe: JSON.parse(json) });
+    assert.equal(result.status, 'ok');
+    assert.equal(result.value.recipeSha256, recipeSha256);
+    assert.equal(result.value.recipeIdentity, recipeIdentity);
+  }
 });
 
 test('an organization entry carrying the code-unit ordered identity admits the selection', async () => {

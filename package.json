@@ -119,6 +119,7 @@
     "verify:report-consumer": "node scripts/verify-report-consumer.mjs",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
     "verify:recipe-input-consumer": "node scripts/verify-recipe-input-consumer.mjs",
+    "verify:authoring-consumer": "node scripts/verify-recipe-input-consumer.mjs --authoring",
     "test": "node scripts/run-ci-tests.mjs",
     "prepack": "npm run build"
   },

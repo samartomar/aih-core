@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
+const authoring = args[0] === '--authoring';
+if (authoring) args.shift();
 if (args.length !== 2 || args[0] !== '--output' || !process.env.npm_execpath)
   throw new Error('Use npm run verify:recipe-input-consumer -- --output <new directory>');
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30_000 }).trim();
@@ -25,7 +27,7 @@ const packed = JSON.parse(run([join(root, 'scripts/pack-distribution.mjs'), '--b
 writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'independent-recipe-consumer', private: true, type: 'module',
   dependencies: { '@aihq/core': `file:${join(output, packed.filename)}` } }));
 writeFileSync(join(output, 'install.log'), run([process.env.npm_execpath, 'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer, 300_000));
-copyFileSync(join(root, 'examples/recipe-input-consumer.mjs'), join(consumer, 'verify.mjs'));
+copyFileSync(join(root, authoring ? 'examples/authoring-consumer.mjs' : 'examples/recipe-input-consumer.mjs'), join(consumer, 'verify.mjs'));
 const proof = JSON.parse(run(['verify.mjs'], consumer));
 const installed = JSON.parse(readFileSync(join(consumer, 'node_modules/@aihq/core/package.json')));
 const cli = JSON.parse(run([join(consumer, 'node_modules/@aihq/core', installed.bin.aih), '--version', '--json'], consumer));
