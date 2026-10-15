@@ -1,0 +1,2044 @@
+{
+  "schema": "urn:aihq:report:claims-projection:1.0.0",
+  "source": {
+    "schema": "urn:aihq:report:claims:1.0.0"
+  },
+  "claims": [
+    {
+      "id": "check-cargo-http",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "cargo"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-cargo-http",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-cargo-http",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-git-sslcainfo",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "git"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-git-sslcainfo",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-git-sslcainfo",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "canonical",
+        "canonical": {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        }
+      }
+    },
+    {
+      "id": "check-git-sslcainfo-reimport",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "git"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-git-sslcainfo",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-git-sslcainfo",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "duplicate",
+        "canonical": {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        }
+      }
+    },
+    {
+      "id": "check-high-01",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-1"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-01",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-01",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-02",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-2"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-02",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-02",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-03",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-3"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-03",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-03",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-04",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-4"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-04",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-04",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-05",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-5"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-05",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-05",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-06",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-6"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-06",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-06",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-07",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-7"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-07",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-07",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-08",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-8"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-08",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-08",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-09",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-9"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-09",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-09",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-10",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-10"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-10",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-10",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-11",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-11"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-11",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-11",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-12",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-12"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-12",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-12",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-13",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-13"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-13",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-13",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-14",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-14"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-14",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-14",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-15",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-15"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-15",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-15",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-16",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-16"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-16",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-16",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-17",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-17"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-17",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-17",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-18",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-18"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-18",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-18",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-19",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-19"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-19",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-19",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-high-20",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "tool-20"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-high-20",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-high-20",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-java-truststore-a",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "java"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:event:java-truststore",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:java-truststore",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "conflict",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-java-truststore-b",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "java"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:event:java-truststore",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:java-truststore",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "conflict",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-node-version",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "node"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-node-version",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-node-version",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-npm-cafile",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "npm"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-npm-cafile",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-npm-cafile",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "check-pip-cert",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "tool",
+        "id": "pip"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:check-pip-cert",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:check-pip-cert",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "configuration-check",
+      "kind": "unknown",
+      "unknownReason": "probe deadline reached before an outcome",
+      "method": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    }
+  ],
+  "observations": {
+    "duplicates": [
+      {
+        "producer": "example-diagnostic-adapter",
+        "observation": "event:check-git-sslcainfo",
+        "claim": {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        },
+        "merged": [
+          {
+            "id": "check-git-sslcainfo-reimport",
+            "revision": "1"
+          }
+        ],
+        "imports": 2
+      }
+    ],
+    "conflicts": [
+      {
+        "producer": "example-diagnostic-adapter",
+        "observation": "event:java-truststore",
+        "claims": [
+          {
+            "id": "check-java-truststore-a",
+            "revision": "1"
+          },
+          {
+            "id": "check-java-truststore-b",
+            "revision": "1"
+          }
+        ],
+        "reason": "same-observation-different-content"
+      }
+    ],
+    "unidentified": []
+  },
+  "calculations": [
+    {
+      "id": "score-unknown-in-denominator",
+      "method": {
+        "id": "configuration-check-score",
+        "version": "1.0.0"
+      },
+      "status": "available",
+      "reason": null,
+      "inputs": [
+        {
+          "id": "check-cargo-http",
+          "revision": "1"
+        },
+        {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        },
+        {
+          "id": "check-git-sslcainfo-reimport",
+          "revision": "1"
+        },
+        {
+          "id": "check-node-version",
+          "revision": "1"
+        },
+        {
+          "id": "check-npm-cafile",
+          "revision": "1"
+        },
+        {
+          "id": "check-pip-cert",
+          "revision": "1"
+        }
+      ],
+      "checkSet": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "counts": {
+        "passed": 2,
+        "failed": 1,
+        "unknown": 1,
+        "inapplicable": 1
+      },
+      "numerator": 2,
+      "denominator": 4,
+      "score": 50,
+      "failed": [
+        {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        }
+      ],
+      "conflicts": [],
+      "excluded": [
+        {
+          "claim": {
+            "id": "check-cargo-http",
+            "revision": "1"
+          },
+          "reason": "cargo is not selected on this machine"
+        }
+      ],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
+    },
+    {
+      "id": "score-zero-applicable",
+      "method": {
+        "id": "configuration-check-score",
+        "version": "1.0.0"
+      },
+      "status": "unavailable",
+      "reason": "no-applicable-checks",
+      "inputs": [
+        {
+          "id": "check-cargo-http",
+          "revision": "1"
+        }
+      ],
+      "checkSet": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "unknown": 0,
+        "inapplicable": 1
+      },
+      "numerator": 0,
+      "denominator": 0,
+      "score": null,
+      "failed": [],
+      "conflicts": [],
+      "excluded": [
+        {
+          "claim": {
+            "id": "check-cargo-http",
+            "revision": "1"
+          },
+          "reason": "cargo is not selected on this machine"
+        }
+      ],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
+    },
+    {
+      "id": "score-high-with-failure",
+      "method": {
+        "id": "configuration-check-score",
+        "version": "1.0.0"
+      },
+      "status": "available",
+      "reason": null,
+      "inputs": [
+        {
+          "id": "check-high-01",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-02",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-03",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-04",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-05",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-06",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-07",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-08",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-09",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-10",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-11",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-12",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-13",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-14",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-15",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-16",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-17",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-18",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-19",
+          "revision": "1"
+        },
+        {
+          "id": "check-high-20",
+          "revision": "1"
+        }
+      ],
+      "checkSet": {
+        "id": "example-configuration-checks",
+        "version": "1.0.0"
+      },
+      "counts": {
+        "passed": 19,
+        "failed": 1,
+        "unknown": 0,
+        "inapplicable": 0
+      },
+      "numerator": 19,
+      "denominator": 20,
+      "score": 95,
+      "failed": [
+        {
+          "id": "check-high-20",
+          "revision": "1"
+        }
+      ],
+      "conflicts": [],
+      "excluded": [],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "a-repair-tool-20",
+      "category": "blocker",
+      "reason": "a selected check failed",
+      "subjects": [
+        {
+          "kind": "tool",
+          "id": "tool-20"
+        }
+      ],
+      "evidence": [
+        {
+          "id": "check-high-20",
+          "revision": "1"
+        }
+      ],
+      "prerequisites": [],
+      "route": {
+        "kind": "guidance",
+        "id": "inspect-tool-20"
+      },
+      "order": {
+        "rank": 1,
+        "category": "blocker",
+        "reason": "Blocks the intended work until it is resolved.",
+        "tie": "id"
+      }
+    },
+    {
+      "id": "repair-git-trust",
+      "category": "blocker",
+      "reason": "a selected check failed",
+      "subjects": [
+        {
+          "kind": "tool",
+          "id": "git"
+        }
+      ],
+      "evidence": [
+        {
+          "id": "check-git-sslcainfo",
+          "revision": "1"
+        }
+      ],
+      "prerequisites": [
+        "supplied CA file"
+      ],
+      "route": {
+        "kind": "operation",
+        "id": "user-tools-ca"
+      },
+      "order": {
+        "rank": 2,
+        "category": "blocker",
+        "reason": "Blocks the intended work until it is resolved.",
+        "tie": "id"
+      }
+    },
+    {
+      "id": "review-java-truststore-conflict",
+      "category": "urgent-review",
+      "reason": "two records disagree about one observation",
+      "subjects": [
+        {
+          "kind": "tool",
+          "id": "java"
+        }
+      ],
+      "evidence": [
+        {
+          "id": "check-java-truststore-a",
+          "revision": "1"
+        },
+        {
+          "id": "check-java-truststore-b",
+          "revision": "1"
+        }
+      ],
+      "prerequisites": [],
+      "route": {
+        "kind": "guidance",
+        "id": "inspect-java-truststore"
+      },
+      "order": {
+        "rank": 3,
+        "category": "urgent-review",
+        "reason": "Needs prompt human review.",
+        "tie": "id"
+      }
+    },
+    {
+      "id": "recheck-pip",
+      "category": "important-unknown",
+      "reason": "the outcome is unknown",
+      "subjects": [
+        {
+          "kind": "tool",
+          "id": "pip"
+        }
+      ],
+      "evidence": [
+        {
+          "id": "check-pip-cert",
+          "revision": "1"
+        }
+      ],
+      "prerequisites": [],
+      "route": {
+        "kind": "guidance",
+        "id": "rerun-inspection"
+      },
+      "order": {
+        "rank": 4,
+        "category": "important-unknown",
+        "reason": "An important outcome is unknown and needs a determination.",
+        "tie": "id"
+      }
+    },
+    {
+      "id": "add-cargo",
+      "category": "optional-improvement",
+      "reason": "not selected",
+      "subjects": [
+        {
+          "kind": "tool",
+          "id": "cargo"
+        }
+      ],
+      "evidence": [],
+      "prerequisites": [],
+      "route": {
+        "kind": "guidance",
+        "id": "select-cargo"
+      },
+      "order": {
+        "rank": 5,
+        "category": "optional-improvement",
+        "reason": "Optional improvement; no recorded failure depends on it.",
+        "tie": "id"
+      }
+    }
+  ]
+}
