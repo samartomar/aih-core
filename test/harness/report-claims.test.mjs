@@ -507,7 +507,7 @@ test('a repair over unidentified observations is counted but not asserted as ded
   assert.deepEqual(result.deduplication, { status: 'not-established', unidentified: [ref('pre')] });
 });
 
-test('conflicting precheck or postcheck evidence never earns a verified repair', () => {
+test('conflicting precheck, repair or postcheck evidence never earns a verified repair', () => {
   const claims = [
     check('pre-fail', 'failed', T1, { observation: 'evt-pre' }),
     check('pre-pass', 'passed', T1, { observation: 'evt-pre' }),
@@ -516,8 +516,11 @@ test('conflicting precheck or postcheck evidence never earns a verified repair',
     check('post-pass', 'passed', T3, { observation: 'evt-post' }),
     check('post-fail', 'failed', T3, { observation: 'evt-post' }),
     check('post', 'passed', T3),
+    repairClaim('rep-applied', T2, 'repair', { observation: 'evt-rep' }),
+    repairClaim('rep-later', T2, 'repair', { observation: 'evt-rep', coverage: { state: 'partial', reason: 'second record of the same repair differs' } }),
   ];
   const cases = [
+    [attempt('pre', 'rep-applied', 'post'), 'conflicting-evidence'],
     [attempt('pre-fail', 'rep', 'post'), 'conflicting-evidence'],
     [attempt('pre-pass', 'rep', 'post'), 'conflicting-evidence'],
     [attempt('pre', 'rep', 'post-pass'), 'conflicting-evidence'],

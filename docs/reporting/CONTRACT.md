@@ -240,7 +240,7 @@ matching rule applies, each with a `counted` flag and a `reason`:
 1. `uncorrelated` — a referenced claim has a different subject, condition or
    operation, is not a check/repair claim of the expected form, or the
    `capturedAt` instants are not strictly ordered precheck < repair < postcheck.
-2. `conflicting-evidence` — the precheck or postcheck claim belongs to a
+2. `conflicting-evidence` — the precheck, repair or postcheck claim belongs to a
    conflicting observation, so it cannot establish a verified repair.
 3. `unknown-precondition` — precheck is missing or unknown.
 4. `already-healthy` — precheck passed.

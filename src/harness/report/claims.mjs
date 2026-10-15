@@ -482,7 +482,9 @@ function configurationCheckScore(request, context) {
     // A failed claim is always listed, even as a member of a conflicted observation;
     // duplicates of one event are listed once, as their canonical claim.
     if (info.conflicted) conflicts.push(refOf(claim));
-    if (outcomeOf(claim) === 'failed') failed.push(info.conflicted ? refOf(claim) : info.representative ?? refOf(claim));
+    // Conflict members are listed as themselves; duplicates collapse to their canonical claim.
+    const listedRef = info.conflicted ? refOf(claim) : info.representative ?? refOf(claim);
+    if (outcomeOf(claim) === 'failed') failed.push(listedRef);
     // A conflicted observation has no single reliable outcome, so it counts once as unknown.
     if (!outcomes.has(info.group)) outcomes.set(info.group, info.conflicted ? 'unknown' : outcomeOf(claim));
   }
@@ -528,7 +530,7 @@ function verifiedRepairCount(request, context) {
     const repairMatches = (claim) => claim === null
       || (sameSubject(claim) && (claim.measure === 'repair' || claim.measure === 'external-repair')
         && claim.kind !== 'unknown' && claim.value.unit === 'operation' && claim.value.amount === attempt.operation);
-    const conflicted = (claim) => claim !== null && context.dedup.get(refKey(claim.id, claim.revision)).conflicted === true;
+    const conflicted = (claim) => claim !== null && Boolean(context.dedup.get(refKey(claim.id, claim.revision)).conflicted);
     const times = [pre, repair, post].filter((claim) => claim !== null).map((claim) => instantMs(claim.capturedAt));
     const ordered = times.every((time, index) => index === 0 || times[index - 1] < time);
 
@@ -536,7 +538,7 @@ function verifiedRepairCount(request, context) {
     const postOutcome = post === null ? 'unknown' : outcomeOf(post);
     let reason;
     if (!checkMatches(pre) || !checkMatches(post) || !repairMatches(repair) || !ordered) reason = 'uncorrelated';
-    else if (conflicted(pre) || conflicted(post)) reason = 'conflicting-evidence';
+    else if (conflicted(pre) || conflicted(repair) || conflicted(post)) reason = 'conflicting-evidence';
     else if (preOutcome === 'unknown') reason = 'unknown-precondition';
     else if (preOutcome === 'passed') reason = 'already-healthy';
     else if (repair !== null && repair.measure === 'external-repair') reason = 'external-repair';
