@@ -5,8 +5,19 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepare, apply } from '@aihq/core';
-import { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations, contractSupport } from '@aihq/core/contracts';
+import { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations, validateOrganizationTarget, contractSupport } from '@aihq/core/contracts';
 import organizationSchema11 from '@aihq/core/schemas/organization-policy/1.1.0.json' with { type: 'json' };
+import organizationTargetSchema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
+import preparedSchema15 from '@aihq/core/schemas/prepared-work/1.5.0.json' with { type: 'json' };
+
+const organizationTargetContract = 'urn:aihq:core:organization-target:1.0.0';
+const preparedContract15 = 'urn:aihq:core:prepared-work:1.5.0';
+assert.equal(organizationTargetSchema.$id, organizationTargetContract);
+assert.equal(preparedSchema15.$id, preparedContract15);
+assert.ok(contractSupport.contracts.some(contract => contract.id === organizationTargetContract && contract.role === 'accepts'));
+assert.ok(contractSupport.contracts.some(contract => contract.id === preparedContract15 && contract.role === 'produces'));
+assert.equal(validateOrganizationTarget({ schema: organizationTargetContract, client: 'unknown-client' }).valid, false);
+assert.equal(validateOrganizationTarget({ schema: organizationTargetContract, client: 'codex', repository: 'Not A Repository' }).valid, false);
 
 const organizationContract11 = 'urn:aihq:core:organization-policy:1.1.0';
 assert.equal(organizationSchema11.$id, organizationContract11);
@@ -34,7 +45,7 @@ globalThis.fetch = async url => {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 const cases = [];
-let obligations;
+let obligations, target;
 try {
   for (const [index, name] of ['team-note', 'independent-guide'].entries()) {
     const project = join(process.cwd(), `${name}-target`), source = join(process.cwd(), `${name}-source`);
@@ -84,11 +95,11 @@ try {
         entry('other-client', 'required', { clients: ['claude'] }),
         entry('repository-note', 'required', { repositories: ['github.com/example-org/app'] })
       ] };
-      const target = { scope: 'project', client: 'codex' };
+      const previewTarget = { scope: 'project', client: 'codex' };
       const evaluate = selections => {
-        const result = previewOrganizationObligations({ organization: organization11, selections, lifecycle: [], target });
+        const result = previewOrganizationObligations({ organization: organization11, selections, lifecycle: [], target: previewTarget });
         assert.equal(result.status, 'ok', JSON.stringify(result));
-        assert.deepEqual(result.value.target, target);
+        assert.deepEqual(result.value.target, previewTarget);
         return result.value;
       };
       const missing = evaluate([previewSelection]);
@@ -135,6 +146,48 @@ try {
       const prohibition = blocked11.diagnostics.find(d => d.code === 'AUTHORITY_DENIED' && d.reason === 'prohibited');
       assert.ok(prohibition, JSON.stringify(blocked11.diagnostics));
       assert.deepEqual(readdirSync(obligationProject), []);
+      const targetProject = join(process.cwd(), 'declared-target');
+      mkdirSync(targetProject);
+      currentOrganization = { schema: organizationContract11, id: 'declared-target', selections: [
+        entry(name, 'permitted'), entry('required-codex', 'required', { clients: ['codex'] }),
+        entry('repository-note', 'required', { repositories: ['github.com/example-org/app'] }),
+        entry('other-client', 'required', { clients: ['claude'] })
+      ] };
+      const targetRequest = { ...request, target: { project: targetProject },
+        policy: { ...policy, selections: [selection, { ...selection, id: 'required-choice',
+          managementId: 'required-choice', organizationSelectionId: 'required-codex' }] },
+        organizationTarget: { schema: organizationTargetContract, client: 'codex' } };
+      const targeted = await prepare(targetRequest, controls);
+      assert.equal(targeted.status, 'ready', JSON.stringify(targeted.diagnostics));
+      assert.equal(targeted.review.schema, preparedContract15);
+      const declared = targeted.review.organizationObligations;
+      assert.deepEqual(declared.target, { basis: 'declared', client: 'codex' });
+      assert.deepEqual(declared.fulfillment.map(({ scope, selectionId, status, unknown, selections }) =>
+        ({ scope, selectionId, status, unknown, selections })), [
+        { scope: 'project', selectionId: 'required-codex', status: 'fulfilled', unknown: [], selections: ['required-choice'] },
+        { scope: 'project', selectionId: 'repository-note', status: 'unknown', unknown: ['repository'], selections: [] }
+      ]);
+      assert.deepEqual(declared.advisory, []);
+      const { organizationTarget, ...withoutTarget } = targetRequest;
+      const unknownTarget = await prepare(withoutTarget, controls);
+      assert.equal(unknownTarget.status, 'blocked');
+      assert.ok(unknownTarget.diagnostics.some(d => d.code === 'AUTHORITY_DENIED' && d.reason === 'target-unknown'));
+      assert.equal(unknownTarget.review, undefined);
+      // Without declared facts, only the unrestricted permitted choice is admitted.
+      const untargeted = await prepare({ ...withoutTarget, policy }, controls);
+      assert.equal(untargeted.status, 'ready', JSON.stringify(untargeted.diagnostics));
+      assert.equal(untargeted.review.schema, admitted11.review.schema);
+      assert.equal(Object.hasOwn(untargeted.review, 'organizationObligations'), false);
+      targetRequest.organizationTarget.repository = 'github.com/example-org/app';
+      const changedTarget = await apply(targeted.prepared, approve(targeted), controls);
+      assert.equal(changedTarget.completion, 'rejected');
+      assert.ok(changedTarget.diagnostics.some(d => d.code === 'REVIEW_STALE'));
+      assert.deepEqual(readdirSync(targetProject), []);
+      target = { contract: organizationTargetSchema.$id, review: targeted.review.schema,
+        basis: declared.target.basis, required: declared.fulfillment[0].status,
+        selections: declared.fulfillment[0].selections, repository: declared.fulfillment[1].status,
+        unknown: declared.fulfillment[1].unknown, otherClientAbsent: true,
+        withoutTarget: untargeted.review.schema, undeclaredSelectorRefused: true, changedTargetRefused: true, wroteNothing: true };
       obligations = { contract: organizationSchema11.$id, enforced: missing.enforced.admitted,
         advisory: missing.advisory[0].status,
         required: [missing.fulfillment[0].status, present.fulfillment[0].status],
@@ -173,4 +226,4 @@ try {
       admitted: true, denied: true, changedAuthorityRefused: true, previewHandleRefused: true, serializedReviewRefused: true, applied: true });
   }
 } finally { globalThis.fetch = originalFetch; }
-process.stdout.write(JSON.stringify({ package: contractSupport.package, transport: 'fixture-github-rest', cases, obligations }) + '\n');
+process.stdout.write(JSON.stringify({ package: contractSupport.package, transport: 'fixture-github-rest', cases, obligations, target }) + '\n');

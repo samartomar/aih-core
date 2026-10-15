@@ -2,12 +2,23 @@
 
 ## Unreleased
 
+Add optional versioned `organizationTarget` declarations to Enterprise Prepare,
+with portable validation and organization-target 1.0.0 / prepared-work 1.5.0
+schema exports. Targeted reviews label client/repository facts as declared,
+report required-choice fulfillment and recommendations per scope, omit
+not-applicable entries, and keep unknown facts distinct from fulfillment.
+Unfulfilled requirements are reported without enforcement; admission still
+applies. Requests without a target retain their previous review format and
+behavior. Apply rejects a changed target with `REVIEW_STALE` before writes.
+The packed consumer proves these contracts through the installed package.
+This candidate is unpublished.
+
 Add organization-policy 1.1.0 obligations and explicit client/repository selectors,
 with portable `previewOrganizationObligations` results separating enforced
 admission, recommendations and required-choice fulfillment. Enterprise Prepare
 accepts the new format, denies prohibited choices and fails closed when selector
-facts are undeclared; it does not evaluate fulfillment. Existing 1.0.0 entries
-remain permitted and earlier schema bytes are unchanged. The public
+facts are undeclared; without a target it does not evaluate fulfillment. Existing
+1.0.0 entries remain permitted and earlier schema bytes are unchanged. The public
 `OrganizationPolicy` type is now a union of the 1.0.0 and 1.1.0 documents;
 narrow on `schema` before reading 1.1.0-only fields. The independent consumer
 proof covers the public helper, schema/support exports and Prepare outcomes.
