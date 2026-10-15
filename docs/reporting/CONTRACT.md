@@ -212,25 +212,44 @@ yields a global or combined risk score; an unsupported method or version is
 = `passed / (passed + failed + unknown) × 100`, so unknown checks stay in the
 denominator. With no applicable check the result is `unavailable`, `score: null`,
 `reason: 'no-applicable-checks'`. Results report `counts`, `numerator`,
-`denominator`, `score`, `checkSet`, `excluded` and `failed`, which lists every
-failed check even when the score is high. Selected claims that are duplicates of
-one observation count once; a conflicted observation counts once as unknown.
+`denominator`, `score`, `checkSet`, `excluded`, `failed`, `conflicts` and
+`deduplication`. Selected claims that are duplicates of one observation count
+once; a conflicted observation counts once as unknown. `failed` lists every
+selected claim whose own outcome is failed, even when the score is high and
+including members of a conflicted observation (duplicates of one event appear
+once, as the canonical claim), so `failed` can list a claim that `counts` holds
+as unknown. `conflicts` lists the selected members of conflicting observations,
+sorted, so that qualification is visible.
+
+**`deduplication`.** Both `configuration-check-score` and
+`verified-repair-count` report `deduplication: { status, unidentified }`. It is
+`not-established` when any claim the request references (selected, excluded,
+precheck, repair or postcheck) has `observation: null`, and `unidentified` lists
+those claims sorted by `(id, revision)`. The numbers are still computed from the
+supplied records, but a re-import of an unidentified event cannot be recognised,
+so they are not a deduplicated aggregate. Otherwise the status is `established`.
 
 **`verified-repair-count`.** Each attempt names `operation`, `subject`,
-`condition` and optional `precheck`, `repair`, `postcheck` claims. The first
+`condition` and optional `precheck`, `repair`, `postcheck` claims. An attempt
+is the adapter's explicit assertion that binds one operation to one condition and
+subject. The projection checks every referenced claim against that binding
+(the repair by subject and operation; the checks by subject and condition; the
+instants in strict order) and never infers a link between claims. The first
 matching rule applies, each with a `counted` flag and a `reason`:
 
 1. `uncorrelated` — a referenced claim has a different subject, condition or
    operation, is not a check/repair claim of the expected form, or the
    `capturedAt` instants are not strictly ordered precheck < repair < postcheck.
-2. `unknown-precondition` — precheck is missing or unknown.
-3. `already-healthy` — precheck passed.
-4. `external-repair` — the repair claim is `measure: 'external-repair'`.
-5. `unknown-cause` — no repair, postcheck passed.
-6. `applied-unverified` — repair present, postcheck missing or unknown.
-7. `repair-not-verified` — repair present, postcheck failed.
-8. `no-recovery` — no repair, postcheck missing, unknown or failed.
-9. `verified` — precheck failed, repair present, postcheck passed (counted).
+2. `conflicting-evidence` — the precheck or postcheck claim belongs to a
+   conflicting observation, so it cannot establish a verified repair.
+3. `unknown-precondition` — precheck is missing or unknown.
+4. `already-healthy` — precheck passed.
+5. `external-repair` — the repair claim is `measure: 'external-repair'`.
+6. `unknown-cause` — no repair, postcheck passed.
+7. `applied-unverified` — repair present, postcheck missing or unknown.
+8. `repair-not-verified` — repair present, postcheck failed.
+9. `no-recovery` — no repair, postcheck missing, unknown or failed.
+10. `verified` — precheck failed, repair present, postcheck passed (counted).
 
 `count` is the number of distinct failed conditions among verified attempts,
 keyed by the precheck's de-duplicated observation, so one duplicated imported

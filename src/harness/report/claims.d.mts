@@ -206,6 +206,17 @@ interface CalculationHead {
   inputs: ClaimRef[];
 }
 
+/**
+ * Whether an aggregate rests on an established event identity. It is
+ * `not-established` when any input claim has `observation: null`: the numbers
+ * are still computed, but a re-import of that event cannot be recognised, so they
+ * are not a deduplicated aggregate. `unidentified` lists those inputs, sorted.
+ */
+export interface Deduplication {
+  status: 'established' | 'not-established';
+  unidentified: ClaimRef[];
+}
+
 export interface ConfigurationCheckScoreResult extends CalculationHead {
   checkSet: NamedVersion;
   counts: { passed: number; failed: number; unknown: number; inapplicable: number };
@@ -213,13 +224,24 @@ export interface ConfigurationCheckScoreResult extends CalculationHead {
   denominator: number;
   /** `passed / (passed + failed + unknown) * 100`, or null when no check applied. */
   score: number | null;
-  /** Every failed check, so failures stay visible when the score is high. */
+  /**
+   * Every selected claim whose own outcome is failed, so failures stay visible
+   * when the score is high or the observation is in conflict. Duplicates of one
+   * event are listed once, as their canonical claim.
+   */
   failed: ClaimRef[];
+  /**
+   * Selected members of conflicting observations, sorted. Each conflicted
+   * observation counts once as unknown in `counts` whatever its members report.
+   */
+  conflicts: ClaimRef[];
   excluded: { claim: ClaimRef; reason: string }[];
+  deduplication: Deduplication;
 }
 
 export type RepairAttemptReason =
   | 'uncorrelated'
+  | 'conflicting-evidence'
   | 'unknown-precondition'
   | 'already-healthy'
   | 'external-repair'
@@ -238,6 +260,7 @@ export interface VerifiedRepairCountResult extends CalculationHead {
   /** Distinct failed conditions among verified attempts. */
   count: number;
   attempts: RepairAttemptResult[];
+  deduplication: Deduplication;
 }
 
 export type ContextChangeUnavailableReason =

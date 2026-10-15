@@ -26,13 +26,6 @@ export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA]);
 /** Versioned identity of the projection this module produces. */
 export const CLAIMS_PROJECTION_SCHEMA = 'urn:aihq:report:claims-projection:1.0.0';
 
-/** The explicit, versioned calculation methods a request may select. */
-export const CALCULATION_METHODS = Object.freeze([
-  Object.freeze({ id: 'configuration-check-score', version: '1.0.0' }),
-  Object.freeze({ id: 'verified-repair-count', version: '1.0.0' }),
-  Object.freeze({ id: 'context-change', version: '1.0.0' }),
-]);
-
 // A claim set carries many small records, so its node and string budgets are
 // larger than the diagnostic snapshot's. Values beyond them are rejected, never
 // truncated.
@@ -164,6 +157,12 @@ function validateRecordRef(value, path) {
   if ('sha256' in value) sha256(value.sha256, `${path}.sha256`);
 }
 
+function copyRecordRef(record) {
+  return record.sha256 === undefined
+    ? { id: record.id, schema: record.schema }
+    : { id: record.id, schema: record.schema, sha256: record.sha256 };
+}
+
 function validateAuthentication(value, path) {
   if (!isPlainObject(value)) invalid(`${path}: expected object`);
   requireEnum(value.status, AUTHENTICATION_STATUSES, `${path}.status`);
@@ -246,10 +245,62 @@ function outcomeOf(claim) {
   return null;
 }
 
+function validateCheckScore(request, at, resolve) {
+  requireKeys(request, at, ['id', 'method', 'version', 'checkSet', 'selected', 'inapplicable']);
+  identity(request.id, `${at}.id`);
+  validateNamedVersion(request.checkSet, `${at}.checkSet`);
+  const selected = new Set();
+  requireArray(request.selected, `${at}.selected`).forEach((ref, index) => {
+    const path = `${at}.selected[${index}]`;
+    const claim = resolve(ref, path);
+    if (claim.measure !== 'configuration-check') invalid(`${path}: expected a configuration-check claim`);
+    if (claim.method === undefined || !sameNamedVersion(claim.method, request.checkSet)) {
+      invalid(`${path}: claim method does not match the check set`);
+    }
+    if (outcomeOf(claim) === null) invalid(`${path}: expected a passed or failed outcome, or an unknown claim`);
+    const key = refKey(ref.id, ref.revision);
+    if (selected.has(key)) invalid(`${path}: duplicate claim reference`);
+    selected.add(key);
+  });
+  const excluded = new Set();
+  requireArray(request.inapplicable, `${at}.inapplicable`).forEach((entry, index) => {
+    const path = `${at}.inapplicable[${index}]`;
+    requireKeys(entry, path, ['claim', 'reason']);
+    resolve(entry.claim, `${path}.claim`);
+    text(entry.reason, `${path}.reason`);
+    const key = refKey(entry.claim.id, entry.claim.revision);
+    if (selected.has(key)) invalid(`${path}.claim: an inapplicable claim must not also be selected`);
+    if (excluded.has(key)) invalid(`${path}.claim: duplicate claim reference`);
+    excluded.add(key);
+  });
+}
+
+function validateRepairCount(request, at, resolve) {
+  requireKeys(request, at, ['id', 'method', 'version', 'attempts']);
+  identity(request.id, `${at}.id`);
+  requireArray(request.attempts, `${at}.attempts`).forEach((attempt, index) => {
+    const path = `${at}.attempts[${index}]`;
+    requireKeys(attempt, path, ['operation', 'subject', 'condition', 'precheck', 'repair', 'postcheck']);
+    identity(attempt.operation, `${path}.operation`);
+    validateSubject(attempt.subject, `${path}.subject`);
+    identity(attempt.condition, `${path}.condition`);
+    for (const name of ['precheck', 'repair', 'postcheck']) {
+      if (attempt[name] !== null) resolve(attempt[name], `${path}.${name}`);
+    }
+  });
+}
+
+function validateContextChange(request, at, resolve) {
+  requireKeys(request, at, ['id', 'method', 'version', 'before', 'after']);
+  identity(request.id, `${at}.id`);
+  resolve(request.before, `${at}.before`);
+  resolve(request.after, `${at}.after`);
+}
+
 function validateCalculation(request, at, claims) {
   if (!isPlainObject(request)) invalid(`${at}: expected object`);
-  const supported = CALCULATION_METHODS.some((method) => method.id === request.method && method.version === request.version);
-  if (!supported) invalid(`${at}.method: unsupported calculation method or version`);
+  const method = methodOf(request);
+  if (method === undefined) invalid(`${at}.method: unsupported calculation method or version`);
 
   const resolve = (ref, path) => {
     validateRef(ref, path);
@@ -257,54 +308,7 @@ function validateCalculation(request, at, claims) {
     if (claim === undefined) invalid(`${path}: does not resolve to a claim in the set`);
     return claim;
   };
-
-  if (request.method === 'configuration-check-score') {
-    requireKeys(request, at, ['id', 'method', 'version', 'checkSet', 'selected', 'inapplicable']);
-    identity(request.id, `${at}.id`);
-    validateNamedVersion(request.checkSet, `${at}.checkSet`);
-    const selected = new Set();
-    requireArray(request.selected, `${at}.selected`).forEach((ref, index) => {
-      const path = `${at}.selected[${index}]`;
-      const claim = resolve(ref, path);
-      if (claim.measure !== 'configuration-check') invalid(`${path}: expected a configuration-check claim`);
-      if (claim.method === undefined || !sameNamedVersion(claim.method, request.checkSet)) {
-        invalid(`${path}: claim method does not match the check set`);
-      }
-      if (outcomeOf(claim) === null) invalid(`${path}: expected a passed or failed outcome, or an unknown claim`);
-      const key = refKey(ref.id, ref.revision);
-      if (selected.has(key)) invalid(`${path}: duplicate claim reference`);
-      selected.add(key);
-    });
-    const excluded = new Set();
-    requireArray(request.inapplicable, `${at}.inapplicable`).forEach((entry, index) => {
-      const path = `${at}.inapplicable[${index}]`;
-      requireKeys(entry, path, ['claim', 'reason']);
-      resolve(entry.claim, `${path}.claim`);
-      text(entry.reason, `${path}.reason`);
-      const key = refKey(entry.claim.id, entry.claim.revision);
-      if (selected.has(key)) invalid(`${path}.claim: an inapplicable claim must not also be selected`);
-      if (excluded.has(key)) invalid(`${path}.claim: duplicate claim reference`);
-      excluded.add(key);
-    });
-  } else if (request.method === 'verified-repair-count') {
-    requireKeys(request, at, ['id', 'method', 'version', 'attempts']);
-    identity(request.id, `${at}.id`);
-    requireArray(request.attempts, `${at}.attempts`).forEach((attempt, index) => {
-      const path = `${at}.attempts[${index}]`;
-      requireKeys(attempt, path, ['operation', 'subject', 'condition', 'precheck', 'repair', 'postcheck']);
-      identity(attempt.operation, `${path}.operation`);
-      validateSubject(attempt.subject, `${path}.subject`);
-      identity(attempt.condition, `${path}.condition`);
-      for (const name of ['precheck', 'repair', 'postcheck']) {
-        if (attempt[name] !== null) resolve(attempt[name], `${path}.${name}`);
-      }
-    });
-  } else {
-    requireKeys(request, at, ['id', 'method', 'version', 'before', 'after']);
-    identity(request.id, `${at}.id`);
-    resolve(request.before, `${at}.before`);
-    resolve(request.after, `${at}.after`);
-  }
+  method.validate(request, at, resolve);
 }
 
 function validateAction(action, at, claims) {
@@ -435,6 +439,10 @@ function refOf(claim) {
   return { id: claim.id, revision: claim.revision };
 }
 
+function refOrNull(ref) {
+  return ref === null ? null : { id: ref.id, revision: ref.revision };
+}
+
 function uniqueSortedRefs(refs) {
   const byKey = new Map();
   for (const ref of refs) byKey.set(refKey(ref.id, ref.revision), { id: ref.id, revision: ref.revision });
@@ -451,25 +459,35 @@ function calculationHead(request, status, reason, inputs) {
   };
 }
 
+/**
+ * Whether the numbers rest on a deduplicated event identity. A claim with no
+ * observation identity cannot be matched with a re-import, so any such input
+ * means the aggregate is shown but not asserted as deduplicated.
+ */
+function deduplicationOf(inputs, context) {
+  const unidentified = inputs.filter((ref) => context.claim(ref).observation === null);
+  return {
+    status: unidentified.length === 0 ? 'established' : 'not-established',
+    unidentified: uniqueSortedRefs(unidentified),
+  };
+}
+
 function configurationCheckScore(request, context) {
-  const entries = new Map();
+  const outcomes = new Map();
+  const failed = [];
+  const conflicts = [];
   for (const ref of request.selected) {
     const claim = context.claim(ref);
     const info = context.dedup.get(refKey(claim.id, claim.revision));
-    const key = info.group;
-    if (entries.has(key)) continue;
+    // A failed claim is always listed, even as a member of a conflicted observation;
+    // duplicates of one event are listed once, as their canonical claim.
+    if (info.conflicted) conflicts.push(refOf(claim));
+    if (outcomeOf(claim) === 'failed') failed.push(info.conflicted ? refOf(claim) : info.representative ?? refOf(claim));
     // A conflicted observation has no single reliable outcome, so it counts once as unknown.
-    entries.set(key, {
-      outcome: info.conflicted ? 'unknown' : outcomeOf(claim),
-      ref: info.representative ?? refOf(claim),
-    });
+    if (!outcomes.has(info.group)) outcomes.set(info.group, info.conflicted ? 'unknown' : outcomeOf(claim));
   }
   const counts = { passed: 0, failed: 0, unknown: 0, inapplicable: 0 };
-  const failed = [];
-  for (const entry of entries.values()) {
-    counts[entry.outcome] += 1;
-    if (entry.outcome === 'failed') failed.push(entry.ref);
-  }
+  for (const outcome of outcomes.values()) counts[outcome] += 1;
   const excludedGroups = new Set();
   const excluded = request.inapplicable.map((entry) => {
     const claim = context.claim(entry.claim);
@@ -490,7 +508,9 @@ function configurationCheckScore(request, context) {
     denominator,
     score: available ? (numerator * 100) / denominator : null,
     failed: uniqueSortedRefs(failed),
+    conflicts: uniqueSortedRefs(conflicts),
     excluded,
+    deduplication: deduplicationOf(inputs, context),
   };
 }
 
@@ -498,9 +518,8 @@ function verifiedRepairCount(request, context) {
   const verifiedConditions = new Set();
   const inputs = [];
   const attempts = request.attempts.map((attempt) => {
-    const pre = attempt.precheck === null ? null : context.claim(attempt.precheck);
-    const repair = attempt.repair === null ? null : context.claim(attempt.repair);
-    const post = attempt.postcheck === null ? null : context.claim(attempt.postcheck);
+    const [pre, repair, post] = [attempt.precheck, attempt.repair, attempt.postcheck]
+      .map((ref) => (ref === null ? null : context.claim(ref)));
     for (const claim of [pre, repair, post]) if (claim !== null) inputs.push(refOf(claim));
 
     const sameSubject = (claim) => claim.subject.kind === attempt.subject.kind && claim.subject.id === attempt.subject.id;
@@ -509,6 +528,7 @@ function verifiedRepairCount(request, context) {
     const repairMatches = (claim) => claim === null
       || (sameSubject(claim) && (claim.measure === 'repair' || claim.measure === 'external-repair')
         && claim.kind !== 'unknown' && claim.value.unit === 'operation' && claim.value.amount === attempt.operation);
+    const conflicted = (claim) => claim !== null && context.dedup.get(refKey(claim.id, claim.revision)).conflicted === true;
     const times = [pre, repair, post].filter((claim) => claim !== null).map((claim) => instantMs(claim.capturedAt));
     const ordered = times.every((time, index) => index === 0 || times[index - 1] < time);
 
@@ -516,6 +536,7 @@ function verifiedRepairCount(request, context) {
     const postOutcome = post === null ? 'unknown' : outcomeOf(post);
     let reason;
     if (!checkMatches(pre) || !checkMatches(post) || !repairMatches(repair) || !ordered) reason = 'uncorrelated';
+    else if (conflicted(pre) || conflicted(post)) reason = 'conflicting-evidence';
     else if (preOutcome === 'unknown') reason = 'unknown-precondition';
     else if (preOutcome === 'passed') reason = 'already-healthy';
     else if (repair !== null && repair.measure === 'external-repair') reason = 'external-repair';
@@ -531,9 +552,9 @@ function verifiedRepairCount(request, context) {
       operation: attempt.operation,
       subject: { kind: attempt.subject.kind, id: attempt.subject.id },
       condition: attempt.condition,
-      precheck: attempt.precheck === null ? null : { id: attempt.precheck.id, revision: attempt.precheck.revision },
-      repair: attempt.repair === null ? null : { id: attempt.repair.id, revision: attempt.repair.revision },
-      postcheck: attempt.postcheck === null ? null : { id: attempt.postcheck.id, revision: attempt.postcheck.revision },
+      precheck: refOrNull(attempt.precheck),
+      repair: refOrNull(attempt.repair),
+      postcheck: refOrNull(attempt.postcheck),
       counted,
       reason,
     };
@@ -542,6 +563,7 @@ function verifiedRepairCount(request, context) {
     ...calculationHead(request, 'available', null, inputs),
     count: verifiedConditions.size,
     attempts,
+    deduplication: deduplicationOf(inputs, context),
   };
 }
 
@@ -582,6 +604,25 @@ function contextChange(request, context) {
   return result;
 }
 
+// ---------------------------------------------------------------- methods
+
+/** One entry per method keeps the advertised list, validation and calculation in step. */
+const METHODS = Object.freeze({
+  'configuration-check-score': Object.freeze({ version: '1.0.0', validate: validateCheckScore, calculate: configurationCheckScore }),
+  'verified-repair-count': Object.freeze({ version: '1.0.0', validate: validateRepairCount, calculate: verifiedRepairCount }),
+  'context-change': Object.freeze({ version: '1.0.0', validate: validateContextChange, calculate: contextChange }),
+});
+
+/** The explicit, versioned calculation methods a request may select. */
+export const CALCULATION_METHODS = Object.freeze(Object.keys(METHODS)
+  .map((id) => Object.freeze({ id, version: METHODS[id].version })));
+
+/** The method a request names at its exact version, or undefined. */
+function methodOf(request) {
+  if (typeof request.method !== 'string' || !Object.hasOwn(METHODS, request.method)) return undefined;
+  return METHODS[request.method].version === request.version ? METHODS[request.method] : undefined;
+}
+
 // ---------------------------------------------------------------- projection
 
 function copyClaim(claim, dedup) {
@@ -592,9 +633,7 @@ function copyClaim(claim, dedup) {
     recordSchema: claim.recordSchema,
     subject: { kind: claim.subject.kind, id: claim.subject.id },
     scope: { kind: claim.scope.kind, targets: [...claim.scope.targets] },
-    sources: claim.sources.map((source) => (source.sha256 === undefined
-      ? { id: source.id, schema: source.schema }
-      : { id: source.id, schema: source.schema, sha256: source.sha256 })),
+    sources: claim.sources.map(copyRecordRef),
     observation: claim.observation,
     capturedAt: claim.capturedAt,
     measure: claim.measure,
@@ -611,9 +650,7 @@ function copyClaim(claim, dedup) {
       verifier: { id: claim.authentication.verifier.id, version: claim.authentication.verifier.version },
       method: { id: claim.authentication.method.id, version: claim.authentication.method.version },
       verifiedAt: claim.authentication.verifiedAt,
-      evidence: claim.authentication.evidence.map((entry) => (entry.sha256 === undefined
-        ? { id: entry.id, schema: entry.schema }
-        : { id: entry.id, schema: entry.schema, sha256: entry.sha256 })),
+      evidence: claim.authentication.evidence.map(copyRecordRef),
     };
   copy.applicability = {
     state: claim.applicability.state,
@@ -647,11 +684,7 @@ function project(admitted) {
     dedup,
     claim: (ref) => admitted.claims.get(refKey(ref.id, ref.revision)),
   };
-  const calculations = admitted.calculations.map((request) => {
-    if (request.method === 'configuration-check-score') return configurationCheckScore(request, context);
-    if (request.method === 'verified-repair-count') return verifiedRepairCount(request, context);
-    return contextChange(request, context);
-  });
+  const calculations = admitted.calculations.map((request) => methodOf(request).calculate(request, context));
   return {
     schema: CLAIMS_PROJECTION_SCHEMA,
     source: { schema: CLAIMS_SCHEMA },

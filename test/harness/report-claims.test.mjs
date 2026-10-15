@@ -292,6 +292,26 @@ test('the score counts unknown checks in the denominator', () => {
   assert.deepEqual(result.failed, [ref('f1')]);
   assert.deepEqual(result.method, { id: 'configuration-check-score', version: '1.0.0' });
   assert.deepEqual(result.inputs, [ref('f1'), ref('p1'), ref('p2'), ref('u1')]);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.deduplication, { status: 'established', unidentified: [] });
+});
+
+test('unidentified observations are not asserted as a deduplicated score', () => {
+  const claims = [
+    claim('p1'),
+    claim('n-pass', { observation: null }),
+    claim('n-fail', { observation: null, value: OUTCOME('failed') }),
+    claim('n-out', { observation: null }),
+  ];
+  const projection = projectClaims(claimSet(claims, {
+    calculations: [scoreRequest('score', ['p1', 'n-pass', 'n-fail'], [{ claim: ref('n-out'), reason: 'not installed' }])],
+  }));
+  const result = calculationOf(projection, 'score');
+  assert.deepEqual(result.counts, { passed: 2, failed: 1, unknown: 0, inapplicable: 1 });
+  assert.equal(result.score, (2 * 100) / 3);
+  assert.deepEqual(result.deduplication, {
+    status: 'not-established', unidentified: [ref('n-fail'), ref('n-out'), ref('n-pass')],
+  });
 });
 
 test('zero applicable checks makes the score unavailable, never zero', () => {
@@ -424,7 +444,9 @@ test('a conflicted observation counts once, as unknown, in a score', () => {
   const result = calculationOf(projection, 'score');
   assert.deepEqual(result.counts, { passed: 1, failed: 0, unknown: 1, inapplicable: 0 });
   assert.equal(result.score, 50);
-  assert.deepEqual(result.failed, []);
+  // The aggregate counts the conflict once as unknown, but the failed member stays prominent.
+  assert.deepEqual(result.failed, [ref('x-fail')]);
+  assert.deepEqual(result.conflicts, [ref('x-fail'), ref('x-pass')]);
   assert.equal(projection.claims.length, 3);
 });
 
@@ -474,6 +496,37 @@ test('one verified attempt counts as one repair', () => {
   }]);
   assert.deepEqual(result.method, { id: 'verified-repair-count', version: '1.0.0' });
   assert.deepEqual(result.inputs, [ref('post'), ref('pre'), ref('rep')]);
+  assert.deepEqual(result.deduplication, { status: 'established', unidentified: [] });
+});
+
+test('a repair over unidentified observations is counted but not asserted as deduplicated', () => {
+  const result = repairOutcome([
+    check('pre', 'failed', T1, { observation: null }), repairClaim('rep', T2), check('post', 'passed', T3),
+  ], [attempt('pre', 'rep', 'post')]);
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.deduplication, { status: 'not-established', unidentified: [ref('pre')] });
+});
+
+test('conflicting precheck or postcheck evidence never earns a verified repair', () => {
+  const claims = [
+    check('pre-fail', 'failed', T1, { observation: 'evt-pre' }),
+    check('pre-pass', 'passed', T1, { observation: 'evt-pre' }),
+    check('pre', 'failed', T1),
+    repairClaim('rep', T2),
+    check('post-pass', 'passed', T3, { observation: 'evt-post' }),
+    check('post-fail', 'failed', T3, { observation: 'evt-post' }),
+    check('post', 'passed', T3),
+  ];
+  const cases = [
+    [attempt('pre-fail', 'rep', 'post'), 'conflicting-evidence'],
+    [attempt('pre-pass', 'rep', 'post'), 'conflicting-evidence'],
+    [attempt('pre', 'rep', 'post-pass'), 'conflicting-evidence'],
+    [attempt('pre', 'rep', 'post'), 'verified'],
+  ];
+  const result = repairOutcome(claims, cases.map(([entry]) => entry));
+  assert.deepEqual(result.attempts.map((entry) => [entry.reason, entry.counted]),
+    cases.map(([, reason]) => [reason, reason === 'verified']));
+  assert.equal(result.count, 1);
 });
 
 test('cases that are not a verified repair earn no win and say why', () => {
@@ -805,6 +858,12 @@ test('the filled examples read, project to their committed projections and match
   assert.deepEqual(repairs.attempts.map((entry) => entry.reason),
     ['verified', 'verified', 'already-healthy', 'unknown-cause', 'external-repair', 'applied-unverified']);
   assert.deepEqual(repairs.attempts.map((entry) => entry.counted), [true, true, false, false, false, false]);
+
+  // The examples carry no unidentified observation, so every aggregate is deduplicated.
+  const aggregates = [...checksProjection.calculations, ...repairsProjection.calculations]
+    .filter((entry) => entry.deduplication !== undefined);
+  assert.equal(aggregates.length, 4);
+  assert.deepEqual(aggregates.map((entry) => entry.deduplication), Array(4).fill({ status: 'established', unidentified: [] }));
 
   const context = byId(await project('context'));
   assert.deepEqual([context['bytes-reduction'].before, context['bytes-reduction'].after, context['bytes-reduction'].unit,

@@ -922,7 +922,11 @@
           "counted": false,
           "reason": "applied-unverified"
         }
-      ]
+      ],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
     }
   ],
   "actions": []

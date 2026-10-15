@@ -1723,6 +1723,7 @@
           "revision": "1"
         }
       ],
+      "conflicts": [],
       "excluded": [
         {
           "claim": {
@@ -1731,7 +1732,11 @@
           },
           "reason": "cargo is not selected on this machine"
         }
-      ]
+      ],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
     },
     {
       "id": "score-zero-applicable",
@@ -1761,6 +1766,7 @@
       "denominator": 0,
       "score": null,
       "failed": [],
+      "conflicts": [],
       "excluded": [
         {
           "claim": {
@@ -1769,7 +1775,11 @@
           },
           "reason": "cargo is not selected on this machine"
         }
-      ]
+      ],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
     },
     {
       "id": "score-high-with-failure",
@@ -1880,7 +1890,12 @@
           "revision": "1"
         }
       ],
-      "excluded": []
+      "conflicts": [],
+      "excluded": [],
+      "deduplication": {
+        "status": "established",
+        "unidentified": []
+      }
     }
   ],
   "actions": [
