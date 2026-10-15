@@ -54,6 +54,7 @@ test('the organization target is an exported, accepted contract over Core\'s cli
   assert.deepEqual(contractSupport.contracts.find(item => item.id === PREPARED15),
     { id: PREPARED15, role: 'produces', schemaExport: '@aihq/core/schemas/prepared-work/1.5.0.json' });
   assert.deepEqual(targetSchema.properties.client.enum, [...nativeClients]);
+  assert.deepEqual(prepared15Schema.properties.organizationObligations.properties.target.properties.client.enum, [...nativeClients]);
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(manifest.exports['./schemas/organization-target/1.0.0.json'], './dist/core/schemas/organization-target/1.0.0.json');
   assert.equal(manifest.exports['./schemas/prepared-work/1.5.0.json'], './dist/core/schemas/prepared-work/1.5.0.json');

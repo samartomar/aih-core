@@ -139,7 +139,7 @@ export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is Or
   policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
 
-/** A declared repository must be a well-formed identity; the schema already closes the client list. */
+/** Rechecks the client against Core's list and requires a well-formed declared repository identity. */
 export function organizationTargetSemantics(target: { client: string; repository?: string }): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   if (!isNativeClient(target.client)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',

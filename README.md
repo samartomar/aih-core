@@ -23,7 +23,6 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.1.0.json` | Organization-policy 1.1.0 JSON Schema (obligations and target selectors) |
 | `@aihq/core/schemas/organization-target/1.0.0.json` | Caller-declared Enterprise client/repository target JSON Schema |
-| `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 | `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema |
@@ -39,6 +38,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/trust-custody/1.0.0.json` | Protected trust provenance schema |
 | `@aihq/core/schemas/repair-request/1.1.0.json`, `repair-inputs/1.1.0.json`, `prepared-work/1.3.0.json`, `run-result/1.3.0.json` | macOS session selection, review and result schemas |
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
+| `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
 | `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
@@ -236,7 +236,8 @@ outcomes with no writes on denial. Targeted Enterprise Prepare also proves the
 1.5.0 review, declared target labelling, fulfilled and unknown required entries,
 exclusion of other-client entries, unchanged no-target review format and
 `REVIEW_STALE` without writes after target mutation. The GitHub REST transport
-is a deterministic fixture; this is package-boundary evidence, not real organization/native acceptance.
+is a deterministic fixture; this is package-boundary evidence, not real
+organization/native acceptance.
 The receipt records source commit, archive digest and installed package identity.
 
 ## Discover the CLI

@@ -825,8 +825,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         lifecycle.push({ action: 'remove', scope: step.review.scope, recipeIdentity: step.recipeIdentity,
           path: removal >= 0 ? `/removals/${removal}` : set >= 0 ? `/managedSelections/${set}` : '/selections' });
       }
-      const findings = targetFacts === undefined ? admitOrganizationSelections(organization.document, admissions, lifecycle) :
-        admitOrganizationSelections(organization.document, admissions, lifecycle, targetFacts);
+      const findings = admitOrganizationSelections(organization.document, admissions, lifecycle, targetFacts);
       if (findings.length) {
         result.status = findings.some(finding => finding.code === 'INPUT_INVALID') ? 'invalid' : 'blocked';
         result.diagnostics = findings;
@@ -837,8 +836,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const taken = admissions.filter(item => !unavailableSelections.has(item.id));
         const scoped = (['project', 'user'] as const).map(scope => ({ scope,
           ...evaluateOrganizationObligations(organization!.document, taken, [], { scope, ...targetFacts }) }));
-        obligations = { target: { basis: 'declared', client: organizationTarget.client,
-            ...(organizationTarget.repository === undefined ? {} : { repository: organizationTarget.repository }) },
+        obligations = { target: { basis: 'declared', client: organizationTarget.client, ...targetFacts },
           fulfillment: scoped.flatMap(({ scope, fulfillment }) => fulfillment.flatMap(item =>
             item.status === 'not-applicable' ? [] : [{ scope, ...item, status: item.status }])),
           advisory: scoped.flatMap(({ scope, advisory }) => advisory.filter(item => item.applicability !== 'not-applicable')
