@@ -1,4 +1,5 @@
-import type { Diagnostic, ExecutionPolicy, Json, JsonObject } from './types.js';
+import type { Diagnostic, ExecutionPolicy, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
+  OrganizationTargetDeclaration } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
 import type { TrustInputs, TrustRunTrust } from './trust-contracts.js';
@@ -10,6 +11,11 @@ export interface PolicyRequest {
   useCase: 'policy'; policy: ExecutionPolicy; target: { project: string };
   /** Required exactly when `policy.mode` is `enterprise`; selected independently of the policy document. */
   organizationSource?: GitHubPolicySource;
+  /**
+   * Optional caller-declared client and repository for an Enterprise policy. It is reported as declared, never inferred
+   * or verified, and is rejected for a Vibe policy.
+   */
+  organizationTarget?: OrganizationTargetDeclaration;
   resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
 }
 export interface HostControls {
@@ -57,8 +63,15 @@ export interface OrganizationBinding {
   source: GitHubPolicySource; resolvedCommit: string; blobId: string; contentDigest: string; policyId: string;
   helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
 }
+/** Obligation results for the declared target; a not-fulfilled result never blocks preparation. */
+export interface OrganizationObligationsReview {
+  target: { basis: 'declared'; client: OrganizationTargetDeclaration['client']; repository?: string };
+  fulfillment: (Omit<OrganizationFulfillmentResult, 'status'> & { scope: 'project' | 'user';
+    status: Exclude<OrganizationFulfillmentResult['status'], 'not-applicable'> })[];
+  advisory: (OrganizationAdvisoryResult & { scope: 'project' | 'user' })[];
+}
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0' | 'urn:aihq:core:prepared-work:1.5.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
@@ -69,6 +82,8 @@ export interface PreparedReview {
   effectiveOptions: { logging: Effective<'on' | 'off'>; inputs: Record<string, { origin: 'default' | 'explicit' | 'private' }> };
   reviewDigest: string;
   evidence?: AssociationResult[];
+  /** Present only when the request declared an organization target. */
+  organizationObligations?: OrganizationObligationsReview;
 }
 export interface MacosPreparedInputs {
   trust: Omit<TrustInputs['trust'], 'definition'> & {

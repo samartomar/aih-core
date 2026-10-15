@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.5.0",
+  "title": "Core prepared work with declared organization obligations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "useCase",
+    "mode",
+    "target",
+    "inputs",
+    "operations",
+    "observations",
+    "conflicts",
+    "omissions",
+    "effectiveOptions",
+    "reviewDigest",
+    "organizationObligations"
+  ],
+  "properties": {
+    "evidence": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/evidence"
+    },
+    "schema": {
+      "const": "urn:aihq:core:prepared-work:1.5.0"
+    },
+    "useCase": {
+      "const": "policy"
+    },
+    "mode": {
+      "const": "enterprise"
+    },
+    "target": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/target"
+    },
+    "inputs": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs",
+      "type": "object",
+      "required": [
+        "policySha256",
+        "organization"
+      ]
+    },
+    "operations": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/operations"
+    },
+    "observations": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/observations"
+    },
+    "conflicts": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/conflicts"
+    },
+    "omissions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/omissions"
+    },
+    "effectiveOptions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/effectiveOptions"
+    },
+    "reviewDigest": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/reviewDigest"
+    },
+    "organizationObligations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "fulfillment",
+        "advisory"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "basis",
+            "client"
+          ],
+          "properties": {
+            "basis": {
+              "const": "declared"
+            },
+            "client": {
+              "enum": [
+                "claude",
+                "codex",
+                "cursor",
+                "gemini",
+                "copilot",
+                "windsurf",
+                "opencode",
+                "kimi",
+                "kiro",
+                "antigravity",
+                "zed"
+              ]
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "fulfillment": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "recipeIdentity",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "fulfilled",
+                  "not-fulfilled",
+                  "unknown"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              }
+            }
+          }
+        },
+        "advisory": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "recipeIdentity",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "taken",
+                  "not-taken"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

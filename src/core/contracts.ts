@@ -9,6 +9,8 @@ import recipeSchema13 from './schemas/recipe/1.3.0.json' with { type: 'json' };
 import policySchema12 from './schemas/execution-policy/1.2.0.json' with { type: 'json' };
 import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
 import preparedSchema14 from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
+import preparedSchema15 from './schemas/prepared-work/1.5.0.json' with { type: 'json' };
+import organizationTargetSchema from './schemas/organization-target/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema11 from './schemas/managed-removal-preparation/1.1.0.json' with { type: 'json' };
 import policySchema11 from './schemas/execution-policy/1.1.0.json' with { type: 'json' };
 import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
@@ -23,7 +25,7 @@ import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObje
 import { canonicalJson } from './internal/canonical.js';
 import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
-import { organizationSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
+import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { trustContractSchemas } from './trust-contracts.js';
 import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
 import macosInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
@@ -69,6 +71,7 @@ const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
 const checkRecipe11 = validator.getSchema(recipeSchema11.$id)! as ValidateFunction;
 const checkOrganization = validator.compile(organizationSchema);
 const checkOrganization11 = validator.compile(organizationSchema11);
+const checkOrganizationTarget = validator.compile(organizationTargetSchema);
 const schemaVersion = (id: string): string => id.split(':')[4]!;
 const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
   [trustContractSchemas[0].$id]: 'accepts',
@@ -85,9 +88,10 @@ export const contractSupport = Object.freeze({
   contracts: [
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
-      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11].map(schema => ({
+      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
+      organizationTargetSchema, preparedSchema15].map(schema => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
-        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11].includes(schema as never) ? 'produces' : 'accepts',
+        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
     ...trustContractSchemas.map(schema => ({
@@ -163,6 +167,9 @@ export const validateRecipe = (value: unknown): ValidationResult =>
   validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12, [recipeSchema13.$id]: checkRecipe13 }, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
   validate(value, { [organizationSchema.$id]: checkOrganization, [organizationSchema11.$id]: checkOrganization11 }, organizationSemantics as never);
+/** Caller-declared client and optional repository for Enterprise preparation; declared, never inferred. */
+export const validateOrganizationTarget = (value: unknown): ValidationResult =>
+  validate(value, { [organizationTargetSchema.$id]: checkOrganizationTarget }, organizationTargetSemantics as never);
 export function parsePolicy(text: string): ParseResult {
   try {
     if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');

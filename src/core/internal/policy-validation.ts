@@ -139,6 +139,16 @@ export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is Or
   policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
 
+/** Rechecks the client against Core's list and requires a well-formed declared repository identity. */
+export function organizationTargetSemantics(target: { client: string; repository?: string }): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  if (!isNativeClient(target.client)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',
+    message: 'The organization target names a client that Core does not know.' });
+  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) diagnostics.push({ code: 'INPUT_INVALID',
+    reason: 'repository-identity', path: '/repository', message: 'The organization target names a malformed repository identity.' });
+  return diagnostics;
+}
+
 const intersects = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean =>
   left === undefined || right === undefined || left.some(value => right.includes(value));
 const overlaps = (left: OrganizationSelection11, right: OrganizationSelection11): boolean =>

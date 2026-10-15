@@ -11,7 +11,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
+| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
@@ -23,6 +23,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.1.0.json` | Organization-policy 1.1.0 JSON Schema (obligations and target selectors) |
+| `@aihq/core/schemas/organization-target/1.0.0.json` | Caller-declared Enterprise client/repository target JSON Schema |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 | `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema |
@@ -38,6 +39,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/trust-custody/1.0.0.json` | Protected trust provenance schema |
 | `@aihq/core/schemas/repair-request/1.1.0.json`, `repair-inputs/1.1.0.json`, `prepared-work/1.3.0.json`, `run-result/1.3.0.json` | macOS session selection, review and result schemas |
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
+| `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
 | `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
@@ -231,8 +233,12 @@ the source tree. It proves inline/referenced authoring, different material/confi
 data, admitted/denied Prepare agreement, changed-authority Apply refusal and rejection
 of a serialized review as a handle. It also checks 1.1.0 obligation results,
 selector uncertainty, schema/support exports and admitted/prohibited Prepare
-outcomes with no writes on denial. The GitHub REST transport is a deterministic
-fixture; this is package-boundary evidence, not real organization/native acceptance.
+outcomes with no writes on denial. Targeted Enterprise Prepare also proves the
+1.5.0 review, declared target labelling, fulfilled and unknown required entries,
+exclusion of other-client entries, unchanged no-target review format and
+`REVIEW_STALE` without writes after target mutation. The GitHub REST transport
+is a deterministic fixture; this is package-boundary evidence, not real
+organization/native acceptance.
 The receipt records source commit, archive digest and installed package identity.
 
 ## Discover the CLI
@@ -960,18 +966,42 @@ A 1.1 policy accepts recipes 1.0 and 1.1, and emits prepared-work and run-result
 
 An Enterprise execution policy (`"mode": "enterprise"`, every selection carrying `organizationSelectionId`) is admitted only against an organization policy document that **you select separately** from the policy. Preparation reads that document from GitHub through the Harness reader, validates it, and compares every derived selection (recipe identity, scope, inputs, lifecycle requests) with it. Any finding blocks the whole request: no handle is returned and no subset runs.
 
-Organization documents may use 1.0.0 or 1.1.0. Prepare declares no client or
-repository identity, so selector-restricted entries fail closed with
-`AUTHORITY_DENIED / target-unknown`. An applicable prohibition denies admission
-with `prohibited`. Prepare does not evaluate fulfillment; required and recommended
-entries admit choices like permitted entries. Use the portable obligation preview
-with explicit target facts to evaluate recommendations and required choices.
+Organization documents may use 1.0.0 or 1.1.0. An optional request field
+`organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0',
+client: 'codex', repository: 'github.com/example-org/app' }` declares the target
+for Enterprise selector evaluation. `client` is required and must be a known
+native client ID; `repository` is optional and follows the lowercase identity
+rules in the authoring section. `validateOrganizationTarget` from
+`@aihq/core/contracts` validates this closed, versioned declaration without host
+effects. Malformed declarations are invalid; Vibe requests reject the field.
+These facts are caller-declared, never inferred from a checkout or verified.
+
+With a target, Prepare emits `urn:aihq:core:prepared-work:1.5.0` and
+`organizationObligations: { target: { basis: 'declared', client, repository? },
+fulfillment, advisory }`. Per-scope fulfillment and advisory records exclude
+not-applicable entries. Required choices report `fulfilled`, `not-fulfilled` or
+`unknown`; unknown records list undeclared facts such as `['repository']` and
+never count as fulfilled. Missing required choices are reported as
+`not-fulfilled`, not enforced: neither that status nor an unselected entry's
+`unknown` status blocks Prepare. Recommendations remain advisory. Selected
+entries must still pass admission; unknown selector facts fail closed with
+`AUTHORITY_DENIED / target-unknown`, and applicable prohibitions deny admission
+with `prohibited`. Changing the request's declared target after Prepare makes
+Apply reject with `REVIEW_STALE` before writes.
+
+Without `organizationTarget`, Prepare retains its previous review schema and
+omits `organizationObligations`. It declares no client or repository, so
+selector-restricted choices fail closed with `AUTHORITY_DENIED / target-unknown`.
+It does not evaluate fulfillment; required and recommended entries admit choices
+like permitted entries. Use the portable obligation preview to evaluate supplied
+target facts independently of Prepare.
 
 **Recipe identity rule.** A selection's recipe identity is `"sha256:"` plus the lowercase hex SHA-256 of the UTF-8 bytes of the canonical JSON (object keys in UTF-16 code-unit order, no whitespace) of `{ "schema": "urn:aihq:core:recipe-identity:1.0.0", "recipeSha256": <hex>, "materials": [{ "id", "sha256", "byteLength" }, ...] }`. `materials` is ordered by ascending UTF-16 code-unit order of `id` (so `A1`, `B`, `a`, `a-b`), never by locale collation, so the identity is the same under every locale. Identities computed with the previous locale-collation order differ for recipes whose material ids order differently (mixed-case ids, `-`, `.`, `_` punctuation, `aa` under some locales); the Catalog content validated with this change (`q1/rel-license` `f2b51599`, 21 items) orders identically under both rules, so its identities are unchanged. An organization document carrying an old identity for an affected recipe is denied with `AUTHORITY_DENIED` (`recipe-identity`) until you recompute the identity with this rule and republish the document. `recipeSha256` is a Catalog item's pinned recipe digest (`item.recipe.sha256` from `@aihq/catalog/reader`) or, for an inline recipe, the SHA-256 of the recipe's canonical JSON.
 
 ```js
 const prepared = await prepare({
   useCase: 'policy', policy, target: { project },
+  organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' },
   organizationSource: { provider: 'github', repository: { owner: 'example-org', name: 'org-policy' },
     path: 'policy/org.json', revision: { kind: 'branch', value: 'main' } }   // or 'tag' / full 'commit'
 }, { authentication: { kind: 'bearer', token } });                          // omit for unauthenticated access
