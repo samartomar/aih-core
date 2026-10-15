@@ -322,3 +322,45 @@ test('managed removal needs an organization entry with lifecycle.remove', async 
   assert.equal(removed.completion, 'complete', JSON.stringify(removed));
   assert.equal(existsSync(join(target, 'TEAM.md')), false);
 });
+
+const org11 = (overrides = {}) => {
+  const document = orgDocument();
+  return { ...document, schema: 'urn:aihq:core:organization-policy:1.1.0',
+    selections: document.selections.map(entry => ({ ...entry, obligation: 'permitted', ...overrides })) };
+};
+const org11Routes = overrides => orgRoutes({ bytes: bytesOf(org11(overrides)) });
+
+test('a 1.1.0 organization admits a required selection and prepares ready', async () => {
+  const target = project(); stub(org11Routes({ obligation: 'required' }));
+  const prepared = await prepare(request(target), { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.review.inputs.organization.policyId, 'example-org-policy');
+  assert.equal(existsSync(join(target, 'TEAM.md')), false);
+});
+
+test('a prohibited 1.1.0 entry blocks Prepare with the prohibited reason and no effects', async () => {
+  const target = project(); stub(org11Routes({ obligation: 'prohibited' }));
+  const prepared = await prepare(request(target), { logging: 'off' });
+  assert.equal(prepared.status, 'blocked');
+  assert.deepEqual(prepared.diagnostics.map(d => [d.code, d.reason]), [['AUTHORITY_DENIED', 'prohibited']]);
+  assert.equal(existsSync(join(target, 'TEAM.md')), false);
+});
+
+test('a client or repository restricted 1.1.0 entry fails closed with target-unknown at Prepare', async () => {
+  for (const overrides of [{ clients: ['claude'] }, { repositories: ['github.com/example-org/app'] }]) {
+    const target = project(); stub(org11Routes(overrides));
+    const prepared = await prepare(request(target), { logging: 'off' });
+    assert.equal(prepared.status, 'blocked', JSON.stringify(overrides));
+    assert.deepEqual(prepared.diagnostics.map(d => [d.code, d.reason]), [['AUTHORITY_DENIED', 'target-unknown']]);
+    assert.equal(existsSync(join(target, 'TEAM.md')), false);
+  }
+});
+
+test('an applicable separate prohibition of the same recipe identity blocks an otherwise admitted selection', async () => {
+  const document = org11();
+  document.selections.push({ ...document.selections[0], selectionId: 'banned-copy', obligation: 'prohibited' });
+  const target = project(); stub(orgRoutes({ bytes: bytesOf(document) }));
+  const prepared = await prepare(request(target), { logging: 'off' });
+  assert.equal(prepared.status, 'blocked');
+  assert.deepEqual(prepared.diagnostics.map(d => d.reason), ['prohibited']);
+});

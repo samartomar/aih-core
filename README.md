@@ -11,7 +11,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
+| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
@@ -22,6 +22,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
+| `@aihq/core/schemas/organization-policy/1.1.0.json` | Organization-policy 1.1.0 JSON Schema (obligations and target selectors) |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 | `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema |
@@ -75,8 +76,8 @@ Authors can derive an identity and compare proposed selections with a supplied
 organization document through `@aihq/core/contracts`. These portable helpers
 perform no filesystem, network, process or installation effects. Identity hashing
 is asynchronous and requires standard Web Crypto (`globalThis.crypto.subtle`).
-Preview is synchronous. Both accept bounded plain JSON; referenced recipe bytes
-are explicitly a `Uint8Array`. They never mutate their inputs.
+Previews are synchronous. These helpers accept bounded plain JSON; referenced
+recipe bytes are explicitly a `Uint8Array`. They never mutate their inputs.
 
 ```js
 import { deriveRecipeIdentity, previewOrganizationAdmission } from '@aihq/core/contracts';
@@ -120,8 +121,9 @@ verifies real material, binds inputs, checks targets and evaluates prerequisites
 
 Supported recipe IDs are `urn:aihq:core:recipe:1.0.0`, `1.1.0`, `1.2.0` and
 `1.3.0` (each version uses the same full prefix); organization preview accepts
-`urn:aihq:core:organization-policy:1.0.0`. Unsupported versions refuse without
-rewriting the original artifact. Package versions are separate from schema IDs.
+`urn:aihq:core:organization-policy:1.0.0` and `1.1.0` (same full prefix).
+Every 1.0.0 entry means `permitted`, with no client or repository selector.
+Unsupported versions refuse without rewriting the original artifact. Package versions are separate from schema IDs.
 Existing strict JSON, one-million-byte document, 4,096-selection/lifecycle and
 material declaration bounds remain; no helper truncates an oversized input.
 
@@ -132,6 +134,58 @@ secret values supplied separately to the host. Lifecycle records are
 The caller describes proposed lifecycle actions; preview does not observe installed
 state or infer actions. Malformed records refuse before comparison. Well-formed
 requests return an advisory `{admitted,diagnostics}`, including denied comparisons.
+
+Organization-policy 1.1.0 requires an `obligation` on every entry: `permitted`,
+`recommended`, `required` or `prohibited`. The first three admit matching choices;
+`prohibited` denies them, including choices naming another entry for the same
+recipe when the prohibition applies. Optional nonempty `clients` and
+`repositories` arrays restrict applicability. Clients must be native client IDs.
+Repository identities are caller-declared lowercase `<host>/<owner>/<name>` strings,
+for example `github.com/example-org/app`. The host is a DNS name with at least one
+dot; each label has 1–63 letters, digits or hyphens and starts and ends with a
+letter or digit. Owner and name each have 1–100 letters, digits, `.`, `_` or `-`
+and cannot be `.` or `..`. Matching is exact; Core never infers an identity from
+a checkout or remote. Omitted selectors impose no restriction. A declared mismatch
+is `not-applicable`; an undeclared fact needed by a selector is `unknown`.
+
+`previewOrganizationObligations` accepts `{organization,selections,lifecycle,target}`.
+`target` requires `scope` (`project` or `user`) and optionally declares `client`
+and `repository`. Its value separates three meanings:
+
+- **Enforced:** `enforced:{admitted,diagnostics}` compares proposed choices with
+  organization authority. Denials block admission; missing required choices do not.
+- **Advisory:** `advisory` reports each recommended entry as `taken` or `not-taken`,
+  with its applicability and matching developer selection IDs.
+- **Fulfillment:** `fulfillment` reports each required entry as `fulfilled`,
+  `not-fulfilled`, `not-applicable` or `unknown`. `unknown` never means fulfilled.
+
+Advisory and fulfillment records carry `selectionId`, `recipeIdentity`,
+`applicability` (`applies`, `not-applicable` or `unknown`), `unknown` (missing
+`client`/`repository` facts), `status` and `selections` (developer IDs). They stay
+in organization document order. A choice counts as taken only when its entry,
+recipe and target scope match and admission has no finding for that choice.
+Both lists are empty for a 1.0.0 organization. This evaluation describes supplied
+choices; it observes no installed state and grants no effects.
+
+```js
+import { previewOrganizationObligations } from '@aihq/core/contracts';
+
+// Reuse the recipe identity and selection derived above.
+const organization11 = {
+  schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'team',
+  selections: [{ selectionId: 'team-note', recipeIdentity: identity.value.recipeIdentity,
+    obligation: 'required', scopes: ['project'], clients: ['codex'],
+    repositories: ['github.com/example-org/app'],
+    inputs: { text: { allowDeclared: true } } }]
+};
+const obligations = previewOrganizationObligations({ organization: organization11,
+  selections: [selection], lifecycle: [],
+  target: { scope: 'project', client: 'codex', repository: 'github.com/example-org/app' } });
+// obligations.status === 'ok'; obligations.value.enforced.admitted === true
+// obligations.value.fulfillment[0].status === 'fulfilled'
+// With selections: [], admission still succeeds; fulfillment is 'not-fulfilled'.
+// Without target.repository, fulfillment is 'unknown', never 'fulfilled'.
+```
 
 All helpers return `{status:'ok',value,diagnostics:[]}` or
 `{status:'refused',diagnostics}`. `AuthoringDiagnostic` has `code`, JSON-pointer
@@ -149,13 +203,24 @@ are the machine interface. Refusals contain no executable partial policy.
 | `INPUT_INVALID` / `unsupported-schema` | Recipe schema ID is unsupported; retain the original artifact |
 | `AUTHORITY_DENIED` / `selection-not-admitted`, `recipe-identity`, `scope` | No organization entry, wrong recipe identity or forbidden scope |
 | `AUTHORITY_DENIED` / `input-not-permitted`, `input-value`, `organization-permission-incomplete` | Unpermitted input/value or missing required permission/default |
+| `AUTHORITY_DENIED` / `prohibited` | Referenced entry prohibits the choice, or another applicable entry prohibits the same recipe |
+| `AUTHORITY_DENIED` / `client` | Declared client is outside the entry's selector |
+| `AUTHORITY_DENIED` / `repository` | Declared repository is outside the entry's selector |
+| `AUTHORITY_DENIED` / `target-unknown` | Admission needs an undeclared client or repository; fails closed |
+| `INPUT_INVALID` / `obligation-contradiction` | Required and prohibited entries for the same recipe have overlapping scopes and selectors |
+| `INPUT_INVALID` / `unknown-client` | Organization selector names an unknown native client |
+| `INPUT_INVALID` / `repository-identity` | Organization selector contains a malformed repository identity |
 | `INPUT_INVALID` / `organization-input-spec` | Organization validation failed, or a permission value contradicts the recipe input spec |
 | `INPUT_INVALID` / `input-value` | Malformed preview request, input definition or configured value; comparison refused |
 | `AUTHORITY_DENIED` / `lifecycle-replace`, `lifecycle-adopt`, `lifecycle-remove` | Supplied action lacks the corresponding organization permission |
 
 An incompatible organization permission is a valid **denied comparison** with
 `INPUT_INVALID / organization-input-spec` in `value.diagnostics`; an invalid
-organization document instead refuses with owning validator details.
+organization document instead refuses with owning validator details. Semantic
+reasons such as `obligation-contradiction`, `unknown-client` and
+`repository-identity` are retained in those Core details. Invalid obligation-preview
+target declarations refuse with `INPUT_INVALID / input-value` at `/target/client`
+or `/target/repository`.
 An admitted preview may differ from later authority. The Node host must independently
 select current authority at Prepare and reread it at Apply. Neither preview,
 serialized review nor consumer metadata grants effects or acts as a live handle.
@@ -164,7 +229,9 @@ After committing and building, `npm run verify:authoring-consumer -- --output
 <new directory>` creates a qualified archive and installs its exact bytes outside
 the source tree. It proves inline/referenced authoring, different material/configuration
 data, admitted/denied Prepare agreement, changed-authority Apply refusal and rejection
-of a serialized review as a handle. The GitHub REST transport is a deterministic
+of a serialized review as a handle. It also checks 1.1.0 obligation results,
+selector uncertainty, schema/support exports and admitted/prohibited Prepare
+outcomes with no writes on denial. The GitHub REST transport is a deterministic
 fixture; this is package-boundary evidence, not real organization/native acceptance.
 The receipt records source commit, archive digest and installed package identity.
 
@@ -892,6 +959,13 @@ A 1.1 policy accepts recipes 1.0 and 1.1, and emits prepared-work and run-result
 ## Enterprise policies
 
 An Enterprise execution policy (`"mode": "enterprise"`, every selection carrying `organizationSelectionId`) is admitted only against an organization policy document that **you select separately** from the policy. Preparation reads that document from GitHub through the Harness reader, validates it, and compares every derived selection (recipe identity, scope, inputs, lifecycle requests) with it. Any finding blocks the whole request: no handle is returned and no subset runs.
+
+Organization documents may use 1.0.0 or 1.1.0. Prepare declares no client or
+repository identity, so selector-restricted entries fail closed with
+`AUTHORITY_DENIED / target-unknown`. An applicable prohibition denies admission
+with `prohibited`. Prepare does not evaluate fulfillment; required and recommended
+entries admit choices like permitted entries. Use the portable obligation preview
+with explicit target facts to evaluate recommendations and required choices.
 
 **Recipe identity rule.** A selection's recipe identity is `"sha256:"` plus the lowercase hex SHA-256 of the UTF-8 bytes of the canonical JSON (object keys in UTF-16 code-unit order, no whitespace) of `{ "schema": "urn:aihq:core:recipe-identity:1.0.0", "recipeSha256": <hex>, "materials": [{ "id", "sha256", "byteLength" }, ...] }`. `materials` is ordered by ascending UTF-16 code-unit order of `id` (so `A1`, `B`, `a`, `a-b`), never by locale collation, so the identity is the same under every locale. Identities computed with the previous locale-collation order differ for recipes whose material ids order differently (mixed-case ids, `-`, `.`, `_` punctuation, `aa` under some locales); the Catalog content validated with this change (`q1/rel-license` `f2b51599`, 21 items) orders identically under both rules, so its identities are unchanged. An organization document carrying an old identity for an affected recipe is denied with `AUTHORITY_DENIED` (`recipe-identity`) until you recompute the identity with this rule and republish the document. `recipeSha256` is a Catalog item's pinned recipe digest (`item.recipe.sha256` from `@aihq/catalog/reader`) or, for an inline recipe, the SHA-256 of the recipe's canonical JSON.
 

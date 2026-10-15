@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Add organization-policy 1.1.0 obligations and explicit client/repository selectors,
+with portable `previewOrganizationObligations` results separating enforced
+admission, recommendations and required-choice fulfillment. Enterprise Prepare
+accepts the new format, denies prohibited choices and fails closed when selector
+facts are undeclared; it does not evaluate fulfillment. Existing 1.0.0 entries
+remain permitted and earlier schema bytes are unchanged. The public
+`OrganizationPolicy` type is now a union of the 1.0.0 and 1.1.0 documents;
+narrow on `schema` before reading 1.1.0-only fields. The independent consumer
+proof covers the public helper, schema/support exports and Prepare outcomes.
+This candidate is unpublished.
+
 Add normalized claim sets to `@aihq/core/report`: `readClaimSet`, `validateClaimSet`
 and `projectClaims` validate a versioned `urn:aihq:report:claims:1.0.0` input
 and project it into a deterministic claims projection with explicit duplicate

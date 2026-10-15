@@ -124,10 +124,36 @@ export interface OrganizationSelection {
   inputs: Record<string, OrganizationInputPermission>;
   lifecycle?: { replace?: boolean; adopt?: boolean; remove?: boolean };
 }
-export interface OrganizationPolicy {
+export type OrganizationObligation = 'required' | 'recommended' | 'permitted' | 'prohibited';
+export type OrganizationTargetFact = 'client' | 'repository';
+/** Caller-declared target facts; an absent fact is unknown, never inferred. */
+export interface OrganizationTargetFacts { client?: import('./internal/native-clients.js').NativeClientId; repository?: string }
+export interface OrganizationTarget extends OrganizationTargetFacts { scope: 'project' | 'user' }
+export type OrganizationApplicability = 'applies' | 'not-applicable' | 'unknown';
+export interface OrganizationObligationResultBase {
+  selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability;
+  unknown: OrganizationTargetFact[]; selections: string[];
+}
+export interface OrganizationAdvisoryResult extends OrganizationObligationResultBase { status: 'taken' | 'not-taken' }
+export interface OrganizationFulfillmentResult extends OrganizationObligationResultBase {
+  status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown';
+}
+export interface OrganizationSelection11 extends OrganizationSelection {
+  obligation: OrganizationObligation;
+  clients?: import('./internal/native-clients.js').NativeClientId[];
+  repositories?: string[];
+}
+export interface OrganizationPolicy10 {
   schema: 'urn:aihq:core:organization-policy:1.0.0';
   id: string;
   selections: OrganizationSelection[];
   metadata?: Record<string, Json>;
 }
+export interface OrganizationPolicy11 {
+  schema: 'urn:aihq:core:organization-policy:1.1.0';
+  id: string;
+  selections: OrganizationSelection11[];
+  metadata?: Record<string, Json>;
+}
+export type OrganizationPolicy = OrganizationPolicy10 | OrganizationPolicy11;
 export interface OrganizationParseResult extends ValidationResult { document?: OrganizationPolicy }

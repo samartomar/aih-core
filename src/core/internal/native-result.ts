@@ -2,7 +2,8 @@ import { distribution } from '../../distribution.mjs';
 import type { Diagnostic } from '../types.js';
 import type { NativeVerificationResult } from '../native-contracts.js';
 import { validateNativeVerificationResult } from '../native-contracts.js';
-import { nativeClients, nativeDiagnostic, ownNativeValue } from './native-input.js';
+import { nativeDiagnostic, ownNativeValue } from './native-input.js';
+import { nativeClients } from './native-clients.js';
 
 export type NativeStage = NativeVerificationResult['stages'][number];
 const codes = new Set(['INPUT_INVALID', 'SCHEMA_UNSUPPORTED', 'PREREQUISITE_UNAVAILABLE', 'EXECUTION_FAILED', 'CANCELLED', 'INTERNAL_ERROR']);
