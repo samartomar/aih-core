@@ -1,7 +1,6 @@
 import { types } from 'node:util';
 import { isAbsolute } from 'node:path';
 import { canonicalJson } from './canonical.js';
-import { nativeClients } from './native-clients.js';
 import { assertStrictJsonValueV1, jsonOwnEntriesV1 } from './strict-json.js';
 import type { Diagnostic } from '../types.js';
 import type { NativeVerificationControls } from '../native-verification.js';
@@ -9,7 +8,6 @@ import type { NativeVerificationControls } from '../native-verification.js';
 const id = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const hash = /^[a-f0-9]{64}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-export { nativeClients };
 export const nativeReasons = new Set(['schema-id', 'request-field', 'controls-field', 'client-id', 'budget-invalid', 'finite-limits-invalid', 'finite-limits-required', 'turn-limit-exhausted', 'estimated-cost-limit-exhausted', 'usage-unavailable', 'path-invalid', 'binding-invalid', 'strict-json',
   'fixture-bytes-mismatch', 'material-path-unsafe', 'configuration-unavailable', 'sandbox-root-unavailable', 'staging-unavailable', 'client-absent', 'version-unreadable',
   'client-unsupported', 'version-unsupported', 'platform-unsupported', 'cell-not-admitted', 'transport-unsupported', 'configuration-channel-unsupported', 'authentication-channel-unsupported',

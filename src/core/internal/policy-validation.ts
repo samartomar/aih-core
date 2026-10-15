@@ -1,7 +1,7 @@
 import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import { nativeClients } from './native-clients.js';
-import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
+import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
   if (spec.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== spec.type) return false;
@@ -135,6 +135,8 @@ const repositoryPattern = new RegExp(`^${hostLabel}(?:\\.${hostLabel})+/[a-z0-9.
 /** `<host>/<owner>/<name>`, lowercase, compared by exact equality and never inferred from a checkout. */
 export const isRepositoryIdentity = (value: string): boolean =>
   repositoryPattern.test(value) && value.split('/').slice(1).every(part => part !== '.' && part !== '..');
+export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is OrganizationPolicy11 =>
+  policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
 
 const intersects = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean =>
@@ -147,14 +149,14 @@ export function organizationSemantics(policy: OrganizationPolicy): Diagnostic[] 
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string, message: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path, message });
   const seen = new Set<string>();
-  const current = policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
+  const current = isOrganizationPolicy11(policy) ? policy : undefined;
   const groups = new Map<string, { entry: OrganizationSelection11; index: number }[]>();
   policy.selections.forEach((selection, index) => {
     if (seen.has(selection.selectionId)) invalid('duplicate-selection-id', `/selections/${index}/selectionId`,
       'The organization document has a duplicate selection identity.');
     seen.add(selection.selectionId);
-    if (!current) return;
-    const entry = selection as OrganizationSelection11;
+    const entry = current?.selections[index];
+    if (entry === undefined) return;
     entry.clients?.forEach((client, position) => {
       if (!isNativeClient(client)) invalid('unknown-client', `/selections/${index}/clients/${position}`,
         'The organization entry names a client that Core does not know.');

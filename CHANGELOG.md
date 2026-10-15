@@ -7,7 +7,9 @@ with portable `previewOrganizationObligations` results separating enforced
 admission, recommendations and required-choice fulfillment. Enterprise Prepare
 accepts the new format, denies prohibited choices and fails closed when selector
 facts are undeclared; it does not evaluate fulfillment. Existing 1.0.0 entries
-remain permitted and earlier schema bytes are unchanged. The independent consumer
+remain permitted and earlier schema bytes are unchanged. The public
+`OrganizationPolicy` type is now a union of the 1.0.0 and 1.1.0 documents;
+narrow on `schema` before reading 1.1.0-only fields. The independent consumer
 proof covers the public helper, schema/support exports and Prepare outcomes.
 This candidate is unpublished.
 

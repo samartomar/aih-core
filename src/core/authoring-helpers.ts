@@ -1,15 +1,15 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import recipeSchema from './schemas/recipe/1.3.0.json' with { type: 'json' };
 import { validateRecipe, validatePolicy, validateOrganizationPolicy } from './contracts.js';
-import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle,
-  type OrganizationTarget, type OrganizationAdvisoryResult, type OrganizationFulfillmentResult } from './internal/organization-admission.js';
+import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle } from './internal/organization-admission.js';
 import { inputAccepts, inputDefinitionSemantics, isNativeClient, isRepositoryIdentity } from './internal/policy-validation.js';
 import { canonicalJson } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
 import { checkedReference, checkedInlineMaterials, MaterialCaptureError } from './internal/material-descriptors.js';
 import { sha256 } from './internal/sha256.js';
 import { cloneJsonValueStructureV1, assertStrictJsonValueV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
-import type { Diagnostic as CoreDiagnostic, MaterialIdentity, MaterialRecipeReference, Recipe, OrganizationPolicy } from './types.js';
+import type { Diagnostic as CoreDiagnostic, MaterialIdentity, MaterialRecipeReference, Recipe, OrganizationPolicy,
+  OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationTarget } from './types.js';
 
 /** Owning Core diagnostics retain their complete public shape. */
 export type PackageDetails = { owner: 'core'; diagnostics: CoreDiagnostic[] };
@@ -29,7 +29,6 @@ export interface PreviewOrganizationAdmissionRequest {
   lifecycle: OrganizationAdmissionLifecycle[];
 }
 export interface OrganizationAdmissionPreview { admitted: boolean; diagnostics: AuthoringDiagnostic[] }
-export type { OrganizationTarget, OrganizationApplicability, OrganizationAdvisoryResult, OrganizationFulfillmentResult } from './internal/organization-admission.js';
 export interface PreviewOrganizationObligationsRequest extends PreviewOrganizationAdmissionRequest { target: OrganizationTarget }
 export interface OrganizationObligationsPreview {
   target: OrganizationTarget;
@@ -114,7 +113,7 @@ const admissionInputs = (safe: PreviewOrganizationAdmissionRequest): { selection
   selections: safe.selections.map((selection, index) => ({ ...selection, path: `/selections/${index}` })),
   lifecycle: safe.lifecycle.map((item, index) => ({ ...item, path: `/lifecycle/${index}` }))
 });
-const preview = (diagnostics: { code: string; reason?: string; path?: string; message: string }[]): OrganizationAdmissionPreview => {
+const toAdmissionPreview = (diagnostics: { code: string; reason?: string; path?: string; message: string }[]): OrganizationAdmissionPreview => {
   const mapped = diagnostics.map(d => ({ code: d.code, reason: d.reason, path: d.path ?? '', message: d.message }));
   return { admitted: mapped.length === 0, diagnostics: mapped };
 };
@@ -125,7 +124,7 @@ export function previewOrganizationAdmission(request: PreviewOrganizationAdmissi
   if ('refusal' in checked) return checked.refusal;
   const { safe } = checked;
   const { selections, lifecycle } = admissionInputs(safe);
-  return { status: 'ok', value: preview(admitOrganizationSelections(safe.organization, selections, lifecycle)), diagnostics: [] };
+  return { status: 'ok', value: toAdmissionPreview(admitOrganizationSelections(safe.organization, selections, lifecycle)), diagnostics: [] };
 }
 
 /**
@@ -143,7 +142,7 @@ export function previewOrganizationObligations(request: PreviewOrganizationOblig
   const facts = { ...(target.client === undefined ? {} : { client: target.client }),
     ...(target.repository === undefined ? {} : { repository: target.repository }) };
   const findings = admitOrganizationSelections(safe.organization, selections, lifecycle, facts);
-  return { status: 'ok', value: { target, enforced: preview(findings),
+  return { status: 'ok', value: { target, enforced: toAdmissionPreview(findings),
     ...evaluateOrganizationObligations(safe.organization, selections, findings, target) }, diagnostics: [] };
 }
 function checkedJson(value: unknown): unknown {
