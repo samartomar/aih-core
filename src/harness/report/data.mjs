@@ -6,7 +6,16 @@
  * and projects it into a versioned, redacted ReportSnapshot. See docs/reporting/CONTRACT.md
  * and docs/reporting/FIELDS.md.
  */
-import { parseTree } from 'jsonc-parser';
+import {
+  ReportInputError, invalid, isPlainObject, rejectDuplicateKeys, requireArray, requireEnum,
+  requirePlainObject, requireString, toBoundedJson,
+} from './bounded-json.mjs';
+
+export { ReportInputError };
+export {
+  CALCULATION_METHODS, CLAIMS_ACCEPTED_VERSIONS, CLAIMS_PROJECTION_SCHEMA, CLAIMS_SCHEMA,
+  projectClaims, readClaimSet, validateClaimSet,
+} from './claims.mjs';
 
 /** Versioned identity of the ReportSnapshot shape this module produces. */
 export const SNAPSHOT_SCHEMA = 'urn:aihq:report:snapshot:1.0.0';
@@ -14,14 +23,6 @@ export const SNAPSHOT_SCHEMA = 'urn:aihq:report:snapshot:1.0.0';
 /** The single supported producer contract (schema identity of `diagnostic`). */
 export const DIAGNOSTIC_CONTRACT = 'urn:aihq:harness:diagnostic:1.0.0';
 
-// Bounded plain-JSON guards. Values outside these bounds are rejected rather
-// than truncated, so a caller can never smuggle host text past the projection.
-const MAX_DEPTH = 16;
-const MAX_NODES = 20000;
-const MAX_STRING_BYTES = 65536;
-const MAX_TOTAL_STRING_BYTES = 1_048_576;
-const MAX_ARRAY_LENGTH = 4096;
-const MAX_OBJECT_KEYS = 256;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const encoder = new TextEncoder();
 
@@ -30,125 +31,6 @@ const TOOL_STATES = ['binary', 'runnable', 'broken', 'config-only', 'absent'];
 const TOOL_SELECTIONS = ['requested', 'detected', 'unselected'];
 const CHECK_OUTCOMES = ['passed', 'failed', 'unavailable', 'skipped'];
 const ACQUISITIONS = ['supplied', 'newly-acquired'];
-
-/** Invalid or unsupported caller input; never carries the raw offending value. */
-export class ReportInputError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = 'ReportInputError';
-    this.code = code;
-  }
-}
-
-function invalid(message) {
-  throw new ReportInputError('INPUT_INVALID', message);
-}
-
-function isPlainObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function hasExactKeys(value, keys) {
-  const own = Reflect.ownKeys(value);
-  if (own.length !== keys.length) return false;
-  return own.every((key) => typeof key === 'string' && keys.includes(key));
-}
-
-function requirePlainObject(value, path, keys) {
-  if (!isPlainObject(value) || !hasExactKeys(value, keys)) invalid(`${path}: expected object {${keys.join(',')}}`);
-  return value;
-}
-
-function requireString(value, path, maxLength) {
-  if (typeof value !== 'string' || value.length === 0) invalid(`${path}: expected non-empty string`);
-  if (maxLength !== undefined && [...value].length > maxLength) invalid(`${path}: exceeds maximum length`);
-  return value;
-}
-
-function requireEnum(value, allowed, path) {
-  if (!allowed.includes(value)) invalid(`${path}: expected one of ${allowed.join('|')}`);
-  return value;
-}
-
-function requireArray(value, path) {
-  if (!Array.isArray(value)) invalid(`${path}: expected array`);
-  return value;
-}
-
-/**
- * Validate and copy a value into bounded plain JSON: accessors, symbol or
- * hidden keys, prototypes, cycles/shared references, non-finite or negative-zero
- * numbers, non-JSON types, and oversized or over-deep values are all rejected.
- * The returned plain copy is what callers validate and project, so a getter or
- * Proxy can never return different data after the check. Error messages name the
- * structural path only, never a caller value.
- */
-function toBoundedJson(root, label = 'input') {
-  const state = { seen: new WeakSet(), nodes: 0, stringBytes: 0, label };
-  return cloneChecked(root, label, 0, state);
-}
-
-function cloneChecked(value, path, depth, state) {
-  if (depth > MAX_DEPTH) invalid(`${path}: exceeds maximum depth`);
-  state.nodes += 1;
-  if (state.nodes > MAX_NODES) invalid(`${path}: exceeds maximum node count`);
-  if (value === null) return null;
-  const type = typeof value;
-  if (type === 'boolean') return value;
-  if (type === 'number') {
-    if (!Number.isFinite(value)) invalid(`${path}: expected a finite number`);
-    if (Object.is(value, -0)) invalid(`${path}: negative zero is not deterministic JSON`);
-    return value;
-  }
-  if (type === 'string') {
-    const bytes = encoder.encode(value).length;
-    if (bytes > MAX_STRING_BYTES) invalid(`${path}: string exceeds ${MAX_STRING_BYTES} bytes`);
-    state.stringBytes += bytes;
-    if (state.stringBytes > MAX_TOTAL_STRING_BYTES) invalid(`${state.label}: total string bytes exceed ${MAX_TOTAL_STRING_BYTES}`);
-    return value;
-  }
-  if (type !== 'object') invalid(`${path}: not JSON data`);
-  if (state.seen.has(value)) invalid(`${path}: cyclic or repeated reference`);
-  state.seen.add(value);
-  if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) invalid(`${path}: expected a plain array`);
-    if (value.length > MAX_ARRAY_LENGTH) invalid(`${path}: array exceeds ${MAX_ARRAY_LENGTH} items`);
-    for (const key of Reflect.ownKeys(value)) {
-      if (key === 'length') continue;
-      if (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length) {
-        invalid(`${path}: unexpected array property`);
-      }
-    }
-    const copy = new Array(value.length);
-    for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
-        invalid(`${path}[${index}]: expected an enumerable data property`);
-      }
-      copy[index] = cloneChecked(descriptor.value, `${path}[${index}]`, depth + 1, state);
-    }
-    return copy;
-  }
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) invalid(`${path}: expected a plain object`);
-  const own = Reflect.ownKeys(value);
-  if (own.length > MAX_OBJECT_KEYS) invalid(`${path}: object exceeds ${MAX_OBJECT_KEYS} keys`);
-  const copy = {};
-  for (let index = 0; index < own.length; index += 1) {
-    const key = own[index];
-    const memberPath = `${path}.field[${index}]`;
-    if (typeof key !== 'string') invalid(`${path}: symbol keys are not JSON`);
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
-      invalid(`${memberPath}: expected an enumerable data property`);
-    }
-    // Define data properties so own __proto__ keys survive admission without invoking a setter.
-    Object.defineProperty(copy, key, { value: cloneChecked(descriptor.value, memberPath, depth + 1, state), enumerable: true, writable: true, configurable: true });
-  }
-  return copy;
-}
 
 function validateTool(tool, at) {
   const optional = tool !== null && typeof tool === 'object' && !Array.isArray(tool) && 'config' in tool;
@@ -593,25 +475,6 @@ export function importSnapshot(json, redaction) {
   }
   validateSnapshotShape(bounded);
   return checkedProjection(rebuildSnapshot(bounded, buildRedactor(redaction === undefined ? undefined : toBoundedJson(redaction, 'redaction'))));
-}
-
-function rejectDuplicateKeys(json) {
-  let tree;
-  try { tree = parseTree(json); } catch { invalid('input: invalid JSON structure'); }
-  let nodes = 0;
-  function visit(node, depth) {
-    if (++nodes > MAX_NODES * 4 || depth > MAX_DEPTH * 2 + 2) invalid('input: JSON exceeds structural limits');
-    if (node.type === 'object') {
-      const keys = new Set();
-      for (const property of node.children ?? []) {
-        const key = property.children[0].value;
-        if (keys.has(key)) invalid('input: duplicate JSON key');
-        keys.add(key);
-      }
-    }
-    for (const child of node.children ?? []) visit(child, depth + 1);
-  }
-  visit(tree, 0);
 }
 
 /**

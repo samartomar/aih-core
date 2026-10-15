@@ -1,0 +1,497 @@
+{
+  "schema": "urn:aihq:report:claims-projection:1.0.0",
+  "source": {
+    "schema": "urn:aihq:report:claims:1.0.0"
+  },
+  "claims": [
+    {
+      "id": "context-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:context-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:context-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 750,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "context-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:context-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:context-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 1000,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "new-file-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-new-skill"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:new-file-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:new-file-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 1200,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "new-file-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-new-skill"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:new-file-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:new-file-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 0,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "observed-usage",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:observed-usage",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:observed-usage",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 280,
+        "unit": "tokens"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "tokens-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:tokens-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:tokens-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "estimated",
+      "value": {
+        "amount": 300,
+        "unit": "tokens"
+      },
+      "method": {
+        "id": "example-token-estimator",
+        "version": "2.1.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    },
+    {
+      "id": "tokens-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:tokens-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:tokens-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "estimated",
+      "value": {
+        "amount": 400,
+        "unit": "tokens"
+      },
+      "method": {
+        "id": "example-token-estimator",
+        "version": "2.1.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      },
+      "dedup": {
+        "status": "unique",
+        "canonical": null
+      }
+    }
+  ],
+  "observations": {
+    "duplicates": [],
+    "conflicts": [],
+    "unidentified": []
+  },
+  "calculations": [
+    {
+      "id": "bytes-reduction",
+      "method": {
+        "id": "context-change",
+        "version": "1.0.0"
+      },
+      "status": "available",
+      "reason": null,
+      "inputs": [
+        {
+          "id": "context-after",
+          "revision": "1"
+        },
+        {
+          "id": "context-before",
+          "revision": "1"
+        }
+      ],
+      "before": 1000,
+      "after": 750,
+      "unit": "bytes",
+      "absoluteDifference": 250,
+      "direction": "decrease",
+      "percentage": 25
+    },
+    {
+      "id": "zero-baseline",
+      "method": {
+        "id": "context-change",
+        "version": "1.0.0"
+      },
+      "status": "available",
+      "reason": null,
+      "inputs": [
+        {
+          "id": "new-file-after",
+          "revision": "1"
+        },
+        {
+          "id": "new-file-before",
+          "revision": "1"
+        }
+      ],
+      "before": 0,
+      "after": 1200,
+      "unit": "bytes",
+      "absoluteDifference": 1200,
+      "direction": "increase",
+      "percentage": null,
+      "percentageReason": "zero-baseline"
+    },
+    {
+      "id": "same-method-estimate",
+      "method": {
+        "id": "context-change",
+        "version": "1.0.0"
+      },
+      "status": "available",
+      "reason": null,
+      "inputs": [
+        {
+          "id": "tokens-after",
+          "revision": "1"
+        },
+        {
+          "id": "tokens-before",
+          "revision": "1"
+        }
+      ],
+      "before": 400,
+      "after": 300,
+      "unit": "tokens",
+      "absoluteDifference": 100,
+      "direction": "decrease",
+      "percentage": 25
+    },
+    {
+      "id": "estimate-vs-observed",
+      "method": {
+        "id": "context-change",
+        "version": "1.0.0"
+      },
+      "status": "unavailable",
+      "reason": "incomparable-kind",
+      "inputs": [
+        {
+          "id": "observed-usage",
+          "revision": "1"
+        },
+        {
+          "id": "tokens-before",
+          "revision": "1"
+        }
+      ]
+    }
+  ],
+  "actions": []
+}

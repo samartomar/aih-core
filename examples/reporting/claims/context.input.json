@@ -1,0 +1,417 @@
+{
+  "schema": "urn:aihq:report:claims:1.0.0",
+  "claims": [
+    {
+      "id": "context-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:context-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:context-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 1000,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:context-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:context-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 750,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "new-file-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-new-skill"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:new-file-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:new-file-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 0,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "new-file-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-new-skill"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:new-file-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:new-file-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 1200,
+        "unit": "bytes"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tokens-before",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:tokens-before",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:tokens-before",
+      "capturedAt": "2026-10-15T09:00:00.000Z",
+      "measure": "context-size",
+      "kind": "estimated",
+      "value": {
+        "amount": 400,
+        "unit": "tokens"
+      },
+      "method": {
+        "id": "example-token-estimator",
+        "version": "2.1.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tokens-after",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:tokens-after",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:tokens-after",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "estimated",
+      "value": {
+        "amount": 300,
+        "unit": "tokens"
+      },
+      "method": {
+        "id": "example-token-estimator",
+        "version": "2.1.0"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "observed-usage",
+      "revision": "1",
+      "producer": {
+        "id": "example-diagnostic-adapter",
+        "version": "1.0.0"
+      },
+      "recordSchema": "urn:aihq:harness:diagnostic:1.0.0",
+      "subject": {
+        "kind": "instruction-set",
+        "id": "example-repository-instructions"
+      },
+      "scope": {
+        "kind": "repository",
+        "targets": [
+          "example-org/example-repo"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:observed-usage",
+          "schema": "urn:aihq:harness:diagnostic:1.0.0"
+        }
+      ],
+      "observation": "event:observed-usage",
+      "capturedAt": "2026-10-15T11:00:00.000Z",
+      "measure": "context-size",
+      "kind": "measured",
+      "value": {
+        "amount": 280,
+        "unit": "tokens"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected probe ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "3"
+          }
+        ]
+      }
+    }
+  ],
+  "calculations": [
+    {
+      "id": "bytes-reduction",
+      "method": "context-change",
+      "version": "1.0.0",
+      "before": {
+        "id": "context-before",
+        "revision": "1"
+      },
+      "after": {
+        "id": "context-after",
+        "revision": "1"
+      }
+    },
+    {
+      "id": "zero-baseline",
+      "method": "context-change",
+      "version": "1.0.0",
+      "before": {
+        "id": "new-file-before",
+        "revision": "1"
+      },
+      "after": {
+        "id": "new-file-after",
+        "revision": "1"
+      }
+    },
+    {
+      "id": "same-method-estimate",
+      "method": "context-change",
+      "version": "1.0.0",
+      "before": {
+        "id": "tokens-before",
+        "revision": "1"
+      },
+      "after": {
+        "id": "tokens-after",
+        "revision": "1"
+      }
+    },
+    {
+      "id": "estimate-vs-observed",
+      "method": "context-change",
+      "version": "1.0.0",
+      "before": {
+        "id": "tokens-before",
+        "revision": "1"
+      },
+      "after": {
+        "id": "observed-usage",
+        "revision": "1"
+      }
+    }
+  ]
+}
