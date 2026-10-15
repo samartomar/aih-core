@@ -129,6 +129,12 @@ export type OrganizationTargetFact = 'client' | 'repository';
 /** Caller-declared target facts; an absent fact is unknown, never inferred. */
 export interface OrganizationTargetFacts { client?: import('./internal/native-clients.js').NativeClientId; repository?: string }
 export interface OrganizationTarget extends OrganizationTargetFacts { scope: 'project' | 'user' }
+/** Caller-declared client and repository for organization applicability; declared, never inferred or verified. */
+export interface OrganizationTargetDeclaration {
+  schema: 'urn:aihq:core:organization-target:1.0.0';
+  client: import('./internal/native-clients.js').NativeClientId;
+  repository?: string;
+}
 export type OrganizationApplicability = 'applies' | 'not-applicable' | 'unknown';
 export interface OrganizationObligationResultBase {
   selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability;

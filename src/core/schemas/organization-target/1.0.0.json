@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:organization-target:1.0.0",
+  "title": "Caller-declared organization target",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "client"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:organization-target:1.0.0"
+    },
+    "client": {
+      "enum": [
+        "claude",
+        "codex",
+        "cursor",
+        "gemini",
+        "copilot",
+        "windsurf",
+        "opencode",
+        "kimi",
+        "kiro",
+        "antigravity",
+        "zed"
+      ]
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  }
+}
