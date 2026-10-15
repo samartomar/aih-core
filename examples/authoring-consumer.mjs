@@ -2,10 +2,15 @@
 // GitHub REST is a deterministic transport fixture, not real organization acceptance.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepare, apply } from '@aihq/core';
-import { deriveRecipeIdentity, previewOrganizationAdmission, contractSupport } from '@aihq/core/contracts';
+import { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations, contractSupport } from '@aihq/core/contracts';
+import organizationSchema11 from '@aihq/core/schemas/organization-policy/1.1.0.json' with { type: 'json' };
+
+const organizationContract11 = 'urn:aihq:core:organization-policy:1.1.0';
+assert.equal(organizationSchema11.$id, organizationContract11);
+assert.ok(contractSupport.contracts.some(contract => contract.id === organizationContract11 && contract.role === 'accepts'));
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const originalFetch = globalThis.fetch;
@@ -29,6 +34,7 @@ globalThis.fetch = async url => {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 const cases = [];
+let obligations;
 try {
   for (const [index, name] of ['team-note', 'independent-guide'].entries()) {
     const project = join(process.cwd(), `${name}-target`), source = join(process.cwd(), `${name}-source`);
@@ -67,6 +73,75 @@ try {
     const request = { useCase: 'policy', policy, target: { project }, organizationSource };
     const controls = { logging: 'off', materialRoots: { content: source } };
     const approve = prepared => ({ approved: true, origin: 'automation', reviewDigest: prepared.review.reviewDigest });
+    if (index === 0) {
+      const entry = (selectionId, obligation, extra = {}) => ({ selectionId, obligation,
+        recipeIdentity: identity.value.recipeIdentity, scopes: ['project'],
+        inputs: organization.selections[0].inputs, ...extra });
+      const prohibitedIdentity = `sha256:${sha('prohibited recipe')}`;
+      const organization11 = { schema: organizationContract11, id: 'obligations', selections: [
+        entry(name, 'permitted'), entry('recommended-note', 'recommended'), entry('required-note', 'required'),
+        entry('prohibited-note', 'prohibited', { recipeIdentity: prohibitedIdentity }),
+        entry('other-client', 'required', { clients: ['claude'] }),
+        entry('repository-note', 'required', { repositories: ['github.com/example-org/app'] })
+      ] };
+      const target = { scope: 'project', client: 'codex' };
+      const evaluate = selections => {
+        const result = previewOrganizationObligations({ organization: organization11, selections, lifecycle: [], target });
+        assert.equal(result.status, 'ok', JSON.stringify(result));
+        assert.deepEqual(result.value.target, target);
+        return result.value;
+      };
+      const missing = evaluate([previewSelection]);
+      assert.deepEqual(missing.enforced, { admitted: true, diagnostics: [] });
+      assert.deepEqual(missing.advisory, [{ selectionId: 'recommended-note',
+        recipeIdentity: identity.value.recipeIdentity, applicability: 'applies', unknown: [],
+        status: 'not-taken', selections: [] }]);
+      assert.deepEqual(missing.fulfillment.map(({ selectionId, applicability, unknown, status, selections }) =>
+        ({ selectionId, applicability, unknown, status, selections })), [
+        { selectionId: 'required-note', applicability: 'applies', unknown: [], status: 'not-fulfilled', selections: [] },
+        { selectionId: 'other-client', applicability: 'not-applicable', unknown: [], status: 'not-applicable', selections: [] },
+        { selectionId: 'repository-note', applicability: 'unknown', unknown: ['repository'], status: 'unknown', selections: [] }
+      ]);
+      const requiredSelection = { ...previewSelection, id: 'required-choice', organizationSelectionId: 'required-note' };
+      const present = evaluate([previewSelection, requiredSelection]);
+      assert.deepEqual(present.enforced, { admitted: true, diagnostics: [] });
+      assert.equal(present.fulfillment[0].status, 'fulfilled');
+      assert.deepEqual(present.fulfillment[0].selections, ['required-choice']);
+      assert.equal(present.fulfillment[2].status, 'unknown');
+      assert.notEqual(present.fulfillment[2].status, 'fulfilled');
+      const unknown = evaluate([previewSelection, requiredSelection,
+        { ...previewSelection, id: 'repository-choice', organizationSelectionId: 'repository-note' }]);
+      assert.equal(unknown.enforced.admitted, false);
+      assert.ok(unknown.enforced.diagnostics.some(d => d.code === 'AUTHORITY_DENIED' && d.reason === 'target-unknown'));
+      assert.equal(unknown.fulfillment[2].status, 'unknown');
+      assert.deepEqual(unknown.fulfillment[2].unknown, ['repository']);
+      assert.deepEqual(unknown.fulfillment[2].selections, []);
+      const prohibited = evaluate([{ ...previewSelection, organizationSelectionId: 'prohibited-note',
+        recipeIdentity: prohibitedIdentity }]);
+      assert.equal(prohibited.enforced.admitted, false);
+      assert.ok(prohibited.enforced.diagnostics.some(d => d.code === 'AUTHORITY_DENIED' && d.reason === 'prohibited'));
+
+      const obligationProject = join(process.cwd(), 'obligations-target');
+      mkdirSync(obligationProject);
+      const obligationRequest = { ...request, target: { project: obligationProject } };
+      const admittedOrganization11 = { ...organization11, selections: [entry(name, 'permitted')] };
+      currentOrganization = admittedOrganization11;
+      const admitted11 = await prepare(obligationRequest, controls);
+      assert.equal(admitted11.status, 'ready', JSON.stringify(admitted11.diagnostics));
+      assert.deepEqual(readdirSync(obligationProject), []);
+      currentOrganization = { ...admittedOrganization11, selections: [entry(name, 'prohibited')] };
+      const blocked11 = await prepare(obligationRequest, controls);
+      assert.equal(blocked11.status, 'blocked');
+      const prohibition = blocked11.diagnostics.find(d => d.code === 'AUTHORITY_DENIED' && d.reason === 'prohibited');
+      assert.ok(prohibition, JSON.stringify(blocked11.diagnostics));
+      assert.deepEqual(readdirSync(obligationProject), []);
+      obligations = { contract: organizationSchema11.$id, enforced: missing.enforced.admitted,
+        advisory: missing.advisory[0].status,
+        required: [missing.fulfillment[0].status, present.fulfillment[0].status],
+        client: missing.fulfillment[1].status, repository: unknown.fulfillment[2].status,
+        prohibited: prohibited.enforced.diagnostics.find(d => d.reason === 'prohibited').reason,
+        prepare: [admitted11.status, blocked11.status], prepareReason: prohibition.reason, wroteNothing: true };
+    }
     const deniedOrganization = { ...organization, selections: [] };
     assert.equal(preview(deniedOrganization).value.admitted, false);
     currentOrganization = deniedOrganization;
@@ -98,4 +173,4 @@ try {
       admitted: true, denied: true, changedAuthorityRefused: true, previewHandleRefused: true, serializedReviewRefused: true, applied: true });
   }
 } finally { globalThis.fetch = originalFetch; }
-process.stdout.write(JSON.stringify({ package: contractSupport.package, transport: 'fixture-github-rest', cases }) + '\n');
+process.stdout.write(JSON.stringify({ package: contractSupport.package, transport: 'fixture-github-rest', cases, obligations }) + '\n');

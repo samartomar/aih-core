@@ -124,10 +124,23 @@ export interface OrganizationSelection {
   inputs: Record<string, OrganizationInputPermission>;
   lifecycle?: { replace?: boolean; adopt?: boolean; remove?: boolean };
 }
-export interface OrganizationPolicy {
+export type OrganizationObligation = 'required' | 'recommended' | 'permitted' | 'prohibited';
+export interface OrganizationSelection11 extends OrganizationSelection {
+  obligation: OrganizationObligation;
+  clients?: import('./internal/native-clients.js').NativeClientId[];
+  repositories?: string[];
+}
+export interface OrganizationPolicy10 {
   schema: 'urn:aihq:core:organization-policy:1.0.0';
   id: string;
   selections: OrganizationSelection[];
   metadata?: Record<string, Json>;
 }
+export interface OrganizationPolicy11 {
+  schema: 'urn:aihq:core:organization-policy:1.1.0';
+  id: string;
+  selections: OrganizationSelection11[];
+  metadata?: Record<string, Json>;
+}
+export type OrganizationPolicy = OrganizationPolicy10 | OrganizationPolicy11;
 export interface OrganizationParseResult extends ValidationResult { document?: OrganizationPolicy }

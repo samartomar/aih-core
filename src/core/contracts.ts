@@ -15,6 +15,7 @@ import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
 import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import resultSchema11 from './schemas/run-result/1.1.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
+import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with { type: 'json' };
 import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
@@ -38,7 +39,7 @@ export { validateMacosRepairRequest, validateMacosRepairInputs, validateMacosSes
   MACOS_REPAIR_REQUEST_SCHEMA, MACOS_REPAIR_INPUTS_SCHEMA, MACOS_PREPARED_WORK_SCHEMA, MACOS_RUN_RESULT_SCHEMA,
   MACOS_SESSION_CUSTODY_SCHEMA, MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA, MACOS_SESSION_VERIFICATION_RESULT_SCHEMA } from './macos-session-contracts.js';
 export type * from './types.js';
-export { deriveRecipeIdentity, previewOrganizationAdmission } from './authoring-helpers.js';
+export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
 export type * from './authoring-helpers.js';
 export type * from './file-state-types.js';
 export type * from './trust-contracts.js';
@@ -67,6 +68,7 @@ const checkRecipe12 = validator.getSchema(recipeSchema12.$id)! as ValidateFuncti
 const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
 const checkRecipe11 = validator.getSchema(recipeSchema11.$id)! as ValidateFunction;
 const checkOrganization = validator.compile(organizationSchema);
+const checkOrganization11 = validator.compile(organizationSchema11);
 const schemaVersion = (id: string): string => id.split(':')[4]!;
 const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
   [trustContractSchemas[0].$id]: 'accepts',
@@ -83,7 +85,7 @@ export const contractSupport = Object.freeze({
   contracts: [
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
-      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13].map(schema => ({
+      managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11].map(schema => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -160,7 +162,7 @@ export const validatePolicy = (value: unknown): ValidationResult =>
 export const validateRecipe = (value: unknown): ValidationResult =>
   validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12, [recipeSchema13.$id]: checkRecipe13 }, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
-  validate(value, { [organizationSchema.$id]: checkOrganization }, organizationSemantics as never);
+  validate(value, { [organizationSchema.$id]: checkOrganization, [organizationSchema11.$id]: checkOrganization11 }, organizationSemantics as never);
 export function parsePolicy(text: string): ParseResult {
   try {
     if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');

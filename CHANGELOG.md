@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Add organization-policy 1.1.0 obligations and explicit client/repository selectors,
+with portable `previewOrganizationObligations` results separating enforced
+admission, recommendations and required-choice fulfillment. Enterprise Prepare
+accepts the new format, denies prohibited choices and fails closed when selector
+facts are undeclared; it does not evaluate fulfillment. Existing 1.0.0 entries
+remain permitted and earlier schema bytes are unchanged. The independent consumer
+proof covers the public helper, schema/support exports and Prepare outcomes.
+This candidate is unpublished.
+
 Add portable `deriveRecipeIdentity` and `previewOrganizationAdmission` helpers
 to `@aihq/core/contracts`. Authors can validate exact recipe declarations and
 explain organization denials through the same identity and admission semantics

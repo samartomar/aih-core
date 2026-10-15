@@ -7,9 +7,9 @@ import resultSchema from './schemas/native-verification-result/1.0.0.json' with 
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1 } from './internal/strict-json.js';
 import type { Diagnostic, ValidationResult } from './types.js';
+import type { NativeClientId } from './internal/native-clients.js';
 
-export type NativeClientId = 'claude' | 'codex' | 'cursor' | 'gemini' | 'copilot' | 'windsurf'
-  | 'opencode' | 'kimi' | 'kiro' | 'antigravity' | 'zed';
+export type { NativeClientId } from './internal/native-clients.js';
 export type Sha256 = string;
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 export interface JsonObject { [key: string]: JsonValue }

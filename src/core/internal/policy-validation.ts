@@ -1,6 +1,7 @@
 import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
-import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
+import { nativeClients } from './native-clients.js';
+import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
   if (spec.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== spec.type) return false;
@@ -129,13 +130,48 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
   return diagnostics;
 }
 
+const hostLabel = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+const repositoryPattern = new RegExp(`^${hostLabel}(?:\\.${hostLabel})+/[a-z0-9._-]{1,100}/[a-z0-9._-]{1,100}$`);
+/** `<host>/<owner>/<name>`, lowercase, compared by exact equality and never inferred from a checkout. */
+export const isRepositoryIdentity = (value: string): boolean =>
+  repositoryPattern.test(value) && value.split('/').slice(1).every(part => part !== '.' && part !== '..');
+export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
+
+const intersects = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean =>
+  left === undefined || right === undefined || left.some(value => right.includes(value));
+const overlaps = (left: OrganizationSelection11, right: OrganizationSelection11): boolean =>
+  left.scopes.some(scope => right.scopes.includes(scope)) && intersects(left.clients, right.clients) &&
+  intersects(left.repositories, right.repositories);
+
 export function organizationSemantics(policy: OrganizationPolicy): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const invalid = (reason: string, path: string, message: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path, message });
   const seen = new Set<string>();
+  const current = policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
+  const groups = new Map<string, { entry: OrganizationSelection11; index: number }[]>();
   policy.selections.forEach((selection, index) => {
-    if (seen.has(selection.selectionId)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'duplicate-selection-id',
-      path: `/selections/${index}/selectionId`, message: 'The organization document has a duplicate selection identity.' });
+    if (seen.has(selection.selectionId)) invalid('duplicate-selection-id', `/selections/${index}/selectionId`,
+      'The organization document has a duplicate selection identity.');
     seen.add(selection.selectionId);
+    if (!current) return;
+    const entry = selection as OrganizationSelection11;
+    entry.clients?.forEach((client, position) => {
+      if (!isNativeClient(client)) invalid('unknown-client', `/selections/${index}/clients/${position}`,
+        'The organization entry names a client that Core does not know.');
+    });
+    entry.repositories?.forEach((repository, position) => {
+      if (!isRepositoryIdentity(repository)) invalid('repository-identity', `/selections/${index}/repositories/${position}`,
+        'The organization entry names a malformed repository identity.');
+    });
+    const group = groups.get(entry.recipeIdentity) ?? [];
+    if (entry.obligation === 'required' || entry.obligation === 'prohibited') {
+      const opposite = entry.obligation === 'required' ? 'prohibited' : 'required';
+      if (group.some(other => other.entry.obligation === opposite && overlaps(other.entry, entry)))
+        invalid('obligation-contradiction', `/selections/${index}/obligation`,
+          'The organization document both requires and prohibits this recipe for an overlapping target.');
+    }
+    group.push({ entry, index });
+    groups.set(entry.recipeIdentity, group);
   });
   return diagnostics;
 }

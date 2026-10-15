@@ -1,8 +1,9 @@
-import { Ajv2020 } from 'ajv/dist/2020.js';
+import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import recipeSchema from './schemas/recipe/1.3.0.json' with { type: 'json' };
 import { validateRecipe, validatePolicy, validateOrganizationPolicy } from './contracts.js';
-import { admitOrganizationSelections, type AdmissionSelection, type AdmissionLifecycle } from './internal/organization-admission.js';
-import { inputAccepts, inputDefinitionSemantics } from './internal/policy-validation.js';
+import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle,
+  type OrganizationTarget, type OrganizationAdvisoryResult, type OrganizationFulfillmentResult } from './internal/organization-admission.js';
+import { inputAccepts, inputDefinitionSemantics, isNativeClient, isRepositoryIdentity } from './internal/policy-validation.js';
 import { canonicalJson } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
 import { checkedReference, checkedInlineMaterials, MaterialCaptureError } from './internal/material-descriptors.js';
@@ -28,6 +29,14 @@ export interface PreviewOrganizationAdmissionRequest {
   lifecycle: OrganizationAdmissionLifecycle[];
 }
 export interface OrganizationAdmissionPreview { admitted: boolean; diagnostics: AuthoringDiagnostic[] }
+export type { OrganizationTarget, OrganizationApplicability, OrganizationAdvisoryResult, OrganizationFulfillmentResult } from './internal/organization-admission.js';
+export interface PreviewOrganizationObligationsRequest extends PreviewOrganizationAdmissionRequest { target: OrganizationTarget }
+export interface OrganizationObligationsPreview {
+  target: OrganizationTarget;
+  enforced: OrganizationAdmissionPreview;
+  advisory: OrganizationAdvisoryResult[];
+  fulfillment: OrganizationFulfillmentResult[];
+}
 
 function refused(reason: string, path: string, diagnostics?: CoreDiagnostic[]): { status: 'refused'; diagnostics: AuthoringDiagnostic[] } {
   return { status: 'refused', diagnostics: [{ code: 'INPUT_INVALID', reason, path,
@@ -40,64 +49,102 @@ validator.addSchema(recipeSchema);
 const id = { $ref: `${recipeSchema.$id}#/$defs/id` };
 const scope = { enum: ['project', 'user'] };
 const identity = { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' };
+const previewProperties = {
+  organization: { type: 'object' },
+  selections: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false,
+    required: ['id', 'organizationSelectionId', 'scope', 'recipeIdentity', 'inputs', 'configuration', 'privateInputs'],
+    properties: { id, organizationSelectionId: id, scope, recipeIdentity: identity,
+      inputs: { type: 'object', propertyNames: id, additionalProperties: { $ref: `${recipeSchema.$id}#/$defs/input` } },
+      configuration: { type: 'object', propertyNames: id },
+      privateInputs: { type: 'array', uniqueItems: true, items: id } } } },
+  lifecycle: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false,
+    required: ['action', 'scope', 'recipeIdentity'], properties: {
+      action: { enum: ['replace', 'adopt', 'remove'] }, scope, recipeIdentity: identity, organizationSelectionId: id } } }
+};
 const checkPreview = validator.compile({ type: 'object', additionalProperties: false,
-  required: ['organization', 'selections', 'lifecycle'], properties: {
-    organization: { type: 'object' },
-    selections: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false,
-      required: ['id', 'organizationSelectionId', 'scope', 'recipeIdentity', 'inputs', 'configuration', 'privateInputs'],
-      properties: { id, organizationSelectionId: id, scope, recipeIdentity: identity,
-        inputs: { type: 'object', propertyNames: id, additionalProperties: { $ref: `${recipeSchema.$id}#/$defs/input` } },
-        configuration: { type: 'object', propertyNames: id },
-        privateInputs: { type: 'array', uniqueItems: true, items: id } } } },
-    lifecycle: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false,
-      required: ['action', 'scope', 'recipeIdentity'], properties: {
-        action: { enum: ['replace', 'adopt', 'remove'] }, scope, recipeIdentity: identity, organizationSelectionId: id } } }
-  }
-});
+  required: ['organization', 'selections', 'lifecycle'], properties: previewProperties });
+const checkObligationsPreview = validator.compile({ type: 'object', additionalProperties: false,
+  required: ['organization', 'selections', 'lifecycle', 'target'], properties: { ...previewProperties,
+    target: { type: 'object', additionalProperties: false, required: ['scope'], properties: {
+      scope, client: { type: 'string', maxLength: 128 }, repository: { type: 'string', maxLength: 512 } } } } });
 
-/** Advisory comparison only. Prepare and Apply independently acquire current authority. */
-export function previewOrganizationAdmission(request: PreviewOrganizationAdmissionRequest): AuthoringResult<OrganizationAdmissionPreview> {
-  let safe: PreviewOrganizationAdmissionRequest;
+/** Shared request validation; admission is the only comparison and always runs on a validated copy. */
+function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: unknown, check: ValidateFunction):
+    { safe: T } | { refusal: ReturnType<typeof refused> } {
+  let safe: T;
   try {
     const descriptor = request && typeof request === 'object' ? Object.getOwnPropertyDescriptor(request, 'organization') : undefined;
     if (descriptor && 'value' in descriptor) {
       const checked = validateOrganizationPolicy(descriptor.value);
-      if (!checked.valid) return refused('organization-input-spec', '/organization', checked.diagnostics);
+      if (!checked.valid) return { refusal: refused('organization-input-spec', '/organization', checked.diagnostics) };
     }
-    safe = checkedJson(request) as PreviewOrganizationAdmissionRequest;
+    safe = checkedJson(request) as T;
   }
-  catch { return refused('input-value', ''); }
-  if (!checkPreview(safe)) return refused('input-value', checkPreview.errors?.[0]?.instancePath ?? '',
-    (checkPreview.errors ?? []).map(e => ({ code: 'INPUT_INVALID', reason: e.keyword, path: e.instancePath,
-      message: 'The preview request does not satisfy its contract.' })));
+  catch { return { refusal: refused('input-value', '') }; }
+  if (!check(safe)) return { refusal: refused('input-value', check.errors?.[0]?.instancePath ?? '',
+    (check.errors ?? []).map(e => ({ code: 'INPUT_INVALID', reason: e.keyword, path: e.instancePath,
+      message: 'The preview request does not satisfy its contract.' }))) };
   const organization = validateOrganizationPolicy(safe.organization);
-  if (!organization.valid) return refused('organization-input-spec', '/organization', organization.diagnostics);
+  if (!organization.valid) return { refusal: refused('organization-input-spec', '/organization', organization.diagnostics) };
   const seen = new Set<string>();
   for (const [index, selection] of safe.selections.entries()) {
     const path = `/selections/${index}`;
-    if (seen.has(selection.id)) return refused('input-value', `${path}/id`);
+    if (seen.has(selection.id)) return { refusal: refused('input-value', `${path}/id`) };
     seen.add(selection.id);
     const definitions = inputDefinitionSemantics(selection.inputs);
-    if (definitions.length) return refused('input-value', `${path}/inputs`, definitions);
+    if (definitions.length) return { refusal: refused('input-value', `${path}/inputs`, definitions) };
     for (const [name, value] of Object.entries(selection.configuration)) {
       const spec = selection.inputs[name];
       if (!Object.hasOwn(selection.inputs, name) || spec!.sensitive || !inputAccepts(spec!, value))
-        return refused('input-value', `${path}/configuration/${name}`);
+        return { refusal: refused('input-value', `${path}/configuration/${name}`) };
     }
     for (const [name, spec] of Object.entries(selection.inputs)) {
       if (spec.required && !spec.sensitive && !Object.hasOwn(selection.configuration, name) && spec.default === undefined)
-        return refused('input-value', `${path}/configuration/${name}`);
+        return { refusal: refused('input-value', `${path}/configuration/${name}`) };
       if (spec.required && spec.sensitive && !selection.privateInputs.includes(name))
-        return refused('input-value', `${path}/privateInputs`);
+        return { refusal: refused('input-value', `${path}/privateInputs`) };
     }
     if (selection.privateInputs.some(name => !Object.hasOwn(selection.inputs, name) || !selection.inputs[name]!.sensitive))
-      return refused('input-value', `${path}/privateInputs`);
+      return { refusal: refused('input-value', `${path}/privateInputs`) };
   }
-  const diagnostics = admitOrganizationSelections(safe.organization,
-    safe.selections.map((selection, index) => ({ ...selection, path: `/selections/${index}` })),
-    safe.lifecycle.map((item, index) => ({ ...item, path: `/lifecycle/${index}` })))
-    .map(d => ({ code: d.code, reason: d.reason, path: d.path ?? '', message: d.message }));
-  return { status: 'ok', value: { admitted: diagnostics.length === 0, diagnostics }, diagnostics: [] };
+  return { safe };
+}
+
+const admissionInputs = (safe: PreviewOrganizationAdmissionRequest): { selections: AdmissionSelection[]; lifecycle: AdmissionLifecycle[] } => ({
+  selections: safe.selections.map((selection, index) => ({ ...selection, path: `/selections/${index}` })),
+  lifecycle: safe.lifecycle.map((item, index) => ({ ...item, path: `/lifecycle/${index}` }))
+});
+const preview = (diagnostics: { code: string; reason?: string; path?: string; message: string }[]): OrganizationAdmissionPreview => {
+  const mapped = diagnostics.map(d => ({ code: d.code, reason: d.reason, path: d.path ?? '', message: d.message }));
+  return { admitted: mapped.length === 0, diagnostics: mapped };
+};
+
+/** Advisory comparison only. Prepare and Apply independently acquire current authority. */
+export function previewOrganizationAdmission(request: PreviewOrganizationAdmissionRequest): AuthoringResult<OrganizationAdmissionPreview> {
+  const checked = checkedPreview<PreviewOrganizationAdmissionRequest>(request, checkPreview);
+  if ('refusal' in checked) return checked.refusal;
+  const { safe } = checked;
+  const { selections, lifecycle } = admissionInputs(safe);
+  return { status: 'ok', value: preview(admitOrganizationSelections(safe.organization, selections, lifecycle)), diagnostics: [] };
+}
+
+/**
+ * Advisory enforced admission for a declared target plus pure recommendation and requirement results.
+ * Facts the caller does not declare stay unknown and are never inferred from a checkout or remote.
+ */
+export function previewOrganizationObligations(request: PreviewOrganizationObligationsRequest): AuthoringResult<OrganizationObligationsPreview> {
+  const checked = checkedPreview<PreviewOrganizationObligationsRequest>(request, checkObligationsPreview);
+  if ('refusal' in checked) return checked.refusal;
+  const { safe } = checked;
+  const { target } = safe;
+  if (target.client !== undefined && !isNativeClient(target.client)) return refused('input-value', '/target/client');
+  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) return refused('input-value', '/target/repository');
+  const { selections, lifecycle } = admissionInputs(safe);
+  const facts = { ...(target.client === undefined ? {} : { client: target.client }),
+    ...(target.repository === undefined ? {} : { repository: target.repository }) };
+  const findings = admitOrganizationSelections(safe.organization, selections, lifecycle, facts);
+  return { status: 'ok', value: { target, enforced: preview(findings),
+    ...evaluateOrganizationObligations(safe.organization, selections, findings, target) }, diagnostics: [] };
 }
 function checkedJson(value: unknown): unknown {
   const copy = cloneJsonValueStructureV1(value, 'authoring request', 32);

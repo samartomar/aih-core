@@ -2,7 +2,22 @@
 // Pure data comparison: no host, Harness, network or filesystem effects.
 import { canonicalJson } from './canonical.js';
 import { inputAccepts } from './policy-validation.js';
-import type { Diagnostic, InputSpec, Json, OrganizationInputPermission, OrganizationPolicy, OrganizationSelection } from '../types.js';
+import type { NativeClientId } from './native-clients.js';
+import type { Diagnostic, InputSpec, Json, OrganizationInputPermission, OrganizationPolicy, OrganizationSelection, OrganizationSelection11 } from '../types.js';
+
+/** Caller-declared target facts; an absent fact is unknown, never inferred. */
+export interface OrganizationTargetFacts { client?: NativeClientId; repository?: string }
+export interface OrganizationTarget extends OrganizationTargetFacts { scope: 'project' | 'user' }
+export type OrganizationApplicability = 'applies' | 'not-applicable' | 'unknown';
+type TargetFact = 'client' | 'repository';
+export interface OrganizationAdvisoryResult {
+  selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability; unknown: TargetFact[];
+  status: 'taken' | 'not-taken'; selections: string[];
+}
+export interface OrganizationFulfillmentResult {
+  selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability; unknown: TargetFact[];
+  status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown'; selections: string[];
+}
 
 export interface AdmissionSelection {
   id: string;
@@ -29,6 +44,10 @@ const MESSAGES = {
   'selection-not-admitted': 'The organization document does not admit this selection identity.',
   'recipe-identity': 'The organization entry admits a different recipe identity.',
   'scope': 'The organization entry does not admit this scope.',
+  'prohibited': 'The organization prohibits this recipe.',
+  'client': 'The organization entry does not apply to this client.',
+  'repository': 'The organization entry does not apply to this repository.',
+  'target-unknown': 'The organization entry depends on a target fact that was not declared.',
   'input-not-permitted': 'The organization entry does not permit this input.',
   'input-value': 'The configured input value is not permitted by the organization entry.',
   'organization-permission-incomplete': 'The organization entry does not name this input and the recipe has no default.',
@@ -100,18 +119,60 @@ function admitInputs(entry: OrganizationSelection, selection: AdmissionSelection
   }
 }
 
+const isCurrent = (organization: OrganizationPolicy): boolean => organization.schema === 'urn:aihq:core:organization-policy:1.1.0';
+const entriesOf = (organization: OrganizationPolicy): OrganizationSelection11[] =>
+  isCurrent(organization) ? organization.selections as OrganizationSelection11[] : [];
+
+/** Declared mismatches and undeclared facts for an entry's client and repository selectors. */
+function selectorState(entry: OrganizationSelection11, target: OrganizationTargetFacts): { mismatch: TargetFact[]; unknown: TargetFact[] } {
+  const mismatch: TargetFact[] = []; const unknown: TargetFact[] = [];
+  for (const [fact, listed] of [['client', entry.clients], ['repository', entry.repositories]] as const) {
+    if (listed === undefined) continue;
+    const declared = target[fact];
+    if (declared === undefined) unknown.push(fact);
+    else if (!(listed as readonly string[]).includes(declared)) mismatch.push(fact);
+  }
+  return { mismatch, unknown };
+}
+
+function applicability(entry: OrganizationSelection11, target: OrganizationTarget): { applicability: OrganizationApplicability; unknown: TargetFact[] } {
+  const state = selectorState(entry, target);
+  if (!entry.scopes.includes(target.scope) || state.mismatch.length) return { applicability: 'not-applicable', unknown: [] };
+  return state.unknown.length ? { applicability: 'unknown', unknown: state.unknown } : { applicability: 'applies', unknown: [] };
+}
+
 export function admitOrganizationSelections(organization: OrganizationPolicy, selections: AdmissionSelection[],
-    lifecycle: AdmissionLifecycle[]): Diagnostic[] {
+    lifecycle: AdmissionLifecycle[], target: OrganizationTargetFacts = {}): Diagnostic[] {
   const findings: Diagnostic[] = [];
   const finding: Finding = (code, reason, path, message) => findings.push({ code, reason, path, message });
+  const current = isCurrent(organization);
+  const prohibitions = new Map<string, OrganizationSelection11[]>();
+  for (const entry of entriesOf(organization)) if (entry.obligation === 'prohibited')
+    prohibitions.set(entry.recipeIdentity, [...prohibitions.get(entry.recipeIdentity) ?? [], entry]);
   for (const selection of selections) {
     const entry = organization.selections.find(candidate => candidate.selectionId === selection.organizationSelectionId);
     if (entry === undefined) {
       finding('AUTHORITY_DENIED', 'selection-not-admitted', selection.path, MESSAGES['selection-not-admitted']);
       continue;
     }
+    if (current && (entry as OrganizationSelection11).obligation === 'prohibited') {
+      finding('AUTHORITY_DENIED', 'prohibited', selection.path, MESSAGES['prohibited']);
+      continue;
+    }
     admitIdentity(entry, selection, finding);
+    if (current && entry.scopes.includes(selection.scope)) {
+      const state = selectorState(entry as OrganizationSelection11, target);
+      for (const fact of state.mismatch) finding('AUTHORITY_DENIED', fact, selection.path, MESSAGES[fact]);
+      if (!state.mismatch.length && state.unknown.length)
+        finding('AUTHORITY_DENIED', 'target-unknown', selection.path, MESSAGES['target-unknown']);
+    }
     admitInputs(entry, selection, finding);
+    if (!current) continue;
+    const states = (prohibitions.get(selection.recipeIdentity) ?? [])
+      .map(other => applicability(other, { scope: selection.scope, ...target }).applicability);
+    if (states.includes('applies')) finding('AUTHORITY_DENIED', 'prohibited', selection.path, MESSAGES['prohibited']);
+    if (states.includes('unknown') && !findings.some(item => item.reason === 'target-unknown' && item.path === selection.path))
+      finding('AUTHORITY_DENIED', 'target-unknown', selection.path, MESSAGES['target-unknown']);
   }
   for (const item of lifecycle) {
     if (item.action === 'remove') {
@@ -137,4 +198,25 @@ export function admitOrganizationSelections(organization: OrganizationPolicy, se
     if (!granted) finding('AUTHORITY_DENIED', `lifecycle-${item.action}`, item.path, MESSAGES[`lifecycle-${item.action}`]);
   }
   return findings;
+}
+
+/**
+ * Pure advisory evaluation over the same findings admission produced for this target.
+ * A selection takes an entry only when admission left no finding at or below its path.
+ */
+export function evaluateOrganizationObligations(organization: OrganizationPolicy, selections: AdmissionSelection[],
+    findings: Diagnostic[], target: OrganizationTarget): { advisory: OrganizationAdvisoryResult[]; fulfillment: OrganizationFulfillmentResult[] } {
+  const advisory: OrganizationAdvisoryResult[] = []; const fulfillment: OrganizationFulfillmentResult[] = [];
+  for (const entry of entriesOf(organization)) {
+    if (entry.obligation !== 'required' && entry.obligation !== 'recommended') continue;
+    const taken = selections.filter(selection => selection.organizationSelectionId === entry.selectionId &&
+      selection.recipeIdentity === entry.recipeIdentity && selection.scope === target.scope &&
+      !findings.some(item => item.path === selection.path || item.path?.startsWith(`${selection.path}/`))).map(selection => selection.id);
+    const { applicability: state, unknown } = applicability(entry, target);
+    const base = { selectionId: entry.selectionId, recipeIdentity: entry.recipeIdentity, applicability: state, unknown, selections: taken };
+    if (entry.obligation === 'recommended') advisory.push({ ...base, status: taken.length ? 'taken' : 'not-taken' });
+    else fulfillment.push({ ...base, status: state === 'not-applicable' ? 'not-applicable' : state === 'unknown' ? 'unknown' :
+      taken.length ? 'fulfilled' : 'not-fulfilled' });
+  }
+  return { advisory, fulfillment };
 }

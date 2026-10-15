@@ -115,14 +115,22 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {verifyNativeClient} from '@aihq/core';
       import type {NativeVerificationRequest, NativeVerificationResult, NativeVerificationControls} from '@aihq/core';
       import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
-      import {deriveRecipeIdentity,previewOrganizationAdmission} from '@aihq/core/contracts';
-      import type {DeriveRecipeIdentityRequest,RecipeIdentity,AuthoringResult,AuthoringDiagnostic,PreviewOrganizationAdmissionRequest,OrganizationAdmissionPreview} from '@aihq/core/contracts';
+      import {deriveRecipeIdentity,previewOrganizationAdmission,previewOrganizationObligations} from '@aihq/core/contracts';
+      import type {DeriveRecipeIdentityRequest,RecipeIdentity,AuthoringResult,AuthoringDiagnostic,PreviewOrganizationAdmissionRequest,OrganizationAdmissionPreview,
+        PreviewOrganizationObligationsRequest,OrganizationObligationsPreview,OrganizationPolicy,OrganizationObligation,OrganizationTarget} from '@aihq/core/contracts';
       const identityInput: DeriveRecipeIdentityRequest = {recipe: ${JSON.stringify(policy().selections[0].recipe.inline)}};
       const identityResult: Promise<AuthoringResult<RecipeIdentity>> = deriveRecipeIdentity(identityInput);
       // @ts-expect-error Identity variants are exclusive.
       const invalidIdentityInput: DeriveRecipeIdentityRequest = {...identityInput,recipeBytes:new Uint8Array(),reference:{}};
       const previewInput: PreviewOrganizationAdmissionRequest = {organization:{schema:'urn:aihq:core:organization-policy:1.0.0',id:'team',selections:[]},selections:[],lifecycle:[]};
       const previewResult: AuthoringResult<OrganizationAdmissionPreview> = previewOrganizationAdmission(previewInput);
+      const obligation: OrganizationObligation = 'required';
+      const obligationTarget: OrganizationTarget = {scope:'project',client:'claude',repository:'github.com/example-org/app'};
+      const obligationOrganization: OrganizationPolicy = {schema:'urn:aihq:core:organization-policy:1.1.0',id:'team',selections:[]};
+      const obligationInput: PreviewOrganizationObligationsRequest = {organization:obligationOrganization,selections:[],lifecycle:[],target:obligationTarget};
+      const obligationResult: AuthoringResult<OrganizationObligationsPreview> = previewOrganizationObligations(obligationInput);
+      // @ts-expect-error A client outside Core's native list is not a target.
+      const invalidTarget: OrganizationTarget = {scope:'project',client:'unknown'};
       if(previewResult.status==='refused') { const diagnostic: AuthoringDiagnostic = previewResult.diagnostics[0]!; }
       import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       import type {NativeVerificationBundle} from '@aihq/core/contracts';
@@ -435,6 +443,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(Object.hasOwn(diagnostic,'schema'),false);
       assert.equal(ajv.validate('urn:aihq:harness:diagnostic:1.0.0',diagnostic),true,JSON.stringify(ajv.errors));
       assert.ok(contractSupport.contracts.some(entry=>entry.id==='urn:aihq:core:organization-policy:1.0.0'&&entry.role==='accepts'));
+      assert.deepEqual(contractSupport.contracts.find(entry=>entry.id==='urn:aihq:core:organization-policy:1.1.0'),
+        {id:'urn:aihq:core:organization-policy:1.1.0',role:'accepts',schemaExport:'@aihq/core/schemas/organization-policy/1.1.0.json'});
+      const organization11=(await import('@aihq/core/schemas/organization-policy/1.1.0.json',{with:{type:'json'}})).default;
+      assert.equal(organization11.$id,'urn:aihq:core:organization-policy:1.1.0');
       assert.ok(contractSupport.entries.some(entry=>entry.export==='@aihq/core/support'&&entry.runtime==='portable'));
       assert.equal(typeof writeSupportReport,'function');
       assert.deepEqual(harnessSupport.package,contractSupport.package);
