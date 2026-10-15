@@ -121,3 +121,5 @@ export declare function importSnapshot(json: string, redaction?: CreateReportInp
 
 /** Validate and serialize a snapshot to deterministic, re-redacted JSON. */
 export declare function exportSnapshot(report: ReportSnapshot): string;
+
+export * from './claims.mjs';

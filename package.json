@@ -28,6 +28,7 @@
       "import": "./dist/harness/report/render.mjs"
     },
     "./report/schema": "./dist/harness/report/schema.json",
+    "./report/schemas/claims/1.0.0.json": "./dist/harness/report/claims-schema.json",
     "./harness": {
       "types": "./dist/harness/contracts.d.mts",
       "import": "./dist/harness/contracts.mjs"

@@ -13,6 +13,15 @@ narrow on `schema` before reading 1.1.0-only fields. The independent consumer
 proof covers the public helper, schema/support exports and Prepare outcomes.
 This candidate is unpublished.
 
+Add normalized claim sets to `@aihq/core/report`: `readClaimSet`, `validateClaimSet`
+and `projectClaims` validate a versioned `urn:aihq:report:claims:1.0.0` input
+and project it into a deterministic claims projection with explicit duplicate
+and conflict handling, check-set scores, verified-repair counts and context
+changes. Unknown values stay absent and authentication is copied as supplied.
+The claims JSON Schema is exported at
+`@aihq/core/report/schemas/claims/1.0.0.json`. Diagnostic snapshot 1.0.0 is
+unchanged. This candidate is unpublished.
+
 Add portable `deriveRecipeIdentity` and `previewOrganizationAdmission` helpers
 to `@aihq/core/contracts`. Authors can validate exact recipe declarations and
 explain organization denials through the same identity and admission semantics
