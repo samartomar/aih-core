@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
@@ -324,6 +324,32 @@ export function renderRepair(request) {
     npmAssignment: `cafile=${request.bundlePath}`, npmConfigPath: join(homedir(), '.npmrc') } };
 }
 
+/**
+ * Managed user configuration the shipped `node-npm-ca` repair persists for new processes on this platform,
+ * derived from its recipe and `renderRepair` so the two cannot drift. Pure: it reads no host state.
+ */
+export function persistedConfigurationMembers() {
+  const definition = repairIndex[0];
+  const variant = definition.variants.find(item => item.os === process.platform && item.architectures.includes(process.arch) &&
+    item.network === 'declared' && item.targets.length === 2);
+  const recipe = variant && shippedRecipes.get(variant.recipeRef);
+  if (!recipe) return [];
+  const spec = [['node-config', 'node-extra-ca-certs', 'node', 'nodeAssignment'], ['npm-config', 'npm-cafile', 'npm', 'npmAssignment']];
+  return spec.flatMap(([operationId, id, effect, binding]) => {
+    const operation = recipe.operations.find(item => item.id === operationId && item.kind === 'text.block');
+    if (!operation) return [];
+    const member = Object.freeze({ path: operation.target.segments.map(part => part.literal).join('/'), kind: 'block',
+      blockId: operation.blockId, startMarker: operation.startMarker, endMarker: operation.endMarker });
+    return [Object.freeze({ id, repair: definition.id, managementId: definition.managementId,
+      materialName: definition.materialName, targets: Object.freeze([effect]), effect, member,
+      content: materialPath => {
+        const rendered = typeof materialPath === 'string' ? renderRepair({ id: definition.id, variantRef: variant.recipeRef,
+          bundlePath: materialPath, bundleSha256: '0'.repeat(64), fingerprints: ['0'.repeat(64)] }) : undefined;
+        return rendered?.status === 'completed' ? rendered.bindings[binding] : undefined;
+      } })];
+  });
+}
+
 /** Installed vendor logic consumes bounded snapshots; it never reads or mutates the host. */
 export function prepareRepairDefinition(request) {
   if (request?.id === 'jvm-ca') return prepareJvmRepair(request);
@@ -599,7 +625,7 @@ async function runProcess(file, args, deadline, ceiling, signal, maxBytes = prof
   });
 }
 
-async function tlsProbe(origin, deadline, signal) {
+async function tlsProbe(origin, deadline, signal, ca) {
   const stopAt = Math.min(deadline, performance.now() + profile.networkSocketMs);
   const timeout = remaining(stopAt);
   if (!timeout) return { kind: 'limit', reason: 'deadline' };
@@ -610,9 +636,10 @@ async function tlsProbe(origin, deadline, signal) {
     const finish = value => { if (finished) return; finished = true; clearTimeout(timer);
       signal?.removeEventListener('abort', abort); socket?.destroy(); resolveResult(value); };
     const abort = () => finish({ kind: 'cancelled' });
+    if (ca === false) { finish({ kind: 'unavailable', reason: 'probe-invocation' }); return; }
     try {
       socket = tls.connect({ host: url.hostname, port: Number(url.port || 443), servername: url.hostname,
-        rejectUnauthorized: true, timeout }, () => {
+        rejectUnauthorized: true, timeout, ...(ca ? { ca } : {}) }, () => {
         if (performance.now() >= stopAt) finish({ kind: 'limit', reason: 'deadline' });
         else finish({ kind: socket.authorized ? 'passed' : 'failed', reason: socket.authorized ? 'tls-ok' : 'certificate-chain' });
       });
@@ -731,6 +758,43 @@ export async function assessRepairCandidate(request, controls = {}) {
   return assessNodeTrustCandidate({ originId: request.inputs?.originId }, controls);
 }
 
+const persistedTrustLimits = Object.freeze({ certificates: 1024, certificateBytes: 65536, totalBytes: 16 * 1024 * 1024 });
+/** Strict, bounded `{ node?, npm? }` lists of certificate PEM text; `undefined` when malformed. */
+function persistedTrustLists(value) {
+  if (!plain(value, ['node', 'npm'])) return undefined;
+  const lists = { node: [], npm: [] }; let bytes = 0;
+  for (const key of ['node', 'npm']) {
+    if (!Object.hasOwn(value, key)) continue;
+    const list = value[key];
+    if (!Array.isArray(list) || isProxy(list) || Object.getPrototypeOf(list) !== Array.prototype ||
+        list.length > persistedTrustLimits.certificates ||
+        Reflect.ownKeys(list).some(name => name !== 'length' &&
+          (typeof name !== 'string' || !/^(0|[1-9][0-9]*)$/.test(name) || Number(name) >= list.length))) return undefined;
+    for (let index = 0; index < list.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(list, String(index));
+      if (!descriptor || !('value' in descriptor) || typeof descriptor.value !== 'string') return undefined;
+      const size = Buffer.byteLength(descriptor.value);
+      bytes += size;
+      if (size > persistedTrustLimits.certificateBytes || bytes > persistedTrustLimits.totalBytes) return undefined;
+      lists[key].push(descriptor.value);
+    }
+  }
+  for (const pem of [...lists.node, ...lists.npm]) {
+    try { new X509Certificate(pem); } catch { return undefined; }
+  }
+  return lists;
+}
+/**
+ * Roots a new process gets from Core's persisted configuration: this process's default roots without its own
+ * start-time extras, plus the persisted extras. Undefined when nothing is persisted (probes stay as they are).
+ */
+function persistedTrustAuthority(persistedTrust, targetId) {
+  const extras = [...persistedTrust.node, ...(targetId === 'npm' ? persistedTrust.npm : [])];
+  if (!extras.length) return undefined;
+  const own = new Set(tls.getCACertificates('extra'));
+  return [...new Set([...tls.getCACertificates('default').filter(pem => !own.has(pem)), ...extras])];
+}
+
 function configuredOrigins(selected, home, project) {
   const found = []; const rejected = []; let overflow = false;
   const specs = [
@@ -778,7 +842,7 @@ export async function diagnose(request, controls = {}) {
     diagnostics: [diagnostic('INPUT_INVALID', reason, 'Use a published diagnostic and bounded controls.')],
     repairChoices: [], limits: { budgetMs: profile.phaseMs, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }
   });
-  if (!plain(request, ['requestId', 'targets', 'network', 'probeConfiguredMcp', 'project']) ||
+  if (!plain(request, ['requestId', 'targets', 'network', 'probeConfiguredMcp', 'project', 'persistedTrust']) ||
       !plain(controls, ['signal', 'budgetMs'])) return invalid('request-field');
   if (typeof request.requestId !== 'string' || request.requestId.length < 1 || request.requestId.length > 128 ||
       !validDiagnosticTargets(request.targets) || request.network !== undefined && !['declared', 'off'].includes(request.network) ||
@@ -787,6 +851,8 @@ export async function diagnose(request, controls = {}) {
       controls.signal !== undefined && !(controls.signal instanceof AbortSignal) ||
       controls.budgetMs !== undefined && (!Number.isInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > profile.phaseMs))
     return invalid('diagnostic-input');
+  const persistedTrust = request.persistedTrust === undefined ? undefined : persistedTrustLists(request.persistedTrust);
+  if (request.persistedTrust !== undefined && !persistedTrust) return invalid('persisted-trust');
   const requestBytes = Buffer.byteLength(request.requestId) +
     Buffer.byteLength(request.project ?? '') + (request.targets ?? []).reduce((size, id) => size + Buffer.byteLength(id), 0) + 256;
   if (requestBytes > 65536) return invalid('request-bytes');
@@ -922,7 +988,8 @@ export async function diagnose(request, controls = {}) {
       if (os.kind === 'cancelled') { cancelled = true; push(osId, target.id, 'unavailable', 'cancelled'); break; }
       push(osId, target.id, os.kind === 'complete' ? os.code === 0 ? 'passed' : 'failed' : 'unavailable',
         os.kind === 'complete' ? os.code === 0 ? 'tls-ok' : 'connection-failed' : os.reason ?? 'probe-invocation', origin);
-      const node = await tlsProbe(origin, deadline, controls.signal);
+      let ca; try { ca = persistedTrust && persistedTrustAuthority(persistedTrust, target.id); } catch { ca = false; }
+      const node = await tlsProbe(origin, deadline, controls.signal, ca);
       if (node.kind === 'cancelled') { cancelled = true; push(nodeId, target.id, 'unavailable', 'cancelled'); break; }
       push(nodeId, target.id, node.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(node.kind) ? 'unavailable' : 'failed',
         node.reason === 'certificate-chain' && os.kind === 'complete' && os.code === 0 ? 'node-certificate-chain' : node.reason, origin);
@@ -938,7 +1005,8 @@ export async function diagnose(request, controls = {}) {
       if (network === 'off') { push(id, 'mcp', 'skipped', 'network-off'); continue; }
       if (index >= profile.configuredMcpOrigins) { push(id, 'mcp', 'unavailable', 'candidate-count'); continue; }
       if (cancelled || isCancelled(controls.signal)) { cancelled = true; push(id, 'mcp', 'skipped', 'cancelled'); continue; }
-      const probe = await tlsProbe(origin, mcpDeadline, controls.signal);
+      let ca; try { ca = persistedTrust && persistedTrustAuthority(persistedTrust, 'mcp'); } catch { ca = false; }
+      const probe = await tlsProbe(origin, mcpDeadline, controls.signal, ca);
       if (probe.kind === 'cancelled') { cancelled = true; push(id, 'mcp', 'unavailable', 'cancelled'); continue; }
       push(id, 'mcp', probe.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(probe.kind) ? 'unavailable' : 'failed', probe.reason, origin);
     }

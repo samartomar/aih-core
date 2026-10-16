@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Add opt-in `configuration: 'persisted'` to `inspect`, so a long-running host can re-check Node TLS
+after a repair with the trust Core's managed `node-npm-ca` configuration gives a new process. Only
+Core-managed blocks with matching custody are applied; the result reports each as `applied`, `removed`,
+`modified` or `unowned`, and any other state is a `STATE_CONFLICT` diagnostic and an `incomplete` status.
+`effectiveOptions.configuration` is added; the default `process` behavior is unchanged. Harness exports
+`persistedConfigurationMembers()` and accepts an optional `persistedTrust` in `diagnose`.
+This candidate is unpublished.
+
 Add optional versioned `organizationTarget` declarations to Enterprise Prepare,
 with portable validation and organization-target 1.0.0 / prepared-work 1.5.0
 schema exports. Targeted reviews label client/repository facts as declared,

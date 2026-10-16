@@ -33,7 +33,7 @@ export function apply(prepared: PreparedHandle, authorization: Authorization, co
   return isTrustHandle(prepared) ? applyTrust(prepared, authorization, controls) : isRepairHandle(prepared) ? applyRepair(prepared, authorization, controls) : applyPolicy(prepared, authorization, controls);
 }
 export { inspect } from './inspection.js';
-export type { InspectRequest, InspectControls, InspectResult } from './inspection.js';
+export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
 export { writeSupportReport } from './support-report.js';
 export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
 
