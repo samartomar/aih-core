@@ -107,7 +107,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       packedSchemas.addSchema(JSON.parse(readFileSync(join(installed, exported), 'utf8')));
     }
     writeFileSync(join(consumer, 'contracts.mts'), `
-      import {contractSupport,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
+      import {contractSupport,nativeClientIds,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
       import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
       import {diagnose} from '@aihq/core/harness/runtime';
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
@@ -117,7 +117,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {deriveRecipeIdentity,previewOrganizationAdmission,previewOrganizationObligations} from '@aihq/core/contracts';
       import type {DeriveRecipeIdentityRequest,RecipeIdentity,AuthoringResult,AuthoringDiagnostic,PreviewOrganizationAdmissionRequest,OrganizationAdmissionPreview,
-        PreviewOrganizationObligationsRequest,OrganizationObligationsPreview,OrganizationPolicy,OrganizationObligation,OrganizationTarget} from '@aihq/core/contracts';
+        PreviewOrganizationObligationsRequest,OrganizationObligationsPreview,OrganizationPolicy,OrganizationObligation,OrganizationTarget,NativeClientId} from '@aihq/core/contracts';
       const identityInput: DeriveRecipeIdentityRequest = {recipe: ${JSON.stringify(policy().selections[0].recipe.inline)}};
       const identityResult: Promise<AuthoringResult<RecipeIdentity>> = deriveRecipeIdentity(identityInput);
       // @ts-expect-error Identity variants are exclusive.
@@ -129,9 +129,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const obligationOrganization: OrganizationPolicy = {schema:'urn:aihq:core:organization-policy:1.1.0',id:'team',selections:[]};
       const obligationInput: PreviewOrganizationObligationsRequest = {organization:obligationOrganization,selections:[],lifecycle:[],target:obligationTarget};
       const obligationResult: AuthoringResult<OrganizationObligationsPreview> = previewOrganizationObligations(obligationInput);
-      import {nativeClientIds} from '@aihq/core/harness';
-      import type {NativeClientId} from '@aihq/core/contracts';
+      // The published client list and Core's client type must agree in both directions.
       const supportedClients: readonly NativeClientId[] = nativeClientIds;
+      const coreClient: (typeof nativeClientIds)[number] = 'zed' as NativeClientId;
       // @ts-expect-error A client outside Core's supported list is not a NativeClientId.
       const unsupportedClient: (typeof nativeClientIds)[number] = 'unknown';
       // @ts-expect-error A client outside Core's native list is not a target.
@@ -301,9 +301,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     run(join(consumer, 'native-public.mjs'));
     writeFileSync(join(consumer, 'supported-clients.mjs'), `
       import assert from 'node:assert/strict';
-      import * as core from '@aihq/core';
       import {nativeClientIds} from '@aihq/core/harness';
       import {validateOrganizationTarget} from '@aihq/core/contracts';
+      import targetSchema from '@aihq/core/schemas/organization-target/1.0.0.json' with {type:'json'};
       assert.ok(Object.isFrozen(nativeClientIds)); assert.ok(nativeClientIds.length>0);
       assert.equal(new Set(nativeClientIds).size,nativeClientIds.length);
       const target=client=>({schema:'urn:aihq:core:organization-target:1.0.0',client});
@@ -312,8 +312,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         assert.equal(validateOrganizationTarget(target(id)).valid,true,id);
       }
       assert.equal(validateOrganizationTarget(target('unknown')).valid,false);
-      // nativeClientIds replaces the root SUPPORTED_CLIS export of earlier pre-1.0 builds.
-      assert.equal('SUPPORTED_CLIS' in core,false);
+      // A subset would still validate; the installed schema fixes the complete list.
+      assert.deepEqual([...nativeClientIds],targetSchema.properties.client.enum);
     `);
     run(join(consumer, 'supported-clients.mjs'));
     const coreRequire = createRequire(join(installed, 'package.json'));

@@ -326,7 +326,7 @@ import { nativeClientIds } from '@aihq/core/harness';
 import type { NativeClientId } from '@aihq/core/contracts';
 ```
 
-The same ids are the accepted `client` values for organization targets and selectors (`NativeClientId`, exported from `@aihq/core` and `@aihq/core/contracts`). Membership does not mean a client is installed, configured, connected or admitted for native verification, and the order is not a ranking. It replaces the root `SUPPORTED_CLIS` export of earlier pre-1.0 builds.
+The same ids are the accepted `client` values for organization targets and selectors (`NativeClientId`, exported from `@aihq/core` and `@aihq/core/contracts`). Membership does not mean a client is installed, configured, connected or admitted for native verification, and the order is not a ranking.
 
 ## Explicit native client verification
 

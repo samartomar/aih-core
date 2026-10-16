@@ -3,10 +3,10 @@
 ## Unreleased
 
 Document `nativeClientIds` from `@aihq/core/harness` as the public supported AI client
-list, replacing the root `SUPPORTED_CLIS` export of earlier pre-1.0 builds. It is
-frozen and portable, and its ids are the accepted organization-target `client`
-values. The packed consumer proves the export, its `NativeClientId` typing and the
-absence of a root `SUPPORTED_CLIS`. This candidate is unpublished.
+list. It is frozen and portable, and its ids are exactly the accepted
+organization-target `client` values. The packed consumer proves the export, its
+`NativeClientId` typing and its agreement with the organization-target schema.
+This candidate is unpublished.
 
 Add optional versioned `organizationTarget` declarations to Enterprise Prepare,
 with portable validation and organization-target 1.0.0 / prepared-work 1.5.0
