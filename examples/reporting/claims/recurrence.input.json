@@ -1,0 +1,888 @@
+{
+  "schema": "urn:aihq:report:claims:1.1.0",
+  "claims": [
+    {
+      "id": "recurring-initial-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:native-verification-result:1.0.0",
+      "subject": {
+        "kind": "client",
+        "id": "example-client-environment"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recurring-initial-failure",
+          "schema": "urn:aihq:core:native-verification-result:1.0.0"
+        }
+      ],
+      "observation": "event:recurring-initial-failure",
+      "capturedAt": "2026-10-15T10:01:00.000Z",
+      "measure": "condition:native-use",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recurring-recovery",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:native-verification-result:1.0.0",
+      "subject": {
+        "kind": "client",
+        "id": "example-client-environment"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recurring-recovery",
+          "schema": "urn:aihq:core:native-verification-result:1.0.0"
+        }
+      ],
+      "observation": "event:recurring-recovery",
+      "capturedAt": "2026-10-15T10:02:00.000Z",
+      "measure": "condition:native-use",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recurring-later-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:native-verification-result:1.0.0",
+      "subject": {
+        "kind": "client",
+        "id": "example-client-environment"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recurring-later-failure",
+          "schema": "urn:aihq:core:native-verification-result:1.0.0"
+        }
+      ],
+      "observation": "event:recurring-later-failure",
+      "capturedAt": "2026-10-15T10:03:00.000Z",
+      "measure": "condition:native-use",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recovered-without-recurrence-initial-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-recovered-without-recurrence"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recovered-without-recurrence-initial-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:recovered-without-recurrence-initial-failure",
+      "capturedAt": "2026-10-15T10:01:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recovered-without-recurrence-recovery",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-recovered-without-recurrence"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recovered-without-recurrence-recovery",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:recovered-without-recurrence-recovery",
+      "capturedAt": "2026-10-15T10:02:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recovered-without-recurrence-later-pass",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-recovered-without-recurrence"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:recovered-without-recurrence-later-pass",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:recovered-without-recurrence-later-pass",
+      "capturedAt": "2026-10-15T10:03:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "unrelated-condition-initial-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-unrelated-condition"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:unrelated-condition-initial-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:unrelated-condition-initial-failure",
+      "capturedAt": "2026-10-15T10:01:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "unrelated-condition-recovery",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-unrelated-condition"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:unrelated-condition-recovery",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:unrelated-condition-recovery",
+      "capturedAt": "2026-10-15T10:02:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "unrelated-condition-later-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-unrelated-condition"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:unrelated-condition-later-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:unrelated-condition-later-failure",
+      "capturedAt": "2026-10-15T10:03:00.000Z",
+      "measure": "condition:other-file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate-import-initial-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-duplicate-import"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:duplicate-import-initial-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:duplicate-import-initial-failure",
+      "capturedAt": "2026-10-15T10:01:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate-import-recovery",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-duplicate-import"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:duplicate-import-recovery",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:duplicate-import-recovery",
+      "capturedAt": "2026-10-15T10:02:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "passed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate-import-later-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-duplicate-import"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:duplicate-import-later-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:duplicate-import-later-failure",
+      "capturedAt": "2026-10-15T10:03:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate-import-later-failure-reimport",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-duplicate-import"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:duplicate-import-later-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:duplicate-import-later-failure",
+      "capturedAt": "2026-10-15T10:03:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "still-failing-initial-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-still-failing"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:still-failing-initial-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:still-failing-initial-failure",
+      "capturedAt": "2026-10-15T10:01:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "still-failing-repeated-failure",
+      "revision": "1",
+      "producer": {
+        "id": "@aihq/core",
+        "version": "1.0.0-dev.37"
+      },
+      "recordSchema": "urn:aihq:core:file-state-result:1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-still-failing"
+      },
+      "scope": {
+        "kind": "machine",
+        "targets": [
+          "example-machine"
+        ]
+      },
+      "sources": [
+        {
+          "id": "record:still-failing-repeated-failure",
+          "schema": "urn:aihq:core:file-state-result:1.0.0"
+        }
+      ],
+      "observation": "event:still-failing-repeated-failure",
+      "capturedAt": "2026-10-15T10:02:00.000Z",
+      "measure": "condition:file-state",
+      "kind": "measured",
+      "value": {
+        "amount": "failed",
+        "unit": "outcome"
+      },
+      "coverage": {
+        "state": "complete",
+        "reason": "every selected check ran"
+      },
+      "authentication": {
+        "status": "not-authenticated"
+      },
+      "applicability": {
+        "state": "current",
+        "reason": "inputs unchanged since capture",
+        "inputs": [
+          {
+            "id": "example-policy",
+            "revision": "1"
+          }
+        ]
+      }
+    }
+  ],
+  "calculations": [
+    {
+      "id": "recurring",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "client",
+        "id": "example-client-environment"
+      },
+      "condition": "condition:native-use",
+      "observations": [
+        {
+          "id": "recurring-initial-failure",
+          "revision": "1"
+        },
+        {
+          "id": "recurring-recovery",
+          "revision": "1"
+        },
+        {
+          "id": "recurring-later-failure",
+          "revision": "1"
+        }
+      ]
+    },
+    {
+      "id": "recovered-without-recurrence",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-recovered-without-recurrence"
+      },
+      "condition": "condition:file-state",
+      "observations": [
+        {
+          "id": "recovered-without-recurrence-initial-failure",
+          "revision": "1"
+        },
+        {
+          "id": "recovered-without-recurrence-recovery",
+          "revision": "1"
+        },
+        {
+          "id": "recovered-without-recurrence-later-pass",
+          "revision": "1"
+        }
+      ]
+    },
+    {
+      "id": "unrelated-condition",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-unrelated-condition"
+      },
+      "condition": "condition:file-state",
+      "observations": [
+        {
+          "id": "unrelated-condition-initial-failure",
+          "revision": "1"
+        },
+        {
+          "id": "unrelated-condition-recovery",
+          "revision": "1"
+        },
+        {
+          "id": "unrelated-condition-later-failure",
+          "revision": "1"
+        }
+      ]
+    },
+    {
+      "id": "duplicate-import",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-duplicate-import"
+      },
+      "condition": "condition:file-state",
+      "observations": [
+        {
+          "id": "duplicate-import-initial-failure",
+          "revision": "1"
+        },
+        {
+          "id": "duplicate-import-recovery",
+          "revision": "1"
+        },
+        {
+          "id": "duplicate-import-later-failure",
+          "revision": "1"
+        },
+        {
+          "id": "duplicate-import-later-failure-reimport",
+          "revision": "1"
+        }
+      ]
+    },
+    {
+      "id": "missing-history",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-missing-history"
+      },
+      "condition": "condition:file-state",
+      "observations": []
+    },
+    {
+      "id": "still-failing",
+      "method": "recurrence",
+      "version": "1.0.0",
+      "subject": {
+        "kind": "managed-selection",
+        "id": "example-still-failing"
+      },
+      "condition": "condition:file-state",
+      "observations": [
+        {
+          "id": "still-failing-initial-failure",
+          "revision": "1"
+        },
+        {
+          "id": "still-failing-repeated-failure",
+          "revision": "1"
+        }
+      ]
+    }
+  ]
+}

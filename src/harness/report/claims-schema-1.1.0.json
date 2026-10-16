@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:report:claims:1.1.0",
+  "title": "@aihq/core normalized claim set",
+  "description": "Structure of a normalized claim set accepted by @aihq/core/report. Version 1.1.0 adds the recurrence calculation method to the 1.0.0 set; every 1.0.0 claim and calculation is accepted unchanged. The schema checks structure only. The reporting validator additionally checks real calendar instants, unique claim identities, that every claim reference resolves, and calculation-specific claim requirements. A structurally valid claim set is not authenticated unless a claim supplies verifier provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "claims"],
+  "properties": {
+    "schema": { "const": "urn:aihq:report:claims:1.1.0" },
+    "claims": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/claim" } },
+    "calculations": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/calculation" } },
+    "actions": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/action" } }
+  },
+  "$defs": {
+    "identity": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "instant": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?(Z|\\+00:00)$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "namedVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "version": { "$ref": "#/$defs/identity" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/identity" },
+        "id": { "$ref": "#/$defs/identity" }
+      }
+    },
+    "claimRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "revision": { "$ref": "#/$defs/identity" }
+      }
+    },
+    "recordRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "schema"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "schema": { "$ref": "#/$defs/identity" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "authentication": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": { "status": { "const": "not-authenticated" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "verifier", "method", "verifiedAt", "evidence"],
+          "properties": {
+            "status": { "enum": ["authenticated", "verification-failed"] },
+            "verifier": { "$ref": "#/$defs/namedVersion" },
+            "method": { "$ref": "#/$defs/namedVersion" },
+            "verifiedAt": { "$ref": "#/$defs/instant" },
+            "evidence": { "type": "array", "minItems": 1, "maxItems": 4096, "items": { "$ref": "#/$defs/recordRef" } }
+          }
+        }
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "revision", "producer", "recordSchema", "subject", "scope", "sources", "observation",
+        "capturedAt", "measure", "kind", "coverage", "authentication", "applicability"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "revision": { "$ref": "#/$defs/identity" },
+        "producer": { "$ref": "#/$defs/namedVersion" },
+        "recordSchema": { "$ref": "#/$defs/identity" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "targets"],
+          "properties": {
+            "kind": { "enum": ["machine", "repository", "workspace", "user-content"] },
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4096,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/identity" }
+            }
+          }
+        },
+        "sources": { "type": "array", "minItems": 1, "maxItems": 4096, "items": { "$ref": "#/$defs/recordRef" } },
+        "observation": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/identity" }
+          ]
+        },
+        "capturedAt": { "$ref": "#/$defs/instant" },
+        "measure": { "$ref": "#/$defs/identity" },
+        "kind": { "enum": ["measured", "estimated", "declared", "unknown"] },
+        "value": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount", "unit"],
+          "properties": {
+            "amount": {
+              "anyOf": [
+                { "type": "number" },
+                { "$ref": "#/$defs/text" },
+                { "type": "boolean" }
+              ]
+            },
+            "unit": { "$ref": "#/$defs/identity" }
+          }
+        },
+        "unknownReason": { "$ref": "#/$defs/text" },
+        "method": { "$ref": "#/$defs/namedVersion" },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reason"],
+          "properties": {
+            "state": { "enum": ["complete", "partial", "unknown"] },
+            "reason": { "type": "string", "maxLength": 2048 }
+          }
+        },
+        "authentication": { "$ref": "#/$defs/authentication" },
+        "applicability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reason", "inputs"],
+          "properties": {
+            "state": { "enum": ["current", "recheck-needed", "unknown"] },
+            "reason": { "$ref": "#/$defs/text" },
+            "inputs": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/claimRef" } }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "unknown" } }, "required": ["kind"] },
+          "then": { "required": ["unknownReason"], "properties": { "unknownReason": true, "value": false } },
+          "else": { "required": ["value"], "properties": { "value": true, "unknownReason": false } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "estimated" } }, "required": ["kind"] },
+          "then": { "required": ["method"], "properties": { "method": true } }
+        }
+      ]
+    },
+    "calculation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "method", "version", "checkSet", "selected", "inapplicable"],
+          "properties": {
+            "id": { "$ref": "#/$defs/identity" },
+            "method": { "const": "configuration-check-score" },
+            "version": { "const": "1.0.0" },
+            "checkSet": { "$ref": "#/$defs/namedVersion" },
+            "selected": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/claimRef" } },
+            "inapplicable": {
+              "type": "array",
+              "maxItems": 4096,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["claim", "reason"],
+                "properties": {
+                  "claim": { "$ref": "#/$defs/claimRef" },
+                  "reason": { "$ref": "#/$defs/text" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "method", "version", "attempts"],
+          "properties": {
+            "id": { "$ref": "#/$defs/identity" },
+            "method": { "const": "verified-repair-count" },
+            "version": { "const": "1.0.0" },
+            "attempts": {
+              "type": "array",
+              "maxItems": 4096,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["operation", "subject", "condition", "precheck", "repair", "postcheck"],
+                "properties": {
+                  "operation": { "$ref": "#/$defs/identity" },
+                  "subject": { "$ref": "#/$defs/subject" },
+                  "condition": { "$ref": "#/$defs/identity" },
+                  "precheck": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/claimRef" }] },
+                  "repair": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/claimRef" }] },
+                  "postcheck": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/claimRef" }] }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "method", "version", "before", "after"],
+          "properties": {
+            "id": { "$ref": "#/$defs/identity" },
+            "method": { "const": "context-change" },
+            "version": { "const": "1.0.0" },
+            "before": { "$ref": "#/$defs/claimRef" },
+            "after": { "$ref": "#/$defs/claimRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "method", "version", "subject", "condition", "observations"],
+          "properties": {
+            "id": { "$ref": "#/$defs/identity" },
+            "method": { "const": "recurrence" },
+            "version": { "const": "1.0.0" },
+            "subject": { "$ref": "#/$defs/subject" },
+            "condition": { "$ref": "#/$defs/identity" },
+            "observations": { "type": "array", "maxItems": 4096, "uniqueItems": true, "items": { "$ref": "#/$defs/claimRef" } }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "reason", "subjects", "evidence", "prerequisites", "route"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "category": { "enum": ["blocker", "urgent-review", "important-unknown", "optional-improvement"] },
+        "reason": { "$ref": "#/$defs/text" },
+        "subjects": { "type": "array", "minItems": 1, "maxItems": 4096, "items": { "$ref": "#/$defs/subject" } },
+        "evidence": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/claimRef" } },
+        "prerequisites": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/text" } },
+        "route": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["operation", "guidance"] },
+            "id": { "$ref": "#/$defs/identity" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -76,17 +76,19 @@ try {
  assert.equal(JSON.parse(dataOnly).counts.passed,1);
  console.log('Packed data-only consumer passed with renderer imports forbidden; package uses only installed public exports.');
 
- // Normalized claims 1.0.0: the installed package's filled examples, its public schema export and declarations.
+ // Normalized claims 1.0.0 and 1.1.0: the installed package's filled examples, its public schema export and declarations.
  const claimsScript = [
   "import assert from 'node:assert/strict';",
   "import { readFile } from 'node:fs/promises';",
-  "import { CLAIMS_SCHEMA,CLAIMS_ACCEPTED_VERSIONS,readClaimSet,projectClaims } from '@aihq/core/report';",
+  "import { CLAIMS_SCHEMA,CLAIMS_SCHEMA_1_1_0,CLAIMS_ACCEPTED_VERSIONS,readClaimSet,projectClaims } from '@aihq/core/report';",
   "import { contractSupport } from '@aihq/core/harness';",
   "const examples='node_modules/@aihq/core/examples/reporting/claims/';",
   "const load=name=>readFile(examples+name,'utf8');",
-  "assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS,[CLAIMS_SCHEMA]);",
+  "assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS,[CLAIMS_SCHEMA,CLAIMS_SCHEMA_1_1_0]);",
   "const declared=contractSupport.contracts.find(item=>item.id===CLAIMS_SCHEMA); assert.equal(declared.role,'accepts');",
   "assert.equal((await import(declared.schemaExport,{with:{type:'json'}})).default.$id,CLAIMS_SCHEMA);",
+  "const declaredNext=contractSupport.contracts.find(item=>item.id===CLAIMS_SCHEMA_1_1_0); assert.equal(declaredNext.role,'accepts');",
+  "assert.equal((await import(declaredNext.schemaExport,{with:{type:'json'}})).default.$id,CLAIMS_SCHEMA_1_1_0);",
   "const project=async name=>{const read=readClaimSet(await load(name+'.input.json')); assert.equal(read.status,'supported'); const result=projectClaims(read.claimSet); assert.deepEqual(result,JSON.parse(await load(name+'.projection.json'))); assert.equal(JSON.stringify(projectClaims(read.claimSet)),JSON.stringify(result)); return result;};",
   "const byId=result=>Object.fromEntries(result.calculations.map(item=>[item.id,item]));",
   "const checks=byId(await project('checks'));",
@@ -99,16 +101,19 @@ try {
   "assert.equal(context['bytes-reduction'].absoluteDifference,250); assert.equal(context['bytes-reduction'].percentage,25);",
   "assert.equal(context['zero-baseline'].absoluteDifference,1200); assert.equal(context['zero-baseline'].percentage,null);",
   "assert.equal(context['estimate-vs-observed'].status,'unavailable');",
+  "const recurrence=byId(await project('recurrence'));",
+  "assert.deepEqual(Object.values(recurrence).map(item=>[item.id,item.status,item.reason,item.count]),[['recurring','available',null,1],['recovered-without-recurrence','available',null,0],['unrelated-condition','available',null,0],['duplicate-import','available',null,1],['missing-history','unavailable','no-history',null],['still-failing','unavailable','no-recovery',null]]);",
+  "assert.deepEqual([recurrence.recurring.subject,recurrence.recurring.condition],[{kind:'client',id:'example-client-environment'},'condition:native-use']);",
   "const original=await load('unsupported.input.json'); const rejected=readClaimSet(original);",
   "assert.equal(rejected.status,'rejected'); assert.equal(rejected.code,'SCHEMA_UNSUPPORTED'); assert.equal(rejected.original,original);",
-  "console.log(JSON.stringify({claims:true,score:checks['score-unknown-in-denominator'].score,verifiedRepairs:repairs.count,rejected:rejected.code}));"
+  "console.log(JSON.stringify({claims:true,score:checks['score-unknown-in-denominator'].score,verifiedRepairs:repairs.count,recurrences:recurrence.recurring.count,rejected:rejected.code}));"
  ].join('\n');
  await writeFile(join(consumer,'claims.mjs'),claimsScript);
  console.log(execFileSync(process.execPath,['claims.mjs'],{cwd:consumer,encoding:'utf8',windowsHide:true}).trim());
  console.log('Packed normalized-claims consumer projected the installed filled examples and rejected an unsupported format with its bytes preserved.');
 
   const declaration=[
-  "import {createReport,exportSnapshot,importSnapshot,readClaimSet,projectClaims,validateClaimSet,CLAIMS_SCHEMA,type ReportSnapshot,type ClaimSet,type ClaimSetRead,type ClaimsProjection,type CalculationResult,type OrderedAction} from '@aihq/core/report';",
+  "import {createReport,exportSnapshot,importSnapshot,readClaimSet,projectClaims,validateClaimSet,CLAIMS_SCHEMA,CLAIMS_SCHEMA_1_1_0,type ReportSnapshot,type ClaimSet,type ClaimSetRead,type ClaimsProjection,type CalculationResult,type OrderedAction,type RecurrenceRequest,type RecurrenceResult} from '@aihq/core/report';",
   "import {renderReport} from '@aihq/core/report/render';",
   "const snapshot:ReportSnapshot=importSnapshot('{}'); const revision:string|null=snapshot.producer.revision; void [createReport,exportSnapshot,renderReport,revision];",
   "const schemaId:'urn:aihq:report:claims:1.0.0'=CLAIMS_SCHEMA;",
@@ -119,7 +124,14 @@ try {
   "const valid:boolean=validateClaimSet({}).valid;",
   "// @ts-expect-error a claim kind outside the closed set is a type error",
   "const badKind:ClaimSet['claims'][number]['kind']='guess';",
-  "void [schemaId,score,valid,badKind];"
+  "void [schemaId,score,valid,badKind];",
+  "const nextId:'urn:aihq:report:claims:1.1.0'=CLAIMS_SCHEMA_1_1_0;",
+  "const request:RecurrenceRequest={id:'r',method:'recurrence',version:'1.0.0',subject:{kind:'machine',id:'host'},condition:'file-state',observations:[]};",
+  "const next:ClaimSet={schema:CLAIMS_SCHEMA_1_1_0,claims:[],calculations:[request]};",
+  "// @ts-expect-error a claims 1.0.0 set cannot carry a recurrence request",
+  "const legacy:ClaimSet={schema:CLAIMS_SCHEMA,claims:[],calculations:[request]};",
+  "const recurrenceCount=(result:CalculationResult):number|null=>{if(result.method.id!=='recurrence')return null; const recurrence=result as RecurrenceResult; if(recurrence.status==='available'){const n:number=recurrence.count; return n;} const why:'no-history'|'ambiguous-order'|'no-failure'|'no-recovery'=recurrence.reason; void why; return recurrence.count;};",
+  "void [nextId,next,legacy,recurrenceCount];"
  ].join('\n');
  await writeFile(join(consumer,'report-contracts.mts'),declaration);
  execFileSync(process.execPath,[join(root,'node_modules/typescript/bin/tsc'),'--noEmit','--strict','--module','NodeNext','--moduleResolution','NodeNext','--target','ES2023','--types','node','--typeRoots',join(root,'node_modules/@types'),'report-contracts.mts'],{cwd:consumer,encoding:'utf8',windowsHide:true});

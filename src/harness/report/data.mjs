@@ -13,8 +13,8 @@ import {
 
 export { ReportInputError };
 export {
-  CALCULATION_METHODS, CLAIMS_ACCEPTED_VERSIONS, CLAIMS_PROJECTION_SCHEMA, CLAIMS_SCHEMA,
-  projectClaims, readClaimSet, validateClaimSet,
+  CALCULATION_METHODS, CLAIMS_ACCEPTED_VERSIONS, CLAIMS_PROJECTION_SCHEMA, CLAIMS_PROJECTION_SCHEMA_1_1_0,
+  CLAIMS_SCHEMA, CLAIMS_SCHEMA_1_1_0, projectClaims, readClaimSet, validateClaimSet,
 } from './claims.mjs';
 
 /** Versioned identity of the ReportSnapshot shape this module produces. */

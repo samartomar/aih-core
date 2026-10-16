@@ -20,11 +20,17 @@ import {
 /** Versioned identity of the claim set this module accepts. */
 export const CLAIMS_SCHEMA = 'urn:aihq:report:claims:1.0.0';
 
+/** Versioned identity of the claim set that adds the recurrence calculation method. */
+export const CLAIMS_SCHEMA_1_1_0 = 'urn:aihq:report:claims:1.1.0';
+
 /** Every claim-set schema identity this version reads. */
-export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA]);
+export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA, CLAIMS_SCHEMA_1_1_0]);
 
 /** Versioned identity of the projection this module produces. */
 export const CLAIMS_PROJECTION_SCHEMA = 'urn:aihq:report:claims-projection:1.0.0';
+
+/** Versioned identity of the projection of a claims 1.1.0 set. */
+export const CLAIMS_PROJECTION_SCHEMA_1_1_0 = 'urn:aihq:report:claims-projection:1.1.0';
 
 // A claim set carries many small records, so its node and string budgets are
 // larger than the diagnostic snapshot's. Values beyond them are rejected, never
@@ -297,9 +303,24 @@ function validateContextChange(request, at, resolve) {
   resolve(request.after, `${at}.after`);
 }
 
-function validateCalculation(request, at, claims) {
+function validateRecurrence(request, at, resolve) {
+  requireKeys(request, at, ['id', 'method', 'version', 'subject', 'condition', 'observations']);
+  identity(request.id, `${at}.id`);
+  validateSubject(request.subject, `${at}.subject`);
+  identity(request.condition, `${at}.condition`);
+  const seen = new Set();
+  requireArray(request.observations, `${at}.observations`).forEach((ref, index) => {
+    const path = `${at}.observations[${index}]`;
+    resolve(ref, path);
+    const key = refKey(ref.id, ref.revision);
+    if (seen.has(key)) invalid(`${path}: duplicate claim reference`);
+    seen.add(key);
+  });
+}
+
+function validateCalculation(request, at, claims, schema) {
   if (!isPlainObject(request)) invalid(`${at}: expected object`);
-  const method = methodOf(request);
+  const method = methodOf(request, schema);
   if (method === undefined) invalid(`${at}.method: unsupported calculation method or version`);
 
   const resolve = (ref, path) => {
@@ -360,7 +381,7 @@ function admitClaimSet(value) {
   const calculations = 'calculations' in value ? requireArray(value.calculations, 'claimSet.calculations') : [];
   calculations.forEach((request, index) => {
     const at = `claimSet.calculations[${index}]`;
-    validateCalculation(request, at, claims);
+    validateCalculation(request, at, claims, value.schema);
     if (calculationIds.has(request.id)) invalid(`${at}.id: duplicate calculation id`);
     calculationIds.add(request.id);
   });
@@ -374,7 +395,7 @@ function admitClaimSet(value) {
     actionIds.add(action.id);
   });
 
-  return { claims, calculations, actions };
+  return { schema: value.schema, claims, calculations, actions };
 }
 
 // ---------------------------------------------------------------- dedup
@@ -606,23 +627,112 @@ function contextChange(request, context) {
   return result;
 }
 
+/** `[role, next state]` for a passed or failed outcome arriving in each walk state. */
+const RECURRENCE_STEPS = Object.freeze({
+  failed: Object.freeze({ initial: ['failure', 'failing'], failing: ['repeated-failure', 'failing'], recovered: ['recurrence', 'failing'] }),
+  passed: Object.freeze({ initial: ['passed', 'initial'], failing: ['recovery', 'recovered'], recovered: ['passed', 'recovered'] }),
+});
+
+/**
+ * A later same-condition failure after a verified recovery. Matching is exact
+ * (subject and condition), events are de-duplicated by observation identity and
+ * ordered by capture instant. Missing or insufficient history is unavailable
+ * with a null count, never zero; an unknown outcome never changes state.
+ */
+function recurrence(request, context) {
+  const sameSubject = (claim) => claim.subject.kind === request.subject.kind && claim.subject.id === request.subject.id;
+  const unmatched = [];
+  const conflicts = [];
+  const events = new Map();
+  for (const ref of request.observations) {
+    const claim = context.claim(ref);
+    let reason = null;
+    if (!sameSubject(claim)) reason = 'different-subject';
+    else if (claim.measure !== request.condition) reason = 'different-condition';
+    else if (outcomeOf(claim) === null) reason = 'not-a-check-outcome';
+    if (reason !== null) {
+      unmatched.push({ claim: refOf(claim), reason });
+      continue;
+    }
+    const info = context.dedup.get(refKey(claim.id, claim.revision));
+    // A conflicted observation has no reliable outcome or time, so it stays off the timeline.
+    if (info.conflicted) conflicts.push(refOf(claim));
+    else if (!events.has(info.group)) {
+      events.set(info.group, { claim: info.representative ?? refOf(claim), capturedAt: claim.capturedAt, time: instantMs(claim.capturedAt), outcome: outcomeOf(claim), role: null });
+    }
+  }
+  unmatched.sort((left, right) => compareRefs(left.claim, right.claim));
+
+  const timeline = [...events.values()].sort((left, right) => left.time - right.time || compareRefs(left.claim, right.claim));
+  const outcomesAt = new Map();
+  for (const event of timeline) {
+    if (!outcomesAt.has(event.time)) outcomesAt.set(event.time, new Set());
+    outcomesAt.get(event.time).add(event.outcome);
+  }
+  const ambiguous = [...outcomesAt.values()].some((outcomes) => outcomes.has('passed') && outcomes.has('failed'));
+  const known = timeline.some((event) => event.outcome !== 'unknown');
+
+  // An ambiguous order assigns no roles at all.
+  const recurrences = [];
+  if (!ambiguous) {
+    let state = 'initial';
+    let episode = null;
+    let recovery = null;
+    for (const event of timeline) {
+      if (event.outcome === 'unknown') {
+        event.role = 'unknown';
+        continue;
+      }
+      [event.role, state] = RECURRENCE_STEPS[event.outcome][state];
+      if (event.role === 'recovery') recovery = event.claim;
+      else if (event.role === 'failure' || event.role === 'recurrence') {
+        if (event.role === 'recurrence') recurrences.push({ failure: refOf(episode), recovery: refOf(recovery), recurrence: refOf(event.claim) });
+        episode = event.claim;
+      }
+    }
+  }
+
+  let reason = null;
+  if (!known) reason = 'no-history';
+  else if (ambiguous) reason = 'ambiguous-order';
+  else if (!timeline.some((event) => event.outcome === 'failed')) reason = 'no-failure';
+  else if (!timeline.some((event) => event.role === 'recovery')) reason = 'no-recovery';
+  return {
+    ...calculationHead(request, reason === null ? 'available' : 'unavailable', reason, request.observations),
+    subject: { kind: request.subject.kind, id: request.subject.id },
+    condition: request.condition,
+    count: reason === null ? recurrences.length : null,
+    recurrences: reason === null ? recurrences : [],
+    timeline: timeline.map((event) => ({ claim: refOf(event.claim), capturedAt: event.capturedAt, outcome: event.outcome, role: event.role })),
+    unmatched,
+    conflicts: uniqueSortedRefs(conflicts),
+    deduplication: deduplicationOf(request.observations, context),
+  };
+}
+
 // ---------------------------------------------------------------- methods
 
-/** One entry per method keeps the advertised list, validation and calculation in step. */
+/**
+ * One entry per method keeps the advertised list, validation and calculation in
+ * step. `since` is the first claim-set version that accepts the method.
+ */
 const METHODS = Object.freeze({
-  'configuration-check-score': Object.freeze({ version: '1.0.0', validate: validateCheckScore, calculate: configurationCheckScore }),
-  'verified-repair-count': Object.freeze({ version: '1.0.0', validate: validateRepairCount, calculate: verifiedRepairCount }),
-  'context-change': Object.freeze({ version: '1.0.0', validate: validateContextChange, calculate: contextChange }),
+  'configuration-check-score': Object.freeze({ version: '1.0.0', since: CLAIMS_SCHEMA, validate: validateCheckScore, calculate: configurationCheckScore }),
+  'verified-repair-count': Object.freeze({ version: '1.0.0', since: CLAIMS_SCHEMA, validate: validateRepairCount, calculate: verifiedRepairCount }),
+  'context-change': Object.freeze({ version: '1.0.0', since: CLAIMS_SCHEMA, validate: validateContextChange, calculate: contextChange }),
+  recurrence: Object.freeze({ version: '1.0.0', since: CLAIMS_SCHEMA_1_1_0, validate: validateRecurrence, calculate: recurrence }),
 });
 
 /** The explicit, versioned calculation methods a request may select. */
 export const CALCULATION_METHODS = Object.freeze(Object.keys(METHODS)
   .map((id) => Object.freeze({ id, version: METHODS[id].version })));
 
-/** The method a request names at its exact version, or undefined. */
-function methodOf(request) {
+/** The method a request names at its exact version, if the claim-set version accepts it, or undefined. */
+function methodOf(request, schema) {
   if (typeof request.method !== 'string' || !Object.hasOwn(METHODS, request.method)) return undefined;
-  return METHODS[request.method].version === request.version ? METHODS[request.method] : undefined;
+  const method = METHODS[request.method];
+  const accepted = CLAIMS_ACCEPTED_VERSIONS.indexOf(schema) >= CLAIMS_ACCEPTED_VERSIONS.indexOf(method.since);
+  return accepted && method.version === request.version ? method : undefined;
 }
 
 // ---------------------------------------------------------------- projection
@@ -686,10 +796,10 @@ function project(admitted) {
     dedup,
     claim: (ref) => admitted.claims.get(refKey(ref.id, ref.revision)),
   };
-  const calculations = admitted.calculations.map((request) => methodOf(request).calculate(request, context));
+  const calculations = admitted.calculations.map((request) => methodOf(request, admitted.schema).calculate(request, context));
   return {
-    schema: CLAIMS_PROJECTION_SCHEMA,
-    source: { schema: CLAIMS_SCHEMA },
+    schema: admitted.schema === CLAIMS_SCHEMA ? CLAIMS_PROJECTION_SCHEMA : CLAIMS_PROJECTION_SCHEMA_1_1_0,
+    source: { schema: admitted.schema },
     claims: sorted.map((claim) => copyClaim(claim, dedup.get(refKey(claim.id, claim.revision)))),
     observations: { duplicates, conflicts, unidentified },
     calculations,

@@ -96,7 +96,7 @@ rejected as unknown fields rather than silently disappearing during cloning.
   raw evidence bytes; `evidence.originalSha256` continues to name the caller's
   original bytes.
 
-## Normalized claims (claims 1.0.0)
+## Normalized claims (claims 1.0.0 and 1.1.0)
 
 `@aihq/core/report` also accepts a **normalized claim set** beside the unchanged
 diagnostic snapshot 1.0.0. A claim set is a list of producer-neutral claims plus
@@ -111,17 +111,24 @@ plain JSON with no shared object references (parsed JSON never has any).
 
 | Export | Signature | Behavior |
 |---|---|---|
-| `CLAIMS_SCHEMA` | `'urn:aihq:report:claims:1.0.0'` | Claim-set identity. |
-| `CLAIMS_ACCEPTED_VERSIONS` | frozen `['urn:aihq:report:claims:1.0.0']` | Every claim-set version this release reads. |
-| `CLAIMS_PROJECTION_SCHEMA` | `'urn:aihq:report:claims-projection:1.0.0'` | Projection identity. |
-| `CALCULATION_METHODS` | frozen `{id, version}[]` | `configuration-check-score`, `verified-repair-count`, `context-change`, each `1.0.0`. |
+| `CLAIMS_SCHEMA` | `'urn:aihq:report:claims:1.0.0'` | Unchanged default claim-set identity. |
+| `CLAIMS_SCHEMA_1_1_0` | `'urn:aihq:report:claims:1.1.0'` | Claim-set identity with recurrence requests. |
+| `CLAIMS_ACCEPTED_VERSIONS` | frozen `['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0']` | Every claim-set version this release reads. |
+| `CLAIMS_PROJECTION_SCHEMA` | `'urn:aihq:report:claims-projection:1.0.0'` | Unchanged default projection identity. |
+| `CLAIMS_PROJECTION_SCHEMA_1_1_0` | `'urn:aihq:report:claims-projection:1.1.0'` | Projection identity for claims 1.1.0. |
+| `CALCULATION_METHODS` | frozen `{id, version}[]` | `configuration-check-score`, `verified-repair-count`, `context-change`, `recurrence`, each `1.0.0`. |
 | `validateClaimSet(value)` | `unknown -> { valid, errors }` | Never throws for malformed input. |
 | `readClaimSet(json)` | `string -> { status: 'supported', claimSet } \| { status: 'rejected', code, schema, errors, original }` | Never throws. A rejection carries the exact unchanged input in `original`. |
 | `projectClaims(claimSet)` | `ClaimSet -> ClaimsProjection` | Throws `ReportInputError`. |
 
-The JSON Schema is `@aihq/core/report/schemas/claims/1.0.0.json`
-(`$id` `urn:aihq:report:claims:1.0.0`); `contractSupport` lists it with role
-`accepts`. JSON Schema checks structure only. The validator additionally checks
+The JSON Schemas are `@aihq/core/report/schemas/claims/1.0.0.json`
+(`$id` `urn:aihq:report:claims:1.0.0`) and
+`@aihq/core/report/schemas/claims/1.1.0.json`
+(`$id` `urn:aihq:report:claims:1.1.0`); `contractSupport` lists each with role
+`accepts`. Claims 1.1.0 accepts everything 1.0.0 accepts and adds `recurrence`
+requests. Claims 1.0.0 documents, schema bytes and projections remain unchanged;
+`CLAIMS_SCHEMA` and `CLAIMS_PROJECTION_SCHEMA` retain their 1.0.0 identities.
+JSON Schema checks structure only. The validator additionally checks
 real calendar instants, claim identity, reference resolution and the
 calculation-specific requirements below.
 
@@ -134,7 +141,8 @@ calculation-specific requirements below.
   actions?: ActionSuggestion[] }
 ```
 
-Every object is closed; an unknown field is `INPUT_INVALID`. A claim has:
+The `schema` may also be `urn:aihq:report:claims:1.1.0`. Every object is closed;
+an unknown field is `INPUT_INVALID`. A claim has:
 
 | Field | Meaning |
 |---|---|
@@ -182,6 +190,11 @@ larger than the snapshot's; values beyond them are rejected, not truncated.
   actions: OrderedAction[] }
 ```
 
+The projection identity follows the input version: claims 1.0.0 yields
+`urn:aihq:report:claims-projection:1.0.0` with `source.schema` claims 1.0.0;
+claims 1.1.0 yields `urn:aihq:report:claims-projection:1.1.0` with
+`source.schema` claims 1.1.0. Existing methods otherwise behave identically.
+
 Each projected claim repeats the supplied fields in a fixed key order (an unknown
 claim has `unknownReason` and no `value`) and adds
 `dedup: { status, canonical }`.
@@ -221,10 +234,11 @@ once, as the canonical claim), so `failed` can list a claim that `counts` holds
 as unknown. `conflicts` lists the selected members of conflicting observations,
 sorted, so that qualification is visible.
 
-**`deduplication`.** Both `configuration-check-score` and
-`verified-repair-count` report `deduplication: { status, unidentified }`. It is
+**`deduplication`.** `configuration-check-score`, `verified-repair-count` and
+`recurrence` report `deduplication: { status, unidentified }`. It is
 `not-established` when any claim the request references (selected, excluded,
-precheck, repair or postcheck) has `observation: null`, and `unidentified` lists
+precheck, repair, postcheck or recurrence observation, including unmatched claims)
+has `observation: null`, and `unidentified` lists
 those claims sorted by `(id, revision)`. The numbers are still computed from the
 supplied records, but a re-import of an unidentified event cannot be recognised,
 so they are not a deduplicated aggregate. Otherwise the status is `established`.
@@ -267,6 +281,93 @@ both `estimated` with an identical `method`. Otherwise the result is
 reduction. With a zero baseline `percentage` is `null` and `percentageReason` is
 `'zero-baseline'`. Percentages are not rounded.
 
+**`recurrence`.** Version 1.0.0 is available in claims 1.1.0 only. Recurrence
+counts a later same-condition failure after a verified recovery. The request explicitly binds
+a subject and condition to supplied history:
+
+```js
+{ id: 'condition-history', method: 'recurrence', version: '1.0.0',
+  subject: { kind: 'managed-selection', id: 'example-selection' },
+  condition: 'condition:file-state',
+  observations: [{ id: 'initial-failure', revision: '1' },
+                 { id: 'recovery', revision: '1' },
+                 { id: 'later-failure', revision: '1' }] }
+```
+
+`observations` holds 0..4096 resolving claim references. Repeating a reference is
+`INPUT_INVALID` (duplicate claim reference). A recurrence request in a claims
+1.0.0 set is `INPUT_INVALID` at `claimSet.calculations[i].method`, like any
+unsupported method.
+
+Matching applies the first applicable exclusion: `different-subject` when either
+subject `kind` or `id` differs; `different-condition` when `claim.measure` differs
+from `condition`; `not-a-check-outcome` when the claim is neither `kind: 'unknown'`
+nor a value `{amount: 'passed' | 'failed', unit: 'outcome'}`. An unknown claim
+matches without inventing an outcome. `unmatched` lists excluded references and
+their reasons, sorted by `(id, revision)`.
+
+Matched claims in a duplicate observation group collapse to one event represented
+by the group's canonical reference. Members of conflicting observations do not
+enter the timeline, since neither outcome nor time is reliable; `conflicts`
+lists their selected matched references, sorted. Claims with `observation: null`
+remain separate events. The result's `deduplication` covers every referenced
+claim, including unmatched claims.
+
+Events are ordered by `capturedAt` instant in epoch milliseconds, then by claim
+reference. A passed event and a failed event at the same instant make the order
+ambiguous. Otherwise the timeline walk starts in `initial` and assigns roles:
+
+| Outcome | `initial` | `failing` | `recovered` |
+|---|---|---|---|
+| `failed` | `failure`, enter `failing` | `repeated-failure`, stay | `recurrence`, enter `failing` |
+| `passed` | `passed`, stay | `recovery`, enter `recovered` | `passed`, stay |
+| `unknown` | `unknown`, stay | `unknown`, stay | `unknown`, stay |
+
+Unknown outcomes never change state. Each `recurrence` adds a triple
+`{failure, recovery, recurrence}` of claim references: `failure` started the
+failing episode (the first failure or a previous recurrence), `recovery` is the
+first pass that ended it, and `recurrence` is the later failure. Repeated failures
+before recovery do not add recurrences. A later pass never erases an earlier
+failure; nothing infers a cause or invents history.
+
+Status and reason use the first matching rule:
+
+1. `unavailable`, `no-history`: no timeline event has a passed or failed outcome.
+2. `unavailable`, `ambiguous-order`: a passed/failed tie exists; every timeline
+   entry has `role: null`.
+3. `unavailable`, `no-failure`: no failed event exists.
+4. `unavailable`, `no-recovery`: failures exist but no recovery was verified.
+5. `available`, reason `null`: at least one recovery exists.
+
+`count` is the number of recurrence events when available, otherwise `null`;
+`recurrences` is empty when unavailable. Missing or insufficient history is
+**never zero**. An available zero means a verified recovery exists and the
+supplied history contains no later same-condition failure.
+
+The result fields, in order, are `id`, `method: {id: 'recurrence', version:
+'1.0.0'}`, `status`, `reason`, `inputs`, `subject`, `condition`, `count`,
+`recurrences`, `timeline`, `unmatched`, `conflicts`, `deduplication`. `inputs`
+contains every unique referenced claim, sorted by `(id, revision)`. `timeline`
+entries contain `{claim, capturedAt, outcome, role}`; `outcome` is `passed`,
+`failed` or `unknown`, and `role` is from the table or `null` for ambiguous order.
+`unmatched` entries are `{claim, reason}`; `conflicts` is a sorted reference list.
+`deduplication` is the existing `{status, unidentified}` qualification above.
+
+**Mapping published Core observations.** The adapter supplies `capturedAt` when
+the host captured the result and a stable `observation` id for each stored result.
+Using `null` leaves de-duplication not established. Passed and failed claims use
+`kind: 'measured'` and `{amount: 'passed' | 'failed', unit: 'outcome'}`; unknown
+claims use `kind: 'unknown'` with `unknownReason` and no `value`.
+
+| Core result | Subject | Measure (= condition) | Passed | Failed | Unknown claim |
+|---|---|---|---|---|---|
+| `checkFileState` target (`file-state-result` 1.0.0) | Managed selection / target id | Adapter's file-state condition key | `match` | `changed`, `absent` | `unavailable` |
+| `verifyNativeClient` (`native-verification-result` 1.0.0) | Client id (+ environment) | Adapter's native-use condition key | Verdict `verified` | Verdict `failed` | Verdict `unverified` |
+| `inspect` `checks[]` | The check `target` | The check `id` | `passed` | `failed` | `unavailable`, `skipped` |
+
+`listManagedSelections` supplies selection identities for subjects; it is not an
+outcome. File-state checks marked `not-checked` are omitted, not claims.
+
 ### Actions
 
 An action suggestion is `{id, category, reason, subjects, evidence,
@@ -289,7 +390,10 @@ once, a conflicting observation kept as two claims, and the action ordering.
 external-repair and applied-unverified attempts that are not counted. `context`
 shows a measured byte reduction with its percentage, a zero baseline with no
 percentage, a same-method estimate comparison and an estimate that cannot be
-compared with an observed value. `unsupported.input.json` carries an unaccepted
+compared with an observed value. `recurrence` uses claims 1.1.0 and shows a
+recurring failure, recovery without recurrence, an unrelated condition excluded
+from the timeline, a duplicate import counted once, missing history and a
+condition still failing without recovery. `unsupported.input.json` carries an unaccepted
 `schema` and is rejected as `SCHEMA_UNSUPPORTED` with its bytes preserved.
 
 `npm run verify:report-consumer` installs a packed artifact in a separate

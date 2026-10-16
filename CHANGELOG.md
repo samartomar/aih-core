@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Add claims 1.1.0 with the versioned `recurrence` 1.0.0 calculation method.
+Recurrence counts later same-condition failures after verified recovery, matched
+by subject and condition and de-duplicated by observation identity. Missing or
+insufficient history is unavailable rather than zero. This is additive: claims
+1.0.0 documents, schema bytes and projections are unchanged. Export the new schema
+at `@aihq/core/report/schemas/claims/1.1.0.json` and include a filled `recurrence`
+example covering recurring, recovered, unrelated, duplicated and missing history,
+and a condition that is still failing. The public `ClaimSet`, `ClaimsProjection`,
+`CalculationRequest` and `CalculationResult` types now include the 1.1.0 forms;
+narrow on `schema` or `method`, or use the `ClaimSet100`, `ClaimsProjection100`,
+`CalculationRequest100` and `CalculationResult100` 1.0.0 subsets. This candidate
+is unpublished.
+
 Add opt-in `configuration: 'persisted'` to `inspect`, so a long-running host can re-check Node TLS
 after a repair with the trust Core's managed `node-npm-ca` configuration gives a new process. Only
 Core-managed blocks with matching custody (judged by the block's own bytes and line endings) are applied;
