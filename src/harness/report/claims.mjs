@@ -661,9 +661,12 @@ function recurrence(request, context) {
     // A conflicted observation has no reliable outcome or time, so it stays off the timeline.
     if (info.conflicted) conflicts.push(refOf(claim));
     else if (!events.has(info.group)) {
-      events.set(info.group, { claim: info.representative ?? refOf(claim), capturedAt: claim.capturedAt, time: instantMs(claim.capturedAt), outcome: outcomeOf(claim), role: null,
-        scope: JSON.stringify([claim.scope.kind, [...claim.scope.targets].sort(compare)]),
-        method: claim.method === undefined ? null : JSON.stringify([claim.method.id, claim.method.version]) });
+      const scope = JSON.stringify([claim.scope.kind, [...claim.scope.targets].sort(compare)]);
+      const method = claim.method === undefined ? null : JSON.stringify([claim.method.id, claim.method.version]);
+      events.set(info.group, {
+        claim: info.representative ?? refOf(claim), capturedAt: claim.capturedAt, time: instantMs(claim.capturedAt),
+        outcome: outcomeOf(claim), role: null, scope, method,
+      });
     }
   }
   unmatched.sort((left, right) => compareRefs(left.claim, right.claim));
