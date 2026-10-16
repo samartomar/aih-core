@@ -17,7 +17,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
-| `@aihq/core/harness` | Portable `contractSupport`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
+| `@aihq/core/harness` | Portable `contractSupport`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, and read-only macOS session/app/key observations and LaunchAgent rendering |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
@@ -320,6 +320,17 @@ const result = await inspect({ targets: ['node', 'npm'], network: 'off' });
 `@aihq/core` exports the `PersistedConfigurationValue` type alongside `InspectRequest` and `InspectResult`. The Node-only `@aihq/core/harness/runtime` `diagnose` accepts the same opt-in as `persistedTrust`: an array of at most 16 `{ effect, certificates }` entries, where `effect` is `node` or `npm` and `certificates` are PEM texts (at most 1024 distinct certificates in total, 64 KiB each and 16 MiB together; a certificate repeated across entries counts once, every one a parseable X.509 certificate), or the literal `'unavailable'`. It composes the trust described above from those entries; Core only reports the applied material of each value and attaches no meaning to the `effect`. Any other shape, an unknown `effect`, an unknown key or a value over a limit is refused as `invalid` with reason `persisted-trust`. `persistedConfigurationMembers()` returns the managed blocks the shipped repair persists on this platform (`id`, `repair`, `managementId`, `materialName`, `effect`, the `member` block descriptor and a `content(materialPath)` renderer) without reading host state.
 
 Inspection also covers the helpers `rg`, `fd` (or Debian's `fdfind`), `jq`, `curl`, `keytool` and `bash`, and the clients Antigravity (`agy`, legacy `antigravity`) and Zed (`zed`, or `zeditor`/`zedit` where a distribution renames it). Each is a presence and version probe, not a general tool inventory; `keytool`'s own `-version` exists only in newer JDKs, so its probe passes `-version` to the Java launcher through the documented `-J` option. When several distinct PATH candidates (after resolving symlinks, and counting one install directory once) resolve for one of these tools, the `<id>/resolution` observation names the file and 1-based PATH entry used and how many others exist. On Windows a `bash` in System32 or WindowsApps is reported as an ambiguous WSL launcher rather than assumed to be Git Bash, and its version command is skipped (`bash/version` reason `wsl-launcher`) so inspection never starts WSL. For Antigravity and Zed, a detected installation or configuration adds an `<id>/loading` observation and manual guidance: presence and configuration are shown, but native loading is not verified. Gemini CLI configuration is recognised only from its own `~/.gemini/tmp`, `extensions`, `commands` or `history` directories, so an Antigravity-only `~/.gemini` (`antigravity`, `antigravity-cli`, `config`) does not report `gemini` as configured. A Gemini `settings.json` or `GEMINI.md` alone is not treated as a trace, because Antigravity shares the `~/.gemini` namespace; an installed `gemini` executable is still detected.
+
+## Supported AI clients
+
+`nativeClientIds` from `@aihq/core/harness` is Core's supported AI client list. It is a portable, frozen array with no host effects.
+
+```ts
+import { nativeClientIds } from '@aihq/core/harness';
+import type { NativeClientId } from '@aihq/core/contracts';
+```
+
+The same ids are the accepted `client` values for organization targets and selectors (`NativeClientId`, exported from `@aihq/core` and `@aihq/core/contracts`). Membership does not mean a client is installed, configured, connected or admitted for native verification, and the order is not a ranking.
 
 ## Explicit native client verification
 

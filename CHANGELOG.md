@@ -14,6 +14,11 @@ cannot be read, those checks are `unavailable` with reason `persisted-configurat
 `effectiveOptions.configuration` is added and `PersistedConfigurationValue` is exported; the default `process`
 behavior is unchanged. Harness exports `persistedConfigurationMembers()` and `diagnose` accepts an optional,
 strictly validated and bounded `persistedTrust` (`persisted-trust` when invalid).
+
+Document `nativeClientIds` from `@aihq/core/harness` as the public supported AI client
+list. It is frozen and portable, and its ids are exactly the accepted
+organization-target `client` values. The packed consumer proves the export, its
+`NativeClientId` typing and its agreement with the organization-target schema.
 This candidate is unpublished.
 
 Add optional versioned `organizationTarget` declarations to Enterprise Prepare,

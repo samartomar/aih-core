@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { contractSupport, repairIndex } from '@aihq/core/harness';
+import { contractSupport, nativeClientIds, repairIndex } from '@aihq/core/harness';
 import { diagnose } from '@aihq/core/harness/runtime';
-import { contractSupport as coreSupport } from '@aihq/core/contracts';
+import { contractSupport as coreSupport, validateOrganizationTarget } from '@aihq/core/contracts';
+import organizationTargetSchema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
 
 test('Harness declares exact supported formats and the installed public runtime entries', () => {
   assert.equal(contractSupport.schema, 'urn:aihq:package-support:1.0.0');
@@ -115,4 +116,17 @@ test('the exported repair schema validates shipped definitions and refuses malfo
     assert.equal(validate(invalid), false);
     assert.ok(validate.errors.length > 0);
   }
+});
+
+test('nativeClientIds is the frozen supported AI client list and matches organization-target clients', () => {
+  assert.ok(Object.isFrozen(nativeClientIds));
+  assert.ok(nativeClientIds.length > 0);
+  assert.equal(new Set(nativeClientIds).size, nativeClientIds.length);
+  const target = client => ({ schema: 'urn:aihq:core:organization-target:1.0.0', client });
+  for (const id of nativeClientIds) {
+    assert.match(id, /^[a-z][a-z0-9-]{0,63}$/);
+    assert.equal(validateOrganizationTarget(target(id)).valid, true, id);
+  }
+  assert.equal(validateOrganizationTarget(target('unknown')).valid, false);
+  assert.deepEqual([...nativeClientIds], organizationTargetSchema.properties.client.enum);
 });
