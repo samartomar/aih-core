@@ -807,8 +807,9 @@ function nodeOptions(value) {
   return options;
 }
 const newProcessUsesSystemCa = () => process.env.NODE_USE_SYSTEM_CA === '1' ||
-  nodeOptions(process.env.NODE_OPTIONS ?? '').filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag))
-    .at(-1) === '--use-system-ca';
+  // Node also accepts underscores for dashes in option names.
+  nodeOptions(process.env.NODE_OPTIONS ?? '').map(flag => flag.replaceAll('_', '-'))
+    .filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag)).at(-1) === '--use-system-ca';
 /**
  * Explicit `ca` for a Node TLS probe of `targetId` as a new process would trust it from Core's persisted
  * configuration, never this process's own start-time trust: the bundled roots (plus system roots only when a new
