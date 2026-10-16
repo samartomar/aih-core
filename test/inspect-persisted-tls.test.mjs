@@ -241,7 +241,8 @@ test('the base trust adds system roots only when a new process would enable them
       ['NODE_USE_SYSTEM_CA', '1', true], ['NODE_OPTIONS', '--use-system-ca', true], ['NODE_OPTIONS', '--max-old-space-size=64 --use-system-ca', true],
       ['NODE_OPTIONS', '--max-old-space-size=64', false], ['NODE_OPTIONS', '--no-use-system-ca', false], ['NODE_OPTIONS', '--use-system-ca --no-use-system-ca', false],
       ['NODE_OPTIONS', '--no-use-system-ca --use-system-ca', true], ['NODE_OPTIONS', '"--use-system-ca"', true],
-      ['NODE_OPTIONS', '"--use-system-ca" "--no-use-system-ca"', false]]) {
+      ['NODE_OPTIONS', '"--use-system-ca" "--no-use-system-ca"', false], ['NODE_OPTIONS', '--title="--use-system-ca"', false],
+      ['NODE_OPTIONS', '--use-system-"ca"', true], ['NODE_OPTIONS', '--title=x\t--use-system-ca', false]]) {
       for (const key of Object.keys(environment)) delete process.env[key];
       if (value !== undefined) process.env[name] = value;
       asked.length = 0;

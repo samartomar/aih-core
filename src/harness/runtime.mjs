@@ -793,8 +793,19 @@ function persistedTrustEntries(value) {
  * propagate. NODE_OPTIONS is split like Node splits it (double-quoted options with backslash escapes), and the last
  * of --use-system-ca / --no-use-system-ca wins.
  */
-const nodeOptions = value => [...value.matchAll(/"((?:\\.|[^"\\])*)"|[^\s"]+/g)]
-  .map(match => match[1] === undefined ? match[0] : match[1].replace(/\\(.)/g, '$1'));
+function nodeOptions(value) {
+  // Spaces separate options outside quotes; a quoted section joins adjacent text and backslash escapes only inside it.
+  const options = []; let current = ''; let quoted = false; let started = false;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (quoted && character === '\\' && index + 1 < value.length) { current += value[++index]; continue; }
+    if (character === '"') { quoted = !quoted; started = true; continue; }
+    if (character === ' ' && !quoted) { if (started) options.push(current); current = ''; started = false; continue; }
+    current += character; started = true;
+  }
+  if (started) options.push(current);
+  return options;
+}
 const newProcessUsesSystemCa = () => process.env.NODE_USE_SYSTEM_CA === '1' ||
   nodeOptions(process.env.NODE_OPTIONS ?? '').filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag))
     .at(-1) === '--use-system-ca';
