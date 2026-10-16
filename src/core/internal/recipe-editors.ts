@@ -2,6 +2,7 @@ import { applyEdits, findNodeAtLocation, modify, parseTree, type Node, type Pars
 import type { Json } from '../types.js';
 import { editScalarLines, scalarLineMember } from './scalar-line-editor.js';
 import { editIni, iniMember } from './ini-editor.js';
+import { editToml, tomlMember } from './toml-editor.js';
 
 export class RecipeEditError extends Error {
   constructor(readonly reason: string) {
@@ -80,118 +81,11 @@ function jsonEdit(format: 'json' | 'jsonc', before: Buffer | null, entries: Conf
   return Buffer.from(text, 'utf8');
 }
 
-interface TomlLine { text: string; start: number; end: number; newline: string; table: string; key?: string; valueStart?: number; valueEnd?: number }
-const bare = /^[A-Za-z0-9_-]+$/u;
-const tableName = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/u;
-function scalar(value: Json): string {
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) return String(value);
-  fail('unsupported-toml-value');
-}
-function tomlScalarSyntax(value: string): boolean {
-  return /^(?:"(?:[^"\\\r\n]|\\["\\btnfr]|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8})*"|'[^'\r\n]*'|true|false|[+-]?(?:0|[1-9][0-9_]*)(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?)$/u.test(value);
-}
-function tomlLines(text: string): { lines: TomlLine[]; tables: Map<string, { first: number; last: number }>; assignments: Map<string, TomlLine> } {
-  const lines: TomlLine[] = [];
-  const tables = new Map<string, { first: number; last: number }>([['', { first: 0, last: text.length }]]);
-  const assignments = new Map<string, TomlLine>();
-  let table = '';
-  let offset = 0;
-  for (const match of text.matchAll(/([^\r\n]*)(\r\n|\n|\r|$)/gu)) {
-    const raw = match[1]!; const newline = match[2]!;
-    if (!raw && !newline && offset === text.length) break;
-    const line: TomlLine = { text: raw, start: offset, end: offset + raw.length + newline.length, newline, table };
-    offset = line.end;
-    const trim = raw.trim();
-    if (!trim || trim.startsWith('#')) { lines.push(line); continue; }
-    if (trim.startsWith('[[')) fail('unsupported-toml-array-table');
-    if (trim.startsWith('[')) {
-      const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/u.exec(raw);
-      if (!header || !tableName.test(header[1]!) || tables.has(header[1]!)) fail('unsupported-toml-table');
-      table = header[1]!;
-      line.table = table;
-      tables.set(table, { first: line.start, last: text.length });
-      lines.push(line);
-      continue;
-    }
-    const assignment = /^(\s*)([A-Za-z0-9_-]+)(\s*=\s*)(.*)$/u.exec(raw);
-    if (!assignment || !bare.test(assignment[2]!)) fail('unsupported-toml-syntax');
-    const key = assignment[2]!;
-    const full = table ? `${table}.${key}` : key;
-    if (assignments.has(full)) fail('duplicate-toml-key');
-    const tail = assignment[4]!;
-    const valueMatch = /^("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^#]*?)(\s*(?:#.*)?)$/u.exec(tail);
-    if (!valueMatch || !valueMatch[1]!.trim()) fail('unsupported-toml-syntax');
-    line.key = key;
-    line.valueStart = assignment[1]!.length + key.length + assignment[3]!.length;
-    line.valueEnd = line.valueStart + valueMatch[1]!.trimEnd().length;
-    assignments.set(full, line);
-    lines.push(line);
-  }
-  for (const [name, region] of tables) {
-    if (!name) {
-      region.last = lines.find(line => line.text.trim().startsWith('['))?.start ?? text.length;
-      continue;
-    }
-    const following = lines.find(line => line.start > region.first && line.text.trim().startsWith('['));
-    region.last = following?.start ?? text.length;
-  }
-  for (const assignment of assignments.keys())
-    if ([...tables.keys()].some(tableName => tableName &&
-      (tableName === assignment || tableName.startsWith(`${assignment}.`)))) fail('unsupported-toml-path');
-  return { lines, tables, assignments };
-}
-function tomlEdit(before: Buffer | null, entries: ConfigEntry[]): Buffer {
-  let text = decode(before);
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  for (const entry of entries) {
-    if (entry.path.some(segment => !bare.test(segment))) fail('unsupported-toml-path');
-    const key = entry.path.at(-1)!;
-    const table = entry.path.slice(0, -1).join('.');
-    const full = table ? `${table}.${key}` : key;
-    const parsed = tomlLines(text);
-    if ([...parsed.tables.keys()].some(name => name && (name === full || name.startsWith(`${full}.`))))
-      fail('unsupported-toml-path');
-    const current = parsed.assignments.get(full);
-    if (entry.action === 'remove') {
-      if (current) {
-        if (!tomlScalarSyntax(current.text.slice(current.valueStart, current.valueEnd).trim())) fail('unsupported-toml-value');
-        text = text.slice(0, current.start) + text.slice(current.end);
-      }
-      continue;
-    }
-    const rendered = scalar(entry.value!);
-    if (current) {
-      if (!tomlScalarSyntax(current.text.slice(current.valueStart, current.valueEnd).trim())) fail('unsupported-toml-value');
-      const from = current.start + current.valueStart!;
-      const to = current.start + current.valueEnd!;
-      text = text.slice(0, from) + rendered + text.slice(to);
-      continue;
-    }
-    const tableParts = entry.path.slice(0, -1);
-    const tableAncestors = tableParts.map((_, i) => tableParts.slice(0, i + 1).join('.'));
-    if (tableAncestors.some(name => parsed.assignments.has(name)) ||
-        [...parsed.assignments.keys()].some(name => name.startsWith(`${full}.`)))
-      fail('unsupported-toml-path');
-    const region = parsed.tables.get(table);
-    if (region) {
-      const prefix = region.last > 0 && !/[\r\n]$/u.test(text.slice(0, region.last)) ? eol : '';
-      text = text.slice(0, region.last) + `${prefix}${key} = ${rendered}${eol}` + text.slice(region.last);
-    } else {
-      if ([...parsed.tables.keys()].some(name => name === full || name.startsWith(`${full}.`))) fail('unsupported-toml-path');
-      const separator = text && !/[\r\n]$/u.test(text) ? eol : '';
-      text += `${separator}[${table}]${eol}${key} = ${rendered}${eol}`;
-    }
-  }
-  tomlLines(text);
-  return Buffer.from(text, 'utf8');
-}
-
 /** Applies narrowly selected object-key edits without replacing unrelated configuration text. */
 export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, entries: ConfigEntry[]): Buffer {
   validateEntries(entries);
   if (format === 'json' || format === 'jsonc') return jsonEdit(format, before, entries);
-  if (format === 'toml') return tomlEdit(before, entries);
+  if (format === 'toml') return editToml(before, entries);
   if (format === 'ini') return editIni(before, entries);
   if (format === 'yaml' || format === 'properties') return editScalarLines(format, before, entries);
   fail('unsupported-config-format');
@@ -240,15 +134,9 @@ export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buf
 export function configMemberBytes(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, path: string[]): Buffer | null {
   if (format === 'ini') return iniMember(before, path);
   if (format === 'yaml' || format === 'properties') return scalarLineMember(format, before, path);
+  if (format === 'toml') return tomlMember(before, path);
   const text = decode(before);
   if (before === null) return null;
-  if (format === 'toml') {
-    const member = tomlLines(text).assignments.get(path.join('.'));
-    if (!member) return null;
-    const value = member.text.slice(member.valueStart, member.valueEnd).trim();
-    if (!tomlScalarSyntax(value)) fail('unsupported-toml-value');
-    return Buffer.from(value);
-  }
   const member = findNodeAtLocation(parsedObject(text, format), path);
   return member ? Buffer.from(text.slice(member.offset, member.offset + member.length)) : null;
 }
