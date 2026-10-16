@@ -1109,6 +1109,43 @@ test('recurrence: events sharing an instant with identical outcomes are not ambi
   assert.deepEqual(result.timeline.map((entry) => entry.role), ['failure', 'recovery', 'recurrence', 'repeated-failure']);
 });
 
+test('recurrence: only measured outcomes count; a declared or estimated outcome is unmatched', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, { kind: 'declared' }),
+    outcomeClaim('p2', 'passed', 3, { kind: 'estimated' }), outcomeClaim('f2', 'failed', 4),
+  ], ['f1', 'p1', 'p2', 'f2']);
+  assert.deepEqual([result.status, result.reason, result.count], ['unavailable', 'no-recovery', null]);
+  assert.deepEqual(result.unmatched, [
+    { claim: ref('p1'), reason: 'not-measured' },
+    { claim: ref('p2'), reason: 'not-measured' },
+  ]);
+  assert.deepEqual(result.timeline.map((entry) => entry.role), ['failure', 'repeated-failure']);
+});
+
+test('recurrence: outcomes from different scopes or check methods are not combined', () => {
+  const otherScope = { scope: { kind: 'repository', targets: ['repo-b'] } };
+  const scoped = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, otherScope), outcomeClaim('f2', 'failed', 3),
+  ], ['f1', 'p1', 'f2']);
+  assert.deepEqual([scoped.status, scoped.reason, scoped.count, scoped.recurrences], ['unavailable', 'incomparable-scope', null, []]);
+  assert.deepEqual(scoped.timeline.map((entry) => entry.role), [null, null, null]);
+
+  const methods = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, { method: { id: 'baseline', version: '3.0.0' } }),
+    outcomeClaim('f2', 'failed', 3),
+  ], ['f1', 'p1', 'f2']);
+  assert.deepEqual([methods.status, methods.reason, methods.count], ['unavailable', 'incomparable-method', null]);
+
+  // Target order is not significant, and an unknown outcome in another scope changes nothing.
+  const reordered = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1, { scope: { kind: 'machine', targets: ['host-1', 'host-2'] } }),
+    outcomeClaim('p1', 'passed', 2, { scope: { kind: 'machine', targets: ['host-2', 'host-1'] } }),
+    { ...unknownClaim('u1', 3), ...otherScope },
+    outcomeClaim('f2', 'failed', 4, { scope: { kind: 'machine', targets: ['host-1', 'host-2'] } }),
+  ], ['f1', 'p1', 'u1', 'f2']);
+  assert.deepEqual([reordered.status, reordered.count], ['available', 1]);
+});
+
 test('recurrence: each failure after a recovery is its own recurrence', () => {
   const result = recurrenceOf([
     outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('f2', 'failed', 3),

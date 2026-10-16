@@ -116,7 +116,7 @@ plain JSON with no shared object references (parsed JSON never has any).
 | `CLAIMS_ACCEPTED_VERSIONS` | frozen `['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0']` | Every claim-set version this release reads. |
 | `CLAIMS_PROJECTION_SCHEMA` | `'urn:aihq:report:claims-projection:1.0.0'` | Unchanged default projection identity. |
 | `CLAIMS_PROJECTION_SCHEMA_1_1_0` | `'urn:aihq:report:claims-projection:1.1.0'` | Projection identity for claims 1.1.0. |
-| `CALCULATION_METHODS` | frozen `{id, version}[]` | `configuration-check-score`, `verified-repair-count`, `context-change`, `recurrence`, each `1.0.0`. |
+| `CALCULATION_METHODS` | frozen `{id, version}[]` | `configuration-check-score`, `verified-repair-count`, `context-change`, `recurrence`, each `1.0.0`. A claims 1.0.0 set accepts all but `recurrence`. |
 | `validateClaimSet(value)` | `unknown -> { valid, errors }` | Never throws for malformed input. |
 | `readClaimSet(json)` | `string -> { status: 'supported', claimSet } \| { status: 'rejected', code, schema, errors, original }` | Never throws. A rejection carries the exact unchanged input in `original`. |
 | `projectClaims(claimSet)` | `ClaimSet -> ClaimsProjection` | Throws `ReportInputError`. |
@@ -237,11 +237,11 @@ sorted, so that qualification is visible.
 **`deduplication`.** `configuration-check-score`, `verified-repair-count` and
 `recurrence` report `deduplication: { status, unidentified }`. It is
 `not-established` when any claim the request references (selected, excluded,
-precheck, repair, postcheck or recurrence observation, including unmatched claims)
-has `observation: null`, and `unidentified` lists
-those claims sorted by `(id, revision)`. The numbers are still computed from the
-supplied records, but a re-import of an unidentified event cannot be recognised,
-so they are not a deduplicated aggregate. Otherwise the status is `established`.
+precheck, repair, postcheck, or a recurrence observation including an unmatched
+one) has `observation: null`, and `unidentified` lists those claims sorted by
+`(id, revision)`. The numbers are still computed from the supplied records, but
+a re-import of an unidentified event cannot be recognised, so they are not a
+deduplicated aggregate. Otherwise the status is `established`.
 
 **`verified-repair-count`.** Each attempt names `operation`, `subject`,
 `condition` and optional `precheck`, `repair`, `postcheck` claims. An attempt
@@ -282,8 +282,8 @@ reduction. With a zero baseline `percentage` is `null` and `percentageReason` is
 `'zero-baseline'`. Percentages are not rounded.
 
 **`recurrence`.** Version 1.0.0 is available in claims 1.1.0 only. Recurrence
-counts a later same-condition failure after a verified recovery. The request explicitly binds
-a subject and condition to supplied history:
+counts a later same-condition failure after a verified recovery. The request
+explicitly binds a subject and condition to supplied history:
 
 ```js
 { id: 'condition-history', method: 'recurrence', version: '1.0.0',
@@ -302,7 +302,9 @@ unsupported method.
 Matching applies the first applicable exclusion: `different-subject` when either
 subject `kind` or `id` differs; `different-condition` when `claim.measure` differs
 from `condition`; `not-a-check-outcome` when the claim is neither `kind: 'unknown'`
-nor a value `{amount: 'passed' | 'failed', unit: 'outcome'}`. An unknown claim
+nor a value `{amount: 'passed' | 'failed', unit: 'outcome'}`; `not-measured`
+when a passed or failed claim is `declared` or `estimated`, since an outcome
+that was not observed cannot verify a recovery or a failure. An unknown claim
 matches without inventing an outcome. `unmatched` lists excluded references and
 their reasons, sorted by `(id, revision)`.
 
@@ -313,9 +315,12 @@ lists their selected matched references, sorted. Claims with `observation: null`
 remain separate events. The result's `deduplication` covers every referenced
 claim, including unmatched claims.
 
-Events are ordered by `capturedAt` instant in epoch milliseconds, then by claim
-reference. A passed event and a failed event at the same instant make the order
-ambiguous. Otherwise the timeline walk starts in `initial` and assigns roles:
+Only comparable outcomes are walked: every passed or failed event must share one
+`scope` (the same `kind` and set of `targets`, in any order) and one check
+`method` (the same `{id, version}`, or none). Events are ordered by
+`capturedAt` instant in epoch milliseconds, then by claim reference. A passed
+event and a failed event at the same instant make the order ambiguous. Otherwise
+the timeline walk starts in `initial` and assigns roles:
 
 | Outcome | `initial` | `failing` | `recovered` |
 |---|---|---|---|
@@ -333,11 +338,16 @@ failure; nothing infers a cause or invents history.
 Status and reason use the first matching rule:
 
 1. `unavailable`, `no-history`: no timeline event has a passed or failed outcome.
-2. `unavailable`, `ambiguous-order`: a passed/failed tie exists; every timeline
-   entry has `role: null`.
-3. `unavailable`, `no-failure`: no failed event exists.
-4. `unavailable`, `no-recovery`: failures exist but no recovery was verified.
-5. `available`, reason `null`: at least one recovery exists.
+2. `unavailable`, `incomparable-scope`: passed or failed events differ in scope.
+3. `unavailable`, `incomparable-method`: passed or failed events differ in check
+   method.
+4. `unavailable`, `ambiguous-order`: a passed/failed tie exists.
+5. `unavailable`, `no-failure`: no failed event exists.
+6. `unavailable`, `no-recovery`: failures exist but no recovery was verified.
+7. `available`, reason `null`: at least one recovery exists.
+
+For rules 2–4 every timeline entry has `role: null`; the adapter requests each
+scope or method separately.
 
 `count` is the number of recurrence events when available, otherwise `null`;
 `recurrences` is empty when unavailable. Missing or insufficient history is
@@ -349,15 +359,20 @@ The result fields, in order, are `id`, `method: {id: 'recurrence', version:
 `recurrences`, `timeline`, `unmatched`, `conflicts`, `deduplication`. `inputs`
 contains every unique referenced claim, sorted by `(id, revision)`. `timeline`
 entries contain `{claim, capturedAt, outcome, role}`; `outcome` is `passed`,
-`failed` or `unknown`, and `role` is from the table or `null` for ambiguous order.
+`failed` or `unknown`, and `role` is from the table or `null` under rules 2–4.
 `unmatched` entries are `{claim, reason}`; `conflicts` is a sorted reference list.
 `deduplication` is the existing `{status, unidentified}` qualification above.
 
 **Mapping published Core observations.** The adapter supplies `capturedAt` when
-the host captured the result and a stable `observation` id for each stored result.
-Using `null` leaves de-duplication not established. Passed and failed claims use
+the host captured the result. One stored result can hold several targets or
+checks, so each claim's `observation` is a stable identity for that one target or
+check within that capture (for example the stored capture's identity plus the
+target or check `id`); the stored result itself goes in `sources`. Giving every
+claim of one result the same `observation` would make them a conflict. Using
+`null` leaves de-duplication not established. Passed and failed claims use
 `kind: 'measured'` and `{amount: 'passed' | 'failed', unit: 'outcome'}`; unknown
-claims use `kind: 'unknown'` with `unknownReason` and no `value`.
+claims use `kind: 'unknown'` with `unknownReason` and no `value`. Keep one
+`scope` and check `method` per subject and condition.
 
 | Core result | Subject | Measure (= condition) | Passed | Failed | Unknown claim |
 |---|---|---|---|---|---|
@@ -393,8 +408,9 @@ percentage, a same-method estimate comparison and an estimate that cannot be
 compared with an observed value. `recurrence` uses claims 1.1.0 and shows a
 recurring failure, recovery without recurrence, an unrelated condition excluded
 from the timeline, a duplicate import counted once, missing history and a
-condition still failing without recovery. `unsupported.input.json` carries an unaccepted
-`schema` and is rejected as `SCHEMA_UNSUPPORTED` with its bytes preserved.
+condition still failing without recovery. `unsupported.input.json` carries an
+unaccepted `schema` and is rejected as `SCHEMA_UNSUPPORTED` with its bytes
+preserved.
 
 `npm run verify:report-consumer` installs a packed artifact in a separate
 consumer directory and projects these installed examples through the public

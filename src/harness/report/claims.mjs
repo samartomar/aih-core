@@ -17,16 +17,16 @@ import {
   requireKeys, requireString, toBoundedJson,
 } from './bounded-json.mjs';
 
-/** Versioned identity of the claim set this module accepts. */
+/** Versioned identity of a claims 1.0.0 set, the default claim-set version. */
 export const CLAIMS_SCHEMA = 'urn:aihq:report:claims:1.0.0';
 
 /** Versioned identity of the claim set that adds the recurrence calculation method. */
 export const CLAIMS_SCHEMA_1_1_0 = 'urn:aihq:report:claims:1.1.0';
 
-/** Every claim-set schema identity this version reads. */
+/** Every claim-set schema identity this version reads, oldest first; the version gate relies on this order. */
 export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA, CLAIMS_SCHEMA_1_1_0]);
 
-/** Versioned identity of the projection this module produces. */
+/** Versioned identity of the claims projection of a claims 1.0.0 set. */
 export const CLAIMS_PROJECTION_SCHEMA = 'urn:aihq:report:claims-projection:1.0.0';
 
 /** Versioned identity of the projection of a claims 1.1.0 set. */
@@ -636,8 +636,9 @@ const RECURRENCE_STEPS = Object.freeze({
 /**
  * A later same-condition failure after a verified recovery. Matching is exact
  * (subject and condition), events are de-duplicated by observation identity and
- * ordered by capture instant. Missing or insufficient history is unavailable
- * with a null count, never zero; an unknown outcome never changes state.
+ * ordered by capture instant. Only measured outcomes from one scope and check
+ * method are compared. Missing or insufficient history is unavailable with a
+ * null count, never zero; an unknown outcome never changes state.
  */
 function recurrence(request, context) {
   const sameSubject = (claim) => claim.subject.kind === request.subject.kind && claim.subject.id === request.subject.id;
@@ -650,6 +651,8 @@ function recurrence(request, context) {
     if (!sameSubject(claim)) reason = 'different-subject';
     else if (claim.measure !== request.condition) reason = 'different-condition';
     else if (outcomeOf(claim) === null) reason = 'not-a-check-outcome';
+    // A declared or estimated outcome was not observed, so it cannot verify a recovery or a failure.
+    else if (claim.kind !== 'measured' && claim.kind !== 'unknown') reason = 'not-measured';
     if (reason !== null) {
       unmatched.push({ claim: refOf(claim), reason });
       continue;
@@ -658,7 +661,9 @@ function recurrence(request, context) {
     // A conflicted observation has no reliable outcome or time, so it stays off the timeline.
     if (info.conflicted) conflicts.push(refOf(claim));
     else if (!events.has(info.group)) {
-      events.set(info.group, { claim: info.representative ?? refOf(claim), capturedAt: claim.capturedAt, time: instantMs(claim.capturedAt), outcome: outcomeOf(claim), role: null });
+      events.set(info.group, { claim: info.representative ?? refOf(claim), capturedAt: claim.capturedAt, time: instantMs(claim.capturedAt), outcome: outcomeOf(claim), role: null,
+        scope: JSON.stringify([claim.scope.kind, [...claim.scope.targets].sort(compare)]),
+        method: claim.method === undefined ? null : JSON.stringify([claim.method.id, claim.method.version]) });
     }
   }
   unmatched.sort((left, right) => compareRefs(left.claim, right.claim));
@@ -670,11 +675,18 @@ function recurrence(request, context) {
     outcomesAt.get(event.time).add(event.outcome);
   }
   const ambiguous = [...outcomesAt.values()].some((outcomes) => outcomes.has('passed') && outcomes.has('failed'));
-  const known = timeline.some((event) => event.outcome !== 'unknown');
+  const outcomes = timeline.filter((event) => event.outcome !== 'unknown');
+  const known = outcomes.length > 0;
+  const incomparable = (field) => new Set(outcomes.map((event) => event[field])).size > 1;
+  let reason = null;
+  if (!known) reason = 'no-history';
+  else if (incomparable('scope')) reason = 'incomparable-scope';
+  else if (incomparable('method')) reason = 'incomparable-method';
+  else if (ambiguous) reason = 'ambiguous-order';
 
-  // An ambiguous order assigns no roles at all.
+  // An ambiguous order or incomparable outcomes assign no roles at all.
   const recurrences = [];
-  if (!ambiguous) {
+  if (reason === null || reason === 'no-history') {
     let state = 'initial';
     let episode = null;
     let recovery = null;
@@ -692,11 +704,10 @@ function recurrence(request, context) {
     }
   }
 
-  let reason = null;
-  if (!known) reason = 'no-history';
-  else if (ambiguous) reason = 'ambiguous-order';
-  else if (!timeline.some((event) => event.outcome === 'failed')) reason = 'no-failure';
-  else if (!timeline.some((event) => event.role === 'recovery')) reason = 'no-recovery';
+  if (reason === null) {
+    if (!outcomes.some((event) => event.outcome === 'failed')) reason = 'no-failure';
+    else if (!outcomes.some((event) => event.role === 'recovery')) reason = 'no-recovery';
+  }
   return {
     ...calculationHead(request, reason === null ? 'available' : 'unavailable', reason, request.observations),
     subject: { kind: request.subject.kind, id: request.subject.id },
@@ -723,7 +734,10 @@ const METHODS = Object.freeze({
   recurrence: Object.freeze({ version: '1.0.0', since: CLAIMS_SCHEMA_1_1_0, validate: validateRecurrence, calculate: recurrence }),
 });
 
-/** The explicit, versioned calculation methods a request may select. */
+/**
+ * The explicit, versioned calculation methods a request may select. Every
+ * method is accepted by claims 1.1.0; claims 1.0.0 accepts all but `recurrence`.
+ */
 export const CALCULATION_METHODS = Object.freeze(Object.keys(METHODS)
   .map((id) => Object.freeze({ id, version: METHODS[id].version })));
 

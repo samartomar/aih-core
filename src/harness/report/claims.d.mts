@@ -3,13 +3,13 @@
  * Data only: no rendering, filesystem or host access.
  */
 
-/** Versioned identity of the claim set this module accepts. */
+/** Versioned identity of a claims 1.0.0 set, the default claim-set version. */
 export declare const CLAIMS_SCHEMA: 'urn:aihq:report:claims:1.0.0';
 
 /** Versioned identity of the claim set that adds the recurrence calculation method. */
 export declare const CLAIMS_SCHEMA_1_1_0: 'urn:aihq:report:claims:1.1.0';
 
-/** Every claim-set schema identity this version reads. */
+/** Every claim-set schema identity this version reads, oldest first. */
 export declare const CLAIMS_ACCEPTED_VERSIONS: readonly ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0'];
 
 /** Versioned identity of the claims projection of a claims 1.0.0 set. */
@@ -25,7 +25,10 @@ export interface CalculationMethod {
   readonly version: '1.0.0';
 }
 
-/** The explicit, versioned calculation methods a request may select. */
+/**
+ * The explicit, versioned calculation methods a request may select. Every
+ * method is accepted by claims 1.1.0; claims 1.0.0 accepts all but `recurrence`.
+ */
 export declare const CALCULATION_METHODS: readonly CalculationMethod[];
 
 export interface ClaimRef {
@@ -157,13 +160,13 @@ export interface RecurrenceRequest {
 }
 
 /** The requests a claims 1.0.0 set accepts. */
-export type CalculationRequest100 =
+export type CalculationRequest10 =
   | ConfigurationCheckScoreRequest
   | VerifiedRepairCountRequest
   | ContextChangeRequest;
 
 /** The requests a claims 1.1.0 set accepts. */
-export type CalculationRequest = CalculationRequest100 | RecurrenceRequest;
+export type CalculationRequest = CalculationRequest10 | RecurrenceRequest;
 
 export type ActionCategory = 'blocker' | 'urgent-review' | 'important-unknown' | 'optional-improvement';
 
@@ -177,21 +180,21 @@ export interface ActionSuggestion {
   route: { kind: 'operation' | 'guidance'; id: string };
 }
 
-export interface ClaimSet100 {
+export interface ClaimSet10 {
   schema: 'urn:aihq:report:claims:1.0.0';
   claims: Claim[];
-  calculations?: CalculationRequest100[];
+  calculations?: CalculationRequest10[];
   actions?: ActionSuggestion[];
 }
 
-export interface ClaimSet110 {
+export interface ClaimSet11 {
   schema: 'urn:aihq:report:claims:1.1.0';
   claims: Claim[];
   calculations?: CalculationRequest[];
   actions?: ActionSuggestion[];
 }
 
-export type ClaimSet = ClaimSet100 | ClaimSet110;
+export type ClaimSet = ClaimSet10 | ClaimSet11;
 
 export interface ClaimSetValidation {
   valid: boolean;
@@ -322,11 +325,17 @@ export type ContextChangeResult =
     percentageReason?: 'zero-baseline';
   });
 
-export type RecurrenceUnavailableReason = 'no-history' | 'ambiguous-order' | 'no-failure' | 'no-recovery';
+export type RecurrenceUnavailableReason =
+  | 'no-history'
+  | 'incomparable-scope'
+  | 'incomparable-method'
+  | 'ambiguous-order'
+  | 'no-failure'
+  | 'no-recovery';
 
 export type RecurrenceRole = 'failure' | 'repeated-failure' | 'recovery' | 'recurrence' | 'passed' | 'unknown';
 
-export type RecurrenceUnmatchedReason = 'different-subject' | 'different-condition' | 'not-a-check-outcome';
+export type RecurrenceUnmatchedReason = 'different-subject' | 'different-condition' | 'not-a-check-outcome' | 'not-measured';
 
 /** One recurrence: the failure that began the episode, the recovery that ended it, and the later failure. */
 export interface RecurrenceEvent {
@@ -340,7 +349,7 @@ export interface RecurrenceTimelineEntry {
   claim: ClaimRef;
   capturedAt: string;
   outcome: 'passed' | 'failed' | 'unknown';
-  /** Null on every entry when the order is ambiguous. */
+  /** Null on every entry when the order is ambiguous or the outcomes are incomparable. */
   role: RecurrenceRole | null;
 }
 
@@ -349,41 +358,27 @@ export interface RecurrenceTimelineEntry {
  * zero. An unknown outcome never changes state; a later pass never erases an
  * earlier failure.
  */
-export type RecurrenceResult =
-  | (CalculationHead & {
-    status: 'unavailable';
-    reason: RecurrenceUnavailableReason;
-    subject: ClaimSubject;
-    condition: string;
-    count: null;
-    recurrences: [];
-    timeline: RecurrenceTimelineEntry[];
-    unmatched: { claim: ClaimRef; reason: RecurrenceUnmatchedReason }[];
-    /** Matched members of conflicting observations, sorted; they are not on the timeline. */
-    conflicts: ClaimRef[];
-    deduplication: Deduplication;
-  })
-  | (CalculationHead & {
-    status: 'available';
-    reason: null;
-    subject: ClaimSubject;
-    condition: string;
-    count: number;
-    recurrences: RecurrenceEvent[];
-    timeline: RecurrenceTimelineEntry[];
-    unmatched: { claim: ClaimRef; reason: RecurrenceUnmatchedReason }[];
-    conflicts: ClaimRef[];
-    deduplication: Deduplication;
-  });
+export type RecurrenceResult = CalculationHead & {
+  subject: ClaimSubject;
+  condition: string;
+  timeline: RecurrenceTimelineEntry[];
+  unmatched: { claim: ClaimRef; reason: RecurrenceUnmatchedReason }[];
+  /** Matched members of conflicting observations, sorted; they are not on the timeline. */
+  conflicts: ClaimRef[];
+  deduplication: Deduplication;
+} & (
+  | { status: 'unavailable'; reason: RecurrenceUnavailableReason; count: null; recurrences: [] }
+  | { status: 'available'; reason: null; count: number; recurrences: RecurrenceEvent[] }
+);
 
 /** The results a claims 1.0.0 set projects. */
-export type CalculationResult100 =
+export type CalculationResult10 =
   | ConfigurationCheckScoreResult
   | VerifiedRepairCountResult
   | ContextChangeResult;
 
 /** The results a claims 1.1.0 set projects. */
-export type CalculationResult = CalculationResult100 | RecurrenceResult;
+export type CalculationResult = CalculationResult10 | RecurrenceResult;
 
 export interface OrderedAction extends ActionSuggestion {
   order: { rank: number; category: ActionCategory; reason: string; tie: 'id' };
@@ -399,19 +394,19 @@ interface ClaimsProjectionBase {
   actions: OrderedAction[];
 }
 
-export interface ClaimsProjection100 extends ClaimsProjectionBase {
+export interface ClaimsProjection10 extends ClaimsProjectionBase {
   schema: 'urn:aihq:report:claims-projection:1.0.0';
   source: { schema: 'urn:aihq:report:claims:1.0.0' };
-  calculations: CalculationResult100[];
+  calculations: CalculationResult10[];
 }
 
-export interface ClaimsProjection110 extends ClaimsProjectionBase {
+export interface ClaimsProjection11 extends ClaimsProjectionBase {
   schema: 'urn:aihq:report:claims-projection:1.1.0';
   source: { schema: 'urn:aihq:report:claims:1.1.0' };
   calculations: CalculationResult[];
 }
 
-export type ClaimsProjection = ClaimsProjection100 | ClaimsProjection110;
+export type ClaimsProjection = ClaimsProjection10 | ClaimsProjection11;
 
 /** Structural and semantic validation of a claim set; never throws for malformed input. */
 export declare function validateClaimSet(value: unknown): ClaimSetValidation;

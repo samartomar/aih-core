@@ -130,7 +130,7 @@ try {
   "const next:ClaimSet={schema:CLAIMS_SCHEMA_1_1_0,claims:[],calculations:[request]};",
   "// @ts-expect-error a claims 1.0.0 set cannot carry a recurrence request",
   "const legacy:ClaimSet={schema:CLAIMS_SCHEMA,claims:[],calculations:[request]};",
-  "const recurrenceCount=(result:CalculationResult):number|null=>{if(result.method.id!=='recurrence')return null; const recurrence=result as RecurrenceResult; if(recurrence.status==='available'){const n:number=recurrence.count; return n;} const why:'no-history'|'ambiguous-order'|'no-failure'|'no-recovery'=recurrence.reason; void why; return recurrence.count;};",
+  "const recurrenceCount=(result:CalculationResult):number|null=>{if(result.method.id!=='recurrence')return null; const recurrence=result as RecurrenceResult; if(recurrence.status==='available'){const n:number=recurrence.count; return n;} const why:'no-history'|'incomparable-scope'|'incomparable-method'|'ambiguous-order'|'no-failure'|'no-recovery'=recurrence.reason; void why; return recurrence.count;};",
   "void [nextId,next,legacy,recurrenceCount];"
  ].join('\n');
  await writeFile(join(consumer,'report-contracts.mts'),declaration);
