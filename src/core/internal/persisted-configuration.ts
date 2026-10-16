@@ -92,7 +92,7 @@ export function readPersistedConfiguration(): PersistedConfiguration {
     const materialPath = join(root, item.materialName);
     const expected = item.content(materialPath);
     // The block is judged by its own bytes and line endings, independent of the rest of the file.
-    if (block === undefined || block === null || sha256(block) !== owner.sha256 || expected === undefined ||
+    if (block === undefined || sha256(block) !== owner.sha256 || expected === undefined ||
         !renderTextBlock(block, { ...descriptor, action: 'set', content: expected })?.equals(block)) {
       report('modified'); continue;
     }

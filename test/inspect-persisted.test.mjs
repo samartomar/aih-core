@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { X509Certificate, createHash } from 'node:crypto';
+import tls from 'node:tls';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -257,7 +258,10 @@ test('diagnose refuses malformed persisted trust', async () => {
     assert.equal(result.status, 'invalid', JSON.stringify(persistedTrust)?.slice(0, 80));
     assert.equal(result.diagnostics[0].reason, 'persisted-trust');
   }
-  for (const persistedTrust of [[], [entry('node')], [entry('node', pem), entry('npm', pem)], 'unavailable']) {
+  // Entries naming the same material count each distinct certificate once against the bounds.
+  const shared = tls.getCACertificates('bundled').slice(0, 120);
+  const repeated = Array.from({ length: 9 }, (_, index) => entry(index % 2 ? 'npm' : 'node', ...shared));
+  for (const persistedTrust of [[], [entry('node')], [entry('node', pem), entry('npm', pem)], repeated, 'unavailable']) {
     const result = await diagnose({ ...base, persistedTrust });
     assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
   }

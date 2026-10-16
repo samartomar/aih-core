@@ -770,24 +770,34 @@ const plainList = (list, max) => Array.isArray(list) && !isProxy(list) && Object
 function persistedTrustEntries(value) {
   if (value === 'unavailable') return value;
   if (!plainList(value, persistedTrustLimits.entries)) return undefined;
-  const entries = []; let count = 0; let bytes = 0;
+  // Several entries may name the same managed material: bound and parse each distinct certificate once.
+  const entries = []; const seen = new Set(); let bytes = 0;
   for (const entry of value) {
     if (!plain(entry, ['effect', 'certificates']) || !Object.hasOwn(entry, 'effect') || !Object.hasOwn(entry, 'certificates') ||
         !persistedEffects.includes(entry.effect) || !plainList(entry.certificates, persistedTrustLimits.certificates)) return undefined;
     for (const pem of entry.certificates) {
-      const size = typeof pem === 'string' ? Buffer.byteLength(pem) : Infinity;
-      bytes += size; count++;
+      if (typeof pem !== 'string') return undefined;
+      if (seen.has(pem)) continue;
+      const size = Buffer.byteLength(pem);
+      bytes += size; seen.add(pem);
       if (size > persistedTrustLimits.certificateBytes || bytes > persistedTrustLimits.totalBytes ||
-          count > persistedTrustLimits.certificates) return undefined;
+          seen.size > persistedTrustLimits.certificates) return undefined;
       try { new X509Certificate(pem); } catch { return undefined; }
     }
     entries.push({ effect: entry.effect, certificates: [...entry.certificates] });
   }
   return entries;
 }
-/** A new process enables system roots only through its inherited environment; this process's own flags do not propagate. */
+/**
+ * A new process enables system roots only through its inherited environment; this process's own flags do not
+ * propagate. NODE_OPTIONS is split like Node splits it (double-quoted options with backslash escapes), and the last
+ * of --use-system-ca / --no-use-system-ca wins.
+ */
+const nodeOptions = value => [...value.matchAll(/"((?:\\.|[^"\\])*)"|[^\s"]+/g)]
+  .map(match => match[1] === undefined ? match[0] : match[1].replace(/\\(.)/g, '$1'));
 const newProcessUsesSystemCa = () => process.env.NODE_USE_SYSTEM_CA === '1' ||
-  /(?:^|\s)--use-system-ca(?:\s|$)/.test(process.env.NODE_OPTIONS ?? '');
+  nodeOptions(process.env.NODE_OPTIONS ?? '').filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag))
+    .at(-1) === '--use-system-ca';
 /**
  * Explicit `ca` for a Node TLS probe of `targetId` as a new process would trust it from Core's persisted
  * configuration, never this process's own start-time trust: the bundled roots (plus system roots only when a new
