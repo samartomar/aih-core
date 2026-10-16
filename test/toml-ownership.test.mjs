@@ -62,5 +62,12 @@ test('ownership validation requires 1.3.0 for a non-bare TOML entry segment', as
     for (const schema of ['1.0.0', '1.1.0', '1.2.0'])
       assert.throws(() => validateOwnership(root(`urn:aihq:core:ownership:${schema}`), target), /ownership-invalid/);
     validateOwnership(root('urn:aihq:core:ownership:1.3.0'), target);
+    // An INI entry may share a 1.3.0 root, which returns to 1.2.0 once the quoted entry is gone.
+    const ini = { path: 'settings.ini', kind: 'entry', format: 'ini', entry: ['global', 'cert'] };
+    const mixed = { ...root('urn:aihq:core:ownership:1.3.0'), members: { ...root('').members,
+      [memberKey(ini)]: { ...owner, managementId: 'ini', descriptor: ini, claims: [{ ...owner.claims[0], managementId: 'ini' }] } } };
+    validateOwnership(mixed, target);
+    const remaining = { ...mixed, members: { [memberKey(ini)]: mixed.members[memberKey(ini)] } };
+    assert.equal(sealOwnership(remaining).schema, 'urn:aihq:core:ownership:1.2.0');
   } finally { s.dispose(); }
 });
