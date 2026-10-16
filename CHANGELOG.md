@@ -11,10 +11,12 @@ inline tables, dates and other value kinds are scanned and retained byte for byt
 bytes are unchanged, so current custody digests still match. Inline tables, multi-line strings, dates and
 times, hexadecimal/octal/binary integers, `inf`/`nan`, `null` and objects remain refused as
 `unsupported-toml-value`; `[[x]]`, dotted keys and duplicate tables or keys keep their refusals. An
-invalid unrelated value that the earlier line editor tolerated is now `unsupported-toml-syntax`. No
-schema changed: the recipe schema already admits any JSON literal. Earlier Core versions refuse, rather
-than misread, files and custody that use quoted names or arrays. Choosing where a new text block goes
-is not part of this change. This candidate is unpublished.
+unrelated value the scanner cannot delimit, which the earlier line editor tolerated (including a TOML 1.1
+multi-line inline table), is now `unsupported-toml-syntax`. No recipe or policy schema changed: the
+recipe schema already admits any JSON literal. Custody of a TOML entry with a non-bare path segment
+writes ownership root 1.3.0, which earlier Core versions refuse as they refuse hook-group 1.1 roots; the
+root returns to its previous version when the last such entry is removed. Choosing where a new text
+block goes is not part of this change. This candidate is unpublished.
 
 Add opt-in `configuration: 'persisted'` to `inspect`, so a long-running host can re-check Node TLS
 after a repair with the trust Core's managed `node-npm-ca` configuration gives a new process. Only

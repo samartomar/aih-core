@@ -128,8 +128,8 @@ function value(text: string, at: number, depth: number): Value {
     for (;;) {
       for (;;) {
         const name = key(text, i);
-        if (!name) syntax();
-        i = skipBlank(text, name!.end);
+        if (!name) fail('unsupported-toml-syntax');
+        i = skipBlank(text, name.end);
         if (text[i] !== '.') break;
         i = skipBlank(text, i + 1);
       }
@@ -171,8 +171,8 @@ function parse(text: string): Parsed {
         i = skipBlank(text, i);
         const name = key(text, i);
         if (!name) fail('unsupported-toml-table');
-        segments.push(name!.value);
-        i = skipBlank(text, name!.end);
+        segments.push(name.value);
+        i = skipBlank(text, name.end);
         if (text[i] !== '.') break;
         i += 1;
       }
@@ -192,13 +192,13 @@ function parse(text: string): Parsed {
     } else {
       const name = key(text, i);
       if (!name) fail('unsupported-toml-syntax');
-      i = skipBlank(text, name!.end);
+      i = skipBlank(text, name.end);
       if (text[i] !== '=') fail('unsupported-toml-syntax');
       const valueStart = skipBlank(text, i + 1);
       const parsed = value(text, valueStart, 0);
       const next = line(parsed.end);
       if (next < 0) fail('unsupported-toml-syntax');
-      const id = identity([...current, name!.value]);
+      const id = identity([...current, name.value]);
       if (assignments.has(id)) fail('duplicate-toml-key');
       assignments.set(id, { start: lineStart, end: next, valueStart, valueEnd: parsed.end, value: parsed });
       at = next;

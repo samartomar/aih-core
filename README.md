@@ -870,11 +870,18 @@ Array tables (`[[x]]`), dotted keys, duplicate tables or keys (after unquoting) 
 malformed syntax are refused. This is a bounded editor, not a full TOML implementation.
 TOML entries are available from recipe 1.0.0; arrays and quoted names need no new
 schema, because entry values were already any JSON literal. Unrelated values are now
-scanned as TOML, so an invalid value that the earlier line editor tolerated is
-`unsupported-toml-syntax`. Earlier Core versions refuse rather than misread this
-content: a file with a quoted header is `unsupported-toml-table`, an owned array is
-`unsupported-toml-value`, and custody whose entry path has a non-bare segment is an
-invalid ownership root.
+scanned as TOML values, so a value the scanner cannot delimit, which the earlier line
+editor tolerated, is `unsupported-toml-syntax`; the scanner delimits values rather
+than validating every TOML rule. Inline tables follow TOML 1.0 (one line, no
+trailing comma); a multi-line inline table or one with a trailing comma is refused.
+Earlier Core versions refuse rather than misread this content: a file with a quoted
+header is `unsupported-toml-table` and an owned array is `unsupported-toml-value`.
+The ownership root is written as 1.3.0 only while it owns a TOML entry whose path
+has a non-bare segment, and returns to its previous version after the last such
+entry is removed. An earlier Core fails closed on a 1.3.0 root, as it does on a
+hook-group 1.1 root: it refuses that root's own project and withholds user-scope
+cleanup requested from any other project until Core is upgraded or the entry is
+removed.
 
 `format: "yaml"` and `format: "properties"` select one top-level key per path.
 YAML set values are JSON-quoted strings; block/flow values, uncertain quoted
