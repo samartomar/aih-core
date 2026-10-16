@@ -129,6 +129,11 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const obligationOrganization: OrganizationPolicy = {schema:'urn:aihq:core:organization-policy:1.1.0',id:'team',selections:[]};
       const obligationInput: PreviewOrganizationObligationsRequest = {organization:obligationOrganization,selections:[],lifecycle:[],target:obligationTarget};
       const obligationResult: AuthoringResult<OrganizationObligationsPreview> = previewOrganizationObligations(obligationInput);
+      import {nativeClientIds} from '@aihq/core/harness';
+      import type {NativeClientId} from '@aihq/core/contracts';
+      const supportedClients: readonly NativeClientId[] = nativeClientIds;
+      // @ts-expect-error A client outside Core's supported list is not a NativeClientId.
+      const unsupportedClient: (typeof nativeClientIds)[number] = 'unknown';
       // @ts-expect-error A client outside Core's native list is not a target.
       const invalidTarget: OrganizationTarget = {scope:'project',client:'unknown'};
       if(previewResult.status==='refused') { const diagnostic: AuthoringDiagnostic = previewResult.diagnostics[0]!; }
@@ -294,6 +299,23 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.ok(!JSON.stringify(result).includes('SECRET'));
     `);
     run(join(consumer, 'native-public.mjs'));
+    writeFileSync(join(consumer, 'supported-clients.mjs'), `
+      import assert from 'node:assert/strict';
+      import * as core from '@aihq/core';
+      import {nativeClientIds} from '@aihq/core/harness';
+      import {validateOrganizationTarget} from '@aihq/core/contracts';
+      assert.ok(Object.isFrozen(nativeClientIds)); assert.ok(nativeClientIds.length>0);
+      assert.equal(new Set(nativeClientIds).size,nativeClientIds.length);
+      const target=client=>({schema:'urn:aihq:core:organization-target:1.0.0',client});
+      for (const id of nativeClientIds) {
+        assert.match(id,/^[a-z][a-z0-9-]{0,63}$/);
+        assert.equal(validateOrganizationTarget(target(id)).valid,true,id);
+      }
+      assert.equal(validateOrganizationTarget(target('unknown')).valid,false);
+      // nativeClientIds replaces the root SUPPORTED_CLIS export of earlier pre-1.0 builds.
+      assert.equal('SUPPORTED_CLIS' in core,false);
+    `);
+    run(join(consumer, 'supported-clients.mjs'));
     const coreRequire = createRequire(join(installed, 'package.json'));
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
