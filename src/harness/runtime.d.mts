@@ -1,5 +1,15 @@
+/** Certificate PEM text one applied persisted value gives a new process; `effect` is the descriptor's, `node` or `npm`. */
+export interface PersistedTrustEntry { effect: string; certificates: string[] }
+/** Applied persisted material, or `'unavailable'` when the caller could not read its persisted configuration. */
+export type PersistedTrust = PersistedTrustEntry[] | 'unavailable';
 export interface DiagnoseRequest {
   requestId: string; targets?: string[]; network?: 'declared' | 'off'; probeConfiguredMcp?: boolean; project?: string;
+  /**
+   * Opt-in: in-process Node TLS probes trust only the bundled roots (plus system roots when a new process would
+   * enable them) and these entries, never this process's own start-time trust; `'unavailable'` reports those
+   * checks unavailable. An applied `npm` entry replaces the roots for the `npm` target.
+   */
+  persistedTrust?: PersistedTrust;
 }
 export interface DiagnoseControls { signal?: AbortSignal; budgetMs?: number }
 export interface DiagnoseResult {
@@ -25,6 +35,16 @@ export declare function validateBaselineStore(bytes: Uint8Array):
   { valid: true; fingerprints: string[] } | { valid: false; reason: string; message: string };
 export declare function parseJvmTrustStore(bytes: Uint8Array):
   { status: 'parsed'; certificates: import('./trust.mjs').ParsedCertificate[] } | { status: 'invalid'; reason: string };
+export interface PersistedConfigurationMember {
+  readonly id: 'node-extra-ca-certs' | 'npm-cafile'; readonly repair: string; readonly managementId: string;
+  readonly materialName: string; readonly targets: readonly string[]; readonly effect: 'node' | 'npm';
+  readonly member: { readonly path: string; readonly kind: 'block'; readonly blockId: string;
+    readonly startMarker: string; readonly endMarker: string };
+  /** The block content this repair renders for a managed material path; undefined when the path is unsupported. */
+  content(materialPath: string): string | undefined;
+}
+/** Managed user configuration the shipped Node/npm CA repair persists on this platform; reads no host state. */
+export declare function persistedConfigurationMembers(): readonly PersistedConfigurationMember[];
 export declare function getRepairRecipe(recipeRef: string): object | undefined;
 /** Definition-owned migration assessment; does not read or mutate custody. */
 export declare function managedRepairRemovalNeedsReconciliation(request: {

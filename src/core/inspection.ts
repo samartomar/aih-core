@@ -3,14 +3,19 @@ import { isProxy } from 'node:util/types';
 import { helperMetadata } from '../harness/contracts.mjs';
 import { diagnose, validDiagnosticTargets } from '../harness/runtime.mjs';
 import { installedDistribution } from './internal/installed-distribution.js';
+import { readPersistedConfiguration, type PersistedConfigurationValue, type PersistedMaterial } from './internal/persisted-configuration.js';
 import type { Diagnostic } from './types.js';
 import type { Effective } from './host-types.js';
+
+export type { PersistedConfigurationValue };
 
 export interface InspectRequest {
   targets?: string[];
   network?: 'declared' | 'off';
   probeConfiguredMcp?: boolean;
   project?: string;
+  /** `persisted` evaluates Node TLS with the trust Core's own managed repair configuration gives a new process. */
+  configuration?: 'process' | 'persisted';
 }
 export interface InspectControls { signal?: AbortSignal; budgetMs?: number }
 export interface InspectResult {
@@ -25,8 +30,11 @@ export interface InspectResult {
     targets: Effective<string[] | 'detected'>;
     network: Effective<'declared' | 'off'>;
     probeConfiguredMcp: Effective<boolean>;
+    configuration: Effective<'process' | 'persisted'>;
     budgetMs: Effective<number>;
   };
+  /** Present only when `configuration: 'persisted'` was effective. */
+  persisted?: { values: PersistedConfigurationValue[] };
   limits: { budgetMs: number; elapsedMs: number; maxActiveProbes: number };
   followUp: string[];
 }
@@ -52,7 +60,8 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
       diagnostics: [{ code: 'PREREQUISITE_UNAVAILABLE', reason: 'core-distribution-identity',
         message: 'The installed Core distribution identity could not be verified.' }],
       effectiveOptions: { targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
-        probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: 180000, origin: 'default' } },
+        probeConfiguredMcp: { value: false, origin: 'default' },
+        configuration: { value: 'process', origin: 'default' }, budgetMs: { value: 180000, origin: 'default' } },
       limits: { budgetMs: 180000, elapsedMs: 0, maxActiveProbes: 2 }, followUp: [] };
   }
   const profile = helperMetadata.diagnostics.find(entry => entry.id === 'existing-tools')?.profile;
@@ -65,20 +74,23 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
       diagnostics: [{ code: 'PREREQUISITE_UNAVAILABLE', reason: 'harness-diagnostic-profile',
         message: 'The installed diagnostic profile could not be accepted.' }],
       effectiveOptions: { targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
-        probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: 180000, origin: 'default' } },
+        probeConfiguredMcp: { value: false, origin: 'default' },
+        configuration: { value: 'process', origin: 'default' }, budgetMs: { value: 180000, origin: 'default' } },
       limits: { budgetMs: 180000, elapsedMs: 0, maxActiveProbes: 2 }, followUp: [] };
-  if (!plain(request, ['targets', 'network', 'probeConfiguredMcp', 'project']) ||
+  if (!plain(request, ['targets', 'network', 'probeConfiguredMcp', 'project', 'configuration']) ||
       !plain(controls, ['signal', 'budgetMs'])) return {
     status: 'invalid', package: identity, tools: [], observations: [], checks: [], repairChoices: [],
     diagnostics: [{ code: 'INPUT_INVALID', reason: 'request-field', message: 'Use published inspection options.' }],
     effectiveOptions: { targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
-      probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: profile.phaseMs, origin: 'default' } },
+      probeConfiguredMcp: { value: false, origin: 'default' },
+      configuration: { value: 'process', origin: 'default' }, budgetMs: { value: profile.phaseMs, origin: 'default' } },
     limits: { budgetMs: profile.phaseMs, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }, followUp: []
   };
   const options: InspectResult['effectiveOptions'] = {
     targets: { value: request.targets ?? 'detected', origin: request.targets === undefined ? 'default' : 'explicit' },
     network: { value: request.network ?? 'declared', origin: request.network === undefined ? 'default' : 'explicit' },
     probeConfiguredMcp: { value: request.probeConfiguredMcp ?? false, origin: request.probeConfiguredMcp === undefined ? 'default' : 'explicit' },
+    configuration: { value: request.configuration ?? 'process', origin: request.configuration === undefined ? 'default' : 'explicit' },
     budgetMs: { value: controls.budgetMs ?? profile.phaseMs, origin: controls.budgetMs === undefined ? 'default' : 'explicit' }
   };
   const base: InspectResult = { status: 'invalid', package: identity, tools: [], observations: [], checks: [],
@@ -86,7 +98,8 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
     limits: { budgetMs: options.budgetMs.value, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }, followUp: [] };
   const safeOptions: InspectResult['effectiveOptions'] = {
     targets: { value: 'detected', origin: 'default' }, network: { value: 'declared', origin: 'default' },
-    probeConfiguredMcp: { value: false, origin: 'default' }, budgetMs: { value: profile.phaseMs, origin: 'default' }
+    probeConfiguredMcp: { value: false, origin: 'default' },
+    configuration: { value: 'process', origin: 'default' }, budgetMs: { value: profile.phaseMs, origin: 'default' }
   };
   const fail = (reason: string): InspectResult => ({
     ...base, effectiveOptions: safeOptions,
@@ -97,15 +110,37 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
     return fail('target');
   if (request.network !== undefined && (typeof request.network !== 'string' || !['declared', 'off'].includes(request.network))) return fail('network');
   if (request.probeConfiguredMcp !== undefined && typeof request.probeConfiguredMcp !== 'boolean') return fail('probe-configured-mcp');
+  if (request.configuration !== undefined && (typeof request.configuration !== 'string' || !['process', 'persisted'].includes(request.configuration))) return fail('configuration');
   if (request.project !== undefined && (typeof request.project !== 'string' || !request.project || request.project.length > 4096)) return fail('project');
   if (controls.signal !== undefined && !(controls.signal instanceof AbortSignal)) return fail('signal');
   if (controls.budgetMs !== undefined && (typeof controls.budgetMs !== 'number' ||
       !Number.isInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > profile.phaseMs))
     return fail('budget-ms');
+  // Read-only custody evaluation; a value that is not applied is reported and never used as trust.
+  let persisted: PersistedConfigurationValue[] | undefined;
+  let trust: PersistedMaterial[] | 'unavailable' | undefined;
+  const extra: Diagnostic[] = [];
+  if (options.configuration.value === 'persisted') {
+    try { const read = readPersistedConfiguration(); persisted = read.values; trust = read.material; }
+    catch {
+      persisted = []; trust = 'unavailable';
+      extra.push({ code: 'PREREQUISITE_UNAVAILABLE', reason: 'persisted-configuration-unavailable',
+        message: 'Core custody for persisted configuration could not be verified.' });
+    }
+    for (const value of persisted) if (value.state !== 'applied')
+      extra.push({ code: 'STATE_CONFLICT', reason: `persisted-${value.state}`,
+        message: `Persisted configuration ${value.id} is ${value.state}; it was not used.` });
+  }
+  const conclude = (result: InspectResult): InspectResult => !persisted ? result : {
+    ...result, ...(extra.length && result.status === 'complete' ? { status: 'incomplete' as const } : {}),
+    diagnostics: [...result.diagnostics, ...extra], persisted: { values: persisted },
+    followUp: [...result.followUp, ...persisted.filter(value => value.state !== 'applied').map(value =>
+      `Persisted configuration ${value.id} is ${value.state}. Select an applicable published repair for a separate reviewed request.`)] };
   let result: Awaited<ReturnType<typeof diagnose>>;
   try {
     result = await diagnose({ requestId: randomUUID(), targets: request.targets, network: options.network.value,
-      probeConfiguredMcp: options.probeConfiguredMcp.value, project: request.project },
+      probeConfiguredMcp: options.probeConfiguredMcp.value, project: request.project,
+      ...(trust ? { persistedTrust: trust } : {}) },
       { signal: controls.signal, budgetMs: options.budgetMs.value });
     if (!result || result.helper?.name !== identity.name || result.helper?.version !== identity.version ||
         !['completed', 'cancelled', 'invalid', 'unavailable'].includes(result.status) ||
@@ -116,17 +151,17 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
         !result.limits || result.limits.budgetMs > options.budgetMs.value ||
         result.limits.maxActiveProbes > profile.maxActiveProbes)
       throw new Error('helper-result-invalid');
-  } catch { return { ...base, status: controls.signal?.aborted ? 'cancelled' : 'incomplete',
-    diagnostics: [controls.signal?.aborted ? { code: 'CANCELLED', reason: 'cancelled', message: 'Inspection was cancelled.' } : internalFailure] }; }
+  } catch { return conclude({ ...base, status: controls.signal?.aborted ? 'cancelled' : 'incomplete',
+    diagnostics: [controls.signal?.aborted ? { code: 'CANCELLED', reason: 'cancelled', message: 'Inspection was cancelled.' } : internalFailure] }); }
   const incomplete = result.status !== 'completed' ||
     result.checks.some(check => check.outcome === 'failed' || check.outcome === 'unavailable');
   const followUp = result.checks.flatMap(check =>
     check.outcome === 'failed' ? [`Inspect ${check.target}: ${check.reason}. Select an applicable published repair for a separate reviewed request.`] :
     check.outcome === 'unavailable' ? [`Check ${check.target} could not complete: ${check.reason}. Reinspect after resolving the prerequisite.`] : []);
-  return { ...base, status: result.status === 'cancelled' ? 'cancelled' : incomplete ? 'incomplete' : 'complete',
+  return conclude({ ...base, status: result.status === 'cancelled' ? 'cancelled' : incomplete ? 'incomplete' : 'complete',
     tools: result.tools, observations: result.observations, checks: result.checks, repairChoices: result.repairChoices,
     diagnostics: result.status === 'invalid' || result.status === 'unavailable' ?
       [...result.diagnostics, { code: 'EXECUTION_FAILED', reason: 'helper-' + result.status,
         message: 'The installed diagnostic helper did not complete.' }] : result.diagnostics,
-    limits: result.limits, followUp };
+    limits: result.limits, followUp });
 }

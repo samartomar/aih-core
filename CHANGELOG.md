@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Add opt-in `configuration: 'persisted'` to `inspect`, so a long-running host can re-check Node TLS
+after a repair with the trust Core's managed `node-npm-ca` configuration gives a new process. Only
+Core-managed blocks with matching custody (judged by the block's own bytes and line endings) are applied;
+the result reports each value (`id`, `repair`, `managementId`, `member`, `state`, and when applied `value`,
+`certificates`, `materialSha256`) as `applied`, `removed`, `modified` or `unowned`, and any other state is a
+`STATE_CONFLICT` diagnostic and an `incomplete` status. Persisted Node TLS and configured MCP probes use an
+explicit trust and never this process's own start-time trust: bundled roots (plus system roots only when a new
+process would enable them) and the applied Node extras, or for npm the applied `cafile` alone. If custody
+cannot be read, those checks are `unavailable` with reason `persisted-configuration-unavailable`.
+`effectiveOptions.configuration` is added and `PersistedConfigurationValue` is exported; the default `process`
+behavior is unchanged. Harness exports `persistedConfigurationMembers()` and `diagnose` accepts an optional,
+strictly validated and bounded `persistedTrust` (`persisted-trust` when invalid).
+
 Document `nativeClientIds` from `@aihq/core/harness` as the public supported AI client
 list. It is frozen and portable, and its ids are exactly the accepted
 organization-target `client` values. The packed consumer proves the export, its
