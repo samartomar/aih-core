@@ -16,6 +16,7 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
+| `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, and read-only macOS session/app/key observations and LaunchAgent rendering |

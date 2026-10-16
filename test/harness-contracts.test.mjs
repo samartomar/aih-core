@@ -25,6 +25,8 @@ test('Harness declares exact supported formats and the installed public runtime 
       schemaExport: '@aihq/core/report/schema' },
     { id: 'urn:aihq:report:claims:1.0.0', role: 'accepts',
       schemaExport: '@aihq/core/report/schemas/claims/1.0.0.json' },
+    { id: 'urn:aihq:report:claims:1.1.0', role: 'accepts',
+      schemaExport: '@aihq/core/report/schemas/claims/1.1.0.json' },
     { id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' },
     { id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'both',

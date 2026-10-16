@@ -10,7 +10,9 @@ import {
   CALCULATION_METHODS,
   CLAIMS_ACCEPTED_VERSIONS,
   CLAIMS_PROJECTION_SCHEMA,
+  CLAIMS_PROJECTION_SCHEMA_1_1_0,
   CLAIMS_SCHEMA,
+  CLAIMS_SCHEMA_1_1_0,
   ReportInputError,
   projectClaims,
   readClaimSet,
@@ -68,23 +70,34 @@ function deepFreeze(value) {
 }
 
 test('the accepted versions, calculation methods and schema export are advertised', async () => {
-  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0']);
+  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0']);
   assert.equal(Object.isFrozen(CLAIMS_ACCEPTED_VERSIONS), true);
   assert.equal(CLAIMS_SCHEMA, 'urn:aihq:report:claims:1.0.0');
   assert.equal(CLAIMS_PROJECTION_SCHEMA, 'urn:aihq:report:claims-projection:1.0.0');
+  assert.equal(CLAIMS_SCHEMA_1_1_0, 'urn:aihq:report:claims:1.1.0');
+  assert.equal(CLAIMS_PROJECTION_SCHEMA_1_1_0, 'urn:aihq:report:claims-projection:1.1.0');
   assert.deepEqual(CALCULATION_METHODS, [
     { id: 'configuration-check-score', version: '1.0.0' },
     { id: 'verified-repair-count', version: '1.0.0' },
     { id: 'context-change', version: '1.0.0' },
+    { id: 'recurrence', version: '1.0.0' },
   ]);
   assert.equal(Object.isFrozen(CALCULATION_METHODS), true);
   assert.deepEqual(
     contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA),
     { id: CLAIMS_SCHEMA, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.0.0.json' },
   );
+  assert.deepEqual(
+    contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA_1_1_0),
+    { id: CLAIMS_SCHEMA_1_1_0, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.1.0.json' },
+  );
   const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
   assert.equal(schema.$id, 'urn:aihq:report:claims:1.0.0');
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
+  const next = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  assert.equal(next.$id, 'urn:aihq:report:claims:1.1.0');
+  assert.equal(next.$schema, 'https://json-schema.org/draft/2020-12/schema');
+  assert.doesNotThrow(() => new Ajv2020({ strict: true, allErrors: true }).compile(next));
 });
 
 test('the JSON Schema accepts a valid claim set and rejects structural violations', async () => {
@@ -822,11 +835,13 @@ test('the filled examples read, project to their committed projections and match
   const load = (name) => readFile(new URL(name, directory), 'utf8');
   const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
+  const next = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  const validateNext = new Ajv2020({ strict: true, allErrors: true }).compile(next);
   const byId = (projection) => Object.fromEntries(projection.calculations.map((entry) => [entry.id, entry]));
-  const project = async (name) => {
+  const project = async (name, check = validate) => {
     const text = await load(`${name}.input.json`);
     const parsed = JSON.parse(text);
-    assert.equal(validate(parsed), true, JSON.stringify(validate.errors));
+    assert.equal(check(parsed), true, JSON.stringify(check.errors));
     const read = readClaimSet(text);
     assert.equal(read.status, 'supported');
     assert.deepEqual(read.claimSet, parsed);
@@ -879,10 +894,317 @@ test('the filled examples read, project to their committed projections and match
   assert.equal(context['estimate-vs-observed'].status, 'unavailable');
   assert.equal(context['estimate-vs-observed'].reason, 'incomparable-kind');
 
+  // The recurrence example is a claims 1.1.0 set, so the 1.0.0 schema rejects it.
+  assert.equal(validate(JSON.parse(await load('recurrence.input.json'))), false);
+  const recurrenceProjection = await project('recurrence', validateNext);
+  assert.equal(recurrenceProjection.schema, 'urn:aihq:report:claims-projection:1.1.0');
+  assert.deepEqual(recurrenceProjection.source, { schema: 'urn:aihq:report:claims:1.1.0' });
+  const recurrence = byId(recurrenceProjection);
+  assert.deepEqual(Object.values(recurrence).map((entry) => [entry.id, entry.status, entry.reason, entry.count]), [
+    ['recurring', 'available', null, 1],
+    ['recovered-without-recurrence', 'available', null, 0],
+    ['unrelated-condition', 'available', null, 0],
+    ['duplicate-import', 'available', null, 1],
+    ['missing-history', 'unavailable', 'no-history', null],
+    ['still-failing', 'unavailable', 'no-recovery', null],
+  ]);
+  assert.deepEqual(Object.values(recurrence).map((entry) => entry.timeline.map((event) => event.role)), [
+    ['failure', 'recovery', 'recurrence'],
+    ['failure', 'recovery', 'passed'],
+    ['failure', 'recovery'],
+    ['failure', 'recovery', 'recurrence'],
+    [],
+    ['failure', 'repeated-failure'],
+  ]);
+  assert.deepEqual(recurrence['unrelated-condition'].unmatched,
+    [{ claim: { id: 'unrelated-condition-later-failure', revision: '1' }, reason: 'different-condition' }]);
+  assert.deepEqual(recurrence['duplicate-import'].recurrences[0].recurrence, { id: 'duplicate-import-later-failure', revision: '1' });
+  assert.deepEqual(recurrenceProjection.observations.duplicates.map((entry) => [entry.claim.id, entry.imports]),
+    [['duplicate-import-later-failure', 2]]);
+
   const original = await load('unsupported.input.json');
   const rejected = readClaimSet(original);
   assert.equal(rejected.status, 'rejected');
   assert.equal(rejected.code, 'SCHEMA_UNSUPPORTED');
   assert.equal(rejected.original, original);
   assert.equal(validate(JSON.parse(original)), false);
+});
+
+// ------------------------------------------------------------ recurrence (claims 1.1.0)
+
+const minute = (value) => `2026-10-14T10:${String(value).padStart(2, '0')}:00Z`;
+const claimSet11 = (claims, extra = {}) => ({ schema: CLAIMS_SCHEMA_1_1_0, claims, ...extra });
+const CONDITION = 'file-state';
+/** A measured check-outcome claim on the default subject and the recurrence condition. */
+const outcomeClaim = (id, amount, at, overrides = {}) => claim(id, {
+  measure: CONDITION, value: OUTCOME(amount), capturedAt: minute(at), ...overrides,
+});
+const unknownClaim = (id, at) => outcomeClaim(id, 'passed', at, {
+  kind: 'unknown', value: undefined, unknownReason: 'probe unavailable',
+});
+const recurrenceRequest = (id, observations, overrides = {}) => ({
+  id, method: 'recurrence', version: '1.0.0', subject: { kind: 'machine', id: 'host-1' },
+  condition: CONDITION, observations: observations.map((value) => ref(value)), ...overrides,
+});
+const recurrenceOf = (claims, observations, overrides = {}) => calculationOf(
+  projectClaims(claimSet11(claims, { calculations: [recurrenceRequest('r', observations, overrides)] })), 'r');
+
+test('a claims 1.0.0 set cannot request recurrence, in the validator or the 1.0.0 schema', async () => {
+  const set = claimSet([claim('a')], { calculations: [recurrenceRequest('r', ['a'])] });
+  const validation = validateClaimSet(set);
+  assert.equal(validation.valid, false);
+  assert.equal(validation.errors[0], 'claimSet.calculations[0].method: unsupported calculation method or version');
+  assert.throws(() => projectClaims(set), (error) => error instanceof ReportInputError
+    && error.code === 'INPUT_INVALID' && /^claimSet\.calculations\[0\]\.method: /.test(error.message));
+  const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
+  assert.equal(new Ajv2020({ strict: true, allErrors: true }).compile(schema)(set), false);
+});
+
+test('a claims 1.0.0 set still projects as 1.0.0 and a 1.1.0 set projects as 1.1.0 with the same existing results', () => {
+  const claims = () => [claim('a'), claim('b', { value: OUTCOME('failed') })];
+  const calculations = () => [scoreRequest('score', ['a', 'b'])];
+  const legacy = projectClaims(claimSet(claims(), { calculations: calculations() }));
+  assert.equal(legacy.schema, 'urn:aihq:report:claims-projection:1.0.0');
+  assert.deepEqual(legacy.source, { schema: 'urn:aihq:report:claims:1.0.0' });
+  const next = projectClaims(claimSet11(claims(), { calculations: calculations() }));
+  assert.equal(next.schema, CLAIMS_PROJECTION_SCHEMA_1_1_0);
+  assert.deepEqual(next.source, { schema: CLAIMS_SCHEMA_1_1_0 });
+  assert.deepEqual({ ...next, schema: legacy.schema, source: legacy.source }, legacy);
+  assert.equal(calculationOf(next, 'score').score, 50);
+  assert.equal(readClaimSet(JSON.stringify(claimSet11(claims()))).status, 'supported');
+});
+
+test('recurrence: a failure after a verified recovery counts once and names its three events', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('f2', 'failed', 3),
+  ], ['f2', 'f1', 'p1']);
+  assert.equal(result.status, 'available');
+  assert.equal(result.reason, null);
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.recurrences, [{ failure: ref('f1'), recovery: ref('p1'), recurrence: ref('f2') }]);
+  assert.deepEqual(result.timeline, [
+    { claim: ref('f1'), capturedAt: minute(1), outcome: 'failed', role: 'failure' },
+    { claim: ref('p1'), capturedAt: minute(2), outcome: 'passed', role: 'recovery' },
+    { claim: ref('f2'), capturedAt: minute(3), outcome: 'failed', role: 'recurrence' },
+  ]);
+  assert.deepEqual(result.inputs, [ref('f1'), ref('f2'), ref('p1')]);
+  assert.deepEqual([result.unmatched, result.conflicts], [[], []]);
+  assert.deepEqual(result.deduplication, { status: 'established', unidentified: [] });
+  assert.deepEqual(Object.keys(result), [
+    'id', 'method', 'status', 'reason', 'inputs', 'subject', 'condition', 'count', 'recurrences',
+    'timeline', 'unmatched', 'conflicts', 'deduplication',
+  ]);
+  assert.deepEqual(result.method, { id: 'recurrence', version: '1.0.0' });
+  assert.deepEqual(result.subject, { kind: 'machine', id: 'host-1' });
+  assert.equal(result.condition, CONDITION);
+});
+
+test('recurrence: a recovery without a later failure is zero, available', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('p2', 'passed', 3),
+  ], ['f1', 'p1', 'p2']);
+  assert.deepEqual([result.status, result.reason, result.count, result.recurrences], ['available', null, 0, []]);
+  assert.deepEqual(result.timeline.map((entry) => entry.role), ['failure', 'recovery', 'passed']);
+});
+
+test('recurrence: a different condition or subject, or a non-outcome claim, is unmatched with its reason', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2),
+    outcomeClaim('other', 'failed', 3, { measure: 'native-use' }),
+    outcomeClaim('elsewhere', 'failed', 4, { subject: { kind: 'machine', id: 'host-2' } }),
+    outcomeClaim('size', 'failed', 5, { value: { amount: 12, unit: 'bytes' } }),
+  ], ['f1', 'p1', 'size', 'elsewhere', 'other']);
+  assert.deepEqual(result.unmatched, [
+    { claim: ref('elsewhere'), reason: 'different-subject' },
+    { claim: ref('other'), reason: 'different-condition' },
+    { claim: ref('size'), reason: 'not-a-check-outcome' },
+  ]);
+  assert.deepEqual([result.status, result.count], ['available', 0]);
+  assert.deepEqual(result.timeline.map((entry) => entry.claim.id), ['f1', 'p1']);
+  // A claim that fails several rules reports the first: subject, then condition, then outcome.
+  const first = recurrenceOf([
+    outcomeClaim('x', 'failed', 1, { subject: { kind: 'machine', id: 'host-2' }, measure: 'other' }),
+  ], ['x']);
+  assert.equal(first.unmatched[0].reason, 'different-subject');
+  assert.equal(first.reason, 'no-history');
+});
+
+test('recurrence: a duplicate import counts once and appears as its canonical claim', () => {
+  // A re-imported event repeats the same content, including its source record.
+  const reimport = () => ({ observation: 'event-f2', sources: [{ id: 'record-f2', schema: 'urn:example:record:1.0.0' }] });
+  const claims = () => [
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2),
+    outcomeClaim('f2', 'failed', 3, reimport()), outcomeClaim('f2-import', 'failed', 3, reimport()),
+  ];
+  const result = recurrenceOf(claims(), ['f1', 'p1', 'f2', 'f2-import']);
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.timeline.map((entry) => entry.claim.id), ['f1', 'p1', 'f2']);
+  assert.deepEqual(result.recurrences, [{ failure: ref('f1'), recovery: ref('p1'), recurrence: ref('f2') }]);
+  assert.deepEqual(result.inputs.map((entry) => entry.id), ['f1', 'f2', 'f2-import', 'p1']);
+  // Referencing only the later import still lists the group's canonical claim.
+  const later = recurrenceOf(claims(), ['f1', 'p1', 'f2-import']);
+  assert.deepEqual(later.recurrences[0].recurrence, ref('f2'));
+});
+
+test('recurrence: a conflicting observation is listed as a conflict and not placed on the timeline', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2),
+    outcomeClaim('c-a', 'failed', 3, { observation: 'event-c' }),
+    outcomeClaim('c-b', 'passed', 3, { observation: 'event-c' }),
+  ], ['f1', 'p1', 'c-b', 'c-a']);
+  assert.deepEqual(result.conflicts, [ref('c-a'), ref('c-b')]);
+  assert.deepEqual(result.timeline.map((entry) => entry.claim.id), ['f1', 'p1']);
+  assert.deepEqual([result.status, result.count], ['available', 0]);
+});
+
+test('recurrence: an unknown outcome stays on the timeline and never changes state', () => {
+  const result = recurrenceOf([
+    unknownClaim('u0', 0), outcomeClaim('f1', 'failed', 1), unknownClaim('u1', 2), outcomeClaim('p1', 'passed', 3),
+    unknownClaim('u2', 4), outcomeClaim('f2', 'failed', 5),
+  ], ['u0', 'f1', 'u1', 'p1', 'u2', 'f2']);
+  assert.deepEqual(result.timeline.map((entry) => [entry.outcome, entry.role]), [
+    ['unknown', 'unknown'], ['failed', 'failure'], ['unknown', 'unknown'], ['passed', 'recovery'],
+    ['unknown', 'unknown'], ['failed', 'recurrence'],
+  ]);
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.recurrences, [{ failure: ref('f1'), recovery: ref('p1'), recurrence: ref('f2') }]);
+});
+
+test('recurrence: missing or only-unknown history is unavailable with a null count, never zero', () => {
+  const none = recurrenceOf([claim('a')], []);
+  assert.deepEqual([none.status, none.reason, none.count, none.recurrences, none.timeline, none.inputs],
+    ['unavailable', 'no-history', null, [], [], []]);
+  const only = recurrenceOf([unknownClaim('u', 1)], ['u']);
+  assert.deepEqual([only.status, only.reason, only.count], ['unavailable', 'no-history', null]);
+  assert.deepEqual(only.timeline, [{ claim: ref('u'), capturedAt: minute(1), outcome: 'unknown', role: 'unknown' }]);
+});
+
+test('recurrence: never failing is no-failure and never recovering is no-recovery', () => {
+  const passing = recurrenceOf([outcomeClaim('p1', 'passed', 1), outcomeClaim('p2', 'passed', 2)], ['p1', 'p2']);
+  assert.deepEqual([passing.status, passing.reason, passing.count, passing.recurrences],
+    ['unavailable', 'no-failure', null, []]);
+  assert.deepEqual(passing.timeline.map((entry) => entry.role), ['passed', 'passed']);
+  const failing = recurrenceOf([outcomeClaim('f1', 'failed', 1), outcomeClaim('f2', 'failed', 2)], ['f1', 'f2']);
+  assert.deepEqual([failing.status, failing.reason, failing.count, failing.recurrences],
+    ['unavailable', 'no-recovery', null, []]);
+  assert.deepEqual(failing.timeline.map((entry) => entry.role), ['failure', 'repeated-failure']);
+});
+
+test('recurrence: a pass and a failure at one instant make the order ambiguous and clear every role', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('f2', 'failed', 2),
+  ], ['f1', 'p1', 'f2']);
+  assert.deepEqual([result.status, result.reason, result.count, result.recurrences],
+    ['unavailable', 'ambiguous-order', null, []]);
+  assert.deepEqual(result.timeline.map((entry) => [entry.claim.id, entry.role]),
+    [['f1', null], ['f2', null], ['p1', null]]);
+});
+
+test('recurrence: events sharing an instant with identical outcomes are not ambiguous', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('f2', 'failed', 3),
+    outcomeClaim('f3', 'failed', 3),
+  ], ['f1', 'p1', 'f2', 'f3']);
+  assert.deepEqual([result.status, result.count], ['available', 1]);
+  assert.deepEqual(result.timeline.map((entry) => entry.role), ['failure', 'recovery', 'recurrence', 'repeated-failure']);
+});
+
+test('recurrence: only measured outcomes count; a declared or estimated outcome is unmatched', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, { kind: 'declared' }),
+    outcomeClaim('p2', 'passed', 3, { kind: 'estimated' }), outcomeClaim('f2', 'failed', 4),
+  ], ['f1', 'p1', 'p2', 'f2']);
+  assert.deepEqual([result.status, result.reason, result.count], ['unavailable', 'no-recovery', null]);
+  assert.deepEqual(result.unmatched, [
+    { claim: ref('p1'), reason: 'not-measured' },
+    { claim: ref('p2'), reason: 'not-measured' },
+  ]);
+  assert.deepEqual(result.timeline.map((entry) => entry.role), ['failure', 'repeated-failure']);
+});
+
+test('recurrence: outcomes from different scopes or check methods are not combined', () => {
+  const otherScope = { scope: { kind: 'repository', targets: ['repo-b'] } };
+  const scoped = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, otherScope), outcomeClaim('f2', 'failed', 3),
+  ], ['f1', 'p1', 'f2']);
+  assert.deepEqual([scoped.status, scoped.reason, scoped.count, scoped.recurrences], ['unavailable', 'incomparable-scope', null, []]);
+  assert.deepEqual(scoped.timeline.map((entry) => entry.role), [null, null, null]);
+
+  const methods = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, { method: { id: 'baseline', version: '3.0.0' } }),
+    outcomeClaim('f2', 'failed', 3),
+  ], ['f1', 'p1', 'f2']);
+  assert.deepEqual([methods.status, methods.reason, methods.count], ['unavailable', 'incomparable-method', null]);
+
+  // Target order is not significant, and an unknown outcome in another scope changes nothing.
+  const reordered = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1, { scope: { kind: 'machine', targets: ['host-1', 'host-2'] } }),
+    outcomeClaim('p1', 'passed', 2, { scope: { kind: 'machine', targets: ['host-2', 'host-1'] } }),
+    { ...unknownClaim('u1', 3), ...otherScope },
+    outcomeClaim('f2', 'failed', 4, { scope: { kind: 'machine', targets: ['host-1', 'host-2'] } }),
+  ], ['f1', 'p1', 'u1', 'f2']);
+  assert.deepEqual([reordered.status, reordered.count], ['available', 1]);
+});
+
+test('recurrence: each failure after a recovery is its own recurrence', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2), outcomeClaim('f2', 'failed', 3),
+    outcomeClaim('p2', 'passed', 4), outcomeClaim('f3', 'failed', 5),
+  ], ['f1', 'p1', 'f2', 'p2', 'f3']);
+  assert.equal(result.count, 2);
+  assert.deepEqual(result.recurrences, [
+    { failure: ref('f1'), recovery: ref('p1'), recurrence: ref('f2') },
+    { failure: ref('f2'), recovery: ref('p2'), recurrence: ref('f3') },
+  ]);
+  const repeated = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('f2', 'failed', 2), outcomeClaim('p1', 'passed', 3),
+    outcomeClaim('p2', 'passed', 4), outcomeClaim('f3', 'failed', 5),
+  ], ['f1', 'f2', 'p1', 'p2', 'f3']);
+  assert.deepEqual(repeated.recurrences, [{ failure: ref('f1'), recovery: ref('p1'), recurrence: ref('f3') }]);
+});
+
+test('recurrence: unidentified observations leave deduplication not established', () => {
+  const result = recurrenceOf([
+    outcomeClaim('f1', 'failed', 1), outcomeClaim('p1', 'passed', 2, { observation: null }),
+    outcomeClaim('f2', 'failed', 3),
+  ], ['f1', 'p1', 'f2']);
+  assert.equal(result.count, 1);
+  assert.deepEqual(result.deduplication, { status: 'not-established', unidentified: [ref('p1')] });
+});
+
+test('recurrence: a repeated or unresolved reference, or a malformed request, is INPUT_INVALID', () => {
+  const claims = () => [outcomeClaim('a', 'failed', 1)];
+  const errorOf = (request) => validateClaimSet(claimSet11(claims(), { calculations: [request] })).errors[0];
+  assert.equal(errorOf(recurrenceRequest('r', ['a', 'a'])), 'claimSet.calculations[0].observations[1]: duplicate claim reference');
+  assert.equal(errorOf(recurrenceRequest('r', ['missing'])),
+    'claimSet.calculations[0].observations[0]: does not resolve to a claim in the set');
+  assert.match(errorOf(recurrenceRequest('r', [], { subject: { kind: 'machine' } })), /^claimSet\.calculations\[0\]\.subject/);
+  assert.match(errorOf(recurrenceRequest('r', [], { condition: '' })), /^claimSet\.calculations\[0\]\.condition/);
+  assert.match(errorOf({ ...recurrenceRequest('r', []), extra: 1 }), /^claimSet\.calculations\[0\]/);
+  assert.equal(errorOf({ ...recurrenceRequest('r', []), version: '2.0.0' }),
+    'claimSet.calculations[0].method: unsupported calculation method or version');
+  assert.equal(validateClaimSet(claimSet11(claims(), { calculations: [recurrenceRequest('r', ['a'])] })).valid, true);
+});
+
+test('the claims 1.1.0 JSON Schema accepts a recurrence request and rejects a malformed one', async () => {
+  const schema = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
+  const valid = claimSet11([outcomeClaim('a', 'failed', 1), claim('c')], {
+    calculations: [recurrenceRequest('r', ['a']), scoreRequest('score', ['c'])],
+  });
+  assert.equal(validate(valid), true, JSON.stringify(validate.errors));
+  assert.equal(validateClaimSet(valid).valid, true);
+  for (const mutate of [
+    (set) => { delete set.calculations[0].condition; },
+    (set) => { set.calculations[0].extra = true; },
+    (set) => { delete set.calculations[0].subject; },
+    (set) => { set.calculations[0].version = '2.0.0'; },
+    (set) => { set.calculations[0].observations = [{ id: 'a' }]; },
+    (set) => { set.calculations[0].observations = [ref('a'), ref('a')]; },
+    (set) => { set.schema = 'urn:aihq:report:claims:1.0.0'; },
+  ]) {
+    const broken = structuredClone(valid);
+    mutate(broken);
+    assert.equal(validate(broken), false);
+  }
 });
