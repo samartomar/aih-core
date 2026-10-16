@@ -9,7 +9,8 @@ import { BasicConstraints, Certificate, CryptoEngine, Extension, GeneralName, Ge
 const crypto = new CryptoEngine({ name: 'fixture', crypto: webcrypto, subtle: webcrypto.subtle });
 const pem = (label, bytes) => `-----BEGIN ${label}-----\n${Buffer.from(bytes).toString('base64').match(/.{1,64}/g).join('\n')}\n-----END ${label}-----\n`;
 
-export async function createRegistryCertificates() {
+/** `hosts` are extra DNS names the leaf also covers, for endpoints other than the registry. */
+export async function createRegistryCertificates(hosts = []) {
   const generate = () => webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   const caKeys = await generate(); const leafKeys = await generate();
   // A distinct CA name per call, so an unrelated CA is never matched as the issuer by name.
@@ -34,7 +35,7 @@ export async function createRegistryCertificates() {
   await ca.sign(caKeys.privateKey, 'SHA-256', crypto);
   const leaf = await certificate(leafKeys, 2, 'registry.npmjs.org');
   leaf.extensions = [new Extension({ extnID: '2.5.29.17', extnValue:
-    new GeneralNames({ names: [new GeneralName({ type: 2, value: 'registry.npmjs.org' })] }).toSchema().toBER(false) })];
+    new GeneralNames({ names: ['registry.npmjs.org', ...hosts].map(value => new GeneralName({ type: 2, value })) }).toSchema().toBER(false) })];
   await leaf.sign(caKeys.privateKey, 'SHA-256', crypto);
   return { caPem: pem('CERTIFICATE', ca.toSchema().toBER(false)),
     leafPem: pem('CERTIFICATE', leaf.toSchema().toBER(false)),
@@ -58,10 +59,11 @@ export async function startRegistry({ leafPem, keyPem }) {
   }) };
 }
 
-export function redirectRegistry(port) {
+export function redirectRegistry(port, hosts = []) {
+  const redirected = new Set(['registry.npmjs.org', ...hosts]);
   const connect = tls.connect;
   tls.connect = function (options, ...args) {
-    return connect.call(this, options?.host === 'registry.npmjs.org' ?
+    return connect.call(this, redirected.has(options?.host) ?
       { ...options, host: '127.0.0.1', port } : options, ...args);
   };
   return () => { tls.connect = connect; };

@@ -636,7 +636,6 @@ async function tlsProbe(origin, deadline, signal, ca) {
     const finish = value => { if (finished) return; finished = true; clearTimeout(timer);
       signal?.removeEventListener('abort', abort); socket?.destroy(); resolveResult(value); };
     const abort = () => finish({ kind: 'cancelled' });
-    if (ca === false) { finish({ kind: 'unavailable', reason: 'probe-invocation' }); return; }
     try {
       socket = tls.connect({ host: url.hostname, port: Number(url.port || 443), servername: url.hostname,
         rejectUnauthorized: true, timeout, ...(ca ? { ca } : {}) }, () => {
@@ -758,41 +757,52 @@ export async function assessRepairCandidate(request, controls = {}) {
   return assessNodeTrustCandidate({ originId: request.inputs?.originId }, controls);
 }
 
-const persistedTrustLimits = Object.freeze({ certificates: 1024, certificateBytes: 65536, totalBytes: 16 * 1024 * 1024 });
-/** Strict, bounded `{ node?, npm? }` lists of certificate PEM text; `undefined` when malformed. */
-function persistedTrustLists(value) {
-  if (!plain(value, ['node', 'npm'])) return undefined;
-  const lists = { node: [], npm: [] }; let bytes = 0;
-  for (const key of ['node', 'npm']) {
-    if (!Object.hasOwn(value, key)) continue;
-    const list = value[key];
-    if (!Array.isArray(list) || isProxy(list) || Object.getPrototypeOf(list) !== Array.prototype ||
-        list.length > persistedTrustLimits.certificates ||
-        Reflect.ownKeys(list).some(name => name !== 'length' &&
-          (typeof name !== 'string' || !/^(0|[1-9][0-9]*)$/.test(name) || Number(name) >= list.length))) return undefined;
-    for (let index = 0; index < list.length; index++) {
-      const descriptor = Object.getOwnPropertyDescriptor(list, String(index));
-      if (!descriptor || !('value' in descriptor) || typeof descriptor.value !== 'string') return undefined;
-      const size = Buffer.byteLength(descriptor.value);
-      bytes += size;
-      if (size > persistedTrustLimits.certificateBytes || bytes > persistedTrustLimits.totalBytes) return undefined;
-      lists[key].push(descriptor.value);
-    }
-  }
-  for (const pem of [...lists.node, ...lists.npm]) {
-    try { new X509Certificate(pem); } catch { return undefined; }
-  }
-  return lists;
-}
+const persistedTrustLimits = Object.freeze({ entries: 16, certificates: 1024, certificateBytes: 65536, totalBytes: 16 * 1024 * 1024 });
+const persistedEffects = Object.freeze(['node', 'npm']);
+const plainList = (list, max) => Array.isArray(list) && !isProxy(list) && Object.getPrototypeOf(list) === Array.prototype &&
+  list.length <= max && !Reflect.ownKeys(list).some(name => name !== 'length' &&
+    (typeof name !== 'string' || !/^(0|[1-9][0-9]*)$/.test(name) || Number(name) >= list.length)) &&
+  Array.from({ length: list.length }, (_, index) => Object.getOwnPropertyDescriptor(list, String(index))).every(item => item && 'value' in item);
 /**
- * Roots a new process gets from Core's persisted configuration: this process's default roots without its own
- * start-time extras, plus the persisted extras. Undefined when nothing is persisted (probes stay as they are).
+ * Strict, bounded `[{ effect, certificates }]` applied-material entries (certificate PEM text), or the literal
+ * `'unavailable'` when the caller could not read its persisted configuration; `undefined` when malformed.
  */
-function persistedTrustAuthority(persistedTrust, targetId) {
-  const extras = [...persistedTrust.node, ...(targetId === 'npm' ? persistedTrust.npm : [])];
-  if (!extras.length) return undefined;
-  const own = new Set(tls.getCACertificates('extra'));
-  return [...new Set([...tls.getCACertificates('default').filter(pem => !own.has(pem)), ...extras])];
+function persistedTrustEntries(value) {
+  if (value === 'unavailable') return value;
+  if (!plainList(value, persistedTrustLimits.entries)) return undefined;
+  const entries = []; let count = 0; let bytes = 0;
+  for (const entry of value) {
+    if (!plain(entry, ['effect', 'certificates']) || !Object.hasOwn(entry, 'effect') || !Object.hasOwn(entry, 'certificates') ||
+        !persistedEffects.includes(entry.effect) || !plainList(entry.certificates, persistedTrustLimits.certificates)) return undefined;
+    for (const pem of entry.certificates) {
+      const size = typeof pem === 'string' ? Buffer.byteLength(pem) : Infinity;
+      bytes += size; count++;
+      if (size > persistedTrustLimits.certificateBytes || bytes > persistedTrustLimits.totalBytes ||
+          count > persistedTrustLimits.certificates) return undefined;
+      try { new X509Certificate(pem); } catch { return undefined; }
+    }
+    entries.push({ effect: entry.effect, certificates: [...entry.certificates] });
+  }
+  return entries;
+}
+/** A new process enables system roots only through its inherited environment; this process's own flags do not propagate. */
+const newProcessUsesSystemCa = () => process.env.NODE_USE_SYSTEM_CA === '1' ||
+  /(?:^|\s)--use-system-ca(?:\s|$)/.test(process.env.NODE_OPTIONS ?? '');
+/**
+ * Explicit `ca` for a Node TLS probe of `targetId` as a new process would trust it from Core's persisted
+ * configuration, never this process's own start-time trust: the bundled roots (plus system roots only when a new
+ * process would enable them) and the persisted Node extras. An applied npm cafile replaces those roots for npm.
+ * `{ reason }` when no trustworthy answer exists.
+ */
+function persistedAuthority(persistedTrust, targetId) {
+  if (persistedTrust === 'unavailable') return { reason: 'persisted-configuration-unavailable' };
+  try {
+    const certificates = effect => persistedTrust.filter(entry => entry.effect === effect).flatMap(entry => entry.certificates);
+    const cafile = targetId === 'npm' ? certificates('npm') : [];
+    if (cafile.length) return { ca: [...new Set(cafile)] };
+    const base = tls.getCACertificates('bundled');
+    return { ca: [...new Set([...base, ...(newProcessUsesSystemCa() ? tls.getCACertificates('system') : []), ...certificates('node')])] };
+  } catch { return { reason: 'probe-invocation' }; }
 }
 
 function configuredOrigins(selected, home, project) {
@@ -851,7 +861,7 @@ export async function diagnose(request, controls = {}) {
       controls.signal !== undefined && !(controls.signal instanceof AbortSignal) ||
       controls.budgetMs !== undefined && (!Number.isInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > profile.phaseMs))
     return invalid('diagnostic-input');
-  const persistedTrust = request.persistedTrust === undefined ? undefined : persistedTrustLists(request.persistedTrust);
+  const persistedTrust = request.persistedTrust === undefined ? undefined : persistedTrustEntries(request.persistedTrust);
   if (request.persistedTrust !== undefined && !persistedTrust) return invalid('persisted-trust');
   const requestBytes = Buffer.byteLength(request.requestId) +
     Buffer.byteLength(request.project ?? '') + (request.targets ?? []).reduce((size, id) => size + Buffer.byteLength(id), 0) + 256;
@@ -956,6 +966,7 @@ export async function diagnose(request, controls = {}) {
       } else { tools.at(-1).state = 'broken'; push(`${target.id}/version`, target.id, 'failed', 'version-exit', 'The version command exited unsuccessfully; its raw output was not retained.'); }
     } else push(`${target.id}/version`, target.id, 'unavailable', version.reason ?? 'probe-invocation');
     if (!selected.has(target.id)) continue;
+    const authority = persistedTrust && persistedAuthority(persistedTrust, target.id);
     for (const origin of target.origins) {
       const host = new URL(origin).host;
       const osId = `${target.id}/tls/os/${host}`;
@@ -988,8 +999,8 @@ export async function diagnose(request, controls = {}) {
       if (os.kind === 'cancelled') { cancelled = true; push(osId, target.id, 'unavailable', 'cancelled'); break; }
       push(osId, target.id, os.kind === 'complete' ? os.code === 0 ? 'passed' : 'failed' : 'unavailable',
         os.kind === 'complete' ? os.code === 0 ? 'tls-ok' : 'connection-failed' : os.reason ?? 'probe-invocation', origin);
-      let ca; try { ca = persistedTrust && persistedTrustAuthority(persistedTrust, target.id); } catch { ca = false; }
-      const node = await tlsProbe(origin, deadline, controls.signal, ca);
+      if (authority?.reason) { push(nodeId, target.id, 'unavailable', authority.reason, origin); continue; }
+      const node = await tlsProbe(origin, deadline, controls.signal, authority?.ca);
       if (node.kind === 'cancelled') { cancelled = true; push(nodeId, target.id, 'unavailable', 'cancelled'); break; }
       push(nodeId, target.id, node.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(node.kind) ? 'unavailable' : 'failed',
         node.reason === 'certificate-chain' && os.kind === 'complete' && os.code === 0 ? 'node-certificate-chain' : node.reason, origin);
@@ -1000,13 +1011,14 @@ export async function diagnose(request, controls = {}) {
     const { found, rejected, overflow } = configuredOrigins(selected, home, project);
     for (const reason of rejected) push(`mcp/configuration/${reason}`, 'mcp', 'unavailable', reason);
     const mcpDeadline = Math.min(deadline, performance.now() + profile.configuredMcpMs);
+    const authority = persistedTrust && persistedAuthority(persistedTrust, 'mcp');
     for (const [index, origin] of found.entries()) {
       const id = `mcp/tls/${index + 1}`;
       if (network === 'off') { push(id, 'mcp', 'skipped', 'network-off'); continue; }
       if (index >= profile.configuredMcpOrigins) { push(id, 'mcp', 'unavailable', 'candidate-count'); continue; }
       if (cancelled || isCancelled(controls.signal)) { cancelled = true; push(id, 'mcp', 'skipped', 'cancelled'); continue; }
-      let ca; try { ca = persistedTrust && persistedTrustAuthority(persistedTrust, 'mcp'); } catch { ca = false; }
-      const probe = await tlsProbe(origin, mcpDeadline, controls.signal, ca);
+      if (authority?.reason) { push(id, 'mcp', 'unavailable', authority.reason, origin); continue; }
+      const probe = await tlsProbe(origin, mcpDeadline, controls.signal, authority?.ca);
       if (probe.kind === 'cancelled') { cancelled = true; push(id, 'mcp', 'unavailable', 'cancelled'); continue; }
       push(id, 'mcp', probe.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(probe.kind) ? 'unavailable' : 'failed', probe.reason, origin);
     }

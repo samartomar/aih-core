@@ -1,8 +1,14 @@
-/** Certificate PEM text a new process would trust through Core-managed persisted configuration. */
-export interface PersistedTrust { node?: string[]; npm?: string[] }
+/** Certificate PEM text one applied persisted value gives a new process; `effect` is the descriptor's, `node` or `npm`. */
+export interface PersistedTrustEntry { effect: string; certificates: string[] }
+/** Applied persisted material, or `'unavailable'` when the caller could not read its persisted configuration. */
+export type PersistedTrust = PersistedTrustEntry[] | 'unavailable';
 export interface DiagnoseRequest {
   requestId: string; targets?: string[]; network?: 'declared' | 'off'; probeConfiguredMcp?: boolean; project?: string;
-  /** Opt-in: in-process Node TLS probes use default roots without this process's own extras plus these. */
+  /**
+   * Opt-in: in-process Node TLS probes trust only the bundled roots (plus system roots when a new process would
+   * enable them) and these entries, never this process's own start-time trust; `'unavailable'` reports those
+   * checks unavailable. An applied `npm` entry replaces the roots for the `npm` target.
+   */
   persistedTrust?: PersistedTrust;
 }
 export interface DiagnoseControls { signal?: AbortSignal; budgetMs?: number }

@@ -8,7 +8,7 @@ import { readOwnershipBatch, stateRoot, type Owner, type Ownership } from './sta
 import { transaction } from '../recipe-engine.js';
 
 export interface PersistedConfigurationValue {
-  id: 'node-extra-ca-certs' | 'npm-cafile';
+  id: string;
   repair: string;
   managementId: string;
   member: { path: string; blockId: string };
@@ -17,7 +17,9 @@ export interface PersistedConfigurationValue {
   certificates?: number;
   materialSha256?: string;
 }
-export interface PersistedConfiguration { values: PersistedConfigurationValue[]; trust: { node: string[]; npm: string[] } }
+/** Applied material as the Harness descriptor names its effect; Core attaches no meaning to it. */
+export interface PersistedMaterial { effect: string; certificates: string[] }
+export interface PersistedConfiguration { values: PersistedConfigurationValue[]; material: PersistedMaterial[] }
 
 type BlockMember = Extract<MemberDescriptor, { kind: 'block' }>;
 type Material = { state: 'removed' | 'modified' | 'unowned' } | { state: 'applied'; sha256: string; certificates: string[] };
@@ -66,7 +68,7 @@ export function readPersistedConfiguration(): PersistedConfiguration {
   const files = fileTransaction(home, state);
   const materials = new Map<string, Material>();
   const values: PersistedConfigurationValue[] = [];
-  const trust = { node: [] as string[], npm: [] as string[] };
+  const material: PersistedMaterial[] = [];
   for (const item of members) {
     const descriptor: BlockMember = { ...item.member };
     const owner = own(ownership.members, memberKey(descriptor));
@@ -86,18 +88,18 @@ export function readPersistedConfiguration(): PersistedConfiguration {
     const root = contentRoot(item.managementId);
     const materialKey = `${item.managementId}\0${item.materialName}`;
     if (!materials.has(materialKey)) materials.set(materialKey, readMaterial(root, item.materialName, item.managementId, receipts.get(root)!.value));
-    const material = materials.get(materialKey)!;
+    const read = materials.get(materialKey)!;
     const materialPath = join(root, item.materialName);
     const expected = item.content(materialPath);
-    if (block === undefined || live.state !== 'present' || sha256(block) !== owner.sha256 || expected === undefined ||
-        !renderTextBlock(live.bytes, { ...descriptor, action: 'set', content: expected })?.equals(live.bytes)) {
+    // The block is judged by its own bytes and line endings, independent of the rest of the file.
+    if (block === undefined || block === null || sha256(block) !== owner.sha256 || expected === undefined ||
+        !renderTextBlock(block, { ...descriptor, action: 'set', content: expected })?.equals(block)) {
       report('modified'); continue;
     }
-    if (material.state !== 'applied') { report(material.state); continue; }
+    if (read.state !== 'applied') { report(read.state); continue; }
     values.push({ ...summary, state: 'applied', value: materialPath,
-      certificates: material.certificates.length, materialSha256: material.sha256 });
-    const known = new Set(trust.node);
-    trust[item.effect].push(...material.certificates.filter(pem => item.effect === 'node' || !known.has(pem)));
+      certificates: read.certificates.length, materialSha256: read.sha256 });
+    material.push({ effect: item.effect, certificates: read.certificates });
   }
-  return { values, trust };
+  return { values, material };
 }

@@ -3,7 +3,7 @@ import { isProxy } from 'node:util/types';
 import { helperMetadata } from '../harness/contracts.mjs';
 import { diagnose, validDiagnosticTargets } from '../harness/runtime.mjs';
 import { installedDistribution } from './internal/installed-distribution.js';
-import { readPersistedConfiguration, type PersistedConfigurationValue } from './internal/persisted-configuration.js';
+import { readPersistedConfiguration, type PersistedConfigurationValue, type PersistedMaterial } from './internal/persisted-configuration.js';
 import type { Diagnostic } from './types.js';
 import type { Effective } from './host-types.js';
 
@@ -118,12 +118,12 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
     return fail('budget-ms');
   // Read-only custody evaluation; a value that is not applied is reported and never used as trust.
   let persisted: PersistedConfigurationValue[] | undefined;
-  let trust: { node: string[]; npm: string[] } | undefined;
+  let trust: PersistedMaterial[] | 'unavailable' | undefined;
   const extra: Diagnostic[] = [];
   if (options.configuration.value === 'persisted') {
-    try { const read = readPersistedConfiguration(); persisted = read.values; trust = read.trust; }
+    try { const read = readPersistedConfiguration(); persisted = read.values; trust = read.material; }
     catch {
-      persisted = [];
+      persisted = []; trust = 'unavailable';
       extra.push({ code: 'PREREQUISITE_UNAVAILABLE', reason: 'persisted-configuration-unavailable',
         message: 'Core custody for persisted configuration could not be verified.' });
     }
@@ -140,7 +140,7 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
   try {
     result = await diagnose({ requestId: randomUUID(), targets: request.targets, network: options.network.value,
       probeConfiguredMcp: options.probeConfiguredMcp.value, project: request.project,
-      ...(trust && (trust.node.length || trust.npm.length) ? { persistedTrust: trust } : {}) },
+      ...(trust ? { persistedTrust: trust } : {}) },
       { signal: controls.signal, budgetMs: options.budgetMs.value });
     if (!result || result.helper?.name !== identity.name || result.helper?.version !== identity.version ||
         !['completed', 'cancelled', 'invalid', 'unavailable'].includes(result.status) ||

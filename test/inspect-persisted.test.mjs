@@ -221,20 +221,43 @@ test('an invalid configuration option is refused', async () => {
   }
 });
 
+test('a line ending elsewhere in the file does not make an unchanged managed block modified', async () => {
+  const { profile, npmrc } = await repairedHome('mixed-endings');
+  for (const file of [profile, npmrc]) {
+    const text = readFileSync(file, 'utf8');
+    const other = text.includes('\r\n') ? '\n' : '\r\n';
+    writeFileSync(file, `# unrelated${other}${text}`);
+  }
+  const result = await persisted();
+  assert.deepEqual(result.persisted.values.map(item => item.state), ['applied', 'applied']);
+  assert.deepEqual(conflicts(result), []);
+  // A genuinely edited block stays modified however the surrounding lines end.
+  const text = readFileSync(profile, 'utf8');
+  writeFileSync(profile, text.replace('trust.pem', 'other.pem'));
+  assert.deepEqual(byId(await persisted(), 'node-extra-ca-certs').state, 'modified');
+  writeFileSync(npmrc, readFileSync(npmrc, 'utf8').replace('trust.pem', 'other.pem'));
+  assert.deepEqual(byId(await persisted(), 'npm-cafile').state, 'modified');
+});
+
 test('diagnose refuses malformed persisted trust', async () => {
   freshHome('diagnose');
   const pem = root.toString();
   const base = { requestId: 'persisted-trust', targets: ['npm'], network: 'off' };
-  const oversizeCount = Array.from({ length: 1025 }, () => pem);
-  const oversizeBytes = Array.from({ length: 300 }, () => 'a'.repeat(65536));
-  const bad = ['x', 1, null, [], { node: 'x' }, { node: [1] }, { node: [pem], extra: [] }, { npm: [{}] },
-    { node: ['not a certificate'] }, { node: [pem + 'x'.repeat(70000)] }, { node: oversizeCount }, { npm: oversizeCount },
-    { node: oversizeBytes }, Object.create({ node: [] })];
+  const entry = (effect, ...certificates) => ({ effect, certificates });
+  const many = Array.from({ length: 1025 }, () => pem);
+  const big = Array.from({ length: 300 }, () => 'a'.repeat(65536));
+  const bad = ['x', 1, null, {}, { node: [pem] }, [1], [null], [{}], [entry('node')].concat([{ effect: 'node' }]),
+    [{ certificates: [pem] }], [{ effect: 'node', certificates: [pem], extra: [] }], [entry('other', pem)],
+    [entry('node', 1)], [entry('npm', 'not a certificate')], [entry('node', pem + 'x'.repeat(70000))],
+    [entry('node', ...many)], [entry('node', pem), entry('npm', ...many)], [entry('node', ...big)],
+    Array.from({ length: 17 }, () => entry('node')), Object.create([entry('node', pem)]),
+    [{ __proto__: { effect: 'node', certificates: [pem] } }], [{ effect: 'node', certificates: Object.create([pem]) }]];
   for (const persistedTrust of bad) {
     const result = await diagnose({ ...base, persistedTrust });
     assert.equal(result.status, 'invalid', JSON.stringify(persistedTrust)?.slice(0, 80));
+    assert.equal(result.diagnostics[0].reason, 'persisted-trust');
   }
-  for (const persistedTrust of [{}, { node: [] }, { node: [pem], npm: [pem] }]) {
+  for (const persistedTrust of [[], [entry('node')], [entry('node', pem), entry('npm', pem)], 'unavailable']) {
     const result = await diagnose({ ...base, persistedTrust });
     assert.equal(result.status, 'completed', JSON.stringify(result.diagnostics));
   }
