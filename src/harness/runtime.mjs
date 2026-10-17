@@ -653,7 +653,7 @@ async function tlsProbe(origin, deadline, signal, ca) {
 }
 
 /** Diagnose an OS-trusted Node candidate with fixed probe kinds and no repair effects. */
-export async function assessNodeTrustCandidate(request, controls = {}) {
+async function assessNodeTrustCandidate(request, controls = {}) {
   if (request?.originId !== 'npm-registry' || controls?.budgetMs !== undefined &&
       (!Number.isSafeInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > 120000))
     return { kind: 'unresolved', reason: 'origin-invalid', probes: 0 };
