@@ -1,7 +1,7 @@
 import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
-import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock, removeCreatedTomlTable } from './recipe-editors.js';
-import type { Ownership, TomlTableCustody } from './state.js';
+import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
+import type { Ownership } from './state.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
@@ -24,15 +24,16 @@ export function memberBytes(member: ByteMember, bytes: Buffer | null): Buffer | 
   if (member.kind === 'entry') return configMemberBytes(member.format, bytes, member.entry);
   return blockMemberBytes(bytes, { ...member, action: 'remove' });
 }
-/** A recorded created TOML table also loses its header once the last managed key is gone. */
-export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTable?: TomlTableCustody): Buffer | null {
-  if (member.kind === 'file') return null;
+/** A recorded created TOML table also loses its header once the last managed key is gone; `heir` is the table that then inherits the added line break. */
+export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTable?: TomlTableCustody): { bytes: Buffer | null; heir?: string } {
+  if (member.kind === 'file') return { bytes: null };
   if (member.kind === 'entry') {
-    if (bytes === null) return null;
+    if (bytes === null) return { bytes: null };
     const removed = renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
-    return member.format === 'toml' && tomlTable && member.entry.length >= 2 ? removeCreatedTomlTable(removed, member.entry.slice(0, -1), tomlTable) : removed;
+    const table = member.format === 'toml' && tomlTable ? tomlTableOf(member.entry) : undefined;
+    return table ? removeCreatedTomlTable(removed, table.segments, tomlTable!) : { bytes: removed };
   }
-  return renderTextBlock(bytes, { ...member, action: 'remove' });
+  return { bytes: renderTextBlock(bytes, { ...member, action: 'remove' }) };
 }
 
 export function validDescriptor(value: unknown): value is MemberDescriptor {

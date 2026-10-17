@@ -2,8 +2,8 @@ import { applyEdits, findNodeAtLocation, modify, parseTree, type Node, type Pars
 import type { Json } from '../types.js';
 import { editScalarLines, scalarLineMember } from './scalar-line-editor.js';
 import { editIni, iniMember } from './ini-editor.js';
-import { editToml, tomlMember } from './toml-editor.js';
-export { createdTomlTables, removeCreatedTomlTable } from './toml-editor.js';
+import { editToml, tomlMember, type TomlTableCustody } from './toml-editor.js';
+export { removeCreatedTomlTable, tomlTableCustody, tomlTableOf, type TomlTableCustody } from './toml-editor.js';
 
 export class RecipeEditError extends Error {
   constructor(readonly reason: string) {
@@ -82,11 +82,15 @@ function jsonEdit(format: 'json' | 'jsonc', before: Buffer | null, entries: Conf
   return Buffer.from(text, 'utf8');
 }
 
-/** Applies narrowly selected object-key edits without replacing unrelated configuration text. */
-export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, entries: ConfigEntry[]): Buffer {
+/**
+ * Applies narrowly selected object-key edits without replacing unrelated configuration text.
+ * For TOML, `created` collects the table headers the edit appends (see `editToml`).
+ */
+export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties', before: Buffer | null, entries: ConfigEntry[],
+    created?: Map<string, TomlTableCustody>): Buffer {
   validateEntries(entries);
   if (format === 'json' || format === 'jsonc') return jsonEdit(format, before, entries);
-  if (format === 'toml') return editToml(before, entries);
+  if (format === 'toml') return editToml(before, entries, created);
   if (format === 'ini') return editIni(before, entries);
   if (format === 'yaml' || format === 'properties') return editScalarLines(format, before, entries);
   fail('unsupported-config-format');

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderConfigEntries, configMemberBytes } from '../dist/core/internal/recipe-editors.js';
-import { createdTomlTables, removeCreatedTomlTable } from '../dist/core/internal/toml-editor.js';
+import { renderConfigEntries, configMemberBytes, removeCreatedTomlTable, tomlTableOf, tomlTableCustody } from '../dist/core/internal/recipe-editors.js';
 
 const toml = (text, entries) => renderConfigEntries('toml', Buffer.from(text), entries).toString();
 const member = (text, path) => configMemberBytes('toml', Buffer.from(text), path)?.toString() ?? null;
@@ -57,7 +56,7 @@ test('TOML array member bytes are the raw span, including multi-line text, comme
   assert.equal(member(multi, ['tools']), '[\r\n  "one", # first\r\n  "two",\r\n]');
   assert.equal(member(multi, ['after']), '1');
   assert.equal(toml(multi, [set(['tools'], ['x', 'y'])]), 'tools = ["x", "y"]  # tail\r\nafter = 1\r\n');
-  assert.equal(toml(multi, [remove(['tools'])]), 'after = 1\r\n');
+  assert.equal(toml(multi, [remove(['tools'])]), '# tail\r\nafter = 1\r\n', 'a comment after the value stays');
   assert.equal(toml('a = 1\r\n', [set(['b'], ['x'])]), 'a = 1\r\nb = ["x"]\r\n');
   const same = toml('a = ["x"]\r\n', [set(['a'], ['x'])]);
   assert.equal(same, 'a = ["x"]\r\n');
@@ -193,10 +192,52 @@ test('TOML scalar member bytes equal the previous trimmed value text', () => {
   assert.equal(configMemberBytes('toml', null, ['k']), null);
 });
 
-const created = (text, entries) => [...createdTomlTables(text === null ? null : Buffer.from(text), entries)];
-const stripHeader = (text, table, kind = 'created') => removeCreatedTomlTable(Buffer.from(text), table, kind).toString();
+const created = (text, entries) => {
+  const tables = new Map();
+  renderConfigEntries('toml', text === null ? null : Buffer.from(text), entries, tables);
+  return [...tables];
+};
+const stripHeader = (text, table, kind = 'created') => removeCreatedTomlTable(Buffer.from(text), table, kind).bytes.toString();
+const heirOf = (text, table, kind = 'created-after-newline') => removeCreatedTomlTable(Buffer.from(text), table, kind).heir;
 
-test('createdTomlTables reports tables whose header the edit appends', () => {
+test('removing a TOML entry keeps a comment after its value as its own line', () => {
+  for (const eol of ['\n', '\r\n', '\r']) {
+    const lines = text => text.replaceAll('\n', eol);
+    const cases = [
+      ['[t]\nx = 1 # keep this\ny = 2\n', '[t]\n# keep this\ny = 2\n'],
+      ['[t]\n  x = 1\t#keep\n', '[t]\n#keep\n'],
+      ['x = "a#b"#c\ny = 2\n', '#c\ny = 2\n'],
+      ['tools = [\n  "a", # first\n  "b",\n] # tail\nafter = 1\n', '# tail\nafter = 1\n'],
+      ['[t]\nx = 1 # keep this', '[t]\n# keep this'],
+      ['[t]\nx = 1 # keep this\n', '[t]\n# keep this\n'],
+      // Nothing after the value but blanks: the whole statement goes.
+      ['[t]\nx = 1\ny = 2\n', '[t]\ny = 2\n'],
+      ['[t]\nx = 1   \ny = 2\n', '[t]\ny = 2\n'],
+      ['[t]\nx = 1', '[t]\n'],
+      ['[t]\nx = 1  ', '[t]\n'],
+      ['x = [1, 2]\n', '']
+    ];
+    for (const [text, expected] of cases) {
+      const path = text.startsWith('tools') ? ['tools'] : text.startsWith('[t]') ? ['t', 'x'] : ['x'];
+      assert.equal(toml(lines(text), [remove(path)]), lines(expected), JSON.stringify([eol, text]));
+    }
+  }
+});
+
+test('a TOML entry removed with its comment kept leaves the table region non-empty', () => {
+  const text = toml('a = 1\n[t]\nx = 1 # keep this\n', [remove(['t', 'x'])]);
+  assert.equal(text, 'a = 1\n[t]\n# keep this\n');
+  assert.equal(stripHeader(text, ['t']), text, 'the header stays with a comment in its region');
+});
+
+test('tomlTableOf names the table of an entry path, and none for a root key', () => {
+  assert.deepEqual(tomlTableOf(['a', 'b', 'c']), { segments: ['a', 'b'], key: JSON.stringify(['a', 'b']) });
+  assert.deepEqual(tomlTableOf(['t', 'x']), { segments: ['t'], key: JSON.stringify(['t']) });
+  assert.equal(tomlTableOf(['x']), undefined);
+  assert.deepEqual([...tomlTableCustody], ['created', 'created-after-newline']);
+});
+
+test('the created map reports tables whose header the edit appends', () => {
   const entries = [set(['mcp_servers', 'aih', 'command'], 'aih'), set(['mcp_servers', 'aih', 'args'], ['x'])];
   assert.deepEqual(created(null, entries), [[JSON.stringify(['mcp_servers', 'aih']), 'created']]);
   assert.deepEqual(created('a = 1\n', entries), [[JSON.stringify(['mcp_servers', 'aih']), 'created']]);
@@ -208,7 +249,7 @@ test('createdTomlTables reports tables whose header the edit appends', () => {
     [[JSON.stringify(['t']), 'created'], [JSON.stringify(['t', 'env']), 'created']]);
 });
 
-test('createdTomlTables reads the separator at the moment each header is appended', () => {
+test('the created map reads the separator at the moment each header is appended', () => {
   // The first appended table ends the text with a line break, so the second needs no separator.
   assert.deepEqual(created('a = 1', [set(['t', 'x'], 1), set(['u', 'y'], 2)]),
     [[JSON.stringify(['t']), 'created-after-newline'], [JSON.stringify(['u']), 'created']]);
@@ -234,6 +275,19 @@ test('removeCreatedTomlTable keeps blank lines and tolerates header whitespace',
   assert.equal(stripHeader('a = 1\n[t]\n\n[u]\nk = 1\n', ['t']), 'a = 1\n\n[u]\nk = 1\n');
   assert.equal(stripHeader('a = 1\n[t]  \t\n', ['t']), 'a = 1\n');
   assert.equal(stripHeader('a = 1\n  [ t ]\n  \n', ['t']), 'a = 1\n  \n');
+});
+
+test('removeCreatedTomlTable names the created table now starting where the removed header began', () => {
+  assert.equal(heirOf('a = 1\n[t]\n[u]\nk = 1\n', ['t']), JSON.stringify(['u']));
+  assert.equal(heirOf('a = 1\r\n[t]\r\n[u]\r\nk = 1\r\n', ['t']), JSON.stringify(['u']));
+  assert.equal(heirOf('a = 1\n[t]\n[u.v]\n', ['t']), JSON.stringify(['u', 'v']));
+  assert.equal(heirOf('a = 1\n[t]\n  [u]\n', ['t']), JSON.stringify(['u']), 'indentation belongs to the header line');
+  assert.equal(heirOf('a = 1\n[t]\n[u]\n', ['t'], 'created'), undefined, 'no break was added, so none is handed on');
+  assert.equal(heirOf('a = 1\n[t]\n', ['t']), undefined, 'a final header takes the break with it');
+  assert.equal(heirOf('a = 1\n[t]\n\n[u]\n', ['t']), undefined, 'a blank line keeps the next header apart');
+  assert.equal(heirOf('a = 1\n[t]\nk = 1\n[u]\n', ['t']), undefined, 'a kept header hands nothing on');
+  assert.equal(heirOf('a = 1\n[t]\n# note\n[u]\n', ['t']), undefined);
+  assert.equal(heirOf('a = 1\n[t]\nk = 1\n', ['u']), undefined, 'a missing table hands nothing on');
 });
 
 test('removeCreatedTomlTable drops the separator break only for an empty trailing header', () => {
@@ -262,18 +316,19 @@ test('removeCreatedTomlTable handles quoted headers and leaves other tables alon
 test('removeCreatedTomlTable re-parses its output and ignores the root table', () => {
   assert.equal(stripHeader('a = 1\n', []), 'a = 1\n');
   assert.throws(() => removeCreatedTomlTable(Buffer.from('[t]\n[[x]]\n'), ['t'], 'created'), /unsupported-toml-array-table/);
+  assert.equal(removeCreatedTomlTable(Buffer.from('a = 1\n'), [], 'created').heir, undefined);
 });
 
 test('setup then removal through the editor restores the original bytes', () => {
   for (const original of ['', 'a = 1\n', 'a = 1', 'a = 1\r\nb = 2\r\n', 'a = 1\r\nb = 2', '[u]\nk = 1\n', '[u]\nk = 1']) {
     const entries = [set(['t', 'command'], 'aih'), set(['t', 'env', 'K'], 'v')];
     const bytes = Buffer.from(original);
-    const tables = createdTomlTables(bytes, entries);
-    let text = renderConfigEntries('toml', bytes, entries);
+    const tables = new Map();
+    let text = renderConfigEntries('toml', bytes, entries, tables);
     for (const path of [['t', 'env', 'K'], ['t', 'command']]) {
       text = renderConfigEntries('toml', text, [remove(path)]);
-      const table = JSON.stringify(path.slice(0, -1));
-      if (tables.has(table)) text = removeCreatedTomlTable(text, path.slice(0, -1), tables.get(table));
+      const { segments, key } = tomlTableOf(path);
+      if (tables.has(key)) text = removeCreatedTomlTable(text, segments, tables.get(key)).bytes;
     }
     assert.equal(text.toString(), original, JSON.stringify(original));
   }

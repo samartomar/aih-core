@@ -17,7 +17,7 @@ import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
-import { renderConfigEntries, renderTextBlock, createdTomlTables } from './internal/recipe-editors.js';
+import { renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
@@ -93,12 +93,19 @@ const PREPARED_11 = 'urn:aihq:core:prepared-work:1.1.0' as const;
 const RESULT_10 = 'urn:aihq:core:run-result:1.0.0' as const;
 const RESULT_11 = 'urn:aihq:core:run-result:1.1.0' as const;
 const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+/** Whether `owner` holds a TOML entry in the table with key `table` (see `tomlTableOf`) of `path`. */
+const inTomlTable = (owner: Owner, path: string, table: string): boolean => owner.descriptor?.kind === 'entry' && owner.descriptor.format === 'toml' &&
+  samePath(owner.descriptor.path, path) && tomlTableOf(owner.descriptor.entry)?.key === table;
 /** Whether Core created this TOML entry's table: this setup's header, else the recorded value, else a sibling key's in the same table. */
-function tomlTableCustody(member: Extract<ByteMember, { kind: 'entry' }>, created: ReturnType<typeof createdTomlTables>, prior: Owner | undefined,
-    members: Record<string, Owner>): Owner['tomlTable'] {
-  const table = JSON.stringify(member.entry.slice(0, -1));
-  return created.get(table) ?? prior?.tomlTable ?? Object.values(members).find(owner => owner.tomlTable && owner.descriptor?.kind === 'entry' &&
-    owner.descriptor.format === 'toml' && samePath(owner.descriptor.path, member.path) && JSON.stringify(owner.descriptor.entry.slice(0, -1)) === table)?.tomlTable;
+function createdTableCustody(member: Extract<ByteMember, { kind: 'entry' }>, created: Map<string, TomlTableCustody>, prior: Owner | undefined,
+    members: Record<string, Owner>): TomlTableCustody | undefined {
+  const table = tomlTableOf(member.entry);
+  return table && (created.get(table.key) ?? prior?.tomlTable ?? Object.values(members).find(owner => owner.tomlTable && inTomlTable(owner, member.path, table.key))?.tomlTable);
+}
+/** The line break Core added before a removed header now precedes the created tables `heirs` name: their owners record it. */
+function inheritTomlBreak(members: Record<string, Owner>, path: string, heirs: string[]): Record<string, Owner> {
+  return Object.fromEntries(Object.entries(members).filter(([, owner]) => owner.tomlTable && owner.tomlTable !== 'created-after-newline' &&
+    heirs.some(table => inTomlTable(owner, path, table))).map(([key, owner]) => [key, { ...owner, tomlTable: 'created-after-newline' as const }]));
 }
 function hookConflict(decision: HookDecision, groupId: string, path: string, privateValues: string[]): Diagnostic {
   const reason = decision.reason!;
@@ -455,7 +462,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
-        let editConflict: string | undefined; let createdTables: ReturnType<typeof createdTomlTables> | undefined;
+        let editConflict: string | undefined; let createdTables: Map<string, TomlTableCustody> | undefined; const tomlHeirs: string[] = [];
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
         // Reviewed choices that would change this conflict or acquire identical unowned content.
         const choices: ('replace' | 'adopt')[] = []; let overlayKey: string | undefined;
@@ -544,7 +551,22 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               return { path: entry.path, action: entry.action,
                 value: sensitive ? '[REDACTED]' : canonicalJson(redactJson(entry.value, privateValues)) };
             }) };
-            try { after = renderConfigEntries(op.format, before, entries); if (op.format === 'toml') createdTables = createdTomlTables(before, entries); }
+            try {
+              const created = new Map<string, TomlTableCustody>();
+              after = renderConfigEntries(op.format, before, entries, created);
+              if (op.format === 'toml') {
+                createdTables = created;
+                // A key this recipe now removes takes the header Core created with it once nothing else is in the table.
+                for (const entry of entries) {
+                  const table = entry.action === 'remove' ? tomlTableOf(entry.path) : undefined;
+                  const recorded = table && projected.members[memberKey({ path: path!, kind: 'entry', format: 'toml', entry: entry.path })]?.tomlTable;
+                  if (!table || !recorded) continue;
+                  const released = removeCreatedTomlTable(after, table.segments, recorded);
+                  after = released.bytes;
+                  if (released.heir) tomlHeirs.push(released.heir);
+                }
+              }
+            }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else if (op.kind === 'text.block') {
             details = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker,
@@ -568,11 +590,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ownerState = managed ? 'managed' : 'unowned';
             custody = Object.fromEntries(descriptors.map(member => {
               const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
-              const tomlTable = createdTables && member.kind === 'entry' && member.entry.length >= 2 ? tomlTableCustody(member, createdTables, prior, projected.members) : undefined;
+              const tomlTable = createdTables && member.kind === 'entry' ? createdTableCustody(member, createdTables, prior, projected.members) : undefined;
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
+            if (tomlHeirs.length) Object.assign(custody, inheritTomlBreak({ ...projected.members,
+              ...Object.fromEntries(Object.entries(custody).filter((item): item is [string, Owner] => item[1] !== null)) }, path!, tomlHeirs));
           } catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
           if (custody && owner && !owner.descriptor && managed && !descriptors.some(member => memberKey(member) === ownerKey)) custody[ownerKey!] = null;
           const currentDigest = before === null ? null : sha256(before);
@@ -705,10 +729,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const removalOrder = dependencyOrder(graphIds.map(id => ({ id, requires: [...priorDependencies].filter(([, required]) => required.includes(id)).map(([parent]) => parent) })));
     const rank = new Map(removalOrder.map((item, index) => [item.id, index]));
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
-    // Within one rank, the table that carries the added line break goes last: it must be the last header left at the end of the file.
-    const lastTable = (owner: Owner): number => owner.tomlTable === 'created-after-newline' ? 1 : 0;
-    members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)) ||
-      lastTable(a.owner) - lastTable(b.owner));
+    members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
     let removalIndex = 0;
     const projectedMembers = (root: string): Record<string, Owner> => {
@@ -725,11 +746,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const live = projectedMembers(root)[key];
         if (!live) continue;
         owner = live;
+      } else if (storedOwner.descriptor?.kind === 'entry' && storedOwner.descriptor.format === 'toml') {
+        // An earlier removal may have handed this table the line break Core added: read the projected record, not the stored one.
+        const live = projectedMembers(root)[key];
+        if (live && live.tomlTable !== storedOwner.tomlTable) {
+          owner = { ...storedOwner, tomlTable: live.tomlTable! };
+          if (!live.tomlTable) delete owner.tomlTable;
+        }
       }
       const claims = owner.claims ?? [];
       const obsolete = (claim: Claim) => {
         const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root));
-        return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key));
+        return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => !step.lifecycle && step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key));
       };
       const removed = claims.filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)) || obsolete(claim));
       if (!removed.length) continue;
@@ -748,7 +776,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const overlay = overlays.get(destination);
       const initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
       const before = overlay ? overlay.after : initialBefore;
-      let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied';
+      let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied'; let heir: string | undefined;
       let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined;
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
@@ -768,7 +796,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : incompatibleHook ? { forced: 'hook-selector-overlap' } : {}) });
       } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
-        if (!remaining.length && matching) after = subtractMember(descriptor, before, owner.tomlTable);
+        if (!remaining.length && matching) ({ bytes: after, heir } = subtractMember(descriptor, before, owner.tomlTable));
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
@@ -790,7 +818,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) } },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true,
-        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null },
+        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null,
+          ...(heir ? inheritTomlBreak(projectedMembers(root), descriptor.path, [heir]) : {}) },
         custodyOnly: hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
       if (hookDecision && !matching) hookConflicts.set(`${root}:${key}`, id);
       removedIdentities.set(steps.at(-1)!, removedIds);

@@ -6,13 +6,12 @@ import { parseStrictJsonObjectV1 } from './strict-json.js';
 import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
 import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
+import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { RecordStatus } from '../host-types.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), '.aih', 'core');
 /** `sha256` digests the exact member bytes; a hook group also records its canonical JSON digest. */
 export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; canonicalSha256?: string; tomlTable?: TomlTableCustody }
-/** Core appended the explicit header of this TOML entry's table; `created-after-newline` also records a line break it added before the header. */
-export type TomlTableCustody = 'created' | 'created-after-newline';
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
 export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
 export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
@@ -23,7 +22,7 @@ export interface Ownership { schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 |
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
 /** A TOML entry owner can record a created table only when its path has a table segment. */
-const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && descriptor.entry.length >= 2;
+const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** A recorded created TOML table requires 1.4; quoted TOML entry names 1.3; otherwise INI/YAML/properties entries require 1.2, hook groups 1.1, and ordinary members 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const schema = Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
@@ -210,7 +209,7 @@ export function validateOwnership(input: unknown, target: string): asserts input
         m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && ![OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) ||
         quotedToml(m.descriptor) && ![OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) ||
         Object.hasOwn(m, 'tomlTable') && (value.schema !== OWNERSHIP_14 || !tomlTableAllowed(m.descriptor) ||
-          !['created', 'created-after-newline'].includes(m.tomlTable as string))) throw new Error('ownership-invalid');
+          !(tomlTableCustody as readonly unknown[]).includes(m.tomlTable))) throw new Error('ownership-invalid');
     if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
     if (m.claims !== undefined && (!Array.isArray(m.claims) || !m.claims.length || m.claims.length > 4096 || !m.claims.every(validClaim) ||

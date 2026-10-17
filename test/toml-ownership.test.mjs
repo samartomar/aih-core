@@ -24,9 +24,16 @@ const entriesDocument = (id, pairs) => {
   base.selections[0].recipe.inline.operations[0].entries = pairs.map(([path, value]) => ({ path, action: 'set', value: { literal: value } }));
   return base;
 };
+// One selection whose recipe removes the given entries from config.toml.
+const removeDocument = (id, paths) => {
+  const base = document(id, paths[0], null);
+  base.selections[0].recipe.inline.operations[0].entries = paths.map(path => ({ path, action: 'remove' }));
+  return base;
+};
 const receiptOf = s => join(s.home, '.aih', 'core', 'ownership', createHash('sha256').update(realpathSync.native(s.project)).digest('hex') + '.json');
 const schemaOf = s => JSON.parse(readFileSync(receiptOf(s))).schema;
 const aih = ['mcp_servers', 'aih'];
+const recordsOf = s => Object.values(JSON.parse(readFileSync(receiptOf(s))).members).map(owner => owner.tomlTable);
 const codexServer = id => entriesDocument(id, [[[...aih, 'command'], 'aih'], [[...aih, 'args'], ['--stdio']], [[...aih, 'env', 'TOKEN'], 'x']]);
 async function install(s, policy) {
   const p = await prepare({ useCase: 'policy', target: { project: s.project }, policy }, { logging: 'off' });
@@ -141,6 +148,176 @@ test('a created table keeps its header until the last managed key of any selecti
       assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
     } finally { s.dispose(); }
   }
+});
+
+test('removal keeps a comment the client added after a managed value, and the header with it', async () => {
+  for (const eol of ['\n', '\r\n']) {
+    for (const original of [`a = 1${eol}`, `a = 1${eol}b = 2`]) {
+      const s = sandbox('aih-toml-comment-');
+      try {
+        s.write('config.toml', original);
+        await install(s, entriesDocument('one', [[['t', 'x'], 1], [['t', 'y'], 2]]));
+        const lead = /[\r\n]$/u.test(original) ? '' : eol;
+        const installed = `${original}${lead}[t]${eol}x = 1${eol}y = 2${eol}`;
+        assert.equal(s.read('config.toml'), installed);
+        s.write('config.toml', installed.replace(`x = 1${eol}`, `x = 1 # keep this${eol}`));
+        await remove(s, 'one');
+        assert.equal(s.read('config.toml'), `${original}${lead}[t]${eol}# keep this${eol}`, JSON.stringify([eol, original]));
+        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      } finally { s.dispose(); }
+    }
+  }
+});
+
+test('a comment on a managed value that is the file\'s last line stays as its own line', async () => {
+  const s = sandbox('aih-toml-comment-last-');
+  try {
+    s.write('config.toml', 'a = 1\n');
+    await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+    s.write('config.toml', 'a = 1\n[t]\nx = 1 # keep this');
+    await remove(s, 'one');
+    assert.equal(s.read('config.toml'), 'a = 1\n[t]\n# keep this');
+  } finally { s.dispose(); }
+});
+
+test('a recipe that removes the keys it set drops the table header Core created', async () => {
+  for (const original of ['a = 1\n', 'a = 1', 'a = 1\r\n', 'a = 1\r\nb = 2', '']) {
+    const s = sandbox('aih-toml-authored-remove-');
+    try {
+      s.write('config.toml', original);
+      await install(s, entriesDocument('one', [[['t', 'x'], 1], [['t', 'y'], 2]]));
+      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+      await install(s, removeDocument('one', [['t', 'x'], ['t', 'y']]));
+      assert.equal(s.read('config.toml'), original, JSON.stringify(original));
+      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.deepEqual(recordsOf(s), []);
+    } finally { s.dispose(); }
+  }
+});
+
+test('a recipe that removes one key keeps the header while another managed key is in the table', async () => {
+  const s = sandbox('aih-toml-authored-partial-');
+  try {
+    s.write('config.toml', 'a = 1');
+    await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+    await install(s, entriesDocument('two', [[['t', 'y'], 2]]));
+    await install(s, removeDocument('one', [['t', 'x']]));
+    assert.equal(s.read('config.toml'), 'a = 1\n[t]\ny = 2\n');
+    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+    await remove(s, 'two');
+    assert.equal(s.read('config.toml'), 'a = 1');
+    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+  } finally { s.dispose(); }
+});
+
+test('a recipe that removes a key of a table that existed before setup keeps that header', async () => {
+  const s = sandbox('aih-toml-authored-existing-');
+  try {
+    s.write('config.toml', '[t]\nother = 1\n');
+    await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+    await install(s, removeDocument('one', [['t', 'x']]));
+    assert.equal(s.read('config.toml'), '[t]\nother = 1\n');
+    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+  } finally { s.dispose(); }
+});
+
+test('the added line break moves to the header that follows when a created table is removed first', async () => {
+  for (const original of ['a = 1', 'a = 1\r\nb = 2']) {
+    const eol = original.includes('\r\n') ? '\r\n' : '\n';
+    const table = (name, key, value) => `[${name}]${eol}${key} = ${value}${eol}`;
+    for (const order of [['one', 'two'], ['two', 'one']]) {
+      const s = sandbox('aih-toml-separate-');
+      try {
+        s.write('config.toml', original);
+        await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+        await install(s, entriesDocument('two', [[['u', 'y'], 2]]));
+        assert.equal(s.read('config.toml'), original + eol + table('t', 'x', 1) + table('u', 'y', 2));
+        assert.deepEqual(recordsOf(s), ['created-after-newline', 'created']);
+        await remove(s, order[0]);
+        assert.equal(s.read('config.toml'), original + eol + (order[0] === 'one' ? table('u', 'y', 2) : table('t', 'x', 1)), order.join(','));
+        assert.deepEqual(recordsOf(s), ['created-after-newline'], 'the record moved to the surviving table');
+        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+        await remove(s, order[1]);
+        assert.equal(s.read('config.toml'), original, JSON.stringify([original, order]));
+        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      } finally { s.dispose(); }
+    }
+  }
+});
+
+test('the added line break passes along a chain of separately created tables', async () => {
+  const s = sandbox('aih-toml-chain-');
+  try {
+    s.write('config.toml', 'a = 1');
+    for (const [id, table] of [['one', 't'], ['two', 'u'], ['three', 'v']]) await install(s, entriesDocument(id, [[[table, 'k'], 1]]));
+    for (const id of ['one', 'two']) await remove(s, id);
+    assert.equal(s.read('config.toml'), 'a = 1\n[v]\nk = 1\n');
+    assert.deepEqual(recordsOf(s), ['created-after-newline']);
+    await remove(s, 'three');
+    assert.equal(s.read('config.toml'), 'a = 1');
+  } finally { s.dispose(); }
+});
+
+test('a header a client added after the created table does not receive the record', async () => {
+  const s = sandbox('aih-toml-client-heir-');
+  try {
+    s.write('config.toml', 'a = 1');
+    await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+    s.write('config.toml', s.read('config.toml') + '[u]\nz = 1\n');
+    await remove(s, 'one');
+    assert.equal(s.read('config.toml'), 'a = 1\n[u]\nz = 1\n');
+    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+  } finally { s.dispose(); }
+});
+
+test('one reviewed removal of several selections restores the original, in either stored order', async () => {
+  const removeBoth = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [],
+    removals: ['one', 'two'].map(managementId => ({ managementId, scope: 'project' })) };
+  for (const original of ['a = 1', 'a = 1\r\nb = 2']) {
+    for (const reinstall of [false, true]) {
+      const s = sandbox('aih-toml-both-');
+      try {
+        s.write('config.toml', original);
+        await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+        await install(s, entriesDocument('two', [[['u', 'y'], 2]]));
+        // Reinstalling the first selection after its removal puts its table last, behind the one that now holds the record.
+        if (reinstall) { await remove(s, 'one'); await install(s, entriesDocument('one', [[['t', 'x'], 1]])); }
+        const prepared = await prepare({ useCase: 'policy', target: { project: s.project }, policy: removeBoth }, { logging: 'off' });
+        assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+        assert.equal((await apply(prepared.prepared, authorize(prepared), { logging: 'off' })).completion, 'complete');
+        assert.equal(s.read('config.toml'), original, JSON.stringify([original, reinstall]));
+        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      } finally { s.dispose(); }
+    }
+  }
+});
+
+test('a created table whose key comes first in the recipe still restores the original', async () => {
+  for (const original of ['a = 1', 'a = 1\r\n']) {
+    const s = sandbox('aih-toml-reversed-');
+    try {
+      s.write('config.toml', original);
+      await install(s, entriesDocument('aih', [[[...aih, 'env', 'TOKEN'], 'x'], [[...aih, 'command'], 'aih']]));
+      await remove(s, 'aih');
+      assert.equal(s.read('config.toml'), original, JSON.stringify(original));
+      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    } finally { s.dispose(); }
+  }
+});
+
+test('a recipe that removes its keys passes the added line break to the table that follows', async () => {
+  const s = sandbox('aih-toml-authored-heir-');
+  try {
+    s.write('config.toml', 'a = 1');
+    await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
+    await install(s, entriesDocument('two', [[['u', 'y'], 2]]));
+    await install(s, removeDocument('one', [['t', 'x']]));
+    assert.equal(s.read('config.toml'), 'a = 1\n[u]\ny = 2\n');
+    assert.deepEqual(recordsOf(s), ['created-after-newline']);
+    await remove(s, 'two');
+    assert.equal(s.read('config.toml'), 'a = 1');
+    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+  } finally { s.dispose(); }
 });
 
 test('ownership validation requires 1.3.0 for a non-bare TOML entry segment', async () => {

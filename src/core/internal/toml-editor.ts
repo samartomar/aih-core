@@ -239,8 +239,17 @@ export function tomlMember(before: Buffer | null, path: string[]): Buffer | null
   if (!managed(text, member.value)) fail('unsupported-toml-value');
   return Buffer.from(text.slice(member.valueStart, member.valueEnd));
 }
-export type CreatedTable = 'created' | 'created-after-newline';
-function applyEntries(before: Buffer | null, entries: ConfigEntry[], created?: Map<string, CreatedTable>): Buffer {
+/** Core appended the explicit header of a table; `created-after-newline` also records a line break it added before the header. */
+export const tomlTableCustody = ['created', 'created-after-newline'] as const;
+export type TomlTableCustody = typeof tomlTableCustody[number];
+/** The table an entry path lives in, with its key in the `created` maps; none for a key of the root table. */
+export function tomlTableOf(entry: string[]): { segments: string[]; key: string } | undefined {
+  if (entry.length < 2) return undefined;
+  const segments = entry.slice(0, -1);
+  return { segments, key: identity(segments) };
+}
+/** `created` collects, by table key, the headers this edit appends and whether it added a line break before each. */
+export function editToml(before: Buffer | null, entries: ConfigEntry[], created?: Map<string, TomlTableCustody>): Buffer {
   let text = decode(before);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   for (const entry of entries) {
@@ -253,7 +262,12 @@ function applyEntries(before: Buffer | null, entries: ConfigEntry[], created?: M
     const current = parsed.assignments.get(identity(entry.path));
     if (current && !managed(text, current.value)) fail('unsupported-toml-value');
     if (entry.action === 'remove') {
-      if (current) text = text.slice(0, current.start) + text.slice(current.end);
+      if (current) {
+        // A comment after the value is not Core's: it stays as a line of its own.
+        const at = skipBlank(text, current.valueEnd);
+        const kept = text[at] === '#' ? text.slice(at, current.end) : '';
+        text = text.slice(0, current.start) + kept + text.slice(current.end);
+      }
       continue;
     }
     const rendered = render(entry.value!);
@@ -279,29 +293,24 @@ function applyEntries(before: Buffer | null, entries: ConfigEntry[], created?: M
   parse(text);
   return Buffer.from(text, 'utf8');
 }
-export function editToml(before: Buffer | null, entries: ConfigEntry[]): Buffer {
-  return applyEntries(before, entries);
-}
-/** The tables whose header `editToml` appends for `entries`, keyed by the JSON of their segments, and whether a line break was added before it. */
-export function createdTomlTables(before: Buffer | null, entries: ConfigEntry[]): Map<string, CreatedTable> {
-  const created = new Map<string, CreatedTable>();
-  applyEntries(before, entries, created);
-  return created;
-}
 /**
  * Removes the explicit header of a table that Core appended, once nothing else is in it: no key or comment
- * in its region and nothing but blanks after `]`. Blank lines stay. A header that ends the file also takes the
- * line break Core added before it when `created` records one. Any other table is returned unchanged.
+ * in its region and nothing but blanks after `]`. Blank lines stay. For `created-after-newline`, a header that
+ * ends the file also takes the line break immediately before it, which is the one Core added unless someone
+ * inserted lines between them after setup. When that break stays because another header follows, `heir`
+ * is the key (as `tomlTableOf` gives it) of the table whose header now starts where the removed one did:
+ * the break now precedes it.
+ * Any other table is returned unchanged.
  */
-export function removeCreatedTomlTable(bytes: Buffer, table: string[], created: CreatedTable): Buffer {
+export function removeCreatedTomlTable(bytes: Buffer, table: string[], created: TomlTableCustody): { bytes: Buffer; heir?: string } {
   const text = decode(bytes);
   const header = table.length ? parse(text).tables.get(identity(table)) : undefined;
   if (!header || !/^[ \t]*(?:\r\n|\n|\r)?$/u.test(text.slice(header.closeEnd, header.headerEnd)) ||
-      !/^[ \t\r\n]*$/u.test(text.slice(header.headerEnd, header.last))) return bytes;
+      !/^[ \t\r\n]*$/u.test(text.slice(header.headerEnd, header.last))) return { bytes };
   let start = header.first;
   if (created === 'created-after-newline' && header.headerEnd === text.length)
     start -= /(?:\r\n|\n|\r)$/u.exec(text.slice(0, start))?.[0].length ?? 0;
   const output = text.slice(0, start) + text.slice(header.headerEnd);
-  parse(output);
-  return Buffer.from(output, 'utf8');
+  const next = [...parse(output).tables.values()].find(candidate => candidate.segments.length && candidate.first === header.first);
+  return { bytes: Buffer.from(output, 'utf8'), ...(created === 'created-after-newline' && start === header.first && next ? { heir: identity(next.segments) } : {}) };
 }
