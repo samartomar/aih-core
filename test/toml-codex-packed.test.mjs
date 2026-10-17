@@ -12,7 +12,7 @@ async function packedScenario() {
   const { readFileSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { Ajv2020 } = await import('ajv/dist/2020.js');
-  const { prepare, apply, checkFileState } = await import('@aihq/core');
+  const { prepare, apply, checkFileState, prepareManagedRemoval } = await import('@aihq/core');
   const { contractSupport, parsePolicy, validateRecipe } = await import('@aihq/core/contracts');
   const ajv = new Ajv2020({ strict: true });
   for (const entry of contractSupport.contracts) {
@@ -128,6 +128,25 @@ API_URL = "https://example.test"
   });
   assert.ok(blocked.diagnostics.some(d => d.code === 'STATE_CONFLICT'), JSON.stringify(blocked.diagnostics));
   assert.equal(readFileSync(file, 'utf8'), drift, 'inspection never repairs a client edit');
+
+  // Restore the managed bytes, then remove the selection through the package API.
+  writeFileSync(file, clientEdited);
+  await check('match');
+  const removal = await prepareManagedRemoval({ target: request.target, managementId: 'codex-mcp', scope: 'user', mode: 'vibe' }, controls);
+  assert.equal(removal.preparation.status, 'ready', JSON.stringify(removal));
+  validate(removal.preparation.review);
+  const removed = await apply(removal.preparation.prepared,
+    { approved: true, origin: 'automation', reviewDigest: removal.preparation.review.reviewDigest }, controls);
+  validate(removed);
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  const expected = original.replace('model = "gpt-6.1-sol"', 'model = "gpt-6-sol"')
+    .replace('# Trailing notes kept by the user\n# second trailing line\n',
+      '[projects."/home/u/q"]\ntrust_level = "trusted"\n# Trailing notes kept by the user\n# second trailing line\n');
+  assert.deepEqual(readFileSync(file), Buffer.from(expected), 'only the client edits remain: no managed table or header is left behind');
+  assert.ok(!readFileSync(file, 'utf8').includes('mcp_servers.aih'));
+  // The policy still asks for the keys, so the file no longer matches it.
+  const afterRemoval = await check('changed');
+  assert.ok(afterRemoval.targets.every(target => target.outcome === 'changed' && target.reason === 'content-changed'), JSON.stringify(afterRemoval.targets));
   console.log('packed Codex TOML API passed');
 }
 

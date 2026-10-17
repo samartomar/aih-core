@@ -1,6 +1,6 @@
 import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
-import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock } from './recipe-editors.js';
+import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { Ownership } from './state.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
@@ -24,10 +24,16 @@ export function memberBytes(member: ByteMember, bytes: Buffer | null): Buffer | 
   if (member.kind === 'entry') return configMemberBytes(member.format, bytes, member.entry);
   return blockMemberBytes(bytes, { ...member, action: 'remove' });
 }
-export function subtractMember(member: ByteMember, bytes: Buffer | null): Buffer | null {
-  if (member.kind === 'file') return null;
-  if (member.kind === 'entry') return bytes === null ? null : renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
-  return renderTextBlock(bytes, { ...member, action: 'remove' });
+/** A recorded created TOML table also loses its header once the last managed key is gone; `heir` is the table that then inherits the added line break. */
+export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTable?: TomlTableCustody): { bytes: Buffer | null; heir?: string } {
+  if (member.kind === 'file') return { bytes: null };
+  if (member.kind === 'entry') {
+    if (bytes === null) return { bytes: null };
+    const removed = renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
+    const table = member.format === 'toml' ? tomlTableOf(member.entry) : undefined;
+    return table && tomlTable ? removeCreatedTomlTable(removed, table.segments, tomlTable) : { bytes: removed };
+  }
+  return { bytes: renderTextBlock(bytes, { ...member, action: 'remove' }) };
 }
 
 export function validDescriptor(value: unknown): value is MemberDescriptor {

@@ -5,7 +5,8 @@ import { decode, fail, type ConfigEntry } from './recipe-editors.js';
 const maxDepth = 64;
 interface Value { start: number; end: number; kind: 'array' | 'inline' | 'other'; items: Value[] }
 interface Assignment { start: number; end: number; valueStart: number; valueEnd: number; value: Value }
-interface Table { segments: string[]; first: number; last: number }
+/** `headerEnd` is the index after the header line's break and `closeEnd` the index after its `]`; both are 0 for the root table. */
+interface Table { segments: string[]; first: number; last: number; headerEnd: number; closeEnd: number }
 interface Parsed { text: string; tables: Map<string, Table>; assignments: Map<string, Assignment> }
 
 const bare = /^[A-Za-z0-9_-]+$/u;
@@ -177,10 +178,11 @@ function parse(text: string): Parsed {
         i += 1;
       }
       if (text[i] !== ']') fail('unsupported-toml-table');
-      const next = line(i + 1);
+      const closeEnd = i + 1;
+      const next = line(closeEnd);
       const id = identity(segments);
       if (next < 0 || tables.has(id)) fail('unsupported-toml-table');
-      const table = { segments, first: lineStart, last: text.length };
+      const table = { segments, first: lineStart, last: text.length, headerEnd: next, closeEnd };
       tables.set(id, table);
       headers.push(table);
       current = segments;
@@ -205,7 +207,7 @@ function parse(text: string): Parsed {
     }
   }
   headers.forEach((table, index) => { table.last = headers[index + 1]?.first ?? text.length; });
-  tables.set(identity([]), { segments: [], first: 0, last: headers[0]?.first ?? text.length });
+  tables.set(identity([]), { segments: [], first: 0, last: headers[0]?.first ?? text.length, headerEnd: 0, closeEnd: 0 });
   for (const id of assignments.keys()) {
     const path = JSON.parse(id) as string[];
     for (const table of tables.values()) if (table.segments.length && startsWith(table.segments, path)) fail('unsupported-toml-path');
@@ -237,7 +239,17 @@ export function tomlMember(before: Buffer | null, path: string[]): Buffer | null
   if (!managed(text, member.value)) fail('unsupported-toml-value');
   return Buffer.from(text.slice(member.valueStart, member.valueEnd));
 }
-export function editToml(before: Buffer | null, entries: ConfigEntry[]): Buffer {
+/** Core appended the explicit header of a table; `created-after-newline` also records a line break it added before the header. */
+export const tomlTableCustody = ['created', 'created-after-newline'] as const;
+export type TomlTableCustody = typeof tomlTableCustody[number];
+/** The table an entry path lives in, with its key in the `created` maps; none for a key of the root table. */
+export function tomlTableOf(entry: string[]): { segments: string[]; key: string } | undefined {
+  if (entry.length < 2) return undefined;
+  const segments = entry.slice(0, -1);
+  return { segments, key: identity(segments) };
+}
+/** `created` collects, by table key, the headers this edit appends and whether it added a line break before each. */
+export function editToml(before: Buffer | null, entries: ConfigEntry[], created?: Map<string, TomlTableCustody>): Buffer {
   let text = decode(before);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   for (const entry of entries) {
@@ -250,7 +262,12 @@ export function editToml(before: Buffer | null, entries: ConfigEntry[]): Buffer 
     const current = parsed.assignments.get(identity(entry.path));
     if (current && !managed(text, current.value)) fail('unsupported-toml-value');
     if (entry.action === 'remove') {
-      if (current) text = text.slice(0, current.start) + text.slice(current.end);
+      if (current) {
+        // A comment after the value is not Core's: it stays as a line of its own.
+        const at = skipBlank(text, current.valueEnd);
+        const kept = text[at] === '#' ? text.slice(at, current.end) : '';
+        text = text.slice(0, current.start) + kept + text.slice(current.end);
+      }
       continue;
     }
     const rendered = render(entry.value!);
@@ -270,8 +287,30 @@ export function editToml(before: Buffer | null, entries: ConfigEntry[]): Buffer 
     } else {
       const separator = text && !/[\r\n]$/u.test(text) ? eol : '';
       text += `${separator}[${tableSegments.map(renderKey).join('.')}]${eol}${renderKey(name)} = ${rendered}${eol}`;
+      created?.set(identity(tableSegments), separator ? 'created-after-newline' : 'created');
     }
   }
   parse(text);
   return Buffer.from(text, 'utf8');
+}
+/**
+ * Removes the explicit header of a table that Core appended, once nothing else is in it: no key or comment
+ * in its region and nothing but blanks after `]`. Blank lines stay. For `created-after-newline`, a header that
+ * ends the file also takes the line break immediately before it, which is the one Core added unless someone
+ * inserted lines between them after setup. When that break stays because another header follows, `heir`
+ * is the key (as `tomlTableOf` gives it) of the table whose header now starts where the removed one did:
+ * the break now precedes it.
+ * Any other table is returned unchanged.
+ */
+export function removeCreatedTomlTable(bytes: Buffer, table: string[], created: TomlTableCustody): { bytes: Buffer; heir?: string } {
+  const text = decode(bytes);
+  const header = table.length ? parse(text).tables.get(identity(table)) : undefined;
+  if (!header || !/^[ \t]*(?:\r\n|\n|\r)?$/u.test(text.slice(header.closeEnd, header.headerEnd)) ||
+      !/^[ \t\r\n]*$/u.test(text.slice(header.headerEnd, header.last))) return { bytes };
+  let start = header.first;
+  if (created === 'created-after-newline' && header.headerEnd === text.length)
+    start -= /(?:\r\n|\n|\r)$/u.exec(text.slice(0, start))?.[0].length ?? 0;
+  const output = text.slice(0, start) + text.slice(header.headerEnd);
+  const next = [...parse(output).tables.values()].find(candidate => candidate.segments.length && candidate.first === header.first);
+  return { bytes: Buffer.from(output, 'utf8'), ...(created === 'created-after-newline' && start === header.first && next ? { heir: identity(next.segments) } : {}) };
 }

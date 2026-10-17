@@ -858,7 +858,16 @@ finite numbers, booleans, or arrays of those (nested arrays included); a new
 string is written as a basic string, arrays on one line as `["a", "b"]`, and new keys
 go at the end of their table (a missing table is appended as `[header]`). Existing
 values are replaced in place, keeping indentation, spacing and trailing comments;
-removal deletes the whole statement, including every line of a multi-line array.
+removal deletes the whole statement, including every line of a multi-line array, but
+a comment after the value stays as a line of its own. Removing the last managed key
+of a table that Core created also removes that header, and the line break Core added
+before it at the end of a file that did not end with one, so setup followed by
+removal restores the original bytes. A table that existed before setup, or that holds
+a key or comment someone else added (a kept trailing comment included), keeps its
+header; tables created before this record existed keep theirs. When that line break
+is left in front of another table Core created, the record moves to that table.
+Lines a client inserts before a final created header can cost one line break on
+removal.
 Custody and drift cover the exact value bytes, including whitespace and comments
 inside an array. Other content is only scanned, never rewritten: multi-line arrays
 and strings, inline tables, dates and other values may appear anywhere in the file.
@@ -877,12 +886,12 @@ than validating every TOML rule. Inline tables follow TOML 1.0 (one line, no
 trailing comma); a multi-line inline table or one with a trailing comma is refused.
 Earlier Core versions refuse rather than misread this content: a file with a quoted
 header is `unsupported-toml-table` and an owned array is `unsupported-toml-value`.
-The ownership root is written as 1.3.0 only while it owns a TOML entry whose path
-has a non-bare segment, and returns to its previous version after the last such
-entry is removed. An earlier Core fails closed on a 1.3.0 root, as it does on a
-hook-group 1.1 root: it refuses that root's own project and withholds user-scope
-cleanup requested from any other project until Core is upgraded or the entry is
-removed.
+The ownership root is written as 1.4.0 only while it records a table that Core
+created for a TOML entry, and as 1.3.0 only while it owns a TOML entry whose path has
+a non-bare segment; each returns to its previous version after the last such entry is
+removed. An earlier Core fails closed on a 1.3.0 or 1.4.0 root, as it does on a
+hook-group 1.1 root: it refuses that root's project and withholds user-scope cleanup
+requested from any other project until Core is upgraded or the entry is removed.
 
 `format: "yaml"` and `format: "properties"` select one top-level key per path.
 YAML set values are JSON-quoted strings; block/flow values, uncertain quoted

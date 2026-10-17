@@ -12,7 +12,7 @@ mkdirSync(home);
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 // Set the fixture home before loading Core; no client process is involved.
-const { prepare, apply, checkFileState } = await import('../dist/core/index.js');
+const { prepare, apply, checkFileState, prepareManagedRemoval } = await import('../dist/core/index.js');
 after(() => {
   for (const [key, value] of Object.entries(previousHome)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -136,6 +136,33 @@ for (const eol of ['\n', '\r\n']) {
       });
       assert.ok(blocked.diagnostics.some(d => d.code === 'STATE_CONFLICT'), JSON.stringify(blocked.diagnostics));
       assert.equal(readFileSync(f.file, 'utf8'), drift, 'drift inspection is inert');
+    });
+  }
+}
+
+for (const eol of ['\n', '\r\n']) {
+  for (const insertion of ['before trailing comments', 'at end of file']) {
+    test(`removing the Codex selection leaves only the client's edits (${eol === '\n' ? 'LF' : 'CRLF'}, insertion ${insertion})`, async () => {
+      const f = fixture(operations(), eol);
+      await execute(await preview(f.request));
+      assert.deepEqual(readFileSync(f.file), Buffer.from(f.lines(original + appended)));
+
+      let clientEdited = (original + appended).replace('model = "gpt-6.1-sol"', 'model = "gpt-6-sol"');
+      clientEdited = insertion === 'before trailing comments'
+        ? clientEdited.replace(trailingNotes, projectTable + trailingNotes)
+        : clientEdited + projectTable;
+      writeFileSync(f.file, f.lines(clientEdited));
+
+      const removal = await prepareManagedRemoval({ target: f.request.target, managementId: 'codex-mcp', scope: 'user', mode: 'vibe' }, controls);
+      assert.equal(removal.preparation.status, 'ready', JSON.stringify(removal));
+      const applied = await apply(removal.preparation.prepared,
+        { approved: true, origin: 'automation', reviewDigest: removal.preparation.review.reviewDigest }, controls);
+      assert.equal(applied.completion, 'complete', JSON.stringify(applied));
+
+      const edited = original.replace('model = "gpt-6.1-sol"', 'model = "gpt-6-sol"');
+      const expected = insertion === 'at end of file' ? edited + projectTable : edited.replace(trailingNotes, projectTable + trailingNotes);
+      assert.deepEqual(readFileSync(f.file), Buffer.from(f.lines(expected)), 'no managed table or header remains');
+      assert.ok(!readFileSync(f.file, 'utf8').includes('mcp_servers.aih'));
     });
   }
 }
