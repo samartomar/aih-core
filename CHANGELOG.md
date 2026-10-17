@@ -44,6 +44,16 @@ is unpublished. Removed public names:
   `acceptanceRecordSchema`, `macosSessionBudgets`, `macosSessionTrustKeys` or the `MacosSessionBudgets`
   type. Trust discovery, parsing, encoding, review and `verifyTrustAdmissionEvidence` are unchanged.
 
+`@aihq/core` now also exports `ReportFileResult` and `ReportFileStatus` (the shape of
+`SupportReportResult`), `@aihq/core/harness` exports `NativeValidationResult` and
+`NativeValidationDiagnostic` (returned by `validateNativeVerificationDefinition` and
+`validateNativeTestIdentity`), and `NativeVerificationBundle` now uses the exported `JsonObject`.
+
+Contributor note: the internal `exportAdmissionTemplate`, `trustTransformIds` and the
+`buildCertificateExportRecipe` re-export in the trust helper remain in source, unexported, because the
+shipped export-cell admission records pin those helper files' bytes. Their removal waits for the next
+admission recapture and is tracked in samartomar/aih-core#81.
+
 Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.
 `assessRepairCandidate` is the one public repair-candidate operation, and its behavior is unchanged;
 call it with `{ id: 'node-os-trust', inputs: { originId: 'npm-registry' } }` for the same assessment.

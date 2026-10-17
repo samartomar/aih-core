@@ -53,6 +53,7 @@ export { inspect } from './inspection.js';
 export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
 export { writeSupportReport } from './support-report.js';
 export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
+export type { ReportFileResult, ReportFileStatus } from './internal/report-file.js';
 
 export { checkFileState } from './file-state.js';
 export type { FileStateRequest, FileStateControls, FileStateStatus, FileStateOutcome, FileStateTargetPath, FileStateTarget,

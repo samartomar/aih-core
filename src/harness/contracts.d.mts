@@ -7,6 +7,7 @@ export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-sessio
 import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
+export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
 }
