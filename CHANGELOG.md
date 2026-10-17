@@ -30,8 +30,8 @@ now refuses a claim set whose shared string fields carry a machine-local path: a
 path under a well-known root or with a file-name shape, a Windows drive path, a UNC or device path,
 a home-relative `~/` path or a `file:/` URL. The refusal is `INPUT_INVALID` with a message such as
 `claimSet.claims[0].subject.id: local-path: posix-absolute path is not portable`, which names the
-field and the form but never the value. Repository-relative paths, package names, non-file URLs,
-JSON Pointers and routes such as `/claims/0/subject`, and `file:` in prose are still accepted.
+field and the form but never the value. Repository-relative paths, package names and non-file URLs without a home segment,
+JSON Pointers and plain-name routes such as `/claims/0/subject`, and `file:` in prose are still accepted.
 Detection shares one internal implementation with the snapshot projection's home-path masking and
 also refuses any string that masking would change, so every home path a snapshot masks is refused in
 a claim set; the snapshot projection itself is unchanged. Claims 1.0.0 and 1.1.0 keep their wire format and JSON

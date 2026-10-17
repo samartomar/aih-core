@@ -206,11 +206,13 @@ A token begins at the start of the string or after whitespace, a quote, an
 opening bracket, `>`, `|`, `-`, `=`, `,`, `;` or `:`. Repository-relative paths
 (`src/app.ts`, `./config.json`, `../shared/x`), package names (`@scope/name`),
 URNs and URLs with a scheme other than `file` (`https://…`, `ssh://…`) are not
-local and are accepted; the body of such a URL is checked only by the
+local and are accepted unless they contain a home segment such as `/home/<name>` or
+`/Users/<name>` (for example `src/Users/model.ts`), which the `home-directory` rule refuses; the body of such a URL is checked only by the
 `home-directory` rule. `file:` without a following `/` (`Config file: x`) is
 prose, not a URL.
 
-JSON Pointers and routes are accepted: an absolute token whose segments are
+JSON Pointers and routes made of plain names are accepted (a route ending in a
+file name such as `/api/v1/users.json` is refused as a path): an absolute token whose segments are
 plain names or numbers and whose first segment is not a well-known root, such
 as `/claims/0/subject`, `/policy/selections/0` or `GET /api/v1/users`, is not a
 path. Core's own diagnostics name locations in that form, so refusing it would
