@@ -46,14 +46,13 @@ Removed:
 - `aih report` HTML output and the `--demo` option. The command still acquires or imports one snapshot
   and writes only `report.json`; its summary no longer has `mode` or `output.html`, and `--demo` is now
   rejected as an unknown option (`cli-input`).
-- The packaged renderer files (`dist/harness/report/render.mjs`, `render.d.mts`, `template.mjs`) and
-  `docs/reporting/RENDERING.md`.
+- The packaged renderer files (`dist/harness/report/render.mjs`, `render.d.mts`, `template.mjs`),
+  `docs/reporting/RENDERING.md` and the packaged `examples/reporting/workflow/report.html` example.
 - Source-only renderer assets: the authored HTML template and its demonstration sample, the template
-  generator and visual verification scripts, the saved visual evidence, the renderer tests, the
-  `examples/reporting/workflow/report.html` example, the NOTICE attribution for the extracted design
+  generator and visual verification scripts, the saved visual evidence, the renderer tests, the NOTICE attribution for the extracted design
   and the now-unused `happy-dom` and `playwright` development dependencies.
 
-`@aihq/core/report`, its schemas, `report.json` and the reporting examples are unchanged.
+`@aihq/core/report`, its schemas, `report.json` and the other reporting examples are unchanged.
 
 Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
 no longer use `export type *` barrels, and package tests now check that each entry's declared and
