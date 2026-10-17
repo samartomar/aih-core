@@ -6,12 +6,13 @@ import requestSchema from './schemas/native-verification-request/1.0.0.json' wit
 import resultSchema from './schemas/native-verification-result/1.0.0.json' with { type: 'json' };
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1 } from './internal/strict-json.js';
-import type { Diagnostic, ValidationResult } from './types.js';
+import type { Diagnostic, Json, JsonObject, ValidationResult } from './types.js';
 import type { NativeClientId } from './internal/native-clients.js';
 export type { NativeClientId };
 export type Sha256 = string;
-export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
-export interface JsonObject { [key: string]: JsonValue }
+// Native documents use the public `Json`/`JsonObject` shapes exported with the operations.
+export type JsonValue = Json;
+export type { JsonObject };
 export interface NativeMember { path: string; sha256: Sha256; byteLength: number }
 export interface NativeTreeFile { root: 'home' | 'project'; path: string; member: NativeMember }
 export interface NativeVerificationRequest {

@@ -13,6 +13,127 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { policy } from './fixture.mjs';
 import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 
+// Exact public names per code entry. Adding or removing a name, from both the JavaScript and the
+// declarations, must update these lists deliberately.
+const expectedRuntimeNames = {
+  '@aihq/core': [
+    'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'inspect', 'listManagedSelections',
+    'prepare', 'prepareManagedRemoval', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
+  ],
+  '@aihq/core/contracts': [
+    'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
+    'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
+    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations',
+    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateMacosRepairInputs',
+    'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
+    'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
+    'validateMacosSessionVerificationResult', 'validateNativeVerificationBundle',
+    'validateNativeVerificationRequest', 'validateNativeVerificationResult', 'validateOrganizationPolicy',
+    'validateOrganizationTarget', 'validatePolicy', 'validatePreparedWork12', 'validatePreparedWork13',
+    'validatePreparedWork14', 'validateRecipe', 'validateRunResult12', 'validateRunResult13', 'validateTrustCustody',
+    'validateTrustRepairInputs', 'validateTrustRepairRequest'
+  ],
+  '@aihq/core/support': [
+    'getGuidance', 'renderSupportMarkdown'
+  ],
+  '@aihq/core/report': [
+    'CALCULATION_METHODS', 'CLAIMS_ACCEPTED_VERSIONS', 'CLAIMS_PROJECTION_SCHEMA', 'CLAIMS_PROJECTION_SCHEMA_1_1_0',
+    'CLAIMS_SCHEMA', 'CLAIMS_SCHEMA_1_1_0', 'DIAGNOSTIC_CONTRACT', 'ReportInputError', 'SNAPSHOT_SCHEMA',
+    'createReport', 'exportSnapshot', 'importSnapshot', 'projectClaims', 'readClaimSet', 'validateClaimSet',
+    'validateSnapshot'
+  ],
+  '@aihq/core/report/render': [
+    'renderReport'
+  ],
+  '@aihq/core/harness': [
+    'consumerProfiles', 'contractSupport', 'exportDefaultNames', 'helperMetadata', 'macosRepairIndex',
+    'macosSessionProfiles', 'macosSessionProfilesSchema', 'nativeClientIds', 'nativeVerificationDefinitions',
+    'repairDefinitionSchema12', 'repairIndex', 'selectRepairDefinition', 'selectTrustCell', 'selectVerificationKeys',
+    'selectVerificationPublishers', 'targets', 'trustCapabilities', 'trustLimits', 'trustPlatformMatrix',
+    'trustRepairIndex', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition',
+    'validateRepairDefinition11', 'validateRepairDefinition12', 'validateTrustCapabilities',
+    'validateVerificationKeyRecords', 'validateVerificationPublisherRecords', 'verificationKeyPurposes',
+    'verificationKeys', 'verificationPublishers'
+  ],
+  '@aihq/core/harness/runtime': [
+    'assessRepairCandidate', 'assessRepairObservations', 'canonicalTrustJson', 'composeExistingTrust',
+    'detectTrustPlatform', 'diagnose', 'discoverTrustSources', 'getRepairRecipe', 'getTrustFileIntegration',
+    'getTrustRecipe', 'hashTrustSourceSet', 'managedRepairRemovalNeedsReconciliation', 'observeMacosApplication',
+    'observeMacosGuiSession', 'parseJvmTrustStore', 'parseTrustOutput', 'persistedConfigurationMembers',
+    'prepareRepairDefinition', 'readGitHubPolicy', 'readMacosGuiDomainKey', 'renderMacosSessionLaunchAgent',
+    'renderRepair', 'renderTrustFileRepair', 'repairObservationRequests', 'reviewTrustDelta', 'serializeTrustSet',
+    'validDiagnosticTargets', 'validateBaselineStore', 'validateSuppliedCa', 'verifyTrustAdmissionEvidence'
+  ]
+};
+const expectedTypeNames = {
+  '@aihq/core': [
+    'AssociateEvidenceControls', 'AssociateEvidenceInput', 'AssociationReason', 'AssociationResult',
+    'AuthenticationTrust', 'Authorization', 'CertificateExportRequest', 'CertificateReview', 'CheckResult',
+    'ConfigEntryRemove', 'ConfigEntrySet', 'ConfigOperation', 'Diagnostic', 'Effective', 'EvidenceAssociation',
+    'Executable', 'ExecutionPolicy', 'FileCheck', 'FileOperation', 'FileStateCheck', 'FileStateControls',
+    'FileStateOmission', 'FileStateOutcome', 'FileStateRequest', 'FileStateResult', 'FileStateStatus',
+    'FileStateTarget', 'FileStateTargetPath', 'GitHubPolicySource', 'HookGroupOperation', 'HookGroupReview',
+    'HostControls', 'InlineMaterial', 'InputSpec', 'InspectControls', 'InspectRequest', 'InspectResult', 'Json',
+    'JsonObject', 'MacosPreparedInputs', 'MacosRepairRequest', 'MacosSessionApplication',
+    'MacosSessionApplicationReview', 'MacosSessionApplicationRun', 'MacosSessionCheck', 'MacosSessionClientId',
+    'MacosSessionConfiguration', 'MacosSessionContext', 'MacosSessionEffect', 'MacosSessionLaunch',
+    'MacosSessionObservation', 'MacosSessionRecordStatus', 'MacosSessionReview', 'MacosSessionRun',
+    'MacosSessionSelection', 'MacosSessionState', 'MacosSessionVerification', 'MacosSessionVerificationRequest',
+    'MacosSessionVerificationResult', 'ManagedInventoryControls', 'ManagedInventoryRequest',
+    'ManagedInventoryResult', 'ManagedInventorySelection', 'ManagedRemovalDisposition',
+    'ManagedRemovalPreparationResult', 'ManagedRemovalRequest', 'MaterialIdentity', 'MaterialMember',
+    'MaterialRecipeReference', 'MaterialSource', 'NativeClientId', 'NativeMember', 'NativeStage',
+    'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile', 'NativeVerificationBundle',
+    'NativeVerificationControls', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
+    'OperationBase', 'OperationResult', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
+    'OrganizationBinding', 'OrganizationFulfillmentResult', 'OrganizationObligationResultBase',
+    'OrganizationObligationsReview', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
+    'PersistedConfigurationValue', 'PolicyRequest', 'PreparationResult', 'PreparedHandle', 'PreparedReview',
+    'Prerequisite', 'ProcessCheck', 'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecordStatus',
+    'RemoveOperation', 'RepairRequest', 'ReportFileResult', 'ReportFileStatus', 'ResolutionInput', 'ReviewCheck',
+    'ReviewOperation', 'RunResult', 'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'SupportReportResult',
+    'TargetPath', 'TextBlockOperation', 'TrustCertificateDisposition', 'TrustCompleteness', 'TrustInputs',
+    'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
+    'TrustRepairId', 'TrustRepairRequest', 'TrustRepairStep', 'TrustResolution', 'TrustRoute', 'TrustRouteOrExport',
+    'TrustRunOutput', 'TrustRunTarget', 'TrustRunTrust', 'TrustSecondarySource', 'TrustSourceAdapter',
+    'TrustSourceKind', 'TrustSourceReview', 'TrustSourceScope', 'TrustSources', 'TrustTargetClient',
+    'TrustTargetPolicy', 'TrustTargetReview', 'TrustTargetVerification', 'VerificationKey', 'VerificationPublisher',
+    'WriteSupportReportOptions'
+  ],
+  '@aihq/core/contracts': [
+    'AuthoringDiagnostic', 'AuthoringResult', 'CertificateExportInputs', 'CertificateExportRequest',
+    'CertificateReview', 'ConfigEntryRemove', 'ConfigEntrySet', 'ConfigOperation', 'DeriveRecipeIdentityRequest',
+    'Diagnostic', 'Executable', 'ExecutionPolicy', 'FileCheck', 'FileOperation', 'HookGroupOperation',
+    'InlineMaterial', 'InputSpec', 'Json', 'JsonObject', 'MacosRepairInputs', 'MacosRepairRequest', 'MacosSession',
+    'MacosSessionApplication', 'MacosSessionApplicationReview', 'MacosSessionApplicationRun', 'MacosSessionCheck',
+    'MacosSessionClientId', 'MacosSessionConfiguration', 'MacosSessionContext', 'MacosSessionCustody',
+    'MacosSessionCustodyEntry', 'MacosSessionCustodyFile', 'MacosSessionCustodyKey', 'MacosSessionEffect',
+    'MacosSessionLaunch', 'MacosSessionObservation', 'MacosSessionPresence', 'MacosSessionRecordStatus',
+    'MacosSessionReview', 'MacosSessionRun', 'MacosSessionSelection', 'MacosSessionState',
+    'MacosSessionVerification', 'MacosSessionVerificationRequest', 'MacosSessionVerificationResult',
+    'MaterialIdentity', 'MaterialMember', 'MaterialRecipeReference', 'MaterialSource', 'NativeClientId',
+    'NativeMember', 'NativeStage', 'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile',
+    'NativeVerificationBundle', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
+    'OperationBase', 'OrganizationAdmissionLifecycle', 'OrganizationAdmissionPreview',
+    'OrganizationAdmissionSelection', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
+    'OrganizationFulfillmentResult', 'OrganizationInputPermission', 'OrganizationObligation',
+    'OrganizationObligationResultBase', 'OrganizationObligationsPreview', 'OrganizationParseResult',
+    'OrganizationPolicy', 'OrganizationPolicy10', 'OrganizationPolicy11', 'OrganizationSelection',
+    'OrganizationSelection11', 'OrganizationTarget', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
+    'OrganizationTargetFacts', 'PackageDetails', 'ParseResult', 'Prerequisite',
+    'PreviewOrganizationAdmissionRequest', 'PreviewOrganizationObligationsRequest', 'ProcessCheck',
+    'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RemoveOperation',
+    'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'TargetPath', 'TextBlockOperation',
+    'TrustCertificateDisposition', 'TrustCompleteness', 'TrustCustody', 'TrustCustodyEntry', 'TrustCustodySource',
+    'TrustInputs', 'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
+    'TrustRepairId', 'TrustRepairInputs', 'TrustRepairRequest', 'TrustRepairStep', 'TrustResolution', 'TrustRoute',
+    'TrustRouteOrExport', 'TrustRunOutput', 'TrustRunTarget', 'TrustRunTrust', 'TrustSecondarySource',
+    'TrustSourceAdapter', 'TrustSourceKind', 'TrustSourceReview', 'TrustSourceScope', 'TrustSources',
+    'TrustTargetClient', 'TrustTargetPolicy', 'TrustTargetReview', 'TrustTargetVerification', 'ValidationResult'
+  ]
+};
+
 test('one Core artifact delivers APIs, portable Harness, repairs and a versioned Harness update', async () => {
   assert.ok(process.env.npm_execpath, 'Run this acceptance with npm test so its npm CLI is known.');
   const parent = realpathSync.native(tmpdir());
@@ -107,17 +228,16 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(typeof exported, 'string', entry.schemaExport);
       packedSchemas.addSchema(JSON.parse(readFileSync(join(installed, exported), 'utf8')));
     }
-    // Every code entry's runtime names must be declared. Each value its declaration
-    // names must also exist at runtime, except where `export type *` makes
-    // intentional type-only names visible to `typeof`. For those entries (the root
-    // and ./contracts) a declared value missing at runtime is not detected, and a
-    // type-only re-export also satisfies the undeclared check; replacing those
-    // barrels with explicit exports closes the gap.
+    // Every code entry's runtime names must be declared, and each value its
+    // declaration names must exist at runtime. No entry uses a type-only star
+    // barrel, so a type-only view of a value cannot satisfy either direction.
     const codeEntries = Object.entries(manifest.exports)
       .filter(([, target]) => typeof target === 'object' && target.import && target.types)
-      .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`,
-        typeOnlyReexports: /\bexport type \*/.test(readFileSync(join(installed, target.types), 'utf8')) }));
-    assert.ok(codeEntries.some(entry => entry.specifier === '@aihq/core/harness/runtime'));
+      .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`, types: readFileSync(join(installed, target.types), 'utf8') }));
+    for (const { specifier, types } of codeEntries)
+      assert.doesNotMatch(types, /\bexport type \*/, `${specifier} must list its type exports explicitly.`);
+    for (const specifier of ['@aihq/core', '@aihq/core/contracts', '@aihq/core/harness', '@aihq/core/harness/runtime'])
+      assert.ok(codeEntries.some(entry => entry.specifier === specifier), specifier);
     writeFileSync(join(consumer, 'export-names.mjs'), `
       const specifiers = ${JSON.stringify(codeEntries.map(entry => entry.specifier))};
       const names = {};
@@ -127,19 +247,35 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const runtimeNames = JSON.parse(run('export-names.mjs'));
     assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessRepairCandidate'), true);
     assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessNodeTrustCandidate'), false);
-    writeFileSync(join(consumer, 'export-parity.mts'), codeEntries.map(({ specifier, typeOnlyReexports }, index) => {
+    // Assembly, layout and test-only names are internal; a regression that republishes one fails here.
+    const internalNames = {
+      '@aihq/core/harness': ['buildTrustDefinitions', 'buildCertificateExportRecipe', 'exportAdmissionTemplate',
+        'resolveTrustRecipeRef', 'trustAdapters', 'trustProfiles', 'trustTransformIds'],
+      '@aihq/core/harness/runtime': ['buildCertificateExportRecipe', 'trustHelperFiles', 'trustLibraryPackages', 'hashTrustLibraries',
+        'trustCellSubjectSha256', 'acceptanceRecordSchema', 'macosSessionBudgets', 'macosSessionTrustKeys']
+    };
+    for (const [specifier, names] of Object.entries(internalNames))
+      for (const name of names) assert.equal(runtimeNames[specifier].includes(name), false, `${specifier} ${name}`);
+    assert.deepEqual(runtimeNames, expectedRuntimeNames);
+    // Every retained root and ./contracts type stays importable; a removed type fails to compile.
+    writeFileSync(join(consumer, 'export-types.mts'), Object.entries(expectedTypeNames).map(([specifier, names], index) =>
+      `import type { ${names.map(name => `${name} as T${index}_${name}`).join(', ')} } from '${specifier}';`).join('\n') + '\nexport {};\n');
+    writeFileSync(join(consumer, 'export-parity.mts'), codeEntries.map(({ specifier }, index) => {
       const names = runtimeNames[specifier].map(name => JSON.stringify(name)).join(' | ') || 'never';
       return `import * as entry${index} from '${specifier}';
         type Runtime${index} = ${names};
         const undeclared${index}: [Exclude<Runtime${index}, keyof typeof entry${index}>] extends [never] ? 'agree' :
           { entry: '${specifier}'; undeclared: Exclude<Runtime${index}, keyof typeof entry${index}> } = 'agree';
-        ${typeOnlyReexports ? '' : `const absent${index}: [Exclude<keyof typeof entry${index}, Runtime${index}>] extends [never] ? 'agree' :
-          { entry: '${specifier}'; absentAtRuntime: Exclude<keyof typeof entry${index}, Runtime${index}> } = 'agree';`}`;
+        const absent${index}: [Exclude<keyof typeof entry${index}, Runtime${index}>] extends [never] ? 'agree' :
+          { entry: '${specifier}'; absentAtRuntime: Exclude<keyof typeof entry${index}, Runtime${index}> } = 'agree';`;
     }).join('\n'));
     writeFileSync(join(consumer, 'contracts.mts'), `
       import {contractSupport,nativeClientIds,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
-      import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
-      import {diagnose} from '@aihq/core/harness/runtime';
+      import type {SupportedContract,PublicEntry,VerificationPublisherRecord,NativeValidationResult} from '@aihq/core/harness';
+      import {validateNativeTestIdentity as identityCheck} from '@aihq/core/harness';
+      const identityValidation: NativeValidationResult = identityCheck({});
+      import type {ReportFileResult,ReportFileStatus,SupportReportResult} from '@aihq/core';
+      const reportStatus: ReportFileStatus = ({} as SupportReportResult satisfies ReportFileResult).status;      import {diagnose} from '@aihq/core/harness/runtime';
       import type {DiagnoseResult} from '@aihq/core/harness/runtime';
       import {checkFileState,listManagedSelections,prepareManagedRemoval} from '@aihq/core';
       import {verifyNativeClient} from '@aihq/core';
@@ -177,6 +313,20 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       validateNativeVerificationRequest(nativeRequest); validateNativeVerificationResult({}); validateNativeVerificationBundle({});
       import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
       import type {CertificateExportRequest,TrustRepairRequest,TrustSources} from '@aihq/core';
+      import type {PreparedReview,RunResult,PolicyRequest,ExecutionPolicy,OrganizationTargetDeclaration,GitHubPolicySource,MacosSessionReview} from '@aihq/core';
+      import type {TrustCustody,MacosSessionCustody,OrganizationParseResult,ValidationResult,TrustRepairInputs} from '@aihq/core/contracts';
+      // @ts-expect-error The root no longer publishes type-only views of portable validators.
+      import type {validateTrustCustody as rootValidator} from '@aihq/core';
+      // @ts-expect-error Schema tables stay internal to the contracts entry.
+      import type {trustContractSchemas} from '@aihq/core/contracts';
+      // @ts-expect-error Portable document types without a root operation live at ./contracts.
+      import type {OrganizationPolicy as RootOrganizationPolicy} from '@aihq/core';
+      // @ts-expect-error File-state results belong to the Node operation that produces them.
+      import type {FileStateResult as PortableFileState} from '@aihq/core/contracts';
+      // @ts-expect-error Trust profile records are internal assembly data.
+      import type {TrustProfile} from '@aihq/core/harness';
+      // @ts-expect-error macOS budgets are internal helper limits.
+      import type {MacosSessionBudgets} from '@aihq/core/harness/runtime';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
@@ -225,7 +375,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
     execFileSync(process.execPath, [compiler,
       '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
-      '--target', 'ES2023', 'contracts.mts', 'export-parity.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+      '--target', 'ES2023', 'contracts.mts', 'export-parity.mts', 'export-types.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     writeFileSync(join(consumer, 'native-public.mjs'), `
       import assert from 'node:assert/strict';
       import {spawnSync} from 'node:child_process';

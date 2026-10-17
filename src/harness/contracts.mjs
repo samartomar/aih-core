@@ -9,9 +9,9 @@ import { selectMacosRepairDefinition } from './macos-session-definitions.mjs';
 export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 } from './macos-session-definitions.mjs';
 export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
-export { buildTrustDefinitions, trustRepairIndex, trustLimits, trustAdapters, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
-  validateTrustCapabilities, selectTrustCell, buildCertificateExportRecipe, trustProfiles, trustTransformIds, resolveTrustRecipeRef,
-  exportAdmissionTemplate, exportDefaultNames } from './trust-definitions.mjs';
+// Trust definition assembly (definition factories, adapter/profile tables and recipe resolution) stays internal.
+export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
+  validateTrustCapabilities, selectTrustCell, exportDefaultNames } from './trust-definitions.mjs';
 // Admission cells are static raw data (trust-capabilities.mjs): only exact tested export format/profile cells are admitted;
 // native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);

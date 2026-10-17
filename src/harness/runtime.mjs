@@ -31,11 +31,10 @@ export function managedRepairRemovalNeedsReconciliation({ managementId, scope, m
     platform === 'win32' ? member.path.toLowerCase() === path.toLowerCase() : member.path === path));
 }
 export { readGitHubPolicy } from './github-policy.mjs';
-export { macosSessionBudgets, macosSessionTrustKeys, renderMacosSessionLaunchAgent,
+export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
 export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,
-  canonicalTrustJson, detectTrustPlatform, verifyTrustAdmissionEvidence, buildCertificateExportRecipe,
-  trustHelperFiles, trustCellSubjectSha256, trustLibraryPackages, hashTrustLibraries, acceptanceRecordSchema, getTrustFileIntegration } from './trust.mjs';
+  canonicalTrustJson, detectTrustPlatform, verifyTrustAdmissionEvidence, getTrustFileIntegration } from './trust.mjs';
 
 const literal = value => ({ literal: value });
 const userTarget = (...segments) => ({ root: 'userHome', segments: segments.map(literal) });

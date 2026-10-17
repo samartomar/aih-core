@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
+no longer use `export type *` barrels, and package tests now check that each entry's declared and
+runtime value names agree in both directions. No operation, schema or result changed. This candidate
+is unpublished. Removed public names:
+
+- `@aihq/core` no longer publishes type-only views of values it cannot call:
+  `MACOS_REPAIR_REQUEST_SCHEMA`, `MACOS_REPAIR_INPUTS_SCHEMA`, `MACOS_PREPARED_WORK_SCHEMA`,
+  `MACOS_RUN_RESULT_SCHEMA`, `MACOS_SESSION_CUSTODY_SCHEMA`, `MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA`,
+  `MACOS_SESSION_VERIFICATION_RESULT_SCHEMA`, `MACOS_SESSION_PROFILES_SCHEMA`, `HARNESS_REPAIR_1_2_0`,
+  `validateMacosRepairRequest`, `validateMacosRepairInputs`, `validateMacosSessionCustody`,
+  `validateMacosSessionProfiles`, `validatePreparedWork13`, `validateRunResult13`, `validateMacosSessionReview`,
+  `validateMacosSessionRun`, `validateMacosSessionVerificationRequest`, `validateMacosSessionVerificationResult`,
+  `TRUST_REPAIR_REQUEST_1_0_0`, `TRUST_REPAIR_INPUTS_1_0_0`, `CERTIFICATE_EXPORT_REQUEST_1_0_0`,
+  `CERTIFICATE_EXPORT_INPUTS_1_0_0`, `PREPARED_WORK_1_2_0`, `RUN_RESULT_1_2_0`, `TRUST_CUSTODY_1_0_0`,
+  `HARNESS_REPAIR_1_1_0`, `trustContractSchemas`, `validateTrustRepairRequest`, `validateTrustRepairInputs`,
+  `validateCertificateExportRequest`, `validateCertificateExportInputs`, `validatePreparedWork12`,
+  `validatePreparedWork14`, `validateRunResult12` and `validateTrustCustody`. The validators and
+  `MACOS_*_SCHEMA` request/input/review/run/custody/verification identities remain callable from
+  `@aihq/core/contracts`.
+- `@aihq/core` no longer exports types that no root operation accepts or returns: `ValidationResult`,
+  `ParseResult`, `OrganizationInputPermission`, `OrganizationSelection`, `OrganizationSelection11`,
+  `OrganizationObligation`, `OrganizationTargetFacts`, `OrganizationTarget`, `OrganizationPolicy10`,
+  `OrganizationPolicy11`, `OrganizationPolicy`, `OrganizationParseResult`, `MacosSession`, `MacosRepairInputs`,
+  `MacosSessionPresence`, `MacosSessionCustodyFile`, `MacosSessionCustodyKey`, `MacosSessionCustodyEntry`,
+  `MacosSessionCustody`, `TrustRepairInputs`, `CertificateExportInputs`, `TrustCustodySource`,
+  `TrustCustodyEntry` and `TrustCustody`. Import them from `@aihq/core/contracts`.
+- `@aihq/core/contracts` no longer publishes type-only views of `HARNESS_REPAIR_1_2_0`,
+  `MACOS_SESSION_PROFILES_SCHEMA`, `TRUST_REPAIR_REQUEST_1_0_0`, `TRUST_REPAIR_INPUTS_1_0_0`,
+  `CERTIFICATE_EXPORT_REQUEST_1_0_0`, `CERTIFICATE_EXPORT_INPUTS_1_0_0`, `PREPARED_WORK_1_2_0`,
+  `RUN_RESULT_1_2_0`, `TRUST_CUSTODY_1_0_0`, `HARNESS_REPAIR_1_1_0` or `trustContractSchemas`, and no
+  longer exports the file-state types `FileStateRequest`, `FileStateControls`, `FileStateStatus`,
+  `FileStateOutcome`, `FileStateTargetPath`, `FileStateTarget`, `FileStateCheck`, `FileStateOmission` and
+  `FileStateResult`; they remain exported from `@aihq/core` with `checkFileState`.
+- `@aihq/core/harness` no longer exports trust definition assembly: `buildTrustDefinitions`,
+  `buildCertificateExportRecipe`, `exportAdmissionTemplate`, `resolveTrustRecipeRef`, `trustAdapters`,
+  `trustProfiles`, `trustTransformIds` and the `TrustProfile` type. Trust metadata, selection and
+  validation exports are unchanged.
+- `@aihq/core/harness/runtime` no longer exports `buildCertificateExportRecipe`, `trustHelperFiles`
+  (package-relative file names), `trustLibraryPackages`, `hashTrustLibraries`, `trustCellSubjectSha256`,
+  `acceptanceRecordSchema`, `macosSessionBudgets`, `macosSessionTrustKeys` or the `MacosSessionBudgets`
+  type. Trust discovery, parsing, encoding, review and `verifyTrustAdmissionEvidence` are unchanged.
+
+`@aihq/core` now also exports `ReportFileResult` and `ReportFileStatus` (the shape of
+`SupportReportResult`), `@aihq/core/harness` exports `NativeValidationResult` and
+`NativeValidationDiagnostic` (returned by `validateNativeVerificationDefinition` and
+`validateNativeTestIdentity`), and `NativeVerificationBundle` now uses the exported `JsonObject`.
+
+Contributor note: the internal `exportAdmissionTemplate`, `trustTransformIds` and the
+`buildCertificateExportRecipe` re-export in the trust helper remain in source, unexported, because the
+shipped export-cell admission records pin those helper files' bytes. Their removal waits for the next
+admission recapture and is tracked in samartomar/aih-core#81.
+
 Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.
 `assessRepairCandidate` is the one public repair-candidate operation, and its behavior is unchanged;
 call it with `{ id: 'node-os-trust', inputs: { originId: 'npm-registry' } }` for the same assessment.
