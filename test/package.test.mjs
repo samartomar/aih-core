@@ -24,7 +24,7 @@ const expectedRuntimeNames = {
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
@@ -115,7 +115,7 @@ const expectedTypeNames = {
     'MaterialIdentity', 'MaterialMember', 'MaterialRecipeReference', 'MaterialSource', 'NativeClientId',
     'NativeMember', 'NativeStage', 'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile',
     'NativeVerificationBundle', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
-    'OperationBase', 'OrganizationAdmissionLifecycle', 'OrganizationAdmissionPreview',
+    'OperationBase', 'OperationEffectsVisibility', 'OrganizationAdmissionLifecycle', 'OrganizationAdmissionPreview',
     'OrganizationAdmissionSelection', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
     'OrganizationFulfillmentResult', 'OrganizationInputPermission', 'OrganizationObligation',
     'OrganizationObligationResultBase', 'OrganizationObligationsPreview', 'OrganizationParseResult',
@@ -123,7 +123,8 @@ const expectedTypeNames = {
     'OrganizationSelection11', 'OrganizationTarget', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'OrganizationTargetFacts', 'PackageDetails', 'ParseResult', 'Prerequisite',
     'PreviewOrganizationAdmissionRequest', 'PreviewOrganizationObligationsRequest', 'ProcessCheck',
-    'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RemoveOperation',
+    'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RecipeOperationKind',
+    'RecipeOperationKindRecord', 'RecipeSchemaId', 'RemoveOperation',
     'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'TargetPath', 'TextBlockOperation',
     'TrustCertificateDisposition', 'TrustCompleteness', 'TrustCustody', 'TrustCustodyEntry', 'TrustCustodySource',
     'TrustInputs', 'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
@@ -347,6 +348,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const fsControls: FileStateControls = {budgetMs: 30000};
       const fsResult: FileStateResult = await checkFileState(fsRequest, fsControls);
       const fsAuthority: 'not-evaluated' = fsResult.authority;
+      import {recipeOperationKinds} from '@aihq/core/contracts';
+      import type {RecipeOperationKindRecord,OperationEffectsVisibility,RecipeSchemaId} from '@aihq/core/contracts';
+      const kindRecords: readonly RecipeOperationKindRecord[] = recipeOperationKinds['urn:aihq:core:recipe:1.3.0'];
+      const kindEffects: OperationEffectsVisibility = kindRecords[0]!.effects;
+      const kindRecipe: RecipeSchemaId = 'urn:aihq:core:recipe:1.0.0';
+      // @ts-expect-error Only supported recipe formats are keys.
+      const unknownRecipeKinds = recipeOperationKinds['urn:aihq:core:recipe:9.0.0'];
       const fsSchema: 'urn:aihq:core:file-state-result:1.1.0' = fsResult.schema;
       const fsSelections: string[] = fsResult.targets[0]!.selectionIds;
       import {targets} from '@aihq/core/harness';
@@ -715,6 +723,11 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(finalInventory.selections.some(item=>item.managementId==='team-guidance'),false);
       assert.equal(ajv.validate(finalInventory.schema,finalInventory),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
+      const {recipeOperationKinds}=await import('@aihq/core/contracts');
+      assert.deepEqual(Object.keys(recipeOperationKinds),['1.0.0','1.1.0','1.2.0','1.3.0'].map(version=>'urn:aihq:core:recipe:'+version));
+      assert.deepEqual(recipeOperationKinds['urn:aihq:core:recipe:1.3.0'].filter(item=>item.effects==='opaque').map(item=>item.kind),['process.run']);
+      assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.0.0'].some(item=>item.kind==='hook.group'),false);
+      assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.1.0'].find(item=>item.kind==='hook.group').effects,'observable');
       const {targets:harnessTargets}=await import('@aihq/core/harness');
       assert.deepEqual(harnessTargets.find(item=>item.id==='npm').executables,['npm','npx']);
       assert.deepEqual(harnessTargets.find(item=>item.id==='pip').executables,['pip','pip3']);

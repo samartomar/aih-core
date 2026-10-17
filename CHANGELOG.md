@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Publish which recipe operation kinds Prepare can observe. `@aihq/core/contracts` exports
+`recipeOperationKinds`: for each supported recipe schema ID (1.0.0 to 1.3.0), the frozen list of operation
+kinds that format admits, each with `effects` `observable` (Prepare compares the target's bytes and can
+review it as `already-satisfied`) or `opaque` (`process.run`, reviewed as `opaque-process`). Kinds come
+from the recipe schemas Prepare validates against, and their classification is type-checked against the
+engine's process operation. The `RecipeOperationKind`, `RecipeOperationKindRecord`,
+`OperationEffectsVisibility` and `RecipeSchemaId` types are exported with it. No schema changed. This
+candidate is unpublished.
+
 Name the selection behind prepared operations and file-state targets, and declare the commands each
 Harness target covers. Policy Prepare now returns `operationSelections` beside the review: one
 `{id, selectionId, operationId}` per review operation in review order, with `null` selection and

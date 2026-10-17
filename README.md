@@ -14,7 +14,7 @@ macOS session limits are internal to the package and not part of any entry.
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core/contracts` | `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
@@ -131,6 +131,22 @@ Supported recipe IDs are `urn:aihq:core:recipe:1.0.0`, `1.1.0`, `1.2.0` and
 `urn:aihq:core:organization-policy:1.0.0` and `1.1.0` (same full prefix).
 Every 1.0.0 entry means `permitted`, with no client or repository selector.
 Unsupported versions refuse without rewriting the original artifact. Package versions are separate from schema IDs.
+
+`recipeOperationKinds` from `@aihq/core/contracts` lists, for each supported recipe schema ID, the operation kinds
+that format admits (in its schema's order) and whether a fresh Prepare can establish their effects. An
+`observable` kind (`file.write`, `config.entries`, `text.block`, `file.remove` and, from recipe 1.1.0,
+`hook.group`) names a target whose bytes Prepare reads and compares, so it can be reviewed as
+`already-satisfied`; an `opaque` kind (`process.run`) is reviewed as `opaque-process`, and Prepare cannot
+show its effects. The list is derived from the recipe schemas Prepare validates against. It is portable,
+frozen data; treat a recipe ID or kind it does not list as unsupported or `opaque`.
+
+```js
+import { recipeOperationKinds } from '@aihq/core/contracts';
+
+const kinds = recipeOperationKinds['urn:aihq:core:recipe:1.3.0'];
+// [{ kind: 'file.write', effects: 'observable' }, ..., { kind: 'process.run', effects: 'opaque' }, { kind: 'hook.group', effects: 'observable' }]
+const opaque = kind => kinds.find(item => item.kind === kind)?.effects !== 'observable';
+```
 Existing strict JSON, one-million-byte document, 4,096-selection/lifecycle and
 material declaration bounds remain; no helper truncates an oversized input.
 

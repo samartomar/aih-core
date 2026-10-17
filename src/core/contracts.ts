@@ -54,6 +54,8 @@ export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, 
   OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationSelection11, OrganizationPolicy10,
   OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult } from './types.js';
 export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
+export { recipeOperationKinds } from './operation-kinds.js';
+export type { OperationEffectsVisibility, RecipeOperationKind, RecipeOperationKindRecord, RecipeSchemaId } from './operation-kinds.js';
 export type { PackageDetails, AuthoringDiagnostic, AuthoringResult, DeriveRecipeIdentityRequest, RecipeIdentity,
   OrganizationAdmissionSelection, OrganizationAdmissionLifecycle, PreviewOrganizationAdmissionRequest,
   OrganizationAdmissionPreview, PreviewOrganizationObligationsRequest, OrganizationObligationsPreview } from './authoring-helpers.js';
