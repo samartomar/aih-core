@@ -376,7 +376,7 @@ claims use `kind: 'unknown'` with `unknownReason` and no `value`. Keep one
 
 | Core result | Subject | Measure (= condition) | Passed | Failed | Unknown claim |
 |---|---|---|---|---|---|
-| `checkFileState` target (`file-state-result` 1.0.0) | Managed selection / target id | Adapter's file-state condition key | `match` | `changed`, `absent` | `unavailable` |
+| `checkFileState` target (`file-state-result` 1.0.0, 1.1.0) | Managed selection (1.1.0 `selectionIds`) / target id | Adapter's file-state condition key | `match` | `changed`, `absent` | `unavailable` |
 | `verifyNativeClient` (`native-verification-result` 1.0.0) | Client id (+ environment) | Adapter's native-use condition key | Verdict `verified` | Verdict `failed` | Verdict `unverified` |
 | `inspect` `checks[]` | The check `target` | The check `id` | `passed` | `failed` | `unavailable`, `skipped` |
 

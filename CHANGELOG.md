@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Name the selection behind prepared operations and file-state targets, and declare the commands each
+Harness target covers. Policy Prepare now returns `operationSelections` beside the review: one
+`{id, selectionId, operationId}` per review operation in review order, with `null` selection and
+operation for generated lifecycle cleanup. It sits outside the review and its digest, like
+`resolutionInputs`, so no prepared-work format changed and `prepareManagedRemoval` keeps its embedded
+preparation shape. The README now documents the review operation ID grammar
+(`<selectionId>/<operationId>`, `lifecycle/remove-<n>` for generated cleanup) as a stable contract.
+`checkFileState` now produces `urn:aihq:core:file-state-result:1.1.0`, which adds a required
+`targets[].selectionIds` index-aligned with `operationIds`; Core contract support lists 1.1.0 as the
+produced file-state format, and the 1.0.0 schema stays exported for earlier results. Each
+`@aihq/core/harness` `targets` entry adds a frozen `executables` list: its detection `binaries` first,
+then commands that run under the tool's configuration (`npx` for npm). Detection is unchanged. This
+candidate is unpublished.
+
 Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
 no longer use `export type *` barrels, and package tests now check that each entry's declared and
 runtime value names agree in both directions. No operation, schema or result changed. This candidate

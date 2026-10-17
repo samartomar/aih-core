@@ -18,7 +18,7 @@ import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, Targ
 import type { FileStateCheck, FileStateControls, FileStateOmission, FileStateRequest, FileStateResult,
   FileStateTarget } from './file-state-types.js';
 
-const SCHEMA = 'urn:aihq:core:file-state-result:1.0.0' as const;
+const SCHEMA = 'urn:aihq:core:file-state-result:1.1.0' as const;
 const DEFAULT_BUDGET_MS = 60000;
 const MAX_TARGET_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
@@ -49,10 +49,10 @@ export function invalidFileStateResult(diagnostics: Diagnostic[]): FileStateResu
 
 interface Contribution { id: string; reason?: string; fold?: (before: Buffer | null) => Buffer | null; mode?: number }
 interface Group {
-  key: string; id: string; operationIds: string[]; label: 'project' | 'userHome' | 'userState';
+  key: string; id: string; operationIds: string[]; selectionIds: string[]; label: 'project' | 'userHome' | 'userState';
   root: string; path: string; absolute: string; contributions: Contribution[];
 }
-type Row = { kind: 'null'; id: string; reason: string } | { kind: 'group'; group: Group };
+type Row = { kind: 'null'; id: string; selectionId: string; reason: string } | { kind: 'group'; group: Group };
 interface CheckMeta {
   id: string; preset?: { outcome: 'unavailable' | 'not-checked'; reason: string };
   key?: string; sha256?: string;
@@ -404,7 +404,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         }
         if (op.target.segments.some(slot => missingInput(recipe, bound, slot))) {
           taint();
-          rows.push({ kind: 'null', id, reason: 'input-unavailable' });
+          rows.push({ kind: 'null', id, selectionId: selection.id, reason: 'input-unavailable' });
           continue;
         }
         const resolved = resolvePath(op.target, op.scope, bound, project, selectionKey);
@@ -464,7 +464,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         }
         let group = groups.get(key);
         if (group === undefined) {
-          group = { key, id, operationIds: [], label: op.target.root, root: resolved.root, path: resolved.path,
+          group = { key, id, operationIds: [], selectionIds: [], label: op.target.root, root: resolved.root, path: resolved.path,
             absolute: resolved.absolute, contributions: [] };
           groups.set(key, group);
           rows.push({ kind: 'group', group });
@@ -474,6 +474,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
           }
         }
         group.operationIds.push(id);
+        group.selectionIds.push(selection.id);
         const contribution: Contribution = { id };
         if (reason !== undefined) contribution.reason = reason;
         else {
@@ -613,18 +614,18 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
 
     const targets: FileStateTarget[] = rows.map(row => {
       if (row.kind === 'null')
-        return { id: row.id, operationIds: [row.id], target: null, outcome: 'unavailable', reason: row.reason };
+        return { id: row.id, operationIds: [row.id], selectionIds: [row.selectionId], target: null, outcome: 'unavailable', reason: row.reason };
       const group = row.group;
       const targetPath = { root: group.label, path: redact(group.path) };
       const unavailable = group.contributions.find(contribution => contribution.reason !== undefined);
       if (unavailable !== undefined)
-        return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
+        return { id: group.id, operationIds: [...group.operationIds], selectionIds: [...group.selectionIds], target: targetPath,
           outcome: 'unavailable' as const, reason: unavailable.reason! };
       const outcome = outcomes.get(group.key);
       if (outcome === undefined || outcome.error !== undefined || outcome.rowError !== undefined)
-        return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
+        return { id: group.id, operationIds: [...group.operationIds], selectionIds: [...group.selectionIds], target: targetPath,
           outcome: 'unavailable' as const, reason: outcome?.error ?? outcome?.rowError ?? 'file-state-internal' };
-      return { id: group.id, operationIds: [...group.operationIds], target: targetPath,
+      return { id: group.id, operationIds: [...group.operationIds], selectionIds: [...group.selectionIds], target: targetPath,
         outcome: outcome.rowOutcome!, reason: outcome.rowReason! };
     });
     const checks: FileStateCheck[] = checkMetas.map(meta => {

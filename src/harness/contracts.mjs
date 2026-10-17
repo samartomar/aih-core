@@ -209,9 +209,12 @@ export const helperMetadata = Object.freeze({
   ])
 });
 
+// `binaries` are the detection names inspection resolves, in preference order. `executables` are every
+// command name the target covers: its binaries, then any command that ships with the tool and runs under
+// its configuration without being a detection signal (npm's own `npx` reads npm's configuration).
 export const targets = Object.freeze([
   { id: 'node', label: 'Node.js', binaries: ['node'], configDirs: [], origins: [] },
-  { id: 'npm', label: 'npm', binaries: ['npm'], configDirs: [], origins: ['https://registry.npmjs.org'] },
+  { id: 'npm', label: 'npm', binaries: ['npm'], alsoCovers: ['npx'], configDirs: [], origins: ['https://registry.npmjs.org'] },
   { id: 'git', label: 'Git', binaries: ['git'], configDirs: [], origins: [] },
   { id: 'python', label: 'Python', binaries: ['python3', 'python'], configDirs: [], origins: ['https://pypi.org'] },
   { id: 'pip', label: 'pip', binaries: ['pip', 'pip3'], configDirs: [], origins: ['https://pypi.org'] },
@@ -238,9 +241,10 @@ export const targets = Object.freeze([
     configDirs: ['.gemini/antigravity-cli', '.gemini/antigravity', '.gemini/config'], origins: [] },
   { id: 'zed', label: 'Zed', binaries: ['zed', 'zeditor', 'zedit'],
     configDirs: ['.config/zed', 'AppData/Roaming/Zed'], origins: [] }
-]);
+].map(({ id, label, binaries, alsoCovers = [], ...rest }) => ({ id, label, binaries, executables: [...binaries, ...alsoCovers], ...rest })));
 for (const target of targets) {
   Object.freeze(target.binaries);
+  Object.freeze(target.executables);
   Object.freeze(target.configDirs);
   Object.freeze(target.origins);
   Object.freeze(target);

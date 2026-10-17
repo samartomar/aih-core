@@ -98,6 +98,12 @@ export interface MacosPreparedInputs {
 export interface ResolutionInput {
   selectionId: string; operationId: string; observedSha256: string | null; availableChoices: ('replace' | 'adopt')[];
 }
+/**
+ * The selection behind one review operation. An authored operation's review `id` is
+ * `<selectionId>/<operationId>`; generated lifecycle cleanup (`lifecycle/remove-<n>`) has
+ * `selectionId` and `operationId` `null`. Reported beside the review, never inside it or its digest.
+ */
+export interface OperationSelection { id: string; selectionId: string | null; operationId: string | null }
 export interface PreparationResult {
   status: 'ready' | 'partial' | 'blocked' | 'invalid' | 'cancelled';
   runId: string; review?: PreparedReview; prepared?: PreparedHandle;
@@ -105,6 +111,8 @@ export interface PreparationResult {
   evidence?: AssociationResult[];
   /** Always present for policy Prepare, in review operation order; omitted for repair. */
   resolutionInputs?: ResolutionInput[];
+  /** Always present for policy Prepare: one entry per review operation, in review operation order; omitted for repair. */
+  operationSelections?: OperationSelection[];
 }
 export interface OperationResult {
   id: string; application: 'not-attempted' | 'already-satisfied' | 'applied' | 'failed';

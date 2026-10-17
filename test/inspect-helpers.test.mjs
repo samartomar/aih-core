@@ -35,12 +35,12 @@ const useSandboxEnvironment = ({ home, bin }) => {
   process.env.PATH = bin; process.env.HOME = home; process.env.USERPROFILE = home;
 };
 
-test('new helper and client targets are registered with the unchanged target shape', () => {
+test('new helper and client targets are registered with the shared target shape', () => {
   const diagnostic = helperMetadata.diagnostics.find(entry => entry.id === 'existing-tools');
   for (const id of NEW_TARGETS) {
     const definition = targetDefinition(id);
     assert.ok(definition, `targets is missing ${id}`);
-    assert.deepEqual(Object.keys(definition).sort(), ['binaries', 'configDirs', 'id', 'label', 'origins']);
+    assert.deepEqual(Object.keys(definition).sort(), ['binaries', 'configDirs', 'executables', 'id', 'label', 'origins']);
     assert.ok(definition.label.length > 0);
     assert.ok(Array.isArray(definition.binaries) && definition.binaries.length > 0);
     assert.ok(diagnostic.targets.includes(id), `helperMetadata existing-tools is missing ${id}`);

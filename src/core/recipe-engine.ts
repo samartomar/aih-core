@@ -28,7 +28,7 @@ import { readRegularFile } from './internal/fsxn.js';
 import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
-import type { Authorization, CheckResult, Effective, HostControls, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
+import type { Authorization, CheckResult, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import { guardTrustMember } from './internal/trust-custody.js';
 
@@ -294,7 +294,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
-  let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled, ...(hinted ? { resolutionInputs: [] } : {}) };
+  let result: PreparationResult = { status: 'invalid', runId, diagnostics: [], record: disabled, ...(hinted ? { resolutionInputs: [], operationSelections: [] } : {}) };
   let logging: 'on' | 'off' = 'off'; let project: string | undefined; let secrets: string[] = [];
   try {
     validateControls(controls); logging = loggingOption(controls).value; secrets = bearerSecrets(controls);
@@ -917,7 +917,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs),...(trustParticipant?{trustBinding:trustParticipant.reviewBinding}:{}), nonce: randomBytes(32).toString('hex') }) });
     const available = steps.length === 0 || steps.some(step => step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
     result = { status: conflicts.length || omissions.length ? available ? 'partial' : 'blocked' : 'ready', runId, review,
-      diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps) } : {}) };
+      diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps), operationSelections: operationSelections(steps) } : {}) };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
@@ -948,7 +948,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (result.prepared) handles.delete(result.prepared);
         return { status: 'invalid', runId, diagnostics: [diagnostic('PREREQUISITE_UNAVAILABLE',
           'ownership-changed', 'Protected custody changed during preparation; request removal again.')],
-          record: disabled, ...(hinted ? { resolutionInputs: [] } : {}) };
+          record: disabled, ...(hinted ? { resolutionInputs: [], operationSelections: [] } : {}) };
       }
     }
     const record = { ...result, prepared: undefined,
@@ -968,6 +968,11 @@ function resolutionInputs(steps: PreparedStep[]): ResolutionInput[] {
     (step.review.effects === 'conflict' || step.review.effects === 'already-satisfied') ?
     [{ selectionId: step.authored.selectionId, operationId: step.authored.operationId,
       observedSha256: step.before ? sha256(step.before) : null, availableChoices: [...step.authored.choices] }] : []);
+}
+/** The selection behind each review operation, in review operation order; generated lifecycle cleanup has none. */
+function operationSelections(steps: PreparedStep[]): OperationSelection[] {
+  return steps.map(step => ({ id: step.review.id, selectionId: step.authored?.selectionId ?? null,
+    operationId: step.authored?.operationId ?? null }));
 }
 function historyDetails(details: ReviewOperation['details']): ReviewOperation['details'] {
   return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',

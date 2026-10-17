@@ -54,6 +54,7 @@
     "./schemas/prepared-work/1.0.0.json": "./dist/core/schemas/prepared-work/1.0.0.json",
     "./schemas/run-result/1.0.0.json": "./dist/core/schemas/run-result/1.0.0.json",
     "./schemas/file-state-result/1.0.0.json": "./dist/core/schemas/file-state-result/1.0.0.json",
+    "./schemas/file-state-result/1.1.0.json": "./dist/core/schemas/file-state-result/1.1.0.json",
     "./schemas/managed-inventory-result/1.0.0.json": "./dist/core/schemas/managed-inventory-result/1.0.0.json",
     "./schemas/managed-removal-preparation/1.0.0.json": "./dist/core/schemas/managed-removal-preparation/1.0.0.json",
     "./schemas/execution-policy/1.1.0.json": "./dist/core/schemas/execution-policy/1.1.0.json",

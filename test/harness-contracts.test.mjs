@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { contractSupport, nativeClientIds, repairIndex } from '@aihq/core/harness';
+import { contractSupport, nativeClientIds, repairIndex, targets } from '@aihq/core/harness';
 import { diagnose } from '@aihq/core/harness/runtime';
 import { contractSupport as coreSupport, validateOrganizationTarget } from '@aihq/core/contracts';
 import organizationTargetSchema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
@@ -118,6 +118,31 @@ test('the exported repair schema validates shipped definitions and refuses malfo
     assert.equal(validate(invalid), false);
     assert.ok(validate.errors.length > 0);
   }
+});
+
+test('each target declares the executables it covers, starting with its detection binaries', () => {
+  const owners = new Map();
+  for (const target of targets) {
+    assert.ok(Object.isFrozen(target.executables), target.id);
+    assert.deepEqual(target.executables.slice(0, target.binaries.length), [...target.binaries], target.id);
+    for (const name of target.executables) {
+      assert.match(name, /^[a-z][a-z0-9-]*$/, target.id);
+      assert.equal(owners.get(name), undefined, `${name} is covered by ${owners.get(name)} and ${target.id}`);
+      owners.set(name, target.id);
+    }
+  }
+  // npx ships with npm and reads npm's configuration; it is not an npm detection signal.
+  const executables = id => targets.find(target => target.id === id).executables;
+  assert.deepEqual(executables('npm'), ['npm', 'npx']);
+  assert.deepEqual(targets.find(target => target.id === 'npm').binaries, ['npm']);
+  assert.deepEqual(executables('node'), ['node']);
+  assert.deepEqual(executables('python'), ['python3', 'python']);
+  assert.deepEqual(executables('pip'), ['pip', 'pip3']);
+  assert.deepEqual(executables('git'), ['git']);
+  assert.equal(owners.get('npx'), 'npm');
+  assert.equal(owners.get('fdfind'), 'fd');
+  for (const repair of repairIndex) for (const id of repair.targets)
+    if (targets.some(target => target.id === id)) assert.ok(executables(id).length > 0, id);
 });
 
 test('nativeClientIds is the frozen supported AI client list and matches organization-target clients', () => {

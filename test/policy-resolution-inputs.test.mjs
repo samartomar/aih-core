@@ -245,6 +245,7 @@ test('repair Prepare keeps its own contract and omits resolution inputs', async 
       repairs: [{ id: 'node-npm-ca', targets: ['npm'], inputs: { caFile: source } }] }, controls);
     assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
     assert.equal(Object.hasOwn(prepared, 'resolutionInputs'), false);
+    assert.equal(Object.hasOwn(prepared, 'operationSelections'), false);
   } finally { s.dispose(); }
 });
 
@@ -269,4 +270,35 @@ test('an Enterprise hint is local semantics only: the organization can still den
     const granted = await enterprise([replaceWith(hint)], true);
     assert.equal(granted.status, 'ready', JSON.stringify(granted.diagnostics));
   } finally { globalThis.fetch = original; s.dispose(); }
+});
+
+test('operationSelections names the selection behind every review operation, including generated cleanup', async () => {
+  const s = sandbox('aih-resolution-');
+  try {
+    await establish(s, authored([writeFile('note', 'NOTE.md', 'Managed.\n')]));
+    // A selection may itself be called `lifecycle`; the explicit fields keep it apart from generated cleanup.
+    const document = document10([selection('lifecycle', [writeFile('remove-0', 'LIFE.md', 'Life.\n')]),
+      selection('second', [writeFile('first', 'A.md', 'A\n'), writeFile('later', 'B.md', 'B\n')])],
+    { removals: [{ managementId: 'edits', scope: 'project' }] });
+    const prepared = await prepare(request(s.project, document), controls);
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    assert.deepEqual(prepared.operationSelections.map(item => item.id), prepared.review.operations.map(op => op.id));
+    const byId = Object.fromEntries(prepared.operationSelections.map(item => [item.id, item]));
+    assert.deepEqual(byId['lifecycle/remove-0'], { id: 'lifecycle/remove-0', selectionId: 'lifecycle', operationId: 'remove-0' });
+    assert.deepEqual(byId['second/first'], { id: 'second/first', selectionId: 'second', operationId: 'first' });
+    assert.deepEqual(byId['second/later'], { id: 'second/later', selectionId: 'second', operationId: 'later' });
+    const generated = prepared.operationSelections.filter(item => item.selectionId === null);
+    assert.deepEqual(generated, [{ id: 'lifecycle/remove-1', selectionId: null, operationId: null }]);
+    for (const item of prepared.operationSelections) if (item.selectionId !== null)
+      assert.equal(item.id, `${item.selectionId}/${item.operationId}`, 'authored review ids keep the documented grammar');
+    // The review itself is unchanged and still satisfies its published schema.
+    const validate10 = new Ajv2020({ strict: true }).compile(prepared10Schema);
+    assert.equal(validate10(prepared.review), true, JSON.stringify(validate10.errors));
+    assert.equal(prepared.review.operations.some(op => Object.hasOwn(op, 'selectionId')), false);
+
+    const invalid = await prepare(request(s.project, { ...policy(), mode: 'unknown' }), controls);
+    assert.deepEqual(invalid.operationSelections, []);
+    const cancelled = await prepare(request(s.project, policy()), { ...controls, signal: AbortSignal.abort() });
+    assert.deepEqual(cancelled.operationSelections, []);
+  } finally { s.dispose(); }
 });

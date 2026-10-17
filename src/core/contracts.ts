@@ -17,7 +17,7 @@ import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: '
 import resultSchema11 from './schemas/run-result/1.1.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
 import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with { type: 'json' };
-import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
+import fileStateSchema from './schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';

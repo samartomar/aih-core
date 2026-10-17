@@ -1,5 +1,13 @@
 export interface TargetDefinition {
-  id: string; label: string; binaries: readonly string[]; configDirs: readonly string[]; origins: readonly string[];
+  id: string; label: string;
+  /** Names inspection resolves to detect the target, in preference order, without a platform extension. */
+  binaries: readonly string[];
+  /**
+   * Every command name the target covers, without a platform extension: `binaries` first, then commands that ship
+   * with the tool and run under its configuration (for example `npx` for `npm`). Each name belongs to one target.
+   */
+  executables: readonly string[];
+  configDirs: readonly string[]; origins: readonly string[];
 }
 export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 } from './macos-session-definitions.mjs';
 export type { RepairDefinition12 } from './macos-session-definitions.mjs';

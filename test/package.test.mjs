@@ -86,7 +86,7 @@ const expectedTypeNames = {
     'MaterialRecipeReference', 'MaterialSource', 'NativeClientId', 'NativeMember', 'NativeStage',
     'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile', 'NativeVerificationBundle',
     'NativeVerificationControls', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
-    'OperationBase', 'OperationResult', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
+    'OperationBase', 'OperationResult', 'OperationSelection', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
     'OrganizationBinding', 'OrganizationFulfillmentResult', 'OrganizationObligationResultBase',
     'OrganizationObligationsReview', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'PersistedConfigurationValue', 'PolicyRequest', 'PreparationResult', 'PreparedHandle', 'PreparedReview',
@@ -347,6 +347,14 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const fsControls: FileStateControls = {budgetMs: 30000};
       const fsResult: FileStateResult = await checkFileState(fsRequest, fsControls);
       const fsAuthority: 'not-evaluated' = fsResult.authority;
+      const fsSchema: 'urn:aihq:core:file-state-result:1.1.0' = fsResult.schema;
+      const fsSelections: string[] = fsResult.targets[0]!.selectionIds;
+      import {targets} from '@aihq/core/harness';
+      import type {TargetDefinition} from '@aihq/core/harness';
+      const coveredExecutables: readonly string[] = (targets[0] as TargetDefinition).executables;
+      import type {OperationSelection,PreparationResult} from '@aihq/core';
+      const operationSelection: OperationSelection = {id:'lifecycle/remove-0',selectionId:null,operationId:null};
+      const preparationSelections: OperationSelection[] | undefined = ({} as PreparationResult).operationSelections;
       const inventory: ManagedInventoryResult = await listManagedSelections({target:{project:'/absolute/project'},scope:'both'});
       const removal: ManagedRemovalPreparationResult = await prepareManagedRemoval({target:{project:'/absolute/project'},managementId:'team-guidance',scope:'project',mode:'vibe'});
       const sources: TrustSources = {os:false,supplied:[{id:'company',file:'/absolute/company.pem'}]};
@@ -628,6 +636,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.deepEqual(policyHintPreview.resolutionInputs, [{ selectionId: 'guidance', operationId: 'write',
       observedSha256: createHash('sha256').update(localContent).digest('hex'),
       availableChoices: ['replace'] }]);
+    assert.deepEqual(policyHintPreview.operationSelections, [{ id: 'guidance/write', selectionId: 'guidance', operationId: 'write' }]);
     rmSync(join(project, 'TEAM.md'));
     writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
@@ -697,6 +706,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(fileState.fileState,'match');
       assert.equal(fileState.authority,'not-evaluated');
       assert.equal(ajv.validate(fileState.schema,fileState),true,JSON.stringify(ajv.errors));
+      assert.equal(fileState.schema,'urn:aihq:core:file-state-result:1.1.0');
+      for (const row of fileState.targets) assert.deepEqual(row.selectionIds,row.operationIds.map(id=>id.split('/')[0]));
       const removed=await apply(removal.preparation.prepared,{approved:true,origin:'automation',reviewDigest:removal.preparation.review.reviewDigest},{logging:'off'});
       assert.equal(removed.completion,'complete',JSON.stringify(removed));
       const finalInventory=await listManagedSelections({target:{project:process.env.TEST_PROJECT},scope:'project'});
@@ -704,6 +715,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(finalInventory.selections.some(item=>item.managementId==='team-guidance'),false);
       assert.equal(ajv.validate(finalInventory.schema,finalInventory),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
+      const {targets:harnessTargets}=await import('@aihq/core/harness');
+      assert.deepEqual(harnessTargets.find(item=>item.id==='npm').executables,['npm','npx']);
+      assert.deepEqual(harnessTargets.find(item=>item.id==='pip').executables,['pip','pip3']);
+      assert.ok(harnessTargets.every(item=>Object.isFrozen(item.executables)&&item.binaries.every((name,index)=>item.executables[index]===name)));
       const userTrust = repairIndex.find(item=>item.id==='user-tools-ca');
       assert.ok(userTrust,'packed Harness must include the user-tools-ca repair');
       assert.deepEqual(userTrust.targets,['python','pip','git','cargo','conda']);
