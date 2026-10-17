@@ -131,7 +131,7 @@ API_URL = "https://example.test"
   console.log('packed Codex TOML API passed');
 }
 
-test('a packed consumer preserves Codex TOML neighbors and detects drift in individual managed keys', { timeout: 720_000 }, () => {
+test('a packed consumer preserves Codex TOML neighbors and detects drift in individual managed keys', { timeout: 1_200_000 }, () => {
   assert.ok(process.env.npm_execpath, 'Run this acceptance with npm test so its npm CLI is known.');
   const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-toml-codex-packed-'));
   const packageRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -160,7 +160,8 @@ test('a packed consumer preserves Codex TOML neighbors and detects drift in indi
     assert.equal(result.status, 0, output);
     return readFileSync(stdoutPath, 'utf8');
   };
-  const npm = (args, cwd) => run([process.env.npm_execpath, ...args], { cwd, env, timeout: 300_000 });
+  // Installing the packed artifact beside the concurrent suite has exceeded 300 s on Windows runners.
+  const npm = (args, cwd) => run([process.env.npm_execpath, ...args], { cwd, env, timeout: 600_000 });
   try {
     const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], packageRoot))[0];
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'codex-toml-consumer', private: true, type: 'module',
@@ -172,7 +173,7 @@ test('a packed consumer preserves Codex TOML neighbors and detects drift in indi
     assert.equal(manifest.version, JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).version);
     const driver = join(consumer, 'scenario.mjs');
     writeFileSync(driver, `await (${packedScenario.toString()})();\n`);
-    const output = run([driver], { cwd: consumer, env: { ...env, TEST_PROJECT: project }, timeout: 90_000 });
+    const output = run([driver], { cwd: consumer, env: { ...env, TEST_PROJECT: project }, timeout: 180_000 });
     assert.match(output, /packed Codex TOML API passed/);
   } finally {
     rmSync(root, { recursive: true, force: true });
