@@ -7,6 +7,9 @@ import { randomUUID } from 'node:crypto';
 import { apply, checkFileState, prepare } from '@aihq/core';
 import { parsePolicy } from '@aihq/core/contracts';
 
+const PREPARATION_FIELDS = ['status', 'runId', 'review', 'diagnostics', 'record', 'evidence',
+  'resolutionInputs', 'operationSelections'];
+
 const lostResult = () => ({
   status: 'lost',
   diagnostics: [{
@@ -39,10 +42,10 @@ export function createHost({ projectRoot, materialRoots, organizationSource, org
           ...(organizationTarget !== undefined ? { organizationTarget } : {}) },
         controlsFor(controls)
       );
-      // Every serializable field Core returns (status, runId, review, record,
-      // diagnostics, operationSelections, resolutionInputs, evidence); never the handle.
-      const { prepared: handle, ...serializable } = preparation;
-      const result = JSON.parse(JSON.stringify(serializable));
+      // Only the named serializable fields reach the UI; the handle never does.
+      const handle = preparation.prepared;
+      const result = JSON.parse(JSON.stringify(Object.fromEntries(PREPARATION_FIELDS
+        .filter(name => preparation[name] !== undefined).map(name => [name, preparation[name]]))));
       if (handle) {
         const sessionId = randomUUID();
         sessions.set(sessionId, {

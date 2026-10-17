@@ -152,8 +152,12 @@ export async function verifyAdministrator({ release, source, materialRoots, oper
     assert.ok(conflicted.review.operations.some(operation => operation.effects === 'conflict'));
     const conflictGuidance = getGuidance({ kind: 'prepare', result: conflicted }, { platform: 'unknown' });
     assert.equal(conflictGuidance.status, 'complete');
-    assert.ok(conflictGuidance.items.length > 0, 'a conflicted 1.5.0 preparation yields guidance');
-    assert.ok(conflictGuidance.items.every(item => item.evidenceIds.every(id => id.startsWith('/'))));
+    const conflictIndex = conflicted.review.operations.findIndex(operation => operation.effects === 'conflict');
+    const derivedItems = conflictGuidance.items.map(item => ({ id: item.id, reason: item.reason, evidenceIds: item.evidenceIds }));
+    assert.deepEqual(derivedItems[0], { id: 'result-status', reason: conflicted.status, evidenceIds: ['/status'] });
+    assert.ok(derivedItems.some(item => item.id === 'diagnostic-review' && item.reason === 'conflict' &&
+      item.evidenceIds.length === 1 && item.evidenceIds[0] === `/review/operations/${conflictIndex}`), JSON.stringify(derivedItems));
+    assert.ok(conflictGuidance.items.every(item => item.audience === 'developer' && item.steps.length > 0));
     const organizationFamily = {
       operationSelections: operations.verifyOperationSelections(derived.policy, declared),
       guidance: operations.verifyGuidance({ prepared: declared, applied: declaredRun, expectReview: 'urn:aihq:core:prepared-work:1.5.0' }),

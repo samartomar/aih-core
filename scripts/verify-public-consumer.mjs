@@ -22,6 +22,39 @@ for (let index = 2; index < process.argv.length; index += 2) {
 for (const name of ['core', 'catalog', 'catalog-baseline', 'scan', 'output']) assert.ok(options[name], `Missing --${name}`);
 assert.ok(process.env.npm_execpath, 'Run through npm run verify:public-consumer so the selected npm CLI is explicit.');
 const source = fileURLToPath(new URL('../', import.meta.url));
+// Declaration deviations accepted only with an owner, keyed by package identity and
+// the exact decisive error set. Any other deviation, or an entry no install
+// matches, fails the gate.
+const EXPECTED_DEVIATIONS = [
+  { package: { name: '@aihq/scan', version: '0.5.0' }, owner: 'samartomar/aih-scan#110',
+    reason: 'Entries carry status/operations fields the package-support 1.0.0 schema does not admit.',
+    errors: SCAN_ERRORS() },
+  { package: { name: '@aihq/catalog', version: '0.1.0' }, owner: 'samartomar/aih-catalog#99',
+    reason: 'The older baseline predates the producer-declaration role fix (consumes to accepts).',
+    variants: ['baseline'], errors: [
+      '/contracts/8/role must be equal to one of the allowed values (accepts|produces|both)',
+      '/contracts/9/role must be equal to one of the allowed values (accepts|produces|both)'] },
+];
+function SCAN_ERRORS() {
+  return [
+    '/entries/0 must NOT have additional properties (status)',
+    '/entries/1 must NOT have additional properties (status)',
+    '/entries/2 must NOT have additional properties (status)',
+    '/entries/3 must NOT have additional properties (status)',
+    '/entries/3 must NOT have additional properties (operations)'];
+}
+// Portable entries every install must declare and load without host globals.
+const REQUIRED_PORTABLE = ['@aihq/core/contracts', '@aihq/core/harness', '@aihq/core/support', '@aihq/core/report',
+  '@aihq/catalog/contracts', '@aihq/catalog/reader', '@aihq/scan/contracts', '@aihq/scan/read'];
+// Produced review/run families that need native trust or macOS session setup.
+const NATIVE_ONLY_FAMILIES = {
+  'urn:aihq:core:prepared-work:1.2.0': 'trust repair and certificate export need native trust setup',
+  'urn:aihq:core:run-result:1.2.0': 'trust repair and certificate export need native trust setup',
+  'urn:aihq:core:prepared-work:1.3.0': 'macOS session repair needs a native macOS session',
+  'urn:aihq:core:run-result:1.3.0': 'macOS session repair needs a native macOS session',
+};
+const git = args => execFileSync('git', ['-C', source, ...args], { encoding: 'utf8', windowsHide: true }).trim();
+const gateSource = { commit: git(['rev-parse', 'HEAD']), clean: git(['status', '--porcelain']) === '' };
 // Public types of the operations the current install exercises, compiled strictly.
 const CURRENT_TYPES = `
       import {checkFileState,type FileStateResult,type OperationSelection,type PreparationResult,type RunResult} from '@aihq/core';
@@ -79,7 +112,7 @@ const home = mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-public-consume
 const env = { ...process.env, HOME: home, USERPROFILE: home };
 delete env.NODE_TEST_CONTEXT;
 for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
-const record = { artifacts, runtime: process.version, home, checks: {}, findings: [], status: 'running' };
+const record = { artifacts, gateSource, runtime: process.version, home, checks: {}, deviations: [], status: 'running' };
 const save = () => writeFileSync(join(options.output, 'acceptance.json'), JSON.stringify(record, null, 2) + '\n');
 save();
 function run(args, cwd, name, timeout = 120_000) {
@@ -113,17 +146,24 @@ try {
       .resolve('@aihq/core/schemas/package-support/1.0.0.json'), 'utf8'));
     const validate = new Ajv2020({ strict: true, allErrors: true }).compile(supportSchema);
     packages.packageSupportSchema = Object.fromEntries(Object.entries(declarations).map(([name, declaration]) =>
-      [name, validate(declaration) ? { valid: true } : { valid: false, errors: schemaErrors(validate.errors) }]));
+      [name, validate(declaration) ? { valid: true } : { valid: false, errors: schemaErrors(declaration, validate.errors) }]));
     for (const name of ['core', 'harness', ...(variant === 'current' ? ['catalog'] : [])]) {
       assert.equal(packages.packageSupportSchema[name].valid, true, `${variant} ${name}: ${JSON.stringify(packages.packageSupportSchema[name])}`);
     }
     for (const [name, result] of Object.entries(packages.packageSupportSchema)) {
-      if (!result.valid) record.findings.push({ variant, package: declarations[name].package,
-        contract: 'urn:aihq:package-support:1.0.0', errors: result.errors });
+      if (result.valid) continue;
+      const { package: identity } = declarations[name];
+      const expected = EXPECTED_DEVIATIONS.find(entry => entry.package.name === identity.name &&
+        entry.package.version === identity.version && (!entry.variants || entry.variants.includes(variant)));
+      assert.ok(expected, `${variant} ${name}: unexpected package-support deviation ${JSON.stringify(result.errors)}`);
+      assert.deepEqual([...result.errors].sort(), [...expected.errors].sort(), `${variant} ${name}: deviation differs from ${expected.owner}`);
+      record.deviations.push({ variant, package: identity, contract: 'urn:aihq:package-support:1.0.0',
+        owner: expected.owner, reason: expected.reason, errors: result.errors });
     }
-    record.checks[`${variant}Packages`] = packages;
+    record.checks[`${variant}Packages`] = { ...packages, declarations };
     const portableEntries = [...new Set(Object.values(declarations).flatMap(declaration =>
       declaration.entries.filter(entry => entry.runtime === 'portable').map(entry => entry.export)))].sort();
+    for (const entry of REQUIRED_PORTABLE) assert.ok(portableEntries.includes(entry), `${variant}: ${entry} is not declared portable`);
     writeFileSync(join(consumer, 'public-contracts.mts'), `
       import {prepare,apply} from '@aihq/core';
       import {parsePolicy,contractSupport} from '@aihq/core/contracts';
@@ -176,20 +216,34 @@ try {
   run(['--test', 'test/*.test.mjs'], current, 'example-tests');
   record.checks.baselineScenario = JSON.parse(run(['acceptance/scenario.mjs', 'baseline'],
     join(options.output, 'baseline'), 'baseline-scenario'));
-  // The baseline artifact's default release bytes, compared by the current reader.
-  cpSync(record.checks.baselineScenario.releaseExport, join(current, 'baseline-release.json'));
+  // The baseline artifact's upgrade-release bytes, compared by the current reader.
+  cpSync(record.checks.baselineScenario.upgrade.export, join(current, 'baseline-release.json'));
   env.BASELINE_RELEASE = join(current, 'baseline-release.json');
   record.checks.currentScenario = JSON.parse(run(['acceptance/scenario.mjs', 'current'], current, 'current-scenario'));
+  // A content-only upgrade: the current artifact adds items the baseline lacks.
+  const [before, after] = [record.checks.baselineScenario.upgrade, record.checks.currentScenario.upgrade];
+  assert.notEqual(before.sha256, after.sha256, 'the Catalog pair carries identical upgrade-release content');
+  assert.equal(before.addedItemPresent, false);
+  assert.equal(after.addedItemPresent, true);
+  assert.ok(after.itemCount > before.itemCount, `${after.itemCount} > ${before.itemCount}`);
   const compared = record.checks.currentScenario.catalog.compare;
-  assert.equal(compared.first.sha256, record.checks.baselineScenario.releaseSha256);
-  assert.equal(compared.second.sha256, record.checks.currentScenario.releaseSha256);
-  assert.equal(record.checks.currentScenario.itemCount - compared.onlyInSecond.length,
-    record.checks.baselineScenario.itemCount - (compared.items['only-in-first'] ?? 0));
-  if (compared.sameRelease) record.findings.push({ variant: 'both', contract: 'catalog-content-pair',
-    detail: 'The two Catalog artifacts carry identical default release bytes; compareReleases reports sameRelease, so no content change is exercised.' });
+  assert.deepEqual([compared.first.sha256, compared.second.sha256], [before.sha256, after.sha256]);
+  assert.equal(compared.sameRelease, false);
+  assert.ok(compared.onlyInSecond.includes(after.addedItem));
+  assert.equal(after.itemCount - compared.onlyInSecond.length, before.itemCount - (compared.items['only-in-first'] ?? 0));
+  // Support guidance families: every produced family is exercised or explicitly native-only.
+  const scenario = record.checks.currentScenario;
+  const exercised = [scenario.common.guidance, ...Object.values(scenario.policyFamilies),
+    scenario.administrator.organizationFamily.guidance].flatMap(entry => [entry.reviewSchema, entry.runSchema]);
+  const produced = record.checks.currentPackages.declarations.core.contracts
+    .filter(contract => /^urn:aihq:core:(?:prepared-work|run-result):/.test(contract.id) && contract.role !== 'accepts').map(contract => contract.id);
+  const notExercised = produced.filter(id => !exercised.includes(id));
+  for (const id of notExercised) assert.ok(Object.hasOwn(NATIVE_ONLY_FAMILIES, id), `support guidance family not exercised: ${id}`);
+  record.checks.supportFamilies = { exercised: [...new Set(exercised)].sort(),
+    notExercised: Object.fromEntries(notExercised.map(id => [id, NATIVE_ONLY_FAMILIES[id]])) };
   const bytes = path => new Uint8Array(readFileSync(path));
   record.checks.currentPortableOperations = await portable.current.publicPackages.runPortableOperations({
-    current: bytes(record.checks.currentScenario.releaseExport), baseline: bytes(join(current, 'baseline-release.json')),
+    current: bytes(after.export), baseline: bytes(join(current, 'baseline-release.json')),
     artifact: bytes(join(current, 'production.scan.json')),
     preparationText: readFileSync(join(current, 'organization-prepared.json'), 'utf8'),
     runText: readFileSync(join(current, 'organization-run.json'), 'utf8'),
@@ -198,6 +252,9 @@ try {
   assert.deepEqual([portableResult.scan.matched, portableResult.scan.mismatched], ['matched', 'mismatched']);
   assert.deepEqual([portableResult.core.prepareGuidance, portableResult.core.runGuidance], ['complete', 'complete']);
   assert.equal(portableResult.catalog.resolveRefusal, 'ITEM_UNAVAILABLE');
+  for (const expected of EXPECTED_DEVIATIONS) {
+    assert.ok(record.deviations.some(entry => entry.owner === expected.owner), `stale expected deviation: ${expected.owner}`);
+  }
   record.status = 'passed';
   save();
   console.log(JSON.stringify({ status: record.status, evidence: join(options.output, 'acceptance.json') }));
@@ -210,11 +267,17 @@ try {
   stop();
 }
 
-// The decisive errors: undeclared fields and disallowed values (oneOf branch noise omitted).
-function schemaErrors(errors) {
-  const decisive = errors.filter(error => ['additionalProperties', 'enum'].includes(error.keyword));
-  return [...new Set((decisive.length ? decisive : errors).map(error => {
-    const detail = error.params?.additionalProperty ?? error.params?.allowedValues?.join('|');
+// Entry errors come from the oneOf branch that matches the entry's declared
+// runtime (portable 0, node 1); an entry with another runtime keeps its oneOf error.
+function schemaErrors(declaration, errors) {
+  const kept = errors.filter(error => {
+    const entry = /^\/entries\/(\d+)(?:\/|$)/.exec(error.instancePath);
+    if (!entry) return error.keyword !== 'oneOf';
+    const branch = { portable: 0, node: 1 }[declaration.entries[Number(entry[1])]?.runtime];
+    return branch === undefined ? error.keyword === 'oneOf' : error.schemaPath.startsWith(`#/properties/entries/items/oneOf/${branch}/`);
+  });
+  return [...new Set(kept.map(error => {
+    const detail = error.params?.additionalProperty ?? error.params?.allowedValues?.join('|') ?? error.params?.missingProperty;
     return `${error.instancePath || '/'} ${error.message}${detail ? ` (${detail})` : ''}`;
   }))];
 }

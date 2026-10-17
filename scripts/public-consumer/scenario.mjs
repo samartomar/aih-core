@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readInstalledRelease } from '@aihq/catalog/node';
 import { contractSupport as coreSupport } from '@aihq/core/contracts';
-import { authorPolicy, catalogItems, exportPolicy, policyOrigins, reopenPolicy, requiredItems } from '../src/authoring.js';
+import { authorPolicy, catalogItems, exportPolicy, openRelease, policyOrigins, reopenPolicy, requiredItems } from '../src/authoring.js';
 import { createHost } from '../src/host.js';
 import { verifyAdministrator } from './admin-walkthrough.mjs';
 import { verifyReports } from './reports.mjs';
@@ -101,14 +101,26 @@ async function execute(policyText, name) {
 const common = await execute(text, 'target-skills');
 assert.equal(common.origins['chosen/agentDirectory'].origin, 'explicit');
 assert.equal(common.origins['required/agentDirectory'].origin, 'default');
+
+// The content-only upgrade pair: the selected baseline artifact predates content the
+// current artifact adds to this release document. Identical content fails the gate.
+const UPGRADE_RELEASE = '@aihq/catalog/release-ecc.json';
+const ADDED_ITEM = 'ecc.codex.mcp.context7';
+const upgradeExport = fileURLToPath(import.meta.resolve(UPGRADE_RELEASE));
+const upgradeBytes = readFileSync(upgradeExport);
+const upgradeRead = openRelease(upgradeBytes, createHash('sha256').update(upgradeBytes).digest('hex'));
+assert.equal(upgradeRead.valid, true, JSON.stringify(upgradeRead.diagnostics));
+const upgradeIds = catalogItems(upgradeRead.release).map(item => item.id);
+assert.equal(upgradeIds.includes(ADDED_ITEM), variant === 'current', `${variant} ${ADDED_ITEM}`);
 const result = { variant, itemCount: items.length, releaseSha256: release.sha256, common,
   unsupported: { encountered: diagnostic.encountered, supported: diagnostic.supported },
-  releaseExport: fileURLToPath(import.meta.resolve('@aihq/catalog/release.json')) };
+  upgrade: { release: UPGRADE_RELEASE, sha256: upgradeRead.release.sha256, itemCount: upgradeIds.length,
+    addedItem: ADDED_ITEM, addedItemPresent: upgradeIds.includes(ADDED_ITEM), export: upgradeExport } };
 if (variant === 'current') {
   assert.ok(items.some(item => item.id === 'aihq.project-context'));
-  // The baseline artifact's default release, read by this install's reader.
+  // The baseline artifact's upgrade release, read by this install's reader.
   const baseline = operations.openReleaseBytes(readFileSync(process.env.BASELINE_RELEASE));
-  const releaseBytes = readFileSync(result.releaseExport);
+  const releaseBytes = readFileSync(fileURLToPath(import.meta.resolve('@aihq/catalog/release.json')));
   const ecc = operations.openReleaseBytes(readFileSync(fileURLToPath(import.meta.resolve('@aihq/catalog/release-ecc.json'))));
   const crossReleaseItem = ecc.items.find(item => item.dependencies.requires.some(ref => 'release' in ref));
   assert.ok(crossReleaseItem, 'the shipped ECC release carries a cross-release requirement');
@@ -119,7 +131,7 @@ if (variant === 'current') {
   };
   result.catalog = {
     inventory: operations.verifyReleaseInventory(),
-    compare: operations.verifyCompareReleases(baseline, release),
+    compare: operations.verifyCompareReleases(baseline, ecc),
     resolve: operations.verifyResolveSelections({ release, rootItem,
       crossRelease: { release: ecc, itemId: crossReleaseItem.id },
       conflict: { bytes: releaseBytes, with: 'aihq.project-context' } }),
@@ -131,6 +143,13 @@ if (variant === 'current') {
   assert.equal(added.valid, true, JSON.stringify(added.diagnostics));
   result.addedContent = await execute(exportPolicy(added.policy), 'target-context');
   assert.ok(result.addedContent.files.some(file => file.path.endsWith('RULE_ROUTER.md')));
+  // Every other policy family a plain Prepare produces without native setup:
+  // policy 1.1 gives prepared-work 1.1.0, policy 1.2/1.3 give 1.4.0 (runs 1.1.0).
+  result.policyFamilies = {};
+  for (const schema of ['urn:aihq:core:execution-policy:1.1.0', 'urn:aihq:core:execution-policy:1.2.0', 'urn:aihq:core:execution-policy:1.3.0']) {
+    const family = await execute(JSON.stringify({ ...authored.policy, schema }), `target-policy-${schema.slice(-5)}`);
+    result.policyFamilies[schema] = family.guidance;
+  }
   result.reports = await verifyReports();
   result.scan = {
     contentCoverage: await operations.verifyContentCoverage(['production.scan.json', 'display.scan.json']),

@@ -10,7 +10,8 @@ import { CLAIMS_SCHEMA, readClaimSet, validateClaimSet } from '@aihq/core/report
 import { getGuidance, renderSupportMarkdown } from '@aihq/core/support';
 import { releaseInventory } from '@aihq/catalog/contracts';
 import { compareReleases, listItems, readRelease, resolveSelections } from '@aihq/catalog/reader';
-import { contractSupport as scanSupport } from '@aihq/scan/contracts';
+// Namespace import: `entrySupport` exists only in Scan builds that moved entry status out of contractSupport.
+import * as scanContracts from '@aihq/scan/contracts';
 import { readArtifact, readContentCoverage } from '@aihq/scan/read';
 
 export { recipeOperationKinds };
@@ -97,10 +98,26 @@ export function verifyGuidance({ prepared, applied, expectReview }) {
   assert.equal(prepare.status, 'complete', JSON.stringify(prepare.diagnostics));
   const run = getGuidance({ kind: 'run', result: applied }, { platform });
   assert.equal(run.status, 'complete', JSON.stringify(run.diagnostics));
+  // A clean ready Prepare and complete run derive no actions.
+  if (prepared.status === 'ready' && prepared.diagnostics.length === 0) assert.deepEqual(prepare.items, []);
+  if (applied.completion === 'complete' && applied.diagnostics.length === 0) assert.deepEqual(run.items, []);
   const markdown = renderSupportMarkdown({ kind: 'prepare', result: prepared }, { platform });
   assert.equal(markdown.status, 'rendered');
   assert.match(markdown.markdown, /^# Support report/);
   assert.match(markdown.markdown, /Result: prepare/);
+  if (prepared.status === 'ready' && prepared.diagnostics.length === 0) {
+    assert.match(markdown.markdown, /Status: ready/);
+    assert.match(markdown.markdown, /No actions derived\./);
+  }
+  // A current-format result that breaks its contract is malformed, not unsupported.
+  const { operations: _operations, ...brokenReview } = prepared.review;
+  const malformedPrepare = getGuidance({ kind: 'prepare', result: { ...prepared, review: brokenReview } }, { platform });
+  assert.equal(malformedPrepare.status, 'invalid');
+  assert.deepEqual(codes(malformedPrepare.diagnostics), ['INPUT_INVALID']);
+  const { completion: _completion, ...brokenRun } = applied;
+  const malformedRun = getGuidance({ kind: 'run', result: brokenRun }, { platform });
+  assert.equal(malformedRun.status, 'invalid');
+  assert.deepEqual(codes(malformedRun.diagnostics), ['INPUT_INVALID']);
   // An unknown result generation is refused as unsupported, never reinterpreted.
   const future = getGuidance({ kind: 'prepare', result: { ...prepared,
     review: { ...prepared.review, schema: 'urn:aihq:core:prepared-work:99.0.0' } } }, { platform });
@@ -109,7 +126,8 @@ export function verifyGuidance({ prepared, applied, expectReview }) {
   const items = result => result.items.map(item => `${item.audience}:${item.id}:${item.reason}`);
   return { platform, reviewSchema: prepared.review.schema, runSchema: applied.schema,
     prepare: { status: prepare.status, items: items(prepare) }, run: { status: run.status, items: items(run) },
-    markdown: markdown.status, futureReview: future.diagnostics[0].code };
+    markdown: markdown.status, futureReview: future.diagnostics[0].code,
+    malformed: { prepare: malformedPrepare.diagnostics[0].code, run: malformedRun.diagnostics[0].code } };
 }
 
 /** Harness target executables map every covered command to exactly one target. */
@@ -290,16 +308,40 @@ export async function verifyContentCoverage(files) {
 
 /** The root entry's compatibility groups each carry their own status and replacement entry. */
 export function verifyScanSupportGroups() {
-  const root = scanSupport.entries.find(entry => entry.export === '@aihq/scan');
+  const { contractSupport: scanSupport, entrySupport } = scanContracts;
+  // Current shape: a sibling `entrySupport` ({package, entries:[{export, status, groups?}]}).
+  // Older shape (allowlisted package-support deviation): status and root `operations`
+  // carried on contractSupport entries.
+  const source = entrySupport !== undefined ? 'entrySupport' : 'contractSupport';
+  const statusEntries = entrySupport !== undefined
+    ? entrySupport.entries.map(entry => ({ export: entry.export, status: entry.status, groups: entry.groups }))
+    : scanSupport.entries.map(entry => ({ export: entry.export, status: entry.status, groups: entry.operations }));
+  if (entrySupport !== undefined) {
+    assert.deepEqual({ ...entrySupport.package }, { ...scanSupport.package });
+    assert.deepEqual(statusEntries.map(entry => entry.export).sort(), scanSupport.entries.map(entry => entry.export).sort(),
+      'entrySupport covers exactly the declared entries');
+  }
+  const root = statusEntries.find(entry => entry.export === '@aihq/scan');
   assert.ok(root, 'Scan declares its root entry');
-  assert.ok(Array.isArray(root.operations) && root.operations.length > 0);
+  assert.ok(Array.isArray(root.groups) && root.groups.length > 0);
   const declared = new Set(scanSupport.entries.map(entry => entry.export));
-  for (const group of root.operations) {
-    assert.equal(typeof group.status, 'string');
-    assert.ok(group.use === null || declared.has(group.use), group.group);
+  // Scan's published vocabulary: current entries; legacy root groups are compatibility-only or deprecated.
+  const ranks = { current: 0, 'compatibility-only': 1, deprecated: 2 };
+  for (const entry of statusEntries) assert.ok(Object.hasOwn(ranks, entry.status), `${entry.export}: ${entry.status}`);
+  for (const entry of statusEntries.filter(candidate => candidate !== root)) {
+    assert.equal(entry.status, 'current', entry.export);
+    assert.equal(entry.groups, undefined, `${entry.export} declares no groups`);
+  }
+  for (const group of root.groups) {
+    assert.ok(['compatibility-only', 'deprecated'].includes(group.status), `${group.group}: ${group.status}`);
+    assert.ok(group.use === null || (declared.has(group.use) && group.use !== root.export), group.group);
     assert.ok(group.exports.length > 0);
   }
-  return { root: { export: root.export, status: root.status },
-    groups: root.operations.map(group => ({ group: group.group, status: group.status, use: group.use, exports: group.exports.length })),
-    entries: scanSupport.entries.map(entry => ({ export: entry.export, runtime: entry.runtime, status: entry.status })) };
+  const rootExports = root.groups.flatMap(group => group.exports);
+  assert.equal(new Set(rootExports).size, rootExports.length, 'each root export belongs to one group');
+  // The root entry is as current as its least-retired group.
+  assert.equal(ranks[root.status], Math.min(...root.groups.map(group => ranks[group.status])));
+  return { source, root: { export: root.export, status: root.status },
+    groups: root.groups.map(group => ({ group: group.group, status: group.status, use: group.use, exports: group.exports.length })),
+    entries: statusEntries.map(entry => ({ export: entry.export, status: entry.status })) };
 }

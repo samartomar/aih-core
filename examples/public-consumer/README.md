@@ -189,43 +189,62 @@ operations a consumer uses instead of re-implementing product rules
 (`scripts/public-consumer/operations.mjs` and `portable-operations.mjs`, copied
 to `acceptance/` by the gate):
 
-- **Core.** `operationSelections` on every policy Prepare names each review
-  operation's selection and recipe operation; a fresh Prepare after Apply shows
-  each kind `recipeOperationKinds` marks `observable` as `already-satisfied`.
-  `checkFileState` results (`file-state-result` 1.1.0) carry `selectionIds`
-  index-aligned with `operationIds`, before (`changed`) and after (`match`)
-  Apply. Support guidance (`getGuidance`, `renderSupportMarkdown`) reads a
-  Vibe Prepare/run, an Enterprise Prepare with a declared `organizationTarget`
-  (`prepared-work` 1.5.0) and its run, and a conflicted 1.5.0 Prepare; an
-  unknown review generation is unsupported. Harness `targets[].executables`
-  map each command (for example `npx`) to one target. `validateClaimSet` and
-  `readClaimSet` refuse machine-local paths by form and pointer without echoing
-  the value.
-- **Catalog.** `releaseInventory` names each exported release document, read with
-  its declared schema. `compareReleases` compares the baseline artifact's default
-  release with the current one, and its facts must match the item identities each
-  reader reports. `resolveSelections` returns the required closure,
-  `ITEM_UNAVAILABLE` for a request entry (no `declaredBy`), `RELEASE_UNAVAILABLE`
-  for an unsupplied cross-release requirement and `ITEM_CONFLICT` (both with
-  `reference` and `declaredBy`) for a synthetic release whose bytes add one
-  conflict declaration.
+- **Core.** Every policy Prepare returns `operationSelections`: one entry per
+  review operation, in order, naming its selection and recipe operation. A fresh
+  Prepare after Apply reviews every kind that `recipeOperationKinds` marks
+  `observable` as `already-satisfied`. `checkFileState` results
+  (`file-state-result` 1.1.0) carry `selectionIds` index-aligned with
+  `operationIds`: `changed` before Apply and `match` after it. Harness
+  `targets[].executables` map each command (for example `npx`) to one target.
+  `validateClaimSet` and `readClaimSet` refuse machine-local paths by form and
+  pointer without echoing the value.
+- **Support guidance.** `getGuidance` and `renderSupportMarkdown` read every
+  review and run family a plain policy Prepare produces: `prepared-work` 1.0.0
+  (policy 1.0), 1.1.0 (policy 1.1), 1.4.0 (policies 1.2 and 1.3) and 1.5.0 (an
+  Enterprise Prepare with a declared `organizationTarget`), and `run-result`
+  1.0.0 and 1.1.0. A clean ready Prepare and a complete run derive no actions. A
+  conflicted 1.5.0 Prepare derives the partial status and the conflicted
+  operation's review item. A current-format result missing a required field is
+  `INPUT_INVALID`, and an unknown review generation is `SCHEMA_UNSUPPORTED`. The
+  trust families (`prepared-work`/`run-result` 1.2.0) and macOS session families
+  (1.3.0) need native trust or macOS session setup. They are not exercised, and
+  `acceptance.json` lists them under `supportFamilies.notExercised`. Any other
+  produced family that goes unexercised fails the gate.
+- **Catalog.** `releaseInventory` names each exported release document, and each
+  reads under its declared schema. The upgrade pair is the ECC release document
+  (`@aihq/catalog/release-ecc.json`). The baseline artifact must lack an item the
+  current artifact adds, and the current item count must be larger. Identical
+  content fails the gate. `compareReleases` reads the baseline bytes with the
+  current reader, and its facts must match the item identities each reader
+  reports, including the `only-in-second` items. `resolveSelections` returns the
+  required closure. It reports `ITEM_UNAVAILABLE` for a request entry (no
+  `declaredBy`), `RELEASE_UNAVAILABLE` for an unsupplied cross-release
+  requirement, and `ITEM_CONFLICT` for a synthetic release whose bytes add one
+  conflict declaration. Both of the latter carry `reference` and `declaredBy`.
 - **Scan.** `readContentCoverage` matches the exact captured descriptors of the
-  retained production artifact and the generated display artifact, reports an
-  altered digest as `mismatched` with its path, and counts observations excluded
-  from coverage. The root `@aihq/scan` entry's operation groups each carry their
-  own status and replacement entry.
+  retained production artifact and the generated display artifact. It reports an
+  altered digest as `mismatched` with its path and counts observations excluded
+  from coverage. Entry statuses are read from `entrySupport` when the installed
+  Scan exports it, otherwise from the older `contractSupport` entries. Non-root
+  entries are `current`. Each root `@aihq/scan` group is `compatibility-only` or
+  `deprecated`, owns its exports and names a declared replacement entry or none.
+  The root status matches its least-retired group.
 - **Declarations.** Each installed `contractSupport` is validated against Core's
-  installed `@aihq/core/schemas/package-support/1.0.0.json`; Core, Harness and the
-  current Catalog must conform, and any other result is recorded under
-  `findings` in `acceptance.json`.
+  installed `@aihq/core/schemas/package-support/1.0.0.json`. Core, Harness and the
+  current Catalog must conform. Any other deviation must exactly match an
+  expected entry in the gate, keyed by package name, version and error set, with
+  an owning issue. A different or additional error fails, and so does an expected
+  entry that no install matches.
 - **Portability and types.** Every entry a declaration marks `portable` is
-  bundled and loaded with browser globals only, and the current install runs the
-  newer Catalog, Scan and support operations in that context. The public types
-  used are compiled with strict TypeScript.
+  bundled and loaded with browser globals only. That set must include the Core
+  contracts, Harness, support and report entries, the Catalog contracts and
+  reader, and the Scan contracts and read entries. The current install then runs
+  the Catalog comparison and resolution, Scan coverage and support guidance in
+  that context. The public types used compile under strict TypeScript.
 
 Operations the baseline Catalog artifact predates run in the current install
-only. If both Catalog artifacts carry the same default release bytes, the record
-says so as a finding instead of claiming a content change.
+only. `acceptance.json` records each artifact's SHA-256, the gate's source commit
+and whether its working tree was clean.
 
 ## Boundaries
 
