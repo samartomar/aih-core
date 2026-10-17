@@ -11,6 +11,7 @@ import { runInNewContext } from 'node:vm';
 import { build, stop } from 'esbuild';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { policy } from './fixture.mjs';
+import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 
 test('one Core artifact delivers APIs, portable Harness, repairs and a versioned Harness update', async () => {
   assert.ok(process.env.npm_execpath, 'Run this acceptance with npm test so its npm CLI is known.');
@@ -423,6 +424,18 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       console.log('packed production and later partial evidence passed');
     `);
     assert.match(run('evidence.mjs'), /packed production and later partial evidence passed/);
+    // Installed support interprets current trust, macOS session and targeted organization results.
+    const supportFixtures = join(consumer, 'support-fixtures'); mkdirSync(supportFixtures);
+    for (const [directory, names] of [['trust-contracts', ['run-result-1.2-partial', 'run-result-1.2-stale', 'prepared-work-1.2-ready', 'prepared-work-1.2-partial']],
+      ['macos-session', ['run-result-1.3-desktop', 'prepared-work-1.3-desktop']]])
+      for (const name of names) copyFileSync(new URL(`./fixtures/${directory}/${name}.json`, import.meta.url), join(supportFixtures, `${name}.json`));
+    const organizationBytes = Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'example-org-policy',
+      selections: [{ ...orgDocument().selections[0], obligation: 'required' }] }));
+    for (const [name, value] of [['organization-routes', orgRoutes({ bytes: organizationBytes })], ['organization-policy', enterprisePolicy()],
+      ['organization-source', orgSource()]]) writeFileSync(join(supportFixtures, `${name}.json`), JSON.stringify(value));
+    copyFileSync(new URL('./fixtures/support-consumer.mjs', import.meta.url), join(consumer, 'support-consumer.mjs'));
+    const supportProject = join(root, 'support-project'); mkdirSync(supportProject);
+    assert.match(run('support-consumer.mjs', { SUPPORT_PROJECT: supportProject }), /packed support families passed/);
     writeFileSync(join(consumer, 'policy.json'), JSON.stringify(policy()));
     const lifecyclePolicy = policy();
     lifecyclePolicy.managedSelections = [{ id: 'guidance', scope: 'project', members: [lifecyclePolicy.selections[0].managementId] }];
@@ -634,13 +647,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {getGuidance,renderSupportMarkdown} from '@aihq/core/support';
       globalThis.support = [typeof getGuidance, typeof renderSupportMarkdown,
         renderSupportMarkdown({kind:'inspect',result:null},{platform:'linux'}).status,
-        getGuidance({kind:'inspect',result:null},{platform:'unknown'}).status];`, resolveDir: consumer },
+        getGuidance({kind:'inspect',result:null},{platform:'unknown'}).status,
+        getGuidance({kind:'run',result:${readFileSync(new URL('./fixtures/macos-session/run-result-1.3-desktop.json', import.meta.url), 'utf8')}},{platform:'darwin'}).status,
+        renderSupportMarkdown({kind:'run',result:${readFileSync(new URL('./fixtures/trust-contracts/run-result-1.2-partial.json', import.meta.url), 'utf8')}},{platform:'linux'}).status];`, resolveDir: consumer },
       bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });
     assert.equal(Object.keys(supportBrowser.metafile.inputs).some(name => name.startsWith('node:') || /harness\/runtime\.mjs$/.test(name)), false);
     const supportGlobals = { TextEncoder, TextDecoder, atob, btoa };
     runInNewContext(supportBrowser.outputFiles[0].text, supportGlobals, { timeout: 5000 });
     // The array belongs to the bundle's realm; assert its elements directly.
-    assert.deepEqual([...supportGlobals.support], ['function', 'function', 'invalid', 'invalid']);
+    assert.deepEqual([...supportGlobals.support], ['function', 'function', 'invalid', 'invalid', 'complete', 'rendered']);
     const cliResult = execFileSync(process.execPath, [join(installed, manifest.bin.aih), 'policy',
       join(consumer, 'policy.json'), '--project', project, '--apply', '--yes', '--json'],
       { cwd: consumer, env, encoding: 'utf8', timeout: 20_000, windowsHide: true });
