@@ -10,10 +10,12 @@ Prepare), plus a `managed-content-decision` administrator item for an Enterprise
 `managed-content-changed` yields `managed-content-changed`; `existing-trust-uncomposable` and the target
 editors' syntax, duplicate-key and unsupported-value or location reasons (for example `invalid-utf8`,
 `duplicate-json-key`, `unsupported-toml-syntax`) yield `target-content-unsupported`; and
-`trust-custody-conflict` and `trust-custody-pending` yield `custody-reconcile`. These reasons are
+`trust-custody-conflict` and `trust-custody-pending` yield `custody-reconcile`. `unsupported-json-edit`
+also yields `target-content-unsupported`. These reasons are
 recognised only with the `STATE_CONFLICT` code; other reasons still fall back to the generic
 `unrecognized-diagnostic` review item. Hook-group conflicts keep their specific hook item without a generic
-duplicate. No result format changed. This candidate is unpublished.
+duplicate; an Enterprise hook-group conflict gets that hook recovery guidance instead of the
+`managed-content-decision` administrator item. No result format changed. This candidate is unpublished.
 
 Publish which recipe operation kinds Prepare can observe. `@aihq/core/contracts` exports
 `recipeOperationKinds`: for each supported recipe schema ID (1.0.0 to 1.3.0), the frozen list of operation

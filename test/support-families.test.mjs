@@ -8,6 +8,7 @@ import { preparedWorkValidators, runResultValidators } from '../dist/core/intern
 import { authorize, sandbox } from './hook-group-fixture.mjs';
 import { enterprisePolicy, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 import { policy } from './fixture.mjs';
+import { deriveGuidance } from '../dist/harness/guidance.mjs';
 
 const options = { platform: 'darwin' };
 const sentinel = 'SENTINEL-support-family-7f3a';
@@ -174,6 +175,24 @@ test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guid
       const items = present({ kind: 'prepare', result: changed }).guidance.items.filter(item => item.evidenceIds.includes('/diagnostics/0'));
       assert.deepEqual(items.map(item => item.id), ['diagnostic-review'], `${code}/${reason}`);
       assert.notEqual(items[0].reason, 'existing-content');
+    }
+
+    // Other Core STATE_CONFLICT families keep their reason and get their own developer item.
+    for (const [reason, id] of [['duplicate-json-key', 'target-content-unsupported'], ['unsupported-json-edit', 'target-content-unsupported'],
+      ['existing-trust-uncomposable', 'target-content-unsupported'], ['managed-content-changed', 'managed-content-changed'],
+      ['trust-custody-pending', 'custody-reconcile'], ['trust-custody-conflict', 'custody-reconcile']]) {
+      const changed = { ...local, prepared: undefined, diagnostics: [{ code: 'STATE_CONFLICT', reason, message: sentinel }] };
+      const items = present({ kind: 'prepare', result: changed }).guidance.items.filter(item => item.evidenceIds.includes('/diagnostics/0'));
+      assert.deepEqual(items.map(item => [item.id, item.audience, item.reason]), [[id, 'developer', reason]], reason);
+      assert.doesNotMatch(items[0].steps.join(' '), /bypass|skip|force/i);
+    }
+
+    // Outside policy, AUTHORITY_DENIED stays an access denial even when it carries a conflict reason.
+    for (const code of ['AUTHORITY_DENIED', 'INPUT_INVALID', 'STATE_CONFLICT']) {
+      const [item] = deriveGuidance({ kind: 'prepare', useCase: 'repair', platform: 'darwin',
+        facts: [{ kind: 'diagnostic', evidenceId: '/diagnostics/0', code, reason: 'existing-content' }] });
+      assert.deepEqual([item.id, item.reason], code === 'AUTHORITY_DENIED' ? ['access-review', 'authority-denied'] :
+        code === 'STATE_CONFLICT' ? ['content-conflict', 'existing-content'] : ['diagnostic-review', 'unrecognized-diagnostic'], code);
     }
   } finally { globalThis.fetch = originalFetch; s.dispose(); }
 });

@@ -13,7 +13,7 @@ const labels = Object.freeze(Object.fromEntries([
 const contentConflicts = new Set(['existing-content', 'existing-target-observation', 'trust-output-conflict']);
 const editConflictReasons = Object.freeze(['existing-trust-uncomposable', 'invalid-utf8', 'ambiguous-text-block', 'invalid-text-block',
   'duplicate-json-key', 'duplicate-ini-key', 'duplicate-ini-section', 'duplicate-scalar-key', 'duplicate-toml-key',
-  'unsupported-json-syntax', 'unsupported-json-value', 'unsupported-json-path',
+  'unsupported-json-syntax', 'unsupported-json-value', 'unsupported-json-path', 'unsupported-json-edit',
   'unsupported-ini-syntax', 'unsupported-ini-value', 'unsupported-ini-path',
   'unsupported-scalar-syntax', 'unsupported-scalar-value', 'unsupported-scalar-path',
   'unsupported-toml-syntax', 'unsupported-toml-value', 'unsupported-toml-path', 'unsupported-toml-table', 'unsupported-toml-array-table']);
@@ -105,9 +105,8 @@ export function deriveGuidance(request) {
       // never authored IDs or tool names; the target stays the literal policy.
       // Core-produced conflict reasons are recognised only with Core's STATE_CONFLICT code.
       const conflict = stateConflicts.has(reason);
-      reason = conflict && fact.code !== 'STATE_CONFLICT' ? request.useCase === 'policy' ? codeReasons[fact.code] : 'unrecognized-diagnostic' :
-        request.useCase === 'policy' ? permissions.has(reason) || conflict ? reason : codeReasons[fact.code] :
-        fact.code === 'AUTHORITY_DENIED' ? 'authority-denied' : reason;
+      reason = request.useCase === 'policy' ? permissions.has(reason) || conflict && fact.code === 'STATE_CONFLICT' ? reason : codeReasons[fact.code] :
+        fact.code === 'AUTHORITY_DENIED' ? 'authority-denied' : conflict && fact.code !== 'STATE_CONFLICT' ? 'unrecognized-diagnostic' : reason;
     }
     if (fact.kind === 'operation') {
       if (fact.application !== 'failed' && !['failed', 'unavailable', 'unverified', 'skipped'].includes(fact.verification)) continue;
@@ -156,7 +155,7 @@ export function deriveGuidance(request) {
     } else if (contentConflicts.has(reason)) {
       add(fact, 'content-conflict', target, reason, 'Existing content at a selected target differs from the reviewed content.',
         ['Core preserved the existing content and made no change at that target; compare it with the reviewed operation in the local review.',
-          'Keep the existing content by narrowing or removing the selection, or reconcile the target manually, then prepare a fresh review.',
+          'Keep the existing content by narrowing the request, or reconcile the target manually, then prepare a fresh review.',
           'When the Prepare result offers a replace choice for that operation, request it in a fresh Prepare with its exact observed digest and review the replacement before applying.']);
       if (request.mode === 'enterprise') add(fact, 'managed-content-decision', target, reason, 'An administrator may need to decide how organization-managed content meets existing local content.',
         ['Confirm whether the organization policy should grant a reviewed replace for this selection, or whether the selection should change.',
