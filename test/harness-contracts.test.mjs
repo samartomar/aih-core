@@ -39,7 +39,6 @@ test('Harness declares exact supported formats and the installed public runtime 
   assert.deepEqual(contractSupport.entries, [
     { export: '@aihq/core/harness', runtime: 'portable' },
     { export: '@aihq/core/report', runtime: 'portable' },
-    { export: '@aihq/core/report/render', runtime: 'portable' },
     { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' }
   ]);
 });

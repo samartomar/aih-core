@@ -4,7 +4,7 @@
 (schema `urn:aihq:harness:diagnostic:1.0.0`) into an experimental
 `ReportSnapshot`. This page names every supported field's producer, meaning,
 units, provenance, availability and privacy treatment. It describes the data
-interface only; HTML presentation belongs to `@aihq/core/report/render`.
+interface only; presentation belongs to the consuming application.
 
 "Producer" means the field originates in the Harness diagnostic result, unless
 the row says the caller supplies it.
@@ -73,7 +73,7 @@ rendered HTML enters the data interface.
   "absent"`, or the absence of the optional `tools[].config`. Fields are never
   invented to fill a gap.
 - **Supply vs acquisition**: `capture.acquisition` records how the caller
-  obtained the diagnostic. Importing or rendering a saved snapshot never
+  obtained the diagnostic. Importing or presenting a saved snapshot never
   acquires new observations.
 - **Structural validation vs authentication**: `evidence.structuralValidation`
   records only that the input matched the schema and bounds.

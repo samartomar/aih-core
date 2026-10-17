@@ -43,8 +43,9 @@ const usage = {
   'verify-macos-session': 'aih verify-macos-session --management-id <id> [--no-log] [--json]\n',
   'export-ca': 'aih export-ca [--format pem|pkcs7-der] [--output user-home-relative-path] [--inputs-file sources.json] [--resolutions resolutions.json] [--offline] [--apply --yes] [--no-log] [--json]\n',
   'verify-client': 'aih verify-client <client-id> [--configuration <request-json-file>] [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>] [--budget-ms <integer>] [--candidate-smoke] [--json]\n',
-  report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--demo] [--json]\n' +
-    'aih report --output <new-directory> --snapshot <report.json> [--demo] [--json]\n',
+  report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--json]\n' +
+    'aih report --output <new-directory> --snapshot <report.json> [--json]\n' +
+    '  Writes report.json only; the consuming application renders it.\n',
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
   policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
   repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--support-markdown <path>] [--json]\n',
@@ -197,7 +198,7 @@ if (process.argv[2] === 'verify-macos-session') {
     'material-root': { type: 'string', multiple: true }, 'resolutions': { type: 'string' },
     target: { type: 'string', multiple: true }, offline: { type: 'boolean' },
     'inputs-file': { type: 'string' },
-    output: { type: 'string' }, format: { type: 'string' }, snapshot: { type: 'string' }, demo: { type: 'boolean' },
+    output: { type: 'string' }, format: { type: 'string' }, snapshot: { type: 'string' },
     'probe-configured-mcp': { type: 'boolean' },
     'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
@@ -210,14 +211,14 @@ if (process.argv[2] === 'verify-macos-session') {
   json = values.json ?? false;
   const command = commands.find(name => name === positionals[0]);
   const helpWord = positionals[0] === 'help';
-  const hasReportFlags = values.output !== undefined || values.snapshot !== undefined || values.demo !== undefined;
+  const hasReportFlags = values.output !== undefined || values.snapshot !== undefined;
   const managedHelpWord = positionals[0] === 'managed' && positionals[1] === 'help';
   const onlyJson = !Object.keys(values).some(name => name !== 'json');
   const helpFlags = Object.keys(values).every(name => name === 'help' || name === 'json');
   const logging = values['no-log'] ? { logging: 'off' as const } : {};
   supportMarkdown = values['support-markdown'];
   // Version, help and validate answer before any target, network, history or state access.
-  if (hasReportFlags && command !== 'report' && !(command === 'export-ca' && values.snapshot === undefined && values.demo === undefined)) {
+  if (hasReportFlags && command !== 'report' && !(command === 'export-ca' && values.snapshot === undefined)) {
     refused('INPUT_INVALID','cli-options');
   } else if (values.version) {
     if (positionals.length || Object.keys(values).some(name => name !== 'version' && name !== 'json')) refused('INPUT_INVALID', 'cli-options');
@@ -265,7 +266,7 @@ if (process.argv[2] === 'verify-macos-session') {
   } else if (positionals[0] === 'report') {
     // Acquisition or import only: no repair, policy, upload or service is reachable from this branch.
     const reportMessage = 'Choose one new output directory and either fresh offline targets or one supplied snapshot file.';
-    if (positionals.length !== 1 || !values.output || !acceptsOnly(['output','snapshot','target','offline','demo','json']) || values.snapshot !== undefined && (values.target || values.offline)) refused('INPUT_INVALID', 'cli-options', reportMessage);
+    if (positionals.length !== 1 || !values.output || !acceptsOnly(['output','snapshot','target','offline','json']) || values.snapshot !== undefined && (values.target || values.offline)) refused('INPUT_INVALID', 'cli-options', reportMessage);
     else {
       let snapshotJson: string | undefined; let unreadable: string | undefined;
       if (values.snapshot !== undefined) {
@@ -276,11 +277,11 @@ if (process.argv[2] === 'verify-macos-session') {
       }
       if (unreadable) refused('INPUT_INVALID', unreadable, reportMessage);
       else {
-        // Report rendering and diagnostics load only for this command.
+        // Report projection and diagnostics load only for this command.
         const { runReportCommand, ReportCommandError } = await import('../harness/report-command.mjs');
         try {
           emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }),
-            ...(values.target === undefined ? {} : { targets: values.target }), ...(values.demo ? { demo: true } : {}) },
+            ...(values.target === undefined ? {} : { targets: values.target }) },
           { signal: controller.signal }), 0);
         } catch (error) {
           if (!(error instanceof ReportCommandError)) throw error;

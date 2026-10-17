@@ -292,14 +292,10 @@ test('createReport separates measured zero, supplied evidence identity and struc
   assertInvalidInput(() => createReport(validInput({ redaction: { homePaths: 'C:/Users/x' } })));
 });
 
-test('an unavailable producer revision remains null through JSON and rendering', async () => {
+test('an unavailable producer revision remains null through JSON', () => {
  const report=createReport(validInput({producer:{name:'@aihq/core',version:'1.0.0-dev.3',revision:null}}));
  assert.equal(report.producer.revision,null);
  assert.equal(importSnapshot(exportSnapshot(report)).producer.revision,null);
- const {renderReport}=await import('@aihq/core/report/render');
- const html=renderReport(report);
- assert.match(html,/Producer revision/); assert.match(html,/unavailable/);
- assert.doesNotMatch(html,/\(null\)/);
 });
 
 
@@ -316,8 +312,6 @@ test('colon credentials and conventional remote homes are redacted through impor
  const report=importSnapshot(JSON.stringify(snapshot));
  const json=exportSnapshot(report);
  for(const value of ['credential-fixture-one','credential-fixture-two','short','alice','Bob','Carol']) assert.ok(!json.includes(value),value);
- const {renderReport}=await import('@aihq/core/report/render'); const html=renderReport(report);
- assert.ok(!html.includes('credential-fixture-one')); assert.ok(!html.includes('alice'));
  assert.equal(report.evidence.authentication,'not-authenticated');
 });
 test('import applies explicit privacy context to nonstandard supplied home paths',()=>{

@@ -37,6 +37,23 @@ also refuses any string that masking would change, so every home path a snapshot
 a claim set; the snapshot projection itself is unchanged. Claims 1.0.0 and 1.1.0 keep their wire format and JSON
 Schemas; a claim set that was previously valid and carries such a path is now `INPUT_INVALID`. This
 candidate is unpublished.
+Remove the experimental V9 report renderer. Core now produces and validates report data only;
+presentation is done by the consuming application from the snapshot. This candidate is unpublished.
+Removed:
+
+- The `@aihq/core/report/render` entry and its `renderReport` function and `RenderOptions` type, plus
+  its `contractSupport` entry in `@aihq/core/contracts` and `@aihq/core/harness`.
+- `aih report` HTML output and the `--demo` option. The command still acquires or imports one snapshot
+  and writes only `report.json`; its summary no longer has `mode` or `output.html`, and `--demo` is now
+  rejected as an unknown option (`cli-input`).
+- The packaged renderer files (`dist/harness/report/render.mjs`, `render.d.mts`, `template.mjs`) and
+  `docs/reporting/RENDERING.md`.
+- Source-only renderer assets: the authored HTML template and its demonstration sample, the template
+  generator and visual verification scripts, the saved visual evidence, the renderer tests, the
+  `examples/reporting/workflow/report.html` example, the NOTICE attribution for the extracted design
+  and the now-unused `happy-dom` and `playwright` development dependencies.
+
+`@aihq/core/report`, its schemas, `report.json` and the reporting examples are unchanged.
 
 Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
 no longer use `export type *` barrels, and package tests now check that each entry's declared and

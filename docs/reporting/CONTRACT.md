@@ -2,8 +2,8 @@
 
 `@aihq/core/report` is the data-only entry point of this reporting module: runtime
 validation, privacy projection and evidence limitations. It performs no
-rendering, filesystem access or host observation. Rendering lives at
-`@aihq/core/report/render`; importing `@aihq/core/report` stays data-only.
+rendering, filesystem access or host observation. Core ships no renderer:
+presentation is done by the consuming application from the snapshot data.
 
 ## Status and compatibility
 
@@ -508,8 +508,8 @@ Redaction is explicit and always-on; see
 [FIELDS.md](FIELDS.md#privacy-treatments) for every treatment. Unsafe arbitrary
 producer prose (`requestId`, `helper`, `repairChoices`) is dropped rather than
 projected, while meaningful states and outcomes are preserved. Privacy-sensitive
-free text is masked in both the snapshot object and its JSON, and the renderer
-shares the same projected data.
+free text is masked in both the snapshot object and its JSON; a consuming
+application that presents the snapshot receives only that projected data.
 
 ## What this interface does not contain
 

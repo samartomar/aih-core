@@ -23,10 +23,6 @@
       "types": "./dist/harness/report/data.d.mts",
       "import": "./dist/harness/report/data.mjs"
     },
-    "./report/render": {
-      "types": "./dist/harness/report/render.d.mts",
-      "import": "./dist/harness/report/render.mjs"
-    },
     "./report/schema": "./dist/harness/report/schema.json",
     "./report/schemas/claims/1.0.0.json": "./dist/harness/report/claims-schema.json",
     "./report/schemas/claims/1.1.0.json": "./dist/harness/report/claims-schema-1.1.0.json",
@@ -104,7 +100,6 @@
     "docs/macos-session-development.md",
     "docs/reporting/CONTRACT.md",
     "docs/reporting/FIELDS.md",
-    "docs/reporting/RENDERING.md",
     "docs/reporting/REPRODUCE.md",
     "examples/reporting",
     "docs/templates.md",
@@ -142,8 +137,6 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "esbuild": "0.28.2",
-    "happy-dom": "20.14.5",
-    "playwright": "1.58.2",
     "tar": "7.5.22",
     "typescript": "7.0.2"
   },
