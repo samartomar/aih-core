@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+Publish which recipe operation kinds Prepare can observe. `@aihq/core/contracts` exports
+`recipeOperationKinds`: for each supported recipe schema ID (1.0.0 to 1.3.0), the frozen list of operation
+kinds that format admits, each with `effects` `observable` (Prepare compares the target's bytes and can
+review it as `already-satisfied`) or `opaque` (`process.run`, reviewed as `opaque-process`). Kinds come
+from the recipe schemas Prepare validates against, and their classification is type-checked against the
+engine's process operation. The `RecipeOperationKind`, `RecipeOperationKindRecord`,
+`OperationEffectsVisibility` and `RecipeSchemaId` types are exported with it. No schema changed. This
+candidate is unpublished.
+
+Name the selection behind prepared operations and file-state targets, and declare the commands each
+Harness target covers. Policy Prepare now returns `operationSelections` beside the review: one
+`{id, selectionId, operationId}` per review operation in review order, with `null` selection and
+operation for generated lifecycle cleanup. It sits outside the review and its digest, like
+`resolutionInputs`, so no prepared-work format changed and `prepareManagedRemoval` keeps its embedded
+preparation shape. The README now documents the review operation ID grammar
+(`<selectionId>/<operationId>`, `lifecycle/remove-<n>` for generated cleanup) as a stable contract.
+`checkFileState` now produces `urn:aihq:core:file-state-result:1.1.0`, which adds a required
+`targets[].selectionIds` index-aligned with `operationIds`; Core contract support lists 1.1.0 as the
+produced file-state format, and the 1.0.0 schema stays exported for earlier results. Each
+`@aihq/core/harness` `targets` entry adds a frozen `executables` list: its detection `binaries` first,
+then commands that run under the tool's configuration (`npx` for npm). Detection is unchanged. This
+candidate is unpublished.
+
+`@aihq/core/report` claim-set validation (`validateClaimSet`, `readClaimSet` and `projectClaims`)
+now refuses a claim set whose shared string fields carry a machine-local path: an absolute POSIX
+path under a well-known root or with a file-name shape, a Windows drive path, a UNC or device path,
+a home-relative `~/` path or a `file:/` URL. The refusal is `INPUT_INVALID` with a message such as
+`claimSet.claims[0].subject.id: local-path: posix-absolute path is not portable`, which names the
+field and the form but never the value. Repository-relative paths, package names and non-file URLs without a home segment,
+JSON Pointers and plain-name routes such as `/claims/0/subject`, and `file:` in prose are still accepted.
+Detection shares one internal implementation with the snapshot projection's home-path masking and
+also refuses any string that masking would change, so every home path a snapshot masks is refused in
+a claim set; the snapshot projection itself is unchanged. Claims 1.0.0 and 1.1.0 keep their wire format and JSON
+Schemas; a claim set that was previously valid and carries such a path is now `INPUT_INVALID`. This
+candidate is unpublished.
+
 Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
 no longer use `export type *` barrels, and package tests now check that each entry's declared and
 runtime value names agree in both directions. No operation, schema or result changed. This candidate

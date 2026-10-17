@@ -227,6 +227,8 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest, cont
     ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
   undefined, sameImage, participant);
   if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
+  // A removal review holds only generated lifecycle cleanup; the embedded preparation keeps its published shape.
+  const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation,

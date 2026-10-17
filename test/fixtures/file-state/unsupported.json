@@ -1,5 +1,5 @@
 {
-  "schema": "urn:aihq:core:file-state-result:1.0.0",
+  "schema": "urn:aihq:core:file-state-result:1.1.0",
   "package": {
     "name": "@aihq/core",
     "version": "1.0.0-dev.3"

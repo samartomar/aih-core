@@ -408,7 +408,11 @@ export interface ClaimsProjection11 extends ClaimsProjectionBase {
 
 export type ClaimsProjection = ClaimsProjection10 | ClaimsProjection11;
 
-/** Structural and semantic validation of a claim set; never throws for malformed input. */
+/**
+ * Structural and semantic validation of a claim set; never throws for malformed input.
+ * A shared string carrying a machine-local path is refused as
+ * `<path>: local-path: <form> path is not portable` (docs/reporting/CONTRACT.md).
+ */
 export declare function validateClaimSet(value: unknown): ClaimSetValidation;
 
 /** Parse and validate a claim-set JSON document; never throws, preserving the input on rejection. */

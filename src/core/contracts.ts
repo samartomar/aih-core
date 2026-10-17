@@ -17,7 +17,7 @@ import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: '
 import resultSchema11 from './schemas/run-result/1.1.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
 import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with { type: 'json' };
-import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
+import fileStateSchema from './schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
@@ -54,6 +54,8 @@ export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, 
   OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationSelection11, OrganizationPolicy10,
   OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult } from './types.js';
 export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
+export { recipeOperationKinds } from './operation-kinds.js';
+export type { OperationEffectsVisibility, RecipeOperationKind, RecipeOperationKindRecord, RecipeSchemaId } from './operation-kinds.js';
 export type { PackageDetails, AuthoringDiagnostic, AuthoringResult, DeriveRecipeIdentityRequest, RecipeIdentity,
   OrganizationAdmissionSelection, OrganizationAdmissionLifecycle, PreviewOrganizationAdmissionRequest,
   OrganizationAdmissionPreview, PreviewOrganizationObligationsRequest, OrganizationObligationsPreview } from './authoring-helpers.js';

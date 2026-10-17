@@ -12,7 +12,10 @@ export type FileStateOutcome = 'match' | 'changed' | 'unverified';
 export interface FileStateTargetPath { root: 'project' | 'userHome' | 'userState'; path: string }
 export interface FileStateTarget {
   id: string;
+  /** Contributing review operation IDs, each `<selectionId>/<operationId>`, in dependency order. */
   operationIds: string[];
+  /** The selection of each contributing operation, index-aligned with `operationIds` (file-state-result 1.1.0). */
+  selectionIds: string[];
   target: FileStateTargetPath | null;
   outcome: 'match' | 'changed' | 'absent' | 'unavailable';
   reason: string;
@@ -24,7 +27,7 @@ export interface FileStateOmission {
   reason: string;
 }
 export interface FileStateResult {
-  schema: 'urn:aihq:core:file-state-result:1.0.0';
+  schema: 'urn:aihq:core:file-state-result:1.1.0';
   package: { name: string; version: string };
   status: FileStateStatus;
   fileState: FileStateOutcome;

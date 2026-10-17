@@ -24,7 +24,7 @@ const expectedRuntimeNames = {
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
@@ -86,7 +86,7 @@ const expectedTypeNames = {
     'MaterialRecipeReference', 'MaterialSource', 'NativeClientId', 'NativeMember', 'NativeStage',
     'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile', 'NativeVerificationBundle',
     'NativeVerificationControls', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
-    'OperationBase', 'OperationResult', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
+    'OperationBase', 'OperationResult', 'OperationSelection', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
     'OrganizationBinding', 'OrganizationFulfillmentResult', 'OrganizationObligationResultBase',
     'OrganizationObligationsReview', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'PersistedConfigurationValue', 'PolicyRequest', 'PreparationResult', 'PreparedHandle', 'PreparedReview',
@@ -115,7 +115,7 @@ const expectedTypeNames = {
     'MaterialIdentity', 'MaterialMember', 'MaterialRecipeReference', 'MaterialSource', 'NativeClientId',
     'NativeMember', 'NativeStage', 'NativeStageEvidence', 'NativeStageOutcome', 'NativeTreeFile',
     'NativeVerificationBundle', 'NativeVerificationRequest', 'NativeVerificationResult', 'Operation',
-    'OperationBase', 'OrganizationAdmissionLifecycle', 'OrganizationAdmissionPreview',
+    'OperationBase', 'OperationEffectsVisibility', 'OrganizationAdmissionLifecycle', 'OrganizationAdmissionPreview',
     'OrganizationAdmissionSelection', 'OrganizationAdvisoryResult', 'OrganizationApplicability',
     'OrganizationFulfillmentResult', 'OrganizationInputPermission', 'OrganizationObligation',
     'OrganizationObligationResultBase', 'OrganizationObligationsPreview', 'OrganizationParseResult',
@@ -123,7 +123,8 @@ const expectedTypeNames = {
     'OrganizationSelection11', 'OrganizationTarget', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'OrganizationTargetFacts', 'PackageDetails', 'ParseResult', 'Prerequisite',
     'PreviewOrganizationAdmissionRequest', 'PreviewOrganizationObligationsRequest', 'ProcessCheck',
-    'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RemoveOperation',
+    'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RecipeOperationKind',
+    'RecipeOperationKindRecord', 'RecipeSchemaId', 'RemoveOperation',
     'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'TargetPath', 'TextBlockOperation',
     'TrustCertificateDisposition', 'TrustCompleteness', 'TrustCustody', 'TrustCustodyEntry', 'TrustCustodySource',
     'TrustInputs', 'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
@@ -184,7 +185,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       // Bundled dependency sources are part of their reviewed package bytes.
       // Product sources and private instructions/scratch remain excluded.
       assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:(?:native-(?:windows|linux)-verification|native-persistence-diagnostics|macos-session-development|templates)\.md|reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md)|examples\/templates\/core-recipe\.json|examples\/reporting\/(?:claims\/[A-Za-z0-9._-]+\.json|data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes|@anthropic-ai\/sandbox-runtime|@pondwader\/socks5-server|commander|node-forge|zod)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json)|linux\/(?:facility|facility\.c|build-record\.json|interop-canary\.cs|interop-canary\.exe|interop-build-record\.json|runtime-lock\.json|runtime-platform\.json|observer-lock\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|bounded-json\.mjs|claims(?:\.mjs|\.d\.mts|-schema(?:-1\.1\.0)?\.json)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.[12]\.0\.json|schemas\/macos-session-profiles\/1\.0\.0\.json|schemas\/native-verification-definition\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|macos-session(?:-public|-platform|-profiles|-definitions)?\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:(?:native-(?:windows|linux)-verification|native-persistence-diagnostics|macos-session-development|templates)\.md|reporting\/(?:CONTRACT|FIELDS|RENDERING|REPRODUCE)\.md)|examples\/templates\/core-recipe\.json|examples\/reporting\/(?:claims\/[A-Za-z0-9._-]+\.json|data-only\.mjs|http\.mjs|workflow\/(?:report\.(?:json|html)|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes|@anthropic-ai\/sandbox-runtime|@pondwader\/socks5-server|commander|node-forge|zod)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json)|linux\/(?:facility|facility\.c|build-record\.json|interop-canary\.cs|interop-canary\.exe|interop-build-record\.json|runtime-lock\.json|runtime-platform\.json|observer-lock\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|(?:bounded-json|local-path)\.mjs|claims(?:\.mjs|\.d\.mts|-schema(?:-1\.1\.0)?\.json)|render\.(?:mjs|d\.mts)|template\.mjs|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.[12]\.0\.json|schemas\/macos-session-profiles\/1\.0\.0\.json|schemas\/native-verification-definition\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|macos-session(?:-public|-platform|-profiles|-definitions)?\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -347,6 +348,21 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const fsControls: FileStateControls = {budgetMs: 30000};
       const fsResult: FileStateResult = await checkFileState(fsRequest, fsControls);
       const fsAuthority: 'not-evaluated' = fsResult.authority;
+      import {recipeOperationKinds} from '@aihq/core/contracts';
+      import type {RecipeOperationKindRecord,OperationEffectsVisibility,RecipeSchemaId} from '@aihq/core/contracts';
+      const kindRecords: readonly RecipeOperationKindRecord[] = recipeOperationKinds['urn:aihq:core:recipe:1.3.0'];
+      const kindEffects: OperationEffectsVisibility = kindRecords[0]!.effects;
+      const kindRecipe: RecipeSchemaId = 'urn:aihq:core:recipe:1.0.0';
+      // @ts-expect-error Only supported recipe formats are keys.
+      const unknownRecipeKinds = recipeOperationKinds['urn:aihq:core:recipe:9.0.0'];
+      const fsSchema: 'urn:aihq:core:file-state-result:1.1.0' = fsResult.schema;
+      const fsSelections: string[] = fsResult.targets[0]!.selectionIds;
+      import {targets} from '@aihq/core/harness';
+      import type {TargetDefinition} from '@aihq/core/harness';
+      const coveredExecutables: readonly string[] = (targets[0] as TargetDefinition).executables;
+      import type {OperationSelection,PreparationResult} from '@aihq/core';
+      const operationSelection: OperationSelection = {id:'lifecycle/remove-0',selectionId:null,operationId:null};
+      const preparationSelections: OperationSelection[] | undefined = ({} as PreparationResult).operationSelections;
       const inventory: ManagedInventoryResult = await listManagedSelections({target:{project:'/absolute/project'},scope:'both'});
       const removal: ManagedRemovalPreparationResult = await prepareManagedRemoval({target:{project:'/absolute/project'},managementId:'team-guidance',scope:'project',mode:'vibe'});
       const sources: TrustSources = {os:false,supplied:[{id:'company',file:'/absolute/company.pem'}]};
@@ -628,6 +644,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.deepEqual(policyHintPreview.resolutionInputs, [{ selectionId: 'guidance', operationId: 'write',
       observedSha256: createHash('sha256').update(localContent).digest('hex'),
       availableChoices: ['replace'] }]);
+    assert.deepEqual(policyHintPreview.operationSelections, [{ id: 'guidance/write', selectionId: 'guidance', operationId: 'write' }]);
     rmSync(join(project, 'TEAM.md'));
     writeFileSync(join(consumer, 'ca.pem'), readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
     writeFileSync(join(consumer, 'run.mjs'), `
@@ -697,6 +714,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(fileState.fileState,'match');
       assert.equal(fileState.authority,'not-evaluated');
       assert.equal(ajv.validate(fileState.schema,fileState),true,JSON.stringify(ajv.errors));
+      assert.equal(fileState.schema,'urn:aihq:core:file-state-result:1.1.0');
+      for (const row of fileState.targets) assert.deepEqual(row.selectionIds,row.operationIds.map(id=>id.split('/')[0]));
       const removed=await apply(removal.preparation.prepared,{approved:true,origin:'automation',reviewDigest:removal.preparation.review.reviewDigest},{logging:'off'});
       assert.equal(removed.completion,'complete',JSON.stringify(removed));
       const finalInventory=await listManagedSelections({target:{project:process.env.TEST_PROJECT},scope:'project'});
@@ -704,6 +723,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(finalInventory.selections.some(item=>item.managementId==='team-guidance'),false);
       assert.equal(ajv.validate(finalInventory.schema,finalInventory),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
+      const {recipeOperationKinds}=await import('@aihq/core/contracts');
+      assert.deepEqual(Object.keys(recipeOperationKinds),['1.0.0','1.1.0','1.2.0','1.3.0'].map(version=>'urn:aihq:core:recipe:'+version));
+      assert.deepEqual(recipeOperationKinds['urn:aihq:core:recipe:1.3.0'].filter(item=>item.effects==='opaque').map(item=>item.kind),['process.run']);
+      assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.0.0'].some(item=>item.kind==='hook.group'),false);
+      assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.1.0'].find(item=>item.kind==='hook.group').effects,'observable');
+      const {targets:harnessTargets}=await import('@aihq/core/harness');
+      assert.deepEqual(harnessTargets.find(item=>item.id==='npm').executables,['npm','npx']);
+      assert.deepEqual(harnessTargets.find(item=>item.id==='pip').executables,['pip','pip3']);
+      assert.ok(harnessTargets.every(item=>Object.isFrozen(item.executables)&&item.binaries.every((name,index)=>item.executables[index]===name)));
       const userTrust = repairIndex.find(item=>item.id==='user-tools-ca');
       assert.ok(userTrust,'packed Harness must include the user-tools-ca repair');
       assert.deepEqual(userTrust.targets,['python','pip','git','cargo','conda']);

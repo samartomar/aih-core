@@ -13,7 +13,7 @@ export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRe
   NativeVerificationResult } from './native-contracts.js';
 export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effective, RecordStatus, ReviewOperation,
   HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
-  ResolutionInput, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource } from './host-types.js';
+  ResolutionInput, OperationSelection, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource } from './host-types.js';
 export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
   AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';

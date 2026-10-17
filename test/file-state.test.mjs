@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { checkFileState, prepare } from '../dist/core/index.js';
 import { contractSupport } from '../dist/core/contracts.js';
-import fileStateSchema from '../dist/core/schemas/file-state-result/1.0.0.json' with { type: 'json' };
+import fileStateSchema from '../dist/core/schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -50,7 +50,7 @@ function snapshot(dir) {
 async function check(request, controls) {
   const result = await checkFileState(request, controls);
   assert.equal(validateResult(result), true, JSON.stringify(validateResult.errors) + '\n' + JSON.stringify(result));
-  assert.equal(result.schema, 'urn:aihq:core:file-state-result:1.0.0');
+  assert.equal(result.schema, 'urn:aihq:core:file-state-result:1.1.0');
   assert.equal(result.authority, 'not-evaluated');
   assert.deepEqual(result.package, contractSupport.package);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result, 'the result is serializable data');
@@ -88,7 +88,7 @@ test('a matching unowned file reports match without custody, state or history', 
   const result = await expectInert(dir, () => check({ policy: policy(), target: { project: dir } }));
   assert.equal(result.status, 'complete');
   assert.equal(result.fileState, 'match');
-  assert.deepEqual(result.targets, [{ id: 'guidance/write', operationIds: ['guidance/write'],
+  assert.deepEqual(result.targets, [{ id: 'guidance/write', operationIds: ['guidance/write'], selectionIds: ['guidance'],
     target: { root: 'project', path: 'TEAM.md' }, outcome: 'match', reason: 'content-match' }]);
   assert.deepEqual(result.checks, []);
   assert.deepEqual(result.notChecked, []);
@@ -294,7 +294,7 @@ test('a missing private input in a target path yields one null-target row', asyn
   const result = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
   assert.equal(result.status, 'incomplete');
   assert.equal(result.fileState, 'unverified');
-  assert.deepEqual(result.targets, [{ id: 'guidance/write', operationIds: ['guidance/write'],
+  assert.deepEqual(result.targets, [{ id: 'guidance/write', operationIds: ['guidance/write'], selectionIds: ['guidance'],
     target: null, outcome: 'unavailable', reason: 'input-unavailable' }]);
   assert.equal(result.coverage.unavailableTargets, 1);
   assert.equal(existsSync(join(dir, 'SECRET.md')), false);
@@ -639,9 +639,9 @@ test('file.write compares the explicit POSIX mode only on POSIX', { skip: proces
 });
 
 test('the installed distribution still declares the produced file-state schema', () => {
-  assert.deepEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.0.0'),
-    { id: 'urn:aihq:core:file-state-result:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/schemas/file-state-result/1.0.0.json' });
+  assert.deepEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.1.0'),
+    { id: 'urn:aihq:core:file-state-result:1.1.0', role: 'produces',
+      schemaExport: '@aihq/core/schemas/file-state-result/1.1.0.json' });
 });
 
 test('shipped representative results validate against the public schema', () => {
@@ -732,6 +732,7 @@ test('operations from different selections fold onto one shared target in depend
   const match = await expectInert(dir, () => check({ policy: document, target: { project: dir } }));
   assert.equal(match.status, 'complete');
   assert.deepEqual(match.targets, [{ id: 'base/write', operationIds: ['base/write', 'layer/block'],
+    selectionIds: ['base', 'layer'],
     target: { root: 'project', path: 'SHARED.md' }, outcome: 'match', reason: 'content-match' }]);
   writeFileSync(join(dir, 'SHARED.md'), 'base\n');
   const partial = await check({ policy: document, target: { project: dir } });
@@ -770,7 +771,7 @@ test('cancellation during admission lists unfinished recipes without reading tar
   assert.ok(opened.includes(join(source, 'payload.txt')), 'the instrumented material read triggered the abort');
   assert.equal(result.status, 'cancelled');
   assert.equal(result.fileState, 'unverified');
-  assert.deepEqual(result.targets, [{ id: 'first/write', operationIds: ['first/write'],
+  assert.deepEqual(result.targets, [{ id: 'first/write', operationIds: ['first/write'], selectionIds: ['first'],
     target: { root: 'project', path: 'TEAM.md' }, outcome: 'unavailable', reason: 'cancelled' }]);
   assert.deepEqual(result.notChecked, [{ kind: 'recipe', id: 'second', reason: 'cancelled' }]);
   assert.equal(opened.filter(path => path.startsWith(dir)).length, 0, 'no target is read after cancellation');
@@ -998,7 +999,7 @@ test('more than 4,096 distinct targets leaves the excess unavailable without rea
   finally { fs.openSync = original; syncBuiltinESMExports(); }
   assert.equal(result.targets.length, 4097);
   assert.ok(result.targets.slice(0, 4096).every(row => row.reason === 'platform-unsupported'));
-  assert.deepEqual(result.targets.at(-1), { id: 'excess/o4096', operationIds: ['excess/o4096'],
+  assert.deepEqual(result.targets.at(-1), { id: 'excess/o4096', operationIds: ['excess/o4096'], selectionIds: ['excess'],
     target: { root: 'project', path: 'f4096' }, outcome: 'unavailable', reason: 'limit-exceeded' });
   assert.deepEqual([result.coverage.comparedTargets, result.coverage.unavailableTargets], [0, 4097]);
   assert.deepEqual([result.status, result.fileState, result.limits.targetBytes], ['incomplete', 'unverified', 0]);

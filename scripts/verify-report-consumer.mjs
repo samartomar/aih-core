@@ -106,11 +106,13 @@ try {
   "assert.deepEqual([recurrence.recurring.subject,recurrence.recurring.condition],[{kind:'client',id:'example-client-environment'},'condition:native-use']);",
   "const original=await load('unsupported.input.json'); const rejected=readClaimSet(original);",
   "assert.equal(rejected.status,'rejected'); assert.equal(rejected.code,'SCHEMA_UNSUPPORTED'); assert.equal(rejected.original,original);",
-  "console.log(JSON.stringify({claims:true,score:checks['score-unknown-in-denominator'].score,verifiedRepairs:repairs.count,recurrences:recurrence.recurring.count,rejected:rejected.code}));"
+  "const localSet=JSON.parse(await load('checks.input.json')); localSet.claims[0].subject.id='/srv/private/evidence.json'; const localJson=JSON.stringify(localSet); const local=readClaimSet(localJson);",
+  "assert.equal(local.status,'rejected'); assert.equal(local.code,'INPUT_INVALID'); assert.equal(local.original,localJson); assert.deepEqual(local.errors,['claimSet.claims[0].subject.id: local-path: posix-absolute path is not portable']);",
+  "console.log(JSON.stringify({claims:true,score:checks['score-unknown-in-denominator'].score,verifiedRepairs:repairs.count,recurrences:recurrence.recurring.count,rejected:rejected.code,localPath:local.errors[0]}));"
  ].join('\n');
  await writeFile(join(consumer,'claims.mjs'),claimsScript);
  console.log(execFileSync(process.execPath,['claims.mjs'],{cwd:consumer,encoding:'utf8',windowsHide:true}).trim());
- console.log('Packed normalized-claims consumer projected the installed filled examples and rejected an unsupported format with its bytes preserved.');
+ console.log('Packed normalized-claims consumer projected the installed filled examples and rejected an unsupported format and a machine-local path with their bytes preserved.');
 
   const declaration=[
   "import {createReport,exportSnapshot,importSnapshot,readClaimSet,projectClaims,validateClaimSet,CLAIMS_SCHEMA,CLAIMS_SCHEMA_1_1_0,type ReportSnapshot,type ClaimSet,type ClaimSetRead,type ClaimsProjection,type CalculationResult,type OrderedAction,type RecurrenceRequest,type RecurrenceResult} from '@aihq/core/report';",

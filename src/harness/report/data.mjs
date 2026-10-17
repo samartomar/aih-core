@@ -10,6 +10,7 @@ import {
   ReportInputError, invalid, isPlainObject, rejectDuplicateKeys, requireArray, requireEnum,
   requirePlainObject, requireString, toBoundedJson,
 } from './bounded-json.mjs';
+import { maskHomePaths } from './local-path.mjs';
 
 export { ReportInputError };
 export {
@@ -185,8 +186,6 @@ const SECRET_PATTERNS = [
 const ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'ACCESS_KEY'];
 const SHORT_ASSIGNMENT_KEYWORDS = ['TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'API_KEY', 'APIKEY', 'ACCESS_KEY'];
 const SENSITIVE_FLAG_NAME = /^(token|access[-_]?token|auth[-_]?token|password|passwd|pass|secret|client[-_]?secret|api[-_]?key|apikey|auth|bearer)$/i;
-const WINDOWS_HOME = /[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/](?:[^\\/:\r\n\t"'<>;|?*]+(?=[\\/]|$|["';\r\n\t|?*<>]|:(?![\\/]))|[^\s\\/:"'<>;|?*]+)/gi;
-const UNIX_HOME = /\/(?:home|Users)\/[^/\s"'<>;]+/g;
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -302,7 +301,7 @@ function redactText(value, rules) {
   let output = value;
   for (const rule of rules) output = applyLiteral(output, rule);
   for (const pattern of SECRET_PATTERNS) output = output.replace(pattern, '[REDACTED]');
-  return redactSensitiveFlags(redactSecretAssignments(output)).replace(WINDOWS_HOME, '<homePath>').replace(UNIX_HOME, '<homePath>');
+  return maskHomePaths(redactSensitiveFlags(redactSecretAssignments(output)), '<homePath>');
 }
 
 function countOutcomes(checks) {

@@ -179,6 +179,66 @@ the same two codes. Messages name structural paths only, such as
 string budgets (300,000 nodes, 2 MiB of string data, 4096 items per array) are
 larger than the snapshot's; values beyond them are rejected, not truncated.
 
+### Privacy rule: no machine-local paths
+
+A claim set is portable: it must be safe to hand to another machine or person.
+`validateClaimSet`, `readClaimSet` and `projectClaims` therefore refuse a claim
+set in which any shared string field carries a machine-local path. The rule is
+semantic validation for claims 1.0.0 and 1.1.0; their wire format and JSON
+Schemas are unchanged, so a JSON Schema check alone does not apply it.
+
+A refusal is `INPUT_INVALID` with the message
+`<path>: local-path: <form> path is not portable`, for example
+`claimSet.claims[0].subject.id: local-path: windows-drive path is not portable`.
+The message names the field and the form, never the value; `readClaimSet` keeps
+the exact input in `original`. Validation stops at the first refused field.
+
+| Form | Recognized as |
+|---|---|
+| `posix-absolute` | A `/` beginning a token whose first segment is a well-known root (`/etc/hosts`, `/tmp`, `/usr/bin/node`, `/home`, `/Users`, `/Library` and similar), or whose segments have a path shape: a dot entry (`/x/.ssh`, `/.env`) or a final file name with an extension (`/data/app/config.json`). |
+| `windows-drive` | A drive root in either separator style (`C:\`, `d:/`). |
+| `unc` | A backslash UNC or device path (`\\server\share`, `\\?\C:\`). |
+| `home-relative` | `~/`, `~\` or `~user/` beginning a token. |
+| `file-url` | A `file:/` or `file://` URL, in any letter case. |
+| `home-directory` | Any other string the snapshot projection would mask as `<homePath>`, such as a `/home/<name>` or `/Users/<name>` segment inside a relative path or URL. |
+
+A token begins at the start of the string or after whitespace, a quote, an
+opening bracket, `>`, `|`, `-`, `=`, `,`, `;` or `:`. Repository-relative paths
+(`src/app.ts`, `./config.json`, `../shared/x`), package names (`@scope/name`),
+URNs and URLs with a scheme other than `file` (`https://…`, `ssh://…`) are not
+local and are accepted unless they contain a home segment such as `/home/<name>` or
+`/Users/<name>` (for example `src/Users/model.ts`), which the `home-directory` rule refuses; the body of such a URL is checked only by the
+`home-directory` rule. `file:` without a following `/` (`Config file: x`) is
+prose, not a URL.
+
+JSON Pointers and routes made of plain names are accepted (a route ending in a
+file name such as `/api/v1/users.json` is refused as a path): an absolute token whose segments are
+plain names or numbers and whose first segment is not a well-known root, such
+as `/claims/0/subject`, `/policy/selections/0` or `GET /api/v1/users`, is not a
+path. Core's own diagnostics name locations in that form, so refusing it would
+refuse ordinary claim text. The cost is that an absolute path with no file
+extension under an unlisted root (`/data/app/bin`) is not detected.
+
+Every string the snapshot projection masks as a home path is refused by
+construction: validation applies the same masking and refuses any string it
+would change. Forms that are not detected: forward-slash UNC paths and
+protocol-relative URLs (`//server/share`), environment-variable references
+(`$HOME/x`, `%USERPROFILE%\x`), the pointer-shaped paths above, and bare
+relative paths that happen to name a private directory.
+
+The rule applies to every caller-authored string: claim `id`, `revision`,
+`producer`, `recordSchema`, `subject`, `scope.targets`, `sources` and
+`authentication.evidence` record `id` and `schema`, `observation`, `measure`,
+`value.amount` (when a string) and `value.unit`, `unknownReason`, `method`,
+`authentication.verifier` and `.method`, `coverage.reason`,
+`applicability.reason` and `.inputs`; calculation request ids, references,
+check sets, subjects, operations, conditions and `inapplicable[].reason`; and
+action `id`, `reason`, `subjects`, `evidence`, `prerequisites` and `route.id`.
+Digests (`sha256`), instants and values matched against a fixed list (enums,
+`schema` and calculation `method`/`version`) are format-checked instead; their
+formats cannot hold a path. Replace a local path with a repository-relative path
+or an opaque identifier before sharing.
+
 ### Projection
 
 ```js
@@ -376,7 +436,7 @@ claims use `kind: 'unknown'` with `unknownReason` and no `value`. Keep one
 
 | Core result | Subject | Measure (= condition) | Passed | Failed | Unknown claim |
 |---|---|---|---|---|---|
-| `checkFileState` target (`file-state-result` 1.0.0) | Managed selection / target id | Adapter's file-state condition key | `match` | `changed`, `absent` | `unavailable` |
+| `checkFileState` target (`file-state-result` 1.0.0, 1.1.0) | Managed selection (1.1.0 `selectionIds`) / target id | Adapter's file-state condition key | `match` | `changed`, `absent` | `unavailable` |
 | `verifyNativeClient` (`native-verification-result` 1.0.0) | Client id (+ environment) | Adapter's native-use condition key | Verdict `verified` | Verdict `failed` | Verdict `unverified` |
 | `inspect` `checks[]` | The check `target` | The check `id` | `passed` | `failed` | `unavailable`, `skipped` |
 
@@ -426,8 +486,9 @@ does not verify signatures, resolve claim sources or evidence, or decide whether
 a producer was trusted. Calculations are explicit methods over the claims you
 select; the projection does not choose which claims are in scope. Text fields are
 copied as supplied: the snapshot redaction pipeline does not run on claims, so
-producers must not place secrets or machine-local paths in a claim set they
-intend to share.
+producers must not place secrets in a claim set they intend to share.
+Recognizable machine-local paths are refused (see the privacy rule above), but
+the forms that rule lists as undetected pass validation.
 
 ## Evidence limitations
 

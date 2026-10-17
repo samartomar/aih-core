@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { policy } from './fixture.mjs';
-import fileStateSchema from '../dist/core/schemas/file-state-result/1.0.0.json' with { type: 'json' };
+import fileStateSchema from '../dist/core/schemas/file-state-result/1.1.0.json' with { type: 'json' };
 
 const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
