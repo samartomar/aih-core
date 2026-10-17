@@ -2,10 +2,11 @@
 // The organization source is an acceptance-only stub (org-source.mjs): the example
 // never publishes an organization document; the administrator does, out of band.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { selectVerificationKeys, selectVerificationPublishers } from '@aihq/core/harness';
-import { parseOrganizationPolicy } from '@aihq/core/contracts';
+import { getGuidance } from '@aihq/core/support';
+import { parseOrganizationPolicy, validateOrganizationTarget } from '@aihq/core/contracts';
 import { authorOrganizationPolicy, deriveExecutionPolicy, reviewReport } from '../src/admin.js';
 import { requiredItems } from '../src/authoring.js';
 import { createHost } from '../src/host.js';
@@ -16,7 +17,7 @@ const rootItem = 'mattpocock.grill-me';
 const association = (scanId, file) => ({ schema: ASSOCIATION, scanId, location: { kind: 'file', path: resolve(file) } });
 const reasons = diagnostics => diagnostics.map(entry => entry.reason);
 
-export async function verifyAdministrator({ release, source, materialRoots }) {
+export async function verifyAdministrator({ release, source, materialRoots, operations }) {
   // 1. Review reports. Reading never authenticates.
   const production = await reviewReport(readFileSync('production.scan.json'));
   const display = await reviewReport(readFileSync('display.scan.json'));
@@ -78,7 +79,8 @@ export async function verifyAdministrator({ release, source, materialRoots }) {
   const controls = { evidence: { acquire: true, trust: { keys: keys.keys, publishers: publishers.publishers } } };
   const served = serveOrganization(organization.document);
   try {
-    const hostFor = projectRoot => createHost({ projectRoot, materialRoots, organizationSource: served.source, controls });
+    const hostFor = (projectRoot, organizationTarget) =>
+      createHost({ projectRoot, materialRoots, organizationSource: served.source, organizationTarget, controls });
     const target = join(process.cwd(), 'target-enterprise');
     mkdirSync(target);
     const host = hostFor(target);
@@ -122,7 +124,47 @@ export async function verifyAdministrator({ release, source, materialRoots }) {
     assert.equal(unsigned.status, 'ready', JSON.stringify(unsigned.diagnostics));
     assert.equal(unsigned.review.evidence[0].status, 'unverifiable');
 
+    // A declared organization target: Core evaluates obligations and emits prepared-work 1.5.0.
+    const organizationTarget = { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' };
+    assert.equal(validateOrganizationTarget(organizationTarget).valid, true);
+    const declaredTarget = join(process.cwd(), 'target-enterprise-declared');
+    mkdirSync(declaredTarget);
+    const targeted = hostFor(declaredTarget, organizationTarget);
+    const declared = await targeted.prepareSession({ policyText: JSON.stringify(derived.policy) });
+    assert.equal(declared.status, 'ready', JSON.stringify(declared.diagnostics));
+    assert.equal(declared.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
+    assert.deepEqual(declared.review.organizationObligations.target, { basis: 'declared', client: 'codex' });
+    const declaredRun = await targeted.applyApproved({ sessionId: declared.sessionId, reviewDigest: declared.review.reviewDigest });
+    assert.equal(declaredRun.completion, 'complete', JSON.stringify(declaredRun));
+    // Retained serializable results for the gate's portable-context guidance check.
+    writeFileSync('organization-prepared.json', JSON.stringify(declared));
+    writeFileSync('organization-run.json', JSON.stringify(declaredRun));
+    // The same declared-target Prepare over edited unowned content: a 1.5.0 review
+    // with conflicts, for which support guidance derives actions.
+    const editedTarget = join(process.cwd(), 'target-enterprise-edited');
+    const [edited] = declared.review.operations.filter(operation => operation.kind === 'file.write');
+    const editedFile = join(editedTarget, relative(declaredTarget, edited.details.target));
+    mkdirSync(dirname(editedFile), { recursive: true });
+    writeFileSync(editedFile, 'Locally edited content the review must not overwrite.\n');
+    const conflicted = await hostFor(editedTarget, organizationTarget).prepareSession({ policyText: JSON.stringify(derived.policy) });
+    assert.equal(conflicted.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
+    assert.notEqual(conflicted.status, 'ready', 'a conflict is not a clean preparation');
+    assert.ok(conflicted.review.operations.some(operation => operation.effects === 'conflict'));
+    const conflictGuidance = getGuidance({ kind: 'prepare', result: conflicted }, { platform: 'unknown' });
+    assert.equal(conflictGuidance.status, 'complete');
+    assert.ok(conflictGuidance.items.length > 0, 'a conflicted 1.5.0 preparation yields guidance');
+    assert.ok(conflictGuidance.items.every(item => item.evidenceIds.every(id => id.startsWith('/'))));
+    const organizationFamily = {
+      operationSelections: operations.verifyOperationSelections(derived.policy, declared),
+      guidance: operations.verifyGuidance({ prepared: declared, applied: declaredRun, expectReview: 'urn:aihq:core:prepared-work:1.5.0' }),
+      conflicted: { status: conflicted.status, review: conflicted.review.schema,
+        operationSelections: operations.verifyOperationSelections(derived.policy, conflicted),
+        guidance: conflictGuidance.items.map(item => ({ id: item.id, reason: item.reason, audience: item.audience, evidenceIds: item.evidenceIds })) },
+      obligations: declared.review.organizationObligations,
+    };
+
     return {
+      organizationFamily,
       organizationPolicyId: organization.document.id,
       recipeIdentities: organization.document.selections.map(selection => selection.recipeIdentity),
       evidence: { scanId: production.scanId, reviewAuthenticity: production.authenticity, coreStatus: associated.status,

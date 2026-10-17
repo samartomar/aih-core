@@ -15,8 +15,9 @@ The example:
    items are chosen explicitly and the returned dependency mapping is copied
    into the policy. Exported JSON reopens through Core's `parsePolicy`.
 2. **Prepares and applies through a UI-owned Node host.** The host module keeps
-   live prepared handles in the running process. The UI receives only a
-   serializable review plus an opaque session id, and approval is an explicit
+   live prepared handles in the running process. The UI receives only the
+   serializable preparation (review, `operationSelections`, record and
+   diagnostics) plus an opaque session id, and approval is an explicit
    decision naming the exact review digest. A lost or consumed session must be
    prepared and approved again. Review JSON is never deserialized back into
    executable work. Target and material roots are host-configured, never
@@ -48,7 +49,9 @@ The example:
   `@aihq/scan/read`; digests use WebCrypto).
 - `src/host.js` — UI-owned Node host (`@aihq/core`, optional
   `@aihq/catalog/node` acquisition by the caller, optional host-configured
-  `organizationSource`).
+  `organizationSource` and `organizationTarget`). `checkFiles` compares a
+  policy's declared file intent with the target through Core's read-only
+  `checkFileState`.
 - `src/server.js` — bounded loopback demo server (static page, catalog bytes,
   prepare/apply endpoints).
 - `browser/` — one-page UI (`page.html`, `app.js`).
@@ -178,6 +181,51 @@ value must satisfy the recipe input definition, and a sensitive input can only b
 permitted with `allowDeclared` (an unnamed sensitive input is incomplete even with a
 default). Sensitive inputs are not exercised by the shipped Catalog items, so those
 branches are covered by Core's own tests rather than this example's.
+
+## Cross-package operations
+
+The artifact gate also exercises, through installed public exports only, the
+operations a consumer uses instead of re-implementing product rules
+(`scripts/public-consumer/operations.mjs` and `portable-operations.mjs`, copied
+to `acceptance/` by the gate):
+
+- **Core.** `operationSelections` on every policy Prepare names each review
+  operation's selection and recipe operation; a fresh Prepare after Apply shows
+  each kind `recipeOperationKinds` marks `observable` as `already-satisfied`.
+  `checkFileState` results (`file-state-result` 1.1.0) carry `selectionIds`
+  index-aligned with `operationIds`, before (`changed`) and after (`match`)
+  Apply. Support guidance (`getGuidance`, `renderSupportMarkdown`) reads a
+  Vibe Prepare/run, an Enterprise Prepare with a declared `organizationTarget`
+  (`prepared-work` 1.5.0) and its run, and a conflicted 1.5.0 Prepare; an
+  unknown review generation is unsupported. Harness `targets[].executables`
+  map each command (for example `npx`) to one target. `validateClaimSet` and
+  `readClaimSet` refuse machine-local paths by form and pointer without echoing
+  the value.
+- **Catalog.** `releaseInventory` names each exported release document, read with
+  its declared schema. `compareReleases` compares the baseline artifact's default
+  release with the current one, and its facts must match the item identities each
+  reader reports. `resolveSelections` returns the required closure,
+  `ITEM_UNAVAILABLE` for a request entry (no `declaredBy`), `RELEASE_UNAVAILABLE`
+  for an unsupplied cross-release requirement and `ITEM_CONFLICT` (both with
+  `reference` and `declaredBy`) for a synthetic release whose bytes add one
+  conflict declaration.
+- **Scan.** `readContentCoverage` matches the exact captured descriptors of the
+  retained production artifact and the generated display artifact, reports an
+  altered digest as `mismatched` with its path, and counts observations excluded
+  from coverage. The root `@aihq/scan` entry's operation groups each carry their
+  own status and replacement entry.
+- **Declarations.** Each installed `contractSupport` is validated against Core's
+  installed `@aihq/core/schemas/package-support/1.0.0.json`; Core, Harness and the
+  current Catalog must conform, and any other result is recorded under
+  `findings` in `acceptance.json`.
+- **Portability and types.** Every entry a declaration marks `portable` is
+  bundled and loaded with browser globals only, and the current install runs the
+  newer Catalog, Scan and support operations in that context. The public types
+  used are compiled with strict TypeScript.
+
+Operations the baseline Catalog artifact predates run in the current install
+only. If both Catalog artifacts carry the same default release bytes, the record
+says so as a finding instead of claiming a content change.
 
 ## Boundaries
 

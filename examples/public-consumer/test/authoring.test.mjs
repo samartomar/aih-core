@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getItem } from '@aihq/catalog/reader';
+import { contractSupport as coreSupport } from '@aihq/core/contracts';
 import { installedRelease } from './helpers.mjs';
 import {
   authorPolicy, catalogItems, exportPolicy, policyOrigins, reopenPolicy, requiredItems
@@ -96,7 +97,7 @@ test('reopening an unsupported policy generation reports encountered and support
   const diagnostic = reopened.diagnostics.find(entry => entry.code === 'SCHEMA_UNSUPPORTED');
   assert.ok(diagnostic, JSON.stringify(reopened.diagnostics));
   assert.equal(diagnostic.encountered, 'urn:aihq:core:execution-policy:9.9.9');
-  assert.deepEqual(diagnostic.supported, [
-    'urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0'
-  ]);
+  assert.deepEqual(diagnostic.supported, coreSupport.contracts
+    .filter(contract => contract.id.startsWith('urn:aihq:core:execution-policy:') && contract.role !== 'produces')
+    .map(contract => contract.id));
 });

@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readInstalledRelease } from '@aihq/catalog/node';
+import { contractSupport as coreSupport } from '@aihq/core/contracts';
 import { authorPolicy, catalogItems, exportPolicy, policyOrigins, reopenPolicy, requiredItems } from '../src/authoring.js';
 import { createHost } from '../src/host.js';
 import { verifyAdministrator } from './admin-walkthrough.mjs';
@@ -42,14 +43,18 @@ const unsupported = reopenPolicy(JSON.stringify({ ...authored.policy, schema: 'u
 assert.equal(unsupported.valid, false);
 const diagnostic = unsupported.diagnostics.find(entry => entry.code === 'SCHEMA_UNSUPPORTED');
 assert.equal(diagnostic.encountered, 'urn:aihq:core:execution-policy:99.0.0');
-assert.deepEqual(diagnostic.supported, [
-  'urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0'
-]);
+assert.deepEqual(diagnostic.supported, coreSupport.contracts
+  .filter(contract => contract.id.startsWith('urn:aihq:core:execution-policy:') && contract.role !== 'produces')
+  .map(contract => contract.id));
+
+// Operations added after the baseline Catalog artifact are checked in the current install only.
+const operations = variant === 'current' ? await import('./operations.mjs') : undefined;
 
 async function execute(policyText, name) {
   const projectRoot = join(process.cwd(), name);
   mkdirSync(projectRoot);
   const host = createHost({ projectRoot, materialRoots });
+  const before = operations && await host.checkFiles({ policyText });
   const prepared = await host.prepareSession({ policyText });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   assert.equal(Object.hasOwn(prepared, 'prepared'), false);
@@ -73,16 +78,53 @@ async function execute(policyText, name) {
   assert.equal(replay.status, 'lost');
   const restarted = createHost({ projectRoot, materialRoots });
   assert.equal((await restarted.applyApproved({ sessionId: prepared.sessionId, reviewDigest: roundTripReview.reviewDigest, origin: 'interactive' })).status, 'lost');
-  return { completion: applied.completion, origins: prepared.review.effectiveOptions.inputs,
+  const result = { completion: applied.completion, origins: prepared.review.effectiveOptions.inputs,
     files, wrongDigestRejected: true, replayRequiresPrepare: true, reviewJsonCannotRestoreHandle: true };
+  if (operations) {
+    const policy = JSON.parse(policyText);
+    result.operationSelections = operations.verifyOperationSelections(policy, prepared);
+    // A fresh Prepare after Apply establishes observable effects as already satisfied.
+    const again = await restarted.prepareSession({ policyText });
+    assert.equal(again.status, 'ready', JSON.stringify(again.diagnostics));
+    const observable = again.review.operations.filter(operation =>
+      Object.values(operations.recipeOperationKinds).flat().some(record => record.kind === operation.kind && record.effects === 'observable'));
+    assert.ok(observable.length > 0 && observable.every(operation => operation.effects === 'already-satisfied'));
+    result.freshPrepare = operations.verifyOperationSelections(policy, again);
+    result.fileState = {
+      before: operations.verifyFileState(before, prepared.operationSelections, 'changed'),
+      after: operations.verifyFileState(await host.checkFiles({ policyText }), prepared.operationSelections, 'match'),
+    };
+    result.guidance = operations.verifyGuidance({ prepared, applied, expectReview: prepared.review.schema });
+  }
+  return result;
 }
 const common = await execute(text, 'target-skills');
 assert.equal(common.origins['chosen/agentDirectory'].origin, 'explicit');
 assert.equal(common.origins['required/agentDirectory'].origin, 'default');
 const result = { variant, itemCount: items.length, releaseSha256: release.sha256, common,
-  unsupported: { encountered: diagnostic.encountered, supported: diagnostic.supported } };
+  unsupported: { encountered: diagnostic.encountered, supported: diagnostic.supported },
+  releaseExport: fileURLToPath(import.meta.resolve('@aihq/catalog/release.json')) };
 if (variant === 'current') {
   assert.ok(items.some(item => item.id === 'aihq.project-context'));
+  // The baseline artifact's default release, read by this install's reader.
+  const baseline = operations.openReleaseBytes(readFileSync(process.env.BASELINE_RELEASE));
+  const releaseBytes = readFileSync(result.releaseExport);
+  const ecc = operations.openReleaseBytes(readFileSync(fileURLToPath(import.meta.resolve('@aihq/catalog/release-ecc.json'))));
+  const crossReleaseItem = ecc.items.find(item => item.dependencies.requires.some(ref => 'release' in ref));
+  assert.ok(crossReleaseItem, 'the shipped ECC release carries a cross-release requirement');
+  result.core = {
+    operationKinds: operations.verifyOperationKinds(release),
+    targetExecutables: operations.verifyTargetExecutables(),
+    claimSetPaths: operations.verifyClaimSetPaths(),
+  };
+  result.catalog = {
+    inventory: operations.verifyReleaseInventory(),
+    compare: operations.verifyCompareReleases(baseline, release),
+    resolve: operations.verifyResolveSelections({ release, rootItem,
+      crossRelease: { release: ecc, itemId: crossReleaseItem.id },
+      conflict: { bytes: releaseBytes, with: 'aihq.project-context' } }),
+  };
+  assert.deepEqual([...result.catalog.resolve.closure].sort(), [...closure.itemIds].sort());
   const added = authorPolicy({ release, mode: 'vibe', materialSource: source, selections: [
     { id: 'new-content', managementId: 'consumer-project-context', scope: 'project', itemId: 'aihq.project-context', configuration: {} },
   ] });
@@ -90,8 +132,10 @@ if (variant === 'current') {
   result.addedContent = await execute(exportPolicy(added.policy), 'target-context');
   assert.ok(result.addedContent.files.some(file => file.path.endsWith('RULE_ROUTER.md')));
   result.reports = await verifyReports();
-  result.administrator = await verifyAdministrator({ release, source, materialRoots });
-} else {
-  assert.equal(items.some(item => item.id === 'aihq.project-context'), false);
+  result.scan = {
+    contentCoverage: await operations.verifyContentCoverage(['production.scan.json', 'display.scan.json']),
+    supportGroups: operations.verifyScanSupportGroups(),
+  };
+  result.administrator = await verifyAdministrator({ release, source, materialRoots, operations });
 }
 console.log(JSON.stringify(result));
