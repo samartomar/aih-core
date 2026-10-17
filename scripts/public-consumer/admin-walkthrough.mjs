@@ -157,7 +157,23 @@ export async function verifyAdministrator({ release, source, materialRoots, oper
     assert.deepEqual(derivedItems[0], { id: 'result-status', reason: conflicted.status, evidenceIds: ['/status'] });
     assert.ok(derivedItems.some(item => item.id === 'diagnostic-review' && item.reason === 'conflict' &&
       item.evidenceIds.length === 1 && item.evidenceIds[0] === `/review/operations/${conflictIndex}`), JSON.stringify(derivedItems));
-    assert.ok(conflictGuidance.items.every(item => item.audience === 'developer' && item.steps.length > 0));
+    // Core's own existing-content conflict gets specific guidance: a developer
+    // content-conflict item and, for an Enterprise review, an administrator decision.
+    assert.equal(derivedItems.some(item => item.reason === 'unrecognized-diagnostic'), false, JSON.stringify(derivedItems));
+    const existing = [...conflicted.diagnostics.map((entry, index) => [entry, `/diagnostics/${index}`]),
+      ...conflicted.review.conflicts.map((entry, index) => [entry, `/review/conflicts/${index}`])]
+      .filter(([entry]) => entry.code === 'STATE_CONFLICT' && entry.reason === 'existing-content').map(([, pointer]) => pointer).sort();
+    assert.ok(existing.length > 0);
+    const evidenceOf = (id, audience) => conflictGuidance.items.filter(item => item.id === id).map(item => {
+      assert.equal(item.audience, audience, id);
+      assert.equal(item.reason, 'existing-content', id);
+      assert.ok(item.steps.length > 0, id);
+      return item.evidenceIds;
+    }).flat().sort();
+    assert.deepEqual(evidenceOf('content-conflict', 'developer'), existing);
+    assert.deepEqual(evidenceOf('managed-content-decision', 'administrator'), existing);
+    const audiences = conflictGuidance.items.map(item => item.audience);
+    assert.deepEqual(audiences, [...audiences].sort((a, b) => (a === b ? 0 : a === 'developer' ? -1 : 1)), 'developer actions precede administrator actions');
     const organizationFamily = {
       operationSelections: operations.verifyOperationSelections(derived.policy, declared),
       guidance: operations.verifyGuidance({ prepared: declared, applied: declaredRun, expectReview: 'urn:aihq:core:prepared-work:1.5.0' }),

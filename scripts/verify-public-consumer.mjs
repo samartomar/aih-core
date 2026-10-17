@@ -26,23 +26,12 @@ const source = fileURLToPath(new URL('../', import.meta.url));
 // the exact decisive error set. Any other deviation, or an entry no install
 // matches, fails the gate.
 const EXPECTED_DEVIATIONS = [
-  { package: { name: '@aihq/scan', version: '0.5.0' }, owner: 'samartomar/aih-scan#110',
-    reason: 'Entries carry status/operations fields the package-support 1.0.0 schema does not admit.',
-    errors: SCAN_ERRORS() },
   { package: { name: '@aihq/catalog', version: '0.1.0' }, owner: 'samartomar/aih-catalog#99',
     reason: 'The older baseline predates the producer-declaration role fix (consumes to accepts).',
     variants: ['baseline'], errors: [
       '/contracts/8/role must be equal to one of the allowed values (accepts|produces|both)',
       '/contracts/9/role must be equal to one of the allowed values (accepts|produces|both)'] },
 ];
-function SCAN_ERRORS() {
-  return [
-    '/entries/0 must NOT have additional properties (status)',
-    '/entries/1 must NOT have additional properties (status)',
-    '/entries/2 must NOT have additional properties (status)',
-    '/entries/3 must NOT have additional properties (status)',
-    '/entries/3 must NOT have additional properties (operations)'];
-}
 // Portable entries every install must declare and load without host globals.
 const REQUIRED_PORTABLE = ['@aihq/core/contracts', '@aihq/core/harness', '@aihq/core/support', '@aihq/core/report',
   '@aihq/catalog/contracts', '@aihq/catalog/reader', '@aihq/scan/contracts', '@aihq/scan/read'];
@@ -96,6 +85,8 @@ const CURRENT_TYPES = `
         const result: ReadContentCoverageResult = await readContentCoverage({ read, descriptors });
         return result.status === 'mismatched' ? result.unmatchedPaths : [];
       }
+      import {entrySupport} from '@aihq/scan/contracts';
+      export const rootGroups = entrySupport.entries.find(entry => entry.export === '@aihq/scan')?.groups?.map(group => [group.group, group.status]);
       const catalogRole: 'accepts'|'produces'|'both' = catalog.contracts[0]!.role;
       void catalogRole;
 `;

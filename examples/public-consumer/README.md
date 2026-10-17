@@ -203,8 +203,11 @@ to `acceptance/` by the gate):
   (policy 1.0), 1.1.0 (policy 1.1), 1.4.0 (policies 1.2 and 1.3) and 1.5.0 (an
   Enterprise Prepare with a declared `organizationTarget`), and `run-result`
   1.0.0 and 1.1.0. A clean ready Prepare and a complete run derive no actions. A
-  conflicted 1.5.0 Prepare derives the partial status and the conflicted
-  operation's review item. A current-format result missing a required field is
+  conflicted 1.5.0 Prepare over edited unowned content derives the partial
+  status, the conflicted operation's review item, a developer
+  `content-conflict` item for each `existing-content` conflict and, because the
+  review is Enterprise, an administrator `managed-content-decision` item for each
+  as well. None is an unrecognized diagnostic. A current-format result missing a required field is
   `INPUT_INVALID`, and an unknown review generation is `SCHEMA_UNSUPPORTED`. The
   trust families (`prepared-work`/`run-result` 1.2.0) and macOS session families
   (1.3.0) need native trust or macOS session setup. They are not exercised, and
@@ -224,8 +227,8 @@ to `acceptance/` by the gate):
 - **Scan.** `readContentCoverage` matches the exact captured descriptors of the
   retained production artifact and the generated display artifact. It reports an
   altered digest as `mismatched` with its path and counts observations excluded
-  from coverage. Entry statuses are read from `entrySupport` when the installed
-  Scan exports it, otherwise from the older `contractSupport` entries. Non-root
+  from coverage. Entry statuses are read from the sibling `entrySupport` export,
+  which must cover exactly the entries `contractSupport` declares. Non-root
   entries are `current`. Each root `@aihq/scan` group is `compatibility-only` or
   `deprecated`, owns its exports and names a declared replacement entry or none.
   The root status matches its least-retired group.

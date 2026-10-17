@@ -10,8 +10,7 @@ import { CLAIMS_SCHEMA, readClaimSet, validateClaimSet } from '@aihq/core/report
 import { getGuidance, renderSupportMarkdown } from '@aihq/core/support';
 import { releaseInventory } from '@aihq/catalog/contracts';
 import { compareReleases, listItems, readRelease, resolveSelections } from '@aihq/catalog/reader';
-// Namespace import: `entrySupport` exists only in Scan builds that moved entry status out of contractSupport.
-import * as scanContracts from '@aihq/scan/contracts';
+import { contractSupport as scanSupport, entrySupport } from '@aihq/scan/contracts';
 import { readArtifact, readContentCoverage } from '@aihq/scan/read';
 
 export { recipeOperationKinds };
@@ -317,19 +316,12 @@ export async function verifyContentCoverage(files) {
 
 /** The root entry's compatibility groups each carry their own status and replacement entry. */
 export function verifyScanSupportGroups() {
-  const { contractSupport: scanSupport, entrySupport } = scanContracts;
-  // Current shape: a sibling `entrySupport` ({package, entries:[{export, status, groups?}]}).
-  // Older shape (allowlisted package-support deviation): status and root `operations`
-  // carried on contractSupport entries.
-  const source = entrySupport !== undefined ? 'entrySupport' : 'contractSupport';
-  const statusEntries = entrySupport !== undefined
-    ? entrySupport.entries.map(entry => ({ export: entry.export, status: entry.status, groups: entry.groups }))
-    : scanSupport.entries.map(entry => ({ export: entry.export, status: entry.status, groups: entry.operations }));
-  if (entrySupport !== undefined) {
-    assert.deepEqual({ ...entrySupport.package }, { ...scanSupport.package });
-    assert.deepEqual(statusEntries.map(entry => entry.export).sort(), scanSupport.entries.map(entry => entry.export).sort(),
-      'entrySupport covers exactly the declared entries');
-  }
+  // Per-entry status and root groups live in `entrySupport`, beside the
+  // schema-exact `contractSupport`, and cover exactly its declared entries.
+  assert.deepEqual({ ...entrySupport.package }, { ...scanSupport.package });
+  const statusEntries = entrySupport.entries;
+  assert.deepEqual(statusEntries.map(entry => entry.export).sort(), scanSupport.entries.map(entry => entry.export).sort(),
+    'entrySupport covers exactly the declared entries');
   const root = statusEntries.find(entry => entry.export === '@aihq/scan');
   assert.ok(root, 'Scan declares its root entry');
   assert.ok(Array.isArray(root.groups) && root.groups.length > 0);
@@ -350,7 +342,7 @@ export function verifyScanSupportGroups() {
   assert.equal(new Set(rootExports).size, rootExports.length, 'each root export belongs to one group');
   // The root entry is as current as its least-retired group.
   assert.equal(ranks[root.status], Math.min(...root.groups.map(group => ranks[group.status])));
-  return { source, root: { export: root.export, status: root.status },
+  return { root: { export: root.export, status: root.status },
     groups: root.groups.map(group => ({ group: group.group, status: group.status, use: group.use, exports: group.exports.length })),
     entries: statusEntries.map(entry => ({ export: entry.export, status: entry.status })) };
 }
