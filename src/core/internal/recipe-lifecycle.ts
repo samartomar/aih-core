@@ -30,8 +30,8 @@ export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTab
   if (member.kind === 'entry') {
     if (bytes === null) return { bytes: null };
     const removed = renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
-    const table = member.format === 'toml' && tomlTable ? tomlTableOf(member.entry) : undefined;
-    return table ? removeCreatedTomlTable(removed, table.segments, tomlTable!) : { bytes: removed };
+    const table = member.format === 'toml' ? tomlTableOf(member.entry) : undefined;
+    return table && tomlTable ? removeCreatedTomlTable(removed, table.segments, tomlTable) : { bytes: removed };
   }
   return { bytes: renderTextBlock(bytes, { ...member, action: 'remove' }) };
 }

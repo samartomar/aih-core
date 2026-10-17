@@ -866,6 +866,8 @@ removal restores the original bytes. A table that existed before setup, or that 
 a key or comment someone else added (a kept trailing comment included), keeps its
 header; tables created before this record existed keep theirs. When that line break
 is left in front of another table Core created, the record moves to that table.
+Lines a client inserts before a final created header can cost one line break on
+removal.
 Custody and drift cover the exact value bytes, including whitespace and comments
 inside an array. Other content is only scanned, never rewritten: multi-line arrays
 and strings, inline tables, dates and other values may appear anywhere in the file.

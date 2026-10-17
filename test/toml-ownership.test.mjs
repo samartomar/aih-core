@@ -320,6 +320,36 @@ test('a recipe that removes its keys passes the added line break to the table th
   } finally { s.dispose(); }
 });
 
+test('one authored removal of several tables keeps the inherited line break, whatever the entry order', async () => {
+  for (const original of ['a = 1', 'a = 1\r\nb = 2']) {
+    for (const order of [[['t', 'x'], ['u', 'y']], [['u', 'y'], ['t', 'x']]]) {
+      const s = sandbox('aih-toml-authored-batch-');
+      try {
+        s.write('config.toml', original);
+        await install(s, entriesDocument('one', [[['t', 'x'], 1], [['u', 'y'], 2]]));
+        assert.deepEqual(recordsOf(s), ['created-after-newline', 'created']);
+        await install(s, removeDocument('one', order));
+        assert.equal(s.read('config.toml'), original, JSON.stringify([original, order]));
+        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+        assert.deepEqual(Object.keys(JSON.parse(readFileSync(receiptOf(s))).members), [], 'no stale owner remains');
+      } finally { s.dispose(); }
+    }
+  }
+});
+
+test('an inherited line break does not stop cleanup of a member the next recipe version omits', async () => {
+  for (const original of ['a = 1', 'a = 1\n', 'a = 1\r\nb = 2', 'a = 1\r\n']) {
+    const s = sandbox('aih-toml-omitted-');
+    try {
+      s.write('config.toml', original);
+      await install(s, entriesDocument('one', [[['t', 'x'], 1], [['u', 'y'], 2]]));
+      await install(s, removeDocument('one', [['t', 'x']]));
+      assert.equal(s.read('config.toml'), original, JSON.stringify(original));
+      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    } finally { s.dispose(); }
+  }
+});
+
 test('ownership validation requires 1.3.0 for a non-bare TOML entry segment', async () => {
   const { validateOwnership, sealOwnership } = await import('../dist/core/internal/state.js');
   const { memberKey } = await import('../dist/core/internal/recipe-lifecycle.js');

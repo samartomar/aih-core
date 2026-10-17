@@ -44,6 +44,8 @@ interface PreparedStep {
   managementId: string; recipeIdentity: string; checks: PreparedCheck[];
   process?: PreparedProcess; unavailable?: string; resolution?: 'replace' | 'adopt';
   custody?: Record<string, Owner | null>; custodyOnly?: boolean; lifecycle?: boolean;
+  /** Custody keys the step only updates to hand over a removed TOML header's line break; it does not author or supply them. */
+  inherited?: string[];
   /** Keyed resolution address of an authored operation; generated lifecycle cleanup has none. */
   authored?: { selectionId: string; operationId: string; overlayKey?: string; choices: ('replace' | 'adopt')[] };
 }
@@ -463,6 +465,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let editConflict: string | undefined; let createdTables: Map<string, TomlTableCustody> | undefined; const tomlHeirs: string[] = [];
+        // Custody keys that only record an inherited line break; the operation does not author them.
+        let inherited: string[] | undefined;
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
         // Reviewed choices that would change this conflict or acquire identical unowned content.
         const choices: ('replace' | 'adopt')[] = []; let overlayKey: string | undefined;
@@ -557,13 +561,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               if (op.format === 'toml') {
                 createdTables = created;
                 // A key this recipe now removes takes the header Core created with it once nothing else is in the table.
+                // A table that receives a removed header's line break takes it from then on, for later removals in this operation.
+                const heirRecords = new Map<string, TomlTableCustody>();
                 for (const entry of entries) {
                   const table = entry.action === 'remove' ? tomlTableOf(entry.path) : undefined;
                   const recorded = table && projected.members[memberKey({ path: path!, kind: 'entry', format: 'toml', entry: entry.path })]?.tomlTable;
                   if (!table || !recorded) continue;
-                  const released = removeCreatedTomlTable(after, table.segments, recorded);
+                  const released = removeCreatedTomlTable(after, table.segments, heirRecords.get(table.key) ?? recorded);
                   after = released.bytes;
-                  if (released.heir) tomlHeirs.push(released.heir);
+                  if (released.heir) { tomlHeirs.push(released.heir); heirRecords.set(released.heir, 'created-after-newline'); }
                 }
               }
             }
@@ -595,8 +601,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
-            if (tomlHeirs.length) Object.assign(custody, inheritTomlBreak({ ...projected.members,
-              ...Object.fromEntries(Object.entries(custody).filter((item): item is [string, Owner] => item[1] !== null)) }, path!, tomlHeirs));
+            if (tomlHeirs.length) {
+              // Only owners this step leaves in place inherit; one it deletes (null custody) stays deleted.
+              const authored = custody;
+              const surviving = Object.fromEntries(Object.entries({ ...projected.members, ...authored }).filter((item): item is [string, Owner] => item[1] !== null));
+              const update = inheritTomlBreak(surviving, path!, tomlHeirs);
+              inherited = Object.keys(update).filter(key => !Object.hasOwn(authored, key));
+              Object.assign(authored, update);
+            }
           } catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
           if (custody && owner && !owner.descriptor && managed && !descriptors.some(member => memberKey(member) === ownerKey)) custody[ownerKey!] = null;
           const currentDigest = before === null ? null : sha256(before);
@@ -660,7 +672,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
             effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
           steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
-            recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly,
+            recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly, inherited,
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices } });
         }
       }
@@ -750,14 +762,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         // An earlier removal may have handed this table the line break Core added: read the projected record, not the stored one.
         const live = projectedMembers(root)[key];
         if (live && live.tomlTable !== storedOwner.tomlTable) {
-          owner = { ...storedOwner, tomlTable: live.tomlTable! };
-          if (!live.tomlTable) delete owner.tomlTable;
+          const { tomlTable: _stored, ...rest } = storedOwner;
+          owner = { ...rest, ...(live.tomlTable ? { tomlTable: live.tomlTable } : {}) };
         }
       }
       const claims = owner.claims ?? [];
       const obsolete = (claim: Claim) => {
         const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root));
-        return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => !step.lifecycle && step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key));
+        return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key) && !step.inherited?.includes(key));
       };
       const removed = claims.filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)) || obsolete(claim));
       if (!removed.length) continue;
@@ -811,6 +823,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const removedIds = removed.map(claim => claimId(claim, root));
       const retainingAncestors = new Set(removedIds.flatMap(id => [...ancestors(id)]));
       const droppedDependencyGuards = policy.selections.flatMap(selection => retainingAncestors.has(claimId(selection)) ? selectionOps.get(selection.id) ?? [] : []);
+      const inheritance = heir ? inheritTomlBreak(projectedMembers(root), descriptor.path, [heir]) : undefined;
       let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
       steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
         scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: hookDecision?.reason ?? 'explicit-managed-removal',
@@ -818,8 +831,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) } },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true,
-        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null,
-          ...(heir ? inheritTomlBreak(projectedMembers(root), descriptor.path, [heir]) : {}) },
+        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
+        ...(inheritance ? { inherited: Object.keys(inheritance) } : {}),
         custodyOnly: hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
       if (hookDecision && !matching) hookConflicts.set(`${root}:${key}`, id);
       removedIdentities.set(steps.at(-1)!, removedIds);
