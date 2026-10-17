@@ -99,3 +99,23 @@ test('invalid policy text prepares nothing and carries diagnostics', async () =>
   assert.equal('sessionId' in prepared, false);
   assert.ok(prepared.diagnostics.length > 0);
 });
+
+test('prepare exposes serializable operationSelections and the host checks file state read-only', async () => {
+  const project = disposableProject();
+  const host = createHost({ projectRoot: project });
+  const before = await host.checkFiles({ policyText: inlinePolicy });
+  assert.equal(before.schema, 'urn:aihq:core:file-state-result:1.1.0');
+  assert.equal(before.fileState, 'changed');
+  assert.deepEqual(before.targets.map(target => target.selectionIds), [['guidance']]);
+  const prepared = await host.prepareSession({ policyText: inlinePolicy });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.equal(typeof prepared.runId, 'string');
+  assert.deepEqual(prepared.operationSelections, [{ id: 'guidance/write', selectionId: 'guidance', operationId: 'write' }]);
+  assert.equal(JSON.stringify(prepared.review).includes('operationSelections'), false);
+  const applied = await host.applyApproved({ sessionId: prepared.sessionId, reviewDigest: prepared.review.reviewDigest });
+  assert.equal(applied.completion, 'complete', JSON.stringify(applied.diagnostics));
+  const after = await host.checkFiles({ policyText: inlinePolicy });
+  assert.equal(after.fileState, 'match');
+  assert.deepEqual(after.targets.map(target => [target.operationIds, target.selectionIds]), [[['guidance/write'], ['guidance']]]);
+  assert.equal((await host.checkFiles({ policyText: '{broken' })).status, 'invalid');
+});

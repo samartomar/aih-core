@@ -1341,8 +1341,17 @@ npm run verify:public-consumer -- --core /artifacts/core.tgz --catalog /artifact
 The output directory must not exist. The gate retains both isolated installs,
 artifact SHA-256 identities, logs, browser bundles and `acceptance.json`. It
 compares the same example against two compatible Catalog artifacts, validates
-the installed declarations and schema exports, and generates unsigned synthetic
-partial reports for display checks. The retained signed production artifact is
+the installed declarations against Core's package-support schema and their
+schema exports, and generates unsigned synthetic partial reports for display
+checks. It also exercises policy `operationSelections`, `recipeOperationKinds`,
+file-state 1.1 `selectionIds`, and support guidance on every review and run
+family a policy Prepare produces. The trust and macOS families need native setup
+and are listed as not exercised. It covers Harness target `executables`,
+claim-set path refusal, Catalog `releaseInventory`/`compareReleases`/
+`resolveSelections` detail and Scan `readContentCoverage`, and runs the portable
+ones with browser globals only. The baseline Catalog must lack content the
+current one adds. A declaration deviation passes only when it exactly matches an
+expected entry with an owning issue. The retained signed production artifact is
 checked separately using independently selected bundled trust. Neither a report
 view nor successful authentication authorizes installation. The example is
 source-only and excluded from the Core npm artifact.
