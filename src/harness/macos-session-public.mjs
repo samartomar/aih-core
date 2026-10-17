@@ -2,7 +2,6 @@
 import { isProxy } from 'node:util/types';
 import { snapshotNativeData } from './native/canonical.mjs';
 import * as helpers from './macos-session.mjs';
-export const { macosSessionBudgets, macosSessionTrustKeys } = helpers;
 
 function controlsSnapshot(value) {
   if (!value || typeof value !== 'object' || isProxy(value) ||

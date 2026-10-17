@@ -1,10 +1,19 @@
-export type * from './types.js';
+// Explicit type exports: each name appears in a request, control or result of an operation exported here.
+// Portable document types, validators and their schema identities belong to '@aihq/core/contracts'.
+export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, OperationBase, FileOperation, ConfigEntrySet,
+  ConfigEntryRemove, ConfigOperation, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
+  HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
+  InlineMaterial, MaterialRecipeReference, Prerequisite, Recipe, Selection, ExecutionPolicy, OrganizationTargetFact,
+  OrganizationTargetDeclaration, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
+  OrganizationFulfillmentResult } from './types.js';
 export { verifyNativeClient } from './native-verification.js';
 export type { NativeVerificationControls } from './native-verification.js';
 export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
   NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
   NativeVerificationResult } from './native-contracts.js';
-export type * from './host-types.js';
+export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effective, RecordStatus, ReviewOperation,
+  HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
+  ResolutionInput, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource } from './host-types.js';
 export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
   AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
@@ -14,9 +23,17 @@ import { prepareTrust, applyTrust, isTrustHandle } from './trust.js';
 import { prepareMacosSession, applyMacosSession, isMacosSessionHandle } from './macos-session.js';
 import type { MacosRepairRequest } from './macos-session-contracts.js';
 export { verifyMacosSession } from './macos-session.js';
-export type * from './macos-session-contracts.js';
+export type { MacosSessionClientId, MacosSessionContext, MacosSessionLaunch, MacosSessionApplication, MacosSessionSelection,
+  MacosRepairRequest, MacosSessionState, MacosSessionApplicationReview, MacosSessionEffect, MacosSessionReview,
+  MacosSessionConfiguration, MacosSessionVerification, MacosSessionApplicationRun, MacosSessionRun,
+  MacosSessionVerificationRequest, MacosSessionObservation, MacosSessionCheck, MacosSessionRecordStatus,
+  MacosSessionVerificationResult } from './macos-session-contracts.js';
 import type { TrustRepairRequest, CertificateExportRequest } from './trust-contracts.js';
-export type * from './trust-contracts.js';
+export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwork, TrustSourceKind, TrustCompleteness,
+  TrustSourceScope, TrustProjection, TrustOutputFormat, TrustOutputEffect, TrustCertificateDisposition, SuppliedTrustSource,
+  TrustSources, TrustResolution, TrustRepairStep, TrustRepairRequest, CertificateExportRequest, TrustSourceAdapter,
+  TrustSourceReview, TrustTargetClient, TrustTargetPolicy, TrustSecondarySource, TrustTargetVerification, TrustTargetReview,
+  CertificateReview, TrustOutputReview, TrustInputs, TrustRunOutput, TrustRunTarget, TrustRunTrust } from './trust-contracts.js';
 import type { Authorization, HostControls, PolicyRequest, PreparedHandle } from './host-types.js';
 import { isProxy } from 'node:util/types';
 export type { RepairRequest } from './repair.js';
@@ -38,7 +55,8 @@ export { writeSupportReport } from './support-report.js';
 export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
 
 export { checkFileState } from './file-state.js';
-export type * from './file-state-types.js';
+export type { FileStateRequest, FileStateControls, FileStateStatus, FileStateOutcome, FileStateTargetPath, FileStateTarget,
+  FileStateCheck, FileStateOmission, FileStateResult } from './file-state-types.js';
 export { listManagedSelections } from './managed-inventory.js';
 export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventoryResult,
   ManagedInventorySelection } from './managed-inventory.js';

@@ -92,7 +92,10 @@ export declare function assessRepairObservations(request: { id: string; managedP
   observations: { id: string; output: string }[] }):
   { id: string; operationId: string; raw: string; expectedRaw: string; conflict: boolean;
     observedValue: string | null; reason: string }[];
-export * from './trust.mjs';
+export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,
+  canonicalTrustJson, detectTrustPlatform, verifyTrustAdmissionEvidence, getTrustFileIntegration } from './trust.mjs';
+export type { TrustSourceKind, TrustAdapterIdentity, TrustSourceReview, TrustDiscoveryDiagnostic, TrustCertificateFact,
+  TrustDiscovery, SuppliedSnapshot, ParsedCertificate, CertificateReview } from './trust.mjs';
 export declare function getTrustRecipe(recipeRef: string, bindings?: { materialId: string; materialPath: string;
   outputSegments: readonly string[]; sha256: string; byteLength: number }):
   { status: 'recipe'; recipe: object } | { status: 'unavailable'; code: 'PREREQUISITE_UNAVAILABLE'; reason: 'native-route-unsupported' } |
@@ -117,8 +120,8 @@ export type ReadGitHubPolicyResult =
       message: string; source?: GitHubPolicySource; retryAfterSeconds?: number;
       helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting };
 export declare function readGitHubPolicy(source: unknown, controls?: GitHubPolicyReaderControls): Promise<ReadGitHubPolicyResult>;
-export { macosSessionBudgets, macosSessionTrustKeys, renderMacosSessionLaunchAgent,
+export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
-export type { MacosSessionBudgets, MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
+export type { MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
   MacosSessionControls, MacosGuiSessionObservation, MacosApplicationRequest, MacosApplicationObservation,
   MacosGuiKeyRequest, MacosGuiKeyRead } from './macos-session.mjs';

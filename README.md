@@ -8,18 +8,21 @@ The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadat
 
 ## Public imports
 
+Each code entry lists its exports explicitly. Trust definition assembly, helper file layout and
+macOS session limits are internal to the package and not part of any entry.
+
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, public request/review/result types |
-| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, macOS request/input/review/run/custody/profile/verification validators, and public contract types |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, and the types named by those operations' requests, controls, reviews and results |
+| `@aihq/core/contracts` | `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/render` | Offline V9 `renderReport` |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
-| `@aihq/core/harness` | Portable `contractSupport`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, and purpose selection/validation |
-| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, and read-only macOS session/app/key observations and LaunchAgent rendering |
+| `@aihq/core/harness` | Portable `contractSupport`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, and read-only macOS session/app/key observations and LaunchAgent rendering |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |

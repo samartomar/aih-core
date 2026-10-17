@@ -32,17 +32,38 @@ import macosResultSchema from './schemas/run-result/1.3.0.json' with { type: 'js
 import macosCustodySchema from './schemas/macos-session-custody/1.0.0.json' with { type: 'json' };
 import macosVerificationRequestSchema from './schemas/macos-session-verification-request/1.0.0.json' with { type: 'json' };
 import macosVerificationResultSchema from './schemas/macos-session-verification-result/1.0.0.json' with { type: 'json' };
-export type * from './macos-session-contracts.js';
+// Explicit type exports: the document shapes this entry parses, validates or derives.
+export type { MacosSessionClientId, MacosSessionContext, MacosSessionLaunch, MacosSessionApplication, MacosSessionSelection,
+  MacosSession, MacosRepairRequest, MacosRepairInputs, MacosSessionState, MacosSessionApplicationReview,
+  MacosSessionEffect, MacosSessionReview, MacosSessionConfiguration, MacosSessionVerification,
+  MacosSessionApplicationRun, MacosSessionRun, MacosSessionVerificationRequest, MacosSessionObservation,
+  MacosSessionCheck, MacosSessionRecordStatus, MacosSessionVerificationResult, MacosSessionPresence,
+  MacosSessionCustodyFile, MacosSessionCustodyKey, MacosSessionCustodyEntry, MacosSessionCustody } from './macos-session-contracts.js';
 export { validateMacosRepairRequest, validateMacosRepairInputs, validateMacosSessionReview, validateMacosSessionRun,
   validateMacosSessionCustody, validateMacosSessionVerificationRequest, validateMacosSessionVerificationResult,
   validateMacosSessionProfiles, validatePreparedWork13, validateRunResult13,
   MACOS_REPAIR_REQUEST_SCHEMA, MACOS_REPAIR_INPUTS_SCHEMA, MACOS_PREPARED_WORK_SCHEMA, MACOS_RUN_RESULT_SCHEMA,
   MACOS_SESSION_CUSTODY_SCHEMA, MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA, MACOS_SESSION_VERIFICATION_RESULT_SCHEMA } from './macos-session-contracts.js';
-export type * from './types.js';
+export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, TargetPath, OperationBase, FileOperation,
+  ConfigEntrySet, ConfigEntryRemove, ConfigOperation, TextBlockOperation, RemoveOperation, Executable,
+  ProcessInvocation, ProcessOperation, JsonObject, HookGroupOperation, Operation, FileCheck, ProcessCheck,
+  RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember, InlineMaterial, MaterialRecipeReference,
+  Prerequisite, Recipe, Selection, ExecutionPolicy, OrganizationInputPermission, OrganizationSelection,
+  OrganizationObligation, OrganizationTargetFact, OrganizationTargetFacts, OrganizationTarget,
+  OrganizationTargetDeclaration, OrganizationApplicability, OrganizationObligationResultBase,
+  OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationSelection11, OrganizationPolicy10,
+  OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult } from './types.js';
 export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
-export type * from './authoring-helpers.js';
-export type * from './file-state-types.js';
-export type * from './trust-contracts.js';
+export type { PackageDetails, AuthoringDiagnostic, AuthoringResult, DeriveRecipeIdentityRequest, RecipeIdentity,
+  OrganizationAdmissionSelection, OrganizationAdmissionLifecycle, PreviewOrganizationAdmissionRequest,
+  OrganizationAdmissionPreview, PreviewOrganizationObligationsRequest, OrganizationObligationsPreview } from './authoring-helpers.js';
+export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwork, TrustSourceKind, TrustCompleteness,
+  TrustSourceScope, TrustProjection, TrustOutputFormat, TrustOutputEffect, TrustCertificateDisposition,
+  SuppliedTrustSource, TrustSources, TrustResolution, TrustRepairStep, TrustRepairRequest, TrustRepairInputs,
+  CertificateExportRequest, CertificateExportInputs, TrustSourceAdapter, TrustSourceReview, TrustTargetClient,
+  TrustTargetPolicy, TrustSecondarySource, TrustTargetVerification, TrustTargetReview, CertificateReview,
+  TrustOutputReview, TrustInputs, TrustRunOutput, TrustRunTarget, TrustRunTrust, TrustCustodySource,
+  TrustCustodyEntry, TrustCustody } from './trust-contracts.js';
 export {
   validateTrustRepairRequest, validateTrustRepairInputs,
   validateCertificateExportRequest, validateCertificateExportInputs,

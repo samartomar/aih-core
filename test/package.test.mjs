@@ -107,17 +107,16 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(typeof exported, 'string', entry.schemaExport);
       packedSchemas.addSchema(JSON.parse(readFileSync(join(installed, exported), 'utf8')));
     }
-    // Every code entry's runtime names must be declared. Each value its declaration
-    // names must also exist at runtime, except where `export type *` makes
-    // intentional type-only names visible to `typeof`. For those entries (the root
-    // and ./contracts) a declared value missing at runtime is not detected, and a
-    // type-only re-export also satisfies the undeclared check; replacing those
-    // barrels with explicit exports closes the gap.
+    // Every code entry's runtime names must be declared, and each value its
+    // declaration names must exist at runtime. No entry uses a type-only star
+    // barrel, so a type-only view of a value cannot satisfy either direction.
     const codeEntries = Object.entries(manifest.exports)
       .filter(([, target]) => typeof target === 'object' && target.import && target.types)
-      .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`,
-        typeOnlyReexports: /\bexport type \*/.test(readFileSync(join(installed, target.types), 'utf8')) }));
-    assert.ok(codeEntries.some(entry => entry.specifier === '@aihq/core/harness/runtime'));
+      .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`, types: readFileSync(join(installed, target.types), 'utf8') }));
+    for (const { specifier, types } of codeEntries)
+      assert.doesNotMatch(types, /\bexport type \*/, `${specifier} must list its type exports explicitly.`);
+    for (const specifier of ['@aihq/core', '@aihq/core/contracts', '@aihq/core/harness', '@aihq/core/harness/runtime'])
+      assert.ok(codeEntries.some(entry => entry.specifier === specifier), specifier);
     writeFileSync(join(consumer, 'export-names.mjs'), `
       const specifiers = ${JSON.stringify(codeEntries.map(entry => entry.specifier))};
       const names = {};
@@ -127,14 +126,23 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const runtimeNames = JSON.parse(run('export-names.mjs'));
     assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessRepairCandidate'), true);
     assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessNodeTrustCandidate'), false);
-    writeFileSync(join(consumer, 'export-parity.mts'), codeEntries.map(({ specifier, typeOnlyReexports }, index) => {
+    // Assembly, layout and test-only names are internal; a regression that republishes one fails here.
+    const internalNames = {
+      '@aihq/core/harness': ['buildTrustDefinitions', 'buildCertificateExportRecipe', 'exportAdmissionTemplate',
+        'resolveTrustRecipeRef', 'trustAdapters', 'trustProfiles', 'trustTransformIds'],
+      '@aihq/core/harness/runtime': ['buildCertificateExportRecipe', 'trustHelperFiles', 'trustLibraryPackages', 'hashTrustLibraries',
+        'trustCellSubjectSha256', 'acceptanceRecordSchema', 'macosSessionBudgets', 'macosSessionTrustKeys']
+    };
+    for (const [specifier, names] of Object.entries(internalNames))
+      for (const name of names) assert.equal(runtimeNames[specifier].includes(name), false, `${specifier} ${name}`);
+    writeFileSync(join(consumer, 'export-parity.mts'), codeEntries.map(({ specifier }, index) => {
       const names = runtimeNames[specifier].map(name => JSON.stringify(name)).join(' | ') || 'never';
       return `import * as entry${index} from '${specifier}';
         type Runtime${index} = ${names};
         const undeclared${index}: [Exclude<Runtime${index}, keyof typeof entry${index}>] extends [never] ? 'agree' :
           { entry: '${specifier}'; undeclared: Exclude<Runtime${index}, keyof typeof entry${index}> } = 'agree';
-        ${typeOnlyReexports ? '' : `const absent${index}: [Exclude<keyof typeof entry${index}, Runtime${index}>] extends [never] ? 'agree' :
-          { entry: '${specifier}'; absentAtRuntime: Exclude<keyof typeof entry${index}, Runtime${index}> } = 'agree';`}`;
+        const absent${index}: [Exclude<keyof typeof entry${index}, Runtime${index}>] extends [never] ? 'agree' :
+          { entry: '${specifier}'; absentAtRuntime: Exclude<keyof typeof entry${index}, Runtime${index}> } = 'agree';`;
     }).join('\n'));
     writeFileSync(join(consumer, 'contracts.mts'), `
       import {contractSupport,nativeClientIds,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
@@ -177,6 +185,20 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       validateNativeVerificationRequest(nativeRequest); validateNativeVerificationResult({}); validateNativeVerificationBundle({});
       import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
       import type {CertificateExportRequest,TrustRepairRequest,TrustSources} from '@aihq/core';
+      import type {PreparedReview,RunResult,PolicyRequest,ExecutionPolicy,OrganizationTargetDeclaration,GitHubPolicySource,MacosSessionReview} from '@aihq/core';
+      import type {TrustCustody,MacosSessionCustody,OrganizationParseResult,ValidationResult,TrustRepairInputs} from '@aihq/core/contracts';
+      // @ts-expect-error The root no longer publishes type-only views of portable validators.
+      import type {validateTrustCustody as rootValidator} from '@aihq/core';
+      // @ts-expect-error Schema tables stay internal to the contracts entry.
+      import type {trustContractSchemas} from '@aihq/core/contracts';
+      // @ts-expect-error Portable document types without a root operation live at ./contracts.
+      import type {OrganizationPolicy as RootOrganizationPolicy} from '@aihq/core';
+      // @ts-expect-error File-state results belong to the Node operation that produces them.
+      import type {FileStateResult as PortableFileState} from '@aihq/core/contracts';
+      // @ts-expect-error Trust profile records are internal assembly data.
+      import type {TrustProfile} from '@aihq/core/harness';
+      // @ts-expect-error macOS budgets are internal helper limits.
+      import type {MacosSessionBudgets} from '@aihq/core/harness/runtime';
       const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
