@@ -108,7 +108,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     }
     // Every code entry's runtime names must be declared. Each value its declaration
     // names must also exist at runtime, except where `export type *` makes
-    // intentional type-only names visible to `typeof`.
+    // intentional type-only names visible to `typeof`. For those entries (the root
+    // and ./contracts) a declared value missing at runtime is not detected, and a
+    // type-only re-export also satisfies the undeclared check; replacing those
+    // barrels with explicit exports closes the gap.
     const codeEntries = Object.entries(manifest.exports)
       .filter(([, target]) => typeof target === 'object' && target.import && target.types)
       .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`,
