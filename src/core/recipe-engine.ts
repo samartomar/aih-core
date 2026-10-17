@@ -603,11 +603,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }));
             if (tomlHeirs.length) {
               // Only owners this step leaves in place inherit; one it deletes (null custody) stays deleted.
-              const authored = custody;
-              const surviving = Object.fromEntries(Object.entries({ ...projected.members, ...authored }).filter((item): item is [string, Owner] => item[1] !== null));
+              const authoredKeys = new Set(Object.keys(custody));
+              const surviving = Object.fromEntries(Object.entries({ ...projected.members, ...custody }).filter((item): item is [string, Owner] => item[1] !== null));
               const update = inheritTomlBreak(surviving, path!, tomlHeirs);
-              inherited = Object.keys(update).filter(key => !Object.hasOwn(authored, key));
-              Object.assign(authored, update);
+              inherited = Object.keys(update).filter(key => !authoredKeys.has(key));
+              Object.assign(custody, update);
             }
           } catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
           if (custody && owner && !owner.descriptor && managed && !descriptors.some(member => memberKey(member) === ownerKey)) custody[ownerKey!] = null;
