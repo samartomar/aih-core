@@ -9,6 +9,17 @@ const labels = Object.freeze(Object.fromEntries([
   ...targets.map(target => [target.id, target.label]), ['gradle', 'Gradle'], ['maven', 'Maven'],
   ['mcp', 'Configured MCP'], ['docker', 'Docker'], ['homebrew', 'Homebrew'], ['policy', 'Policy'], ['unknown', 'Unrecognized diagnostic']
 ]));
+// Core-produced STATE_CONFLICT reasons from Prepare and Apply reviews, grouped by the action they need.
+const contentConflicts = new Set(['existing-content', 'existing-target-observation', 'trust-output-conflict']);
+const editConflictReasons = Object.freeze(['existing-trust-uncomposable', 'invalid-utf8', 'ambiguous-text-block', 'invalid-text-block',
+  'duplicate-json-key', 'duplicate-ini-key', 'duplicate-ini-section', 'duplicate-scalar-key', 'duplicate-toml-key',
+  'unsupported-json-syntax', 'unsupported-json-value', 'unsupported-json-path', 'unsupported-json-edit',
+  'unsupported-ini-syntax', 'unsupported-ini-value', 'unsupported-ini-path',
+  'unsupported-scalar-syntax', 'unsupported-scalar-value', 'unsupported-scalar-path',
+  'unsupported-toml-syntax', 'unsupported-toml-value', 'unsupported-toml-path', 'unsupported-toml-table', 'unsupported-toml-array-table']);
+const editConflicts = new Set(editConflictReasons);
+const custodyConflicts = new Set(['trust-custody-conflict', 'trust-custody-pending']);
+const stateConflicts = new Set([...contentConflicts, ...editConflicts, ...custodyConflicts, 'managed-content-changed']);
 const reasons = Object.freeze({
   'executable-missing': 'Executable unavailable', 'version-exit': 'Version command failed',
   'version-ok': 'Version command passed', 'tls-ok': 'TLS probe passed',
@@ -28,6 +39,11 @@ const reasons = Object.freeze({
   'execution-failed': 'Execution failed', 'verification-failed': 'Verification failed', 'conflict': 'Review conflict',
   'verification-unavailable': 'Verification unavailable', 'verification-skipped': 'Verification skipped',
   'verification-missing': 'Verification not performed',
+  'existing-content': 'Existing content differs', 'existing-target-observation': 'Existing target value differs',
+  'trust-output-conflict': 'Managed trust output changed', 'managed-content-changed': 'Managed content changed',
+  ...Object.fromEntries(editConflictReasons.map(reason => [reason, 'Target content unsupported'])),
+  'existing-trust-uncomposable': 'Existing trust content unreadable',
+  'trust-custody-conflict': 'Trust custody conflict', 'trust-custody-pending': 'Trust change pending',
   'ready': 'Ready for review', 'complete': 'Complete', 'incomplete': 'Incomplete', 'partial': 'Partial',
   'blocked': 'Blocked', 'invalid': 'Invalid', 'cancelled': 'Cancelled', 'rejected': 'Rejected',
   'unrecognized-diagnostic': 'Unrecognized diagnostic', 'guidance-omitted': 'Additional guidance omitted'
@@ -85,10 +101,12 @@ export function deriveGuidance(request) {
     }
     if (fact.kind === 'tool') continue;
     if (fact.kind === 'diagnostic') {
-      // Policy classification uses diagnostic codes and engine access reasons only,
+      // Policy classification uses diagnostic codes and engine access and conflict reasons only,
       // never authored IDs or tool names; the target stays the literal policy.
-      reason = request.useCase === 'policy' ? permissions.has(reason) ? reason : codeReasons[fact.code] :
-        fact.code === 'AUTHORITY_DENIED' ? 'authority-denied' : reason;
+      // Core-produced conflict reasons are recognised only with Core's STATE_CONFLICT code.
+      const conflict = stateConflicts.has(reason);
+      reason = request.useCase === 'policy' ? permissions.has(reason) || conflict && fact.code === 'STATE_CONFLICT' ? reason : codeReasons[fact.code] :
+        fact.code === 'AUTHORITY_DENIED' ? 'authority-denied' : conflict && fact.code !== 'STATE_CONFLICT' ? 'unrecognized-diagnostic' : reason;
     }
     if (fact.kind === 'operation') {
       if (fact.application !== 'failed' && !['failed', 'unavailable', 'unverified', 'skipped'].includes(fact.verification)) continue;
@@ -134,6 +152,26 @@ export function deriveGuidance(request) {
           'Ask for approved access or managed configuration, then inspect and prepare again. Elevation alone may not resolve this restriction.']);
       add(fact, 'managed-access', target, reason, 'An administrator must review the enforced access or managed configuration.',
         ['Confirm the approved scope and access policy for the failed action.', 'Provide approved access or configuration without bypassing organizational controls.'], [], 'administrator');
+    } else if (contentConflicts.has(reason)) {
+      add(fact, 'content-conflict', target, reason, 'Existing content at a selected target differs from the reviewed content.',
+        ['Core preserved the existing content and made no change at that target; compare it with the reviewed operation in the local review.',
+          'Keep the existing content by narrowing the request, or reconcile the target manually, then prepare a fresh review.',
+          'When the Prepare result offers a replace choice for that operation, request it in a fresh Prepare with its exact observed digest and review the replacement before applying.']);
+      if (request.mode === 'enterprise') add(fact, 'managed-content-decision', target, reason, 'An administrator may need to decide how organization-managed content meets existing local content.',
+        ['Confirm whether the organization policy should grant a reviewed replace for this selection, or whether the selection should change.',
+          'Change organization grants only through the approved policy process; a grant still requires a fresh reviewed Prepare before any replacement.'], [], 'administrator');
+    } else if (reason === 'managed-content-changed') {
+      add(fact, 'managed-content-changed', target, reason, 'Managed content changed after Core recorded it, so its custody was preserved.',
+        ['Restore the recorded content, or reconcile the managed member manually, then prepare a fresh review.',
+          'Cleanup offers no replace resolution for changed managed content; remove it by hand only when no claim should keep it.']);
+    } else if (editConflicts.has(reason)) {
+      add(fact, 'target-content-unsupported', target, reason, 'The existing target content cannot be read or edited safely in its current form.',
+        ['Core preserved the target and made no change; review the conflict reason and target in the local review.',
+          'Correct or restore the target so it is valid in its supported format without duplicate keys, or narrow the edit, then prepare a fresh review. No replace resolution is offered for this content.']);
+    } else if (custodyConflicts.has(reason)) {
+      add(fact, 'custody-reconcile', target, reason, 'Recorded trust custody and the current managed state disagree.',
+        ['Review the retained managed selections and complete or reconcile any pending trust change before preparing again.',
+          'Do not delete managed files or custody records to clear the conflict; prepare a fresh review after reconciliation.']);
     } else if (target === 'docker') {
       const step = request.platform === 'win32' || request.platform === 'darwin' ?
         'Check the approved Docker Desktop installation and supported host, and confirm its daemon is available.' : request.platform === 'linux' ?

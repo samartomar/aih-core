@@ -179,7 +179,9 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
           reason: useCase === 'policy' ? item.effects === 'conflict' ? 'conflict' : 'prerequisite-unavailable' : typeof (item.details as Data).reason === 'string' ? (item.details as Data).reason as string : 'prerequisite-unavailable' });
       });
     }
-    return { kind, result, request: { kind, platform: optionData.platform, facts, ...(useCase ? { useCase } : {}), ...(repair ? { repair } : {}) } };
+    const enterprise = kind === 'prepare' && object(result.review) && result.review.mode === 'enterprise';
+    return { kind, result, request: { kind, platform: optionData.platform, facts, ...(useCase ? { useCase } : {}),
+      ...(enterprise ? { mode: 'enterprise' as const } : {}), ...(repair ? { repair } : {}) } };
   } catch { return invalid(); }
 }
 
@@ -200,7 +202,8 @@ function derive(adapted: Adapted): GuidanceItem[] {
   if (!specific.length) return generic;
   (review.conflicts as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/review/conflicts/${index}`); });
   (adapted.result.diagnostics as Data[]).forEach((item, index) => { if (isHookConflict(item)) covered.add(`/diagnostics/${index}`); });
-  const kept = generic.filter(item => !(item.id === 'diagnostic-review' && item.evidenceIds.some(id => covered.has(id))));
+  // Generic items for covered hook evidence give way to the specific hook item.
+  const kept = generic.filter(item => !item.evidenceIds.some(id => covered.has(id)));
   return [...kept.filter(item => item.audience === 'developer'), ...specific, ...kept.filter(item => item.audience === 'administrator')];
 }
 

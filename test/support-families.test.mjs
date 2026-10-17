@@ -7,6 +7,8 @@ import { contractSupport, validatePreparedWork13, validatePreparedWork14 } from 
 import { preparedWorkValidators, runResultValidators } from '../dist/core/internal/produced-validation.js';
 import { authorize, sandbox } from './hook-group-fixture.mjs';
 import { enterprisePolicy, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
+import { policy } from './fixture.mjs';
+import { deriveGuidance } from '../dist/harness/guidance.mjs';
 
 const options = { platform: 'darwin' };
 const sentinel = 'SENTINEL-support-family-7f3a';
@@ -135,6 +137,63 @@ test('targeted organization reviews (prepared-work 1.5.0) give policy guidance w
     const blocked = present({ kind: 'prepare', result: denied });
     assert.deepEqual(blocked.guidance.items.filter(item => item.reason === 'authority-denied').map(item => [item.id, item.target]),
       [['access-review', 'policy'], ['managed-access', 'policy']]);
+  } finally { globalThis.fetch = originalFetch; s.dispose(); }
+});
+
+test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guidance; unknown reasons still fall back', async () => {
+  const s = sandbox('aih-support-conflict-');
+  const originalFetch = globalThis.fetch;
+  try {
+    s.write('TEAM.md', `${sentinel}\n`);
+    globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0',
+      id: 'example-org-policy', selections: [{ ...orgDocument().selections[0], obligation: 'required' }] })) }));
+    const blocked = await prepare({ useCase: 'policy', policy: enterprisePolicy(), target: { project: s.project }, organizationSource: orgSource(),
+      organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' } }, { logging: 'off' });
+    assert.equal(blocked.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
+    assert.deepEqual(blocked.review.conflicts.map(item => [item.code, item.reason]), [['STATE_CONFLICT', 'existing-content']]);
+    const { guidance, markdown } = present({ kind: 'prepare', result: blocked });
+    assert.equal(guidance.items.some(item => item.reason === 'unrecognized-diagnostic'), false, JSON.stringify(guidance.items));
+    const developer = guidance.items.filter(item => item.id === 'content-conflict');
+    assert.deepEqual(developer.map(item => [item.audience, item.target, item.reason, item.evidenceIds]),
+      [['developer', 'policy', 'existing-content', ['/diagnostics/0']], ['developer', 'policy', 'existing-content', ['/review/conflicts/0']]]);
+    assert.match(developer[0].steps.join(' '), /exact observed digest/);
+    assert.doesNotMatch(developer[0].steps.join(' '), /bypass|skip|force/i);
+    assert.deepEqual(guidance.items.filter(item => item.id === 'managed-content-decision').map(item => item.audience), ['administrator', 'administrator']);
+    assert.match(markdown, /Existing content at a selected target differs from the reviewed content/);
+    assert.doesNotMatch(markdown, /project-guidance|example-org-policy|TEAM\.md/);
+
+    // The same conflict in a vibe policy has no administrator decision.
+    const local = await prepare({ useCase: 'policy', policy: policy(), target: { project: s.project } }, { logging: 'off' });
+    assert.deepEqual(local.review.conflicts.map(item => item.reason), ['existing-content']);
+    const vibe = present({ kind: 'prepare', result: local }).guidance.items;
+    assert.equal(vibe.filter(item => item.id === 'content-conflict').length, 2);
+    assert.equal(vibe.some(item => item.audience === 'administrator'), false);
+
+    // An unknown Core reason, or a conflict reason under another code, still falls back to generic review.
+    for (const [code, reason] of [['STATE_CONFLICT', 'future-conflict-reason'], ['INPUT_INVALID', 'existing-content']]) {
+      const changed = { ...local, prepared: undefined, diagnostics: [{ code, reason, message: sentinel }] };
+      const items = present({ kind: 'prepare', result: changed }).guidance.items.filter(item => item.evidenceIds.includes('/diagnostics/0'));
+      assert.deepEqual(items.map(item => item.id), ['diagnostic-review'], `${code}/${reason}`);
+      assert.notEqual(items[0].reason, 'existing-content');
+    }
+
+    // Other Core STATE_CONFLICT families keep their reason and get their own developer item.
+    for (const [reason, id] of [['duplicate-json-key', 'target-content-unsupported'], ['unsupported-json-edit', 'target-content-unsupported'],
+      ['existing-trust-uncomposable', 'target-content-unsupported'], ['managed-content-changed', 'managed-content-changed'],
+      ['trust-custody-pending', 'custody-reconcile'], ['trust-custody-conflict', 'custody-reconcile']]) {
+      const changed = { ...local, prepared: undefined, diagnostics: [{ code: 'STATE_CONFLICT', reason, message: sentinel }] };
+      const items = present({ kind: 'prepare', result: changed }).guidance.items.filter(item => item.evidenceIds.includes('/diagnostics/0'));
+      assert.deepEqual(items.map(item => [item.id, item.audience, item.reason]), [[id, 'developer', reason]], reason);
+      assert.doesNotMatch(items[0].steps.join(' '), /bypass|skip|force/i);
+    }
+
+    // Outside policy, AUTHORITY_DENIED stays an access denial even when it carries a conflict reason.
+    for (const code of ['AUTHORITY_DENIED', 'INPUT_INVALID', 'STATE_CONFLICT']) {
+      const [item] = deriveGuidance({ kind: 'prepare', useCase: 'repair', platform: 'darwin',
+        facts: [{ kind: 'diagnostic', evidenceId: '/diagnostics/0', code, reason: 'existing-content' }] });
+      assert.deepEqual([item.id, item.reason], code === 'AUTHORITY_DENIED' ? ['access-review', 'authority-denied'] :
+        code === 'STATE_CONFLICT' ? ['content-conflict', 'existing-content'] : ['diagnostic-review', 'unrecognized-diagnostic'], code);
+    }
   } finally { globalThis.fetch = originalFetch; s.dispose(); }
 });
 
