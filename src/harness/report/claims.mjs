@@ -16,6 +16,7 @@ import {
   ReportInputError, invalid, isPlainObject, rejectDuplicateKeys, requireArray, requireEnum,
   requireKeys, requireString, toBoundedJson,
 } from './bounded-json.mjs';
+import { localPathKind } from './local-path.mjs';
 
 /** Versioned identity of a claims 1.0.0 set, the default claim-set version. */
 export const CLAIMS_SCHEMA = 'urn:aihq:report:claims:1.0.0';
@@ -74,18 +75,30 @@ const CLAIM_OPTIONAL = ['value', 'unknownReason', 'method'];
 
 // ---------------------------------------------------------------- primitives
 
+/**
+ * Privacy rule of the portable claim set: a shared string never carries a
+ * machine-local path. Every caller-authored string passes through here; only
+ * digests, instants and values matched against fixed lists do not, because
+ * their formats cannot hold a path.
+ */
+function portable(value, path) {
+  const kind = localPathKind(value);
+  if (kind !== null) invalid(`${path}: local-path: ${kind} path is not portable`);
+  return value;
+}
+
 function identity(value, path) {
-  return requireString(value, path, MAX_IDENTITY);
+  return portable(requireString(value, path, MAX_IDENTITY), path);
 }
 
 function text(value, path) {
-  return requireString(value, path, MAX_TEXT);
+  return portable(requireString(value, path, MAX_TEXT), path);
 }
 
 function freeText(value, path) {
   if (typeof value !== 'string') invalid(`${path}: expected string`);
   if ([...value].length > MAX_TEXT) invalid(`${path}: exceeds maximum length`);
-  return value;
+  return portable(value, path);
 }
 
 function sha256(value, path) {

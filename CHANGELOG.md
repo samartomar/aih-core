@@ -23,6 +23,17 @@ preparation shape. The README now documents the review operation ID grammar
 produced file-state format, and the 1.0.0 schema stays exported for earlier results. Each
 `@aihq/core/harness` `targets` entry adds a frozen `executables` list: its detection `binaries` first,
 then commands that run under the tool's configuration (`npx` for npm). Detection is unchanged. This
+
+`@aihq/core/report` claim-set validation (`validateClaimSet`, `readClaimSet` and `projectClaims`)
+now refuses a claim set whose shared string fields carry a machine-local path: an absolute POSIX
+path, a Windows drive path, a UNC or device path, a home-relative `~/` path or a `file:` URL. The
+refusal is `INPUT_INVALID` with a message such as
+`claimSet.claims[0].subject.id: local-path: posix-absolute path is not portable`, which names the
+field and the form but never the value. Repository-relative paths, package names and non-file URLs
+are still accepted. Detection shares one internal implementation with the snapshot projection's
+home-path masking, so every absolute home path a snapshot masks is also refused in a claim set; the
+snapshot projection itself is unchanged. Claims 1.0.0 and 1.1.0 keep their wire format and JSON
+Schemas; a claim set that was previously valid and carries such a path is now `INPUT_INVALID`. This
 candidate is unpublished.
 
 Narrow every code entry to explicit, intentional exports. `@aihq/core` and `@aihq/core/contracts`
