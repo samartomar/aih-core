@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Support guidance now recognises Core's own Prepare and Apply conflict diagnostics. A `STATE_CONFLICT`
+diagnostic, review conflict or omission whose reason is `existing-content`, `existing-target-observation`
+or `trust-output-conflict` yields a `content-conflict` developer item (the existing content was preserved;
+narrow the selection, reconcile it, or request an offered replace with its exact observed digest in a fresh
+Prepare), plus a `managed-content-decision` administrator item for an Enterprise policy review.
+`managed-content-changed` yields `managed-content-changed`; `existing-trust-uncomposable` and the target
+editors' syntax, duplicate-key and unsupported-value or location reasons (for example `invalid-utf8`,
+`duplicate-json-key`, `unsupported-toml-syntax`) yield `target-content-unsupported`; and
+`trust-custody-conflict` and `trust-custody-pending` yield `custody-reconcile`. These reasons are
+recognised only with the `STATE_CONFLICT` code; other reasons still fall back to the generic
+`unrecognized-diagnostic` review item. Hook-group conflicts keep their specific hook item without a generic
+duplicate. No result format changed. This candidate is unpublished.
+
 Publish which recipe operation kinds Prepare can observe. `@aihq/core/contracts` exports
 `recipeOperationKinds`: for each supported recipe schema ID (1.0.0 to 1.3.0), the frozen list of operation
 kinds that format admits, each with `effects` `observable` (Prepare compares the target's bytes and can

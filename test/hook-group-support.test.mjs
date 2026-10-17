@@ -64,14 +64,21 @@ test('support keeps generic guidance for a non-hook conflict that shares a reaso
       target: { root: 'project', segments: [{ literal: 'TEAM.md' }] }, content: { literal: 'managed\n' } }]);
     const hookOnly = guard();
     const generic = getGuidance({ kind: 'prepare', result: await prep(s, policy11([teamOnly])) }, options);
-    const control = generic.items.filter(item => item.id === 'diagnostic-review').length;
-    assert.ok(control > 0, 'the control: a lone file conflict gets generic guidance');
+    const fileItems = items => items.filter(item => ['diagnostic-review', 'content-conflict'].includes(item.id));
+    const control = fileItems(generic.items).length;
+    assert.ok(generic.items.some(item => item.id === 'content-conflict'), 'the control: a lone file conflict gets content-conflict guidance');
     const both = await prep(s, policy11([...hookOnly.selections, teamOnly]));
     assert.deepEqual(both.review.conflicts.map(item => item.reason).sort(), ['existing-content', 'existing-content']);
     const guidance = getGuidance({ kind: 'prepare', result: both }, options);
     assert.equal(guidance.items.filter(item => item.id === 'hook-group-conflict').length, 1);
-    const kept = guidance.items.filter(item => item.id === 'diagnostic-review');
-    assert.equal(kept.length, control, 'the TEAM.md conflict keeps exactly the generic guidance it has alone');
+    const kept = fileItems(guidance.items);
+    assert.equal(kept.length, control, 'the TEAM.md conflict keeps exactly the guidance it has alone');
+    const evidence = pointer => pointer.split('/').slice(1).reduce((value, key) => value[key], both);
+    for (const item of kept) {
+      const source = evidence(item.evidenceIds[0]);
+      assert.notEqual(source.kind ?? '', 'hook.group');
+      assert.equal(String(source.message ?? '').startsWith('Hook group'), false, 'no generic duplicate of the hook conflict');
+    }
   } finally { s.dispose(); }
 });
 

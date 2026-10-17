@@ -9,6 +9,8 @@ export type GuidanceFact =
 export interface GuidanceRequest {
   kind: 'inspect' | 'prepare' | 'run';
   useCase?: 'policy' | 'repair';
+  /** Present only for an Enterprise policy review. */
+  mode?: 'enterprise';
   platform: GuidancePlatform;
   facts: readonly GuidanceFact[];
   repair?: { id: string; targets: readonly string[] };
