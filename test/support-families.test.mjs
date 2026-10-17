@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';
 import { prepare, apply } from '../dist/core/index.js';
 import { contractSupport, validatePreparedWork13, validatePreparedWork14 } from '../dist/core/contracts.js';
+import { preparedWorkValidators, runResultValidators } from '../dist/core/internal/produced-validation.js';
 import { authorize, sandbox } from './hook-group-fixture.mjs';
 import { enterprisePolicy, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 
@@ -143,6 +144,8 @@ test('every produced prepared-work and run-result format is dispatched; unknown,
     'urn:aihq:core:prepared-work:1.3.0', 'urn:aihq:core:prepared-work:1.4.0', 'urn:aihq:core:prepared-work:1.5.0',
     'urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0', 'urn:aihq:core:run-result:1.2.0', 'urn:aihq:core:run-result:1.3.0'],
     'a newly produced family must be added to support dispatch and this test');
+  assert.deepEqual([...Object.keys(preparedWorkValidators), ...Object.keys(runResultValidators)].sort(), produced,
+    'support dispatch covers exactly the produced prepared-work and run-result formats');
   const run = trust('run-result-1.2-partial'), review = macos('prepared-work-1.3-desktop');
   for (const schema of ['urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:2.0.0', 'urn:aihq:core:run-result:1.2.0-beta',
     'urn:aihq:core:run-result:1.2', 'URN:AIHQ:CORE:RUN-RESULT:1.2.0', 'urn:aihq:core:run-result:1.2.0 '])

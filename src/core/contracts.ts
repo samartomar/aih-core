@@ -1,4 +1,3 @@
-import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import { distribution } from '../distribution.mjs';
 import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'json' };
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
@@ -21,10 +20,9 @@ import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with
 import fileStateSchema from './schemas/file-state-result/1.0.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
-import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
-import { canonicalJson } from './internal/canonical.js';
-import type { Diagnostic, ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
-import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
+import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { registerSchemas, schemaCheck, validateAcceptedDocument } from './internal/contract-validation.js';
+import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
 import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { trustContractSchemas } from './trust-contracts.js';
 import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
@@ -56,22 +54,8 @@ export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRe
 export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
-const validator = new Ajv2020({ allErrors: true, strict: true });
-validator.addSchema(recipeSchema);
-validator.addSchema(recipeSchema11);
-validator.addSchema(recipeSchema12);
-validator.addSchema(recipeSchema13);
-const checkPolicy13 = validator.compile(policySchema13);
-const checkRecipe13 = validator.getSchema(recipeSchema13.$id)! as ValidateFunction;
-const checkPolicy = validator.compile(policySchema);
-const checkPolicy11 = validator.compile(policySchema11);
-const checkPolicy12 = validator.compile(policySchema12);
-const checkRecipe12 = validator.getSchema(recipeSchema12.$id)! as ValidateFunction;
-const checkRecipe = validator.getSchema(recipeSchema.$id)! as ValidateFunction;
-const checkRecipe11 = validator.getSchema(recipeSchema11.$id)! as ValidateFunction;
-const checkOrganization = validator.compile(organizationSchema);
-const checkOrganization11 = validator.compile(organizationSchema11);
-const checkOrganizationTarget = validator.compile(organizationTargetSchema);
+registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, policySchema, policySchema11, policySchema12, policySchema13,
+  organizationSchema, organizationSchema11, organizationTargetSchema);
 const schemaVersion = (id: string): string => id.split(':')[4]!;
 const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
   [trustContractSchemas[0].$id]: 'accepts',
@@ -127,49 +111,20 @@ export const contractSupport = Object.freeze({
   ]
 });
 
-type Accepted = Record<string, ValidateFunction>;
-function validate(value: unknown, accepted: Accepted, semantics: (document: never) => Diagnostic[]): ValidationResult {
-  try {
-    const safe = cloneJsonValueStructureV1(value, 'document', 32);
-    assertStrictJsonValueV1(safe, 'document');
-    if (new TextEncoder().encode(canonicalJson(safe)).length > 1_000_000) throw new Error('document byte limit');
-    const found = safe && typeof safe === 'object' ? (safe as { schema?: unknown }).schema : undefined;
-    if (typeof found === 'string' && !Object.hasOwn(accepted, found)) return {
-      valid: false, schema: found, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED', reason: 'schema-id',
-        message: 'This format is not supported.', path: '/schema', encountered: found, supported: Object.keys(accepted) }]
-    };
-    const supportedRecipes = recipeFormatsForPolicy(found);
-    const selections = supportedRecipes.length && safe && typeof safe === 'object' ?
-      (safe as { selections?: unknown }).selections : undefined;
-    if (Array.isArray(selections)) for (const [index, selection] of selections.entries()) {
-      const inline = (selection as { recipe?: { inline?: { schema?: unknown } } } | null)?.recipe?.inline;
-      if (typeof inline?.schema === 'string' && !supportedRecipes.includes(inline.schema)) return { valid: false, schema: found as string, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED',
-        reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
-        path: `/selections/${index}/recipe/inline/schema`, encountered: inline.schema, supported: supportedRecipes }] };
-    }
-    const check = typeof found === 'string' ? accepted[found]! : Object.values(accepted)[0]!;
-    const schema = typeof found === 'string' ? found : Object.keys(accepted)[0]!;
-    const valid = check(safe);
-    if (valid) {
-      const diagnostics = semantics(safe as never);
-      return { valid: diagnostics.length === 0, schema, diagnostics };
-    }
-    return { valid, ...(typeof found === 'string' ? { schema: found } : {}), diagnostics: valid ? [] :
-      (check.errors ?? []).map(error => ({ code: 'INPUT_INVALID', reason: error.keyword,
-        message: 'The document does not satisfy the published schema.', path: error.instancePath })) };
-  } catch {
-    return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };
-  }
-}
+const accepting = (...schemas: { $id: string }[]) => Object.freeze(Object.fromEntries(schemas.map(schema => [schema.$id, schemaCheck(schema.$id)])));
+const policies = accepting(policySchema, policySchema11, policySchema12, policySchema13);
+const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13);
+const organizations = accepting(organizationSchema, organizationSchema11);
+const organizationTargets = accepting(organizationTargetSchema);
 export const validatePolicy = (value: unknown): ValidationResult =>
-  validate(value, { [policySchema.$id]: checkPolicy, [policySchema11.$id]: checkPolicy11, [policySchema12.$id]: checkPolicy12, [policySchema13.$id]: checkPolicy13 }, policySemantics as never);
+  validateAcceptedDocument(value, policies, policySemantics as never);
 export const validateRecipe = (value: unknown): ValidationResult =>
-  validate(value, { [recipeSchema.$id]: checkRecipe, [recipeSchema11.$id]: checkRecipe11, [recipeSchema12.$id]: checkRecipe12, [recipeSchema13.$id]: checkRecipe13 }, recipeSemantics as never);
+  validateAcceptedDocument(value, recipes, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
-  validate(value, { [organizationSchema.$id]: checkOrganization, [organizationSchema11.$id]: checkOrganization11 }, organizationSemantics as never);
+  validateAcceptedDocument(value, organizations, organizationSemantics as never);
 /** Caller-declared client and optional repository for Enterprise preparation; declared, never inferred. */
 export const validateOrganizationTarget = (value: unknown): ValidationResult =>
-  validate(value, { [organizationTargetSchema.$id]: checkOrganizationTarget }, organizationTargetSemantics as never);
+  validateAcceptedDocument(value, organizationTargets, organizationTargetSemantics as never);
 export function parsePolicy(text: string): ParseResult {
   try {
     if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');

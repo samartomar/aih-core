@@ -17,8 +17,11 @@ does not satisfy its published schema, including one carrying undeclared fields,
 `INPUT_INVALID` where it was previously interpreted. An unknown or future ID still returns
 `SCHEMA_UNSUPPORTED`. Trust and macOS session reports name the package bound in `inputs.trust`.
 Certificate-export and macOS session work is classified like other Core-defined repair work, never by
-policy-authored identifiers. The portable support bundle now includes the schema validator. No schema
-changed. This candidate is unpublished.
+policy-authored identifiers. Support reads at most 1,000,000 canonical bytes per input, so a larger
+valid result returns `INPUT_INVALID`. The portable support bundle now includes the schema validator.
+Core's portable contract validators now share one schema registry and compile each schema on its
+first use rather than when `@aihq/core/contracts` or `@aihq/core/support` is imported; their results
+are unchanged. No schema changed. This candidate is unpublished.
 
 Remove the table header Core created when its last TOML `config.entries` key is removed. Core now
 records, for a key whose table it created, that it appended the header and, at the end of a file

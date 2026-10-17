@@ -5,7 +5,6 @@
 // the existing portable validators in `contracts.ts`: bounded plain JSON data
 // first, then the published schema, then the semantic rules that a JSON schema
 // cannot express. Unknown/mismatched schema IDs are refused without fallback.
-import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import repairRequestSchema from './schemas/repair-request/1.0.0.json' with { type: 'json' };
 import repairInputsSchema from './schemas/repair-inputs/1.0.0.json' with { type: 'json' };
 import certificateExportRequestSchema from './schemas/certificate-export-request/1.0.0.json' with { type: 'json' };
@@ -14,8 +13,7 @@ import preparedWork12Schema from './schemas/prepared-work/1.2.0.json' with { typ
 import preparedWork14Schema from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
 import runResult12Schema from './schemas/run-result/1.2.0.json' with { type: 'json' };
 import trustCustodySchema from './schemas/trust-custody/1.0.0.json' with { type: 'json' };
-import { assertStrictJsonValueV1, cloneJsonValueStructureV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
-import { canonicalJson } from './internal/canonical.js';
+import { registerSchemas, schemaCheck, validateExactDocument } from './internal/contract-validation.js';
 import type { Diagnostic, ValidationResult } from './types.js';
 
 /** Lowercase 64-character hexadecimal SHA-256 digest with no prefix. */
@@ -239,16 +237,15 @@ export const trustContractSchemas = Object.freeze([
   trustCustodySchema
 ] as const);
 
-const ajv = new Ajv2020({ allErrors: true, strict: true });
-for (const schema of trustContractSchemas) ajv.addSchema(schema);
-const checkPreparedWork14 = ajv.compile(preparedWork14Schema);
-const checkTrustRepairRequest = ajv.getSchema(repairRequestSchema.$id) as ValidateFunction;
-const checkTrustRepairInputs = ajv.getSchema(repairInputsSchema.$id) as ValidateFunction;
-const checkCertificateExportRequest = ajv.getSchema(certificateExportRequestSchema.$id) as ValidateFunction;
-const checkCertificateExportInputs = ajv.getSchema(certificateExportInputsSchema.$id) as ValidateFunction;
-const checkPreparedWork12 = ajv.getSchema(preparedWork12Schema.$id) as ValidateFunction;
-const checkRunResult12 = ajv.getSchema(runResult12Schema.$id) as ValidateFunction;
-const checkTrustCustody = ajv.getSchema(trustCustodySchema.$id) as ValidateFunction;
+registerSchemas(...trustContractSchemas, preparedWork14Schema);
+const checkPreparedWork14 = schemaCheck(preparedWork14Schema.$id);
+const checkTrustRepairRequest = schemaCheck(repairRequestSchema.$id);
+const checkTrustRepairInputs = schemaCheck(repairInputsSchema.$id);
+const checkCertificateExportRequest = schemaCheck(certificateExportRequestSchema.$id);
+const checkCertificateExportInputs = schemaCheck(certificateExportInputsSchema.$id);
+const checkPreparedWork12 = schemaCheck(preparedWork12Schema.$id);
+const checkRunResult12 = schemaCheck(runResult12Schema.$id);
+const checkTrustCustody = schemaCheck(trustCustodySchema.$id);
 
 type Data = Record<string, unknown>;
 const isObject = (value: unknown): value is Data => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -256,51 +253,9 @@ const invalid = (reason: string, path?: string): Diagnostic => ({
   code: 'INPUT_INVALID', reason, message: 'The document does not satisfy the published contract.', ...(path === undefined ? {} : { path })
 });
 
-/** Reads the caller value once through the shared strict-JSON rules; never invokes a getter. */
-function inspect(value: unknown, maxBytes?: number): { safe: Data } | { diagnostic: Diagnostic } {
-  try {
-    const safe = cloneJsonValueStructureV1(value, 'document', STRICT_JSON_MAX_DEPTH_V1, maxBytes ?? Infinity);
-    assertStrictJsonValueV1(safe, 'document');
-    if (!isObject(safe)) throw new TypeError('document root must be an object');
-    if (maxBytes !== undefined && new TextEncoder().encode(canonicalJson(safe)).length > maxBytes)
-      throw new TypeError('document byte limit');
-    return { safe };
-  } catch {
-    return { diagnostic: { code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' } };
-  }
-}
-
-function validateAgainst(
-  value: unknown,
-  expected: string,
-  check: ValidateFunction,
-  semantics: (document: Data) => Diagnostic[]
-): ValidationResult {
-  // Complete produced facts are governed by discovery/output limits, never the
-  // optional history cap. Private provenance has its own exact 1 MiB limit.
-  const maxBytes = expected === PREPARED_WORK_1_2_0 || expected === 'urn:aihq:core:prepared-work:1.4.0' || expected === RUN_RESULT_1_2_0 ? undefined :
-    expected === TRUST_CUSTODY_1_0_0 ? 1_048_576 : 1_000_000;
-  const inspected = inspect(value, maxBytes);
-  if ('diagnostic' in inspected) return { valid: false, diagnostics: [inspected.diagnostic] };
-  const { safe } = inspected;
-  const found = safe.schema;
-  if (typeof found === 'string' && found !== expected) return {
-    valid: false, schema: found, diagnostics: [{
-      code: 'SCHEMA_UNSUPPORTED', reason: 'schema-unsupported', message: 'This format is not supported.',
-      path: '/schema', encountered: found, supported: [expected]
-    }]
-  };
-  const semantic = semantics(safe);
-  if (semantic.length > 0) return { valid: false, schema: expected, diagnostics: semantic };
-  if (check(safe)) return { valid: true, schema: expected, diagnostics: [] };
-  return {
-    valid: false, schema: expected,
-    diagnostics: (check.errors ?? []).map(error => ({
-      code: 'INPUT_INVALID', reason: error.keyword === 'additionalProperties' ? 'unknown-field' : error.keyword,
-      message: 'The document does not satisfy the published schema.', path: error.instancePath
-    }))
-  };
-}
+// Complete produced facts are governed by discovery/output limits, never the
+// optional history cap. Private provenance has its own exact 1 MiB limit.
+const PRODUCED = undefined, PROVENANCE = 1_048_576, DOCUMENT = 1_000_000;
 
 /** Strictly ascending (therefore also duplicate-free) string list. */
 function sortedUniqueStrings(value: unknown): boolean {
@@ -439,20 +394,20 @@ function trustCustodySemantics(document: Data): Diagnostic[] {
 }
 
 export const validateTrustRepairRequest = (value: unknown): ValidationResult =>
-  validateAgainst(value, repairRequestSchema.$id, checkTrustRepairRequest, repairRequestSemantics);
+  validateExactDocument(value, repairRequestSchema.$id, checkTrustRepairRequest, repairRequestSemantics, DOCUMENT);
 export const validateTrustRepairInputs = (value: unknown): ValidationResult =>
-  validateAgainst(value, repairInputsSchema.$id, checkTrustRepairInputs, repairInputsSemantics);
+  validateExactDocument(value, repairInputsSchema.$id, checkTrustRepairInputs, repairInputsSemantics, DOCUMENT);
 export const validateCertificateExportRequest = (value: unknown): ValidationResult =>
-  validateAgainst(value, certificateExportRequestSchema.$id, checkCertificateExportRequest, certificateExportRequestSemantics);
+  validateExactDocument(value, certificateExportRequestSchema.$id, checkCertificateExportRequest, certificateExportRequestSemantics, DOCUMENT);
 export const validateCertificateExportInputs = (value: unknown): ValidationResult =>
-  validateAgainst(value, certificateExportInputsSchema.$id, checkCertificateExportInputs, certificateExportInputsSemantics);
+  validateExactDocument(value, certificateExportInputsSchema.$id, checkCertificateExportInputs, certificateExportInputsSemantics, DOCUMENT);
 export const validatePreparedWork12 = (value: unknown): ValidationResult =>
-  validateAgainst(value, preparedWork12Schema.$id, checkPreparedWork12, preparedWork12Semantics);
+  validateExactDocument(value, preparedWork12Schema.$id, checkPreparedWork12, preparedWork12Semantics, PRODUCED);
 /** Bounded configuration review; previous review validators remain strict to their own IDs. */
 export const validatePreparedWork14 = (value: unknown): ValidationResult =>
-  validateAgainst(value, preparedWork14Schema.$id, checkPreparedWork14, value =>
-    isObject(value.inputs) && Object.hasOwn(value.inputs, 'trust') ? preparedWork12Semantics(value) : []);
+  validateExactDocument(value, preparedWork14Schema.$id, checkPreparedWork14, value =>
+    isObject(value.inputs) && Object.hasOwn(value.inputs, 'trust') ? preparedWork12Semantics(value) : [], PRODUCED);
 export const validateRunResult12 = (value: unknown): ValidationResult =>
-  validateAgainst(value, runResult12Schema.$id, checkRunResult12, runResult12Semantics);
+  validateExactDocument(value, runResult12Schema.$id, checkRunResult12, runResult12Semantics, PRODUCED);
 export const validateTrustCustody = (value: unknown): ValidationResult =>
-  validateAgainst(value, trustCustodySchema.$id, checkTrustCustody, trustCustodySemantics);
+  validateExactDocument(value, trustCustodySchema.$id, checkTrustCustody, trustCustodySemantics, PROVENANCE);
