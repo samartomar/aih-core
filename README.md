@@ -835,7 +835,7 @@ aih policy policy.json --project /absolute/project --apply --yes --no-log --json
 
 Each invocation prepares again. `--yes` requires `--apply`. Interactive review goes to stderr; `--json` emits one structured result on stdout. Noninteractive application without `--yes` rejects. `--no-log` (accepted by `policy`, `repair` and `export-ca`) turns routine history off for both Prepare and Apply, so the result record is `{"status":"disabled","reason":"logging-off"}`; ownership, recovery and approval are unchanged. Exit codes are 0 for successful preview/complete application, 1 for blocked or incomplete work, 2 for invalid/rejected requests, and 130 for cancellation. No write without a supplied check is reported as verified.
 
-An author may use `config.entries` for selected JSON/JSONC or unambiguous scalar TOML keys, `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. The prepared review shows resolved edits and checks, including executable byte hashes, argv, environment, accepted exit codes and bounds; private values are redacted. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
+An author may use `config.entries` for selected JSON/JSONC or unambiguous TOML keys (scalars and arrays of scalars), `text.block` for exact marked regions, `file.remove` for a managed member, and `process.run` for an explicitly approved executable with separate arguments, a scoped working directory, declared environment inputs, accepted exit codes and effects. The prepared review shows resolved edits and checks, including executable byte hashes, argv, environment, accepted exit codes and bounds; private values are redacted. A recipe's `checks` definitions can include a bounded `file.sha256` observation or an approved `process.exit` invocation; operation `checks` names those definitions. A failed or unavailable required check blocks dependents. A command may leave opaque effects after failure or cancellation; the result reports uncertainty rather than promising rollback.
 
 Recipe and execution-policy **1.2.0** additionally admit `config.entries` with
 `format: "ini"`. Each path is exactly `[section, option]`; section names are case
@@ -847,6 +847,42 @@ multiline values. It refuses duplicate sections/options, ambiguous indented
 assignments, selected multiline values, BOMs and invalid UTF-8. Removal deletes
 only the option line and leaves section headers intact. Fresh review can preserve
 unrelated edits; any file change after Prepare still makes Apply stale.
+
+`format: "toml"` selects one key per path; each path segment is a table name or
+key, bare or quoted, so `["mcp_servers", "name.with.dots", "command"]` and
+`["projects", "/home/u/p", "trust_level"]` address `[mcp_servers."name.with.dots"]`
+and `[projects."/home/u/p"]`. Headers and keys may use basic or literal quotes and
+whitespace around dots; a segment is compared as its decoded text, so
+`["a.b", "c"]` and `["a", "b", "c"]` are different paths. Set values are strings,
+finite numbers, booleans, or arrays of those (nested arrays included); a new
+string is written as a basic string, arrays on one line as `["a", "b"]`, and new keys
+go at the end of their table (a missing table is appended as `[header]`). Existing
+values are replaced in place, keeping indentation, spacing and trailing comments;
+removal deletes the whole statement, including every line of a multi-line array.
+Custody and drift cover the exact value bytes, including whitespace and comments
+inside an array. Other content is only scanned, never rewritten: multi-line arrays
+and strings, inline tables, dates and other values may appear anywhere in the file.
+An existing selected value that is an inline table, a multi-line string, a date or
+time, a hexadecimal/octal/binary integer or `inf`/`nan`, and any `null` or object set value,
+is refused with `unsupported-toml-value`. Set an `env` table by targeting its keys
+(`["mcp_servers", "x", "env", "KEY"]`), which creates or edits `[mcp_servers.x.env]`;
+a key inside an inline table, or under an assigned key, is `unsupported-toml-path`.
+Array tables (`[[x]]`), dotted keys, duplicate tables or keys (after unquoting) and
+malformed syntax are refused. This is a bounded editor, not a full TOML implementation.
+TOML entries are available from recipe 1.0.0; arrays and quoted names need no new
+schema, because entry values were already any JSON literal. Unrelated values are now
+scanned as TOML values, so a value the scanner cannot delimit, which the earlier line
+editor tolerated, is `unsupported-toml-syntax`; the scanner delimits values rather
+than validating every TOML rule. Inline tables follow TOML 1.0 (one line, no
+trailing comma); a multi-line inline table or one with a trailing comma is refused.
+Earlier Core versions refuse rather than misread this content: a file with a quoted
+header is `unsupported-toml-table` and an owned array is `unsupported-toml-value`.
+The ownership root is written as 1.3.0 only while it owns a TOML entry whose path
+has a non-bare segment, and returns to its previous version after the last such
+entry is removed. An earlier Core fails closed on a 1.3.0 root, as it does on a
+hook-group 1.1 root: it refuses that root's own project and withholds user-scope
+cleanup requested from any other project until Core is upgraded or the entry is
+removed.
 
 `format: "yaml"` and `format: "properties"` select one top-level key per path.
 YAML set values are JSON-quoted strings; block/flow values, uncertain quoted
