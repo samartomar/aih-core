@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderConfigEntries, configMemberBytes } from '../dist/core/internal/recipe-editors.js';
+import { createdTomlTables, removeCreatedTomlTable } from '../dist/core/internal/toml-editor.js';
 
 const toml = (text, entries) => renderConfigEntries('toml', Buffer.from(text), entries).toString();
 const member = (text, path) => configMemberBytes('toml', Buffer.from(text), path)?.toString() ?? null;
@@ -190,4 +191,90 @@ test('TOML scalar member bytes equal the previous trimmed value text', () => {
     assert.equal(member(`k =${raw.startsWith(' ') ? '' : ' '}${raw}\n[t]\nz = 1\n`, ['k']), expected, raw);
   assert.equal(member('k = "x"', ['k']), '"x"');
   assert.equal(configMemberBytes('toml', null, ['k']), null);
+});
+
+const created = (text, entries) => [...createdTomlTables(text === null ? null : Buffer.from(text), entries)];
+const stripHeader = (text, table, kind = 'created') => removeCreatedTomlTable(Buffer.from(text), table, kind).toString();
+
+test('createdTomlTables reports tables whose header the edit appends', () => {
+  const entries = [set(['mcp_servers', 'aih', 'command'], 'aih'), set(['mcp_servers', 'aih', 'args'], ['x'])];
+  assert.deepEqual(created(null, entries), [[JSON.stringify(['mcp_servers', 'aih']), 'created']]);
+  assert.deepEqual(created('a = 1\n', entries), [[JSON.stringify(['mcp_servers', 'aih']), 'created']]);
+  assert.deepEqual(created('a = 1', entries), [[JSON.stringify(['mcp_servers', 'aih']), 'created-after-newline']]);
+  assert.deepEqual(created('[mcp_servers.aih]\n', entries), []);
+  assert.deepEqual(created('a = 1', [set(['a'], 2)]), []);
+  assert.deepEqual(created('a = 1\n', [remove(['a'])]), []);
+  assert.deepEqual(created('a = 1\n', [set(['t', 'x'], 1), set(['t', 'env', 'k'], 'v')]),
+    [[JSON.stringify(['t']), 'created'], [JSON.stringify(['t', 'env']), 'created']]);
+});
+
+test('createdTomlTables reads the separator at the moment each header is appended', () => {
+  // The first appended table ends the text with a line break, so the second needs no separator.
+  assert.deepEqual(created('a = 1', [set(['t', 'x'], 1), set(['u', 'y'], 2)]),
+    [[JSON.stringify(['t']), 'created-after-newline'], [JSON.stringify(['u']), 'created']]);
+});
+
+test('removeCreatedTomlTable removes an empty created header line', () => {
+  assert.equal(stripHeader('a = 1\n[t]\n', ['t']), 'a = 1\n');
+  assert.equal(stripHeader('a = 1\r\n[t]\r\n', ['t']), 'a = 1\r\n');
+  assert.equal(stripHeader('[t]\n', ['t']), '');
+  assert.equal(stripHeader('a = 1\n[t]\n[u]\nk = 1\n', ['t']), 'a = 1\n[u]\nk = 1\n');
+  assert.equal(stripHeader('a = 1\n[t]\n[u]\nk = 1\n', ['t'], 'created-after-newline'), 'a = 1\n[u]\nk = 1\n');
+});
+
+test('removeCreatedTomlTable keeps a header that holds a key or a comment', () => {
+  for (const text of ['[t]\nk = 1\n', '[t]\n# note\n', '[t]\n  # note\n', '[t] # note\n', '[t]#x\n', '[t]\nk = 1\n[u]\n']) {
+    assert.equal(stripHeader(text, ['t']), text);
+    assert.equal(stripHeader(text, ['t'], 'created-after-newline'), text);
+  }
+  assert.equal(stripHeader('a = 1\n[t]\n[u]\n# note\n', ['u']), 'a = 1\n[t]\n[u]\n# note\n');
+});
+
+test('removeCreatedTomlTable keeps blank lines and tolerates header whitespace', () => {
+  assert.equal(stripHeader('a = 1\n[t]\n\n[u]\nk = 1\n', ['t']), 'a = 1\n\n[u]\nk = 1\n');
+  assert.equal(stripHeader('a = 1\n[t]  \t\n', ['t']), 'a = 1\n');
+  assert.equal(stripHeader('a = 1\n  [ t ]\n  \n', ['t']), 'a = 1\n  \n');
+});
+
+test('removeCreatedTomlTable drops the separator break only for an empty trailing header', () => {
+  assert.equal(stripHeader('a = 1\n[t]\n', ['t'], 'created-after-newline'), 'a = 1');
+  assert.equal(stripHeader('a = 1\r\n[t]\r\n', ['t'], 'created-after-newline'), 'a = 1');
+  assert.equal(stripHeader('a = 1\r[t]\r', ['t'], 'created-after-newline'), 'a = 1');
+  assert.equal(stripHeader('[t]\n', ['t'], 'created-after-newline'), '');
+  assert.equal(stripHeader('a = 1\n[t]', ['t'], 'created-after-newline'), 'a = 1');
+  assert.equal(stripHeader('a = 1\n[t]\n\n', ['t'], 'created-after-newline'), 'a = 1\n\n');
+  assert.equal(stripHeader('a = 1\n[t]\n[u]\n', ['t'], 'created-after-newline'), 'a = 1\n[u]\n');
+  assert.equal(stripHeader('a = 1\n[t]\n', ['t'], 'created'), 'a = 1\n');
+});
+
+test('removeCreatedTomlTable handles quoted headers and leaves other tables alone', () => {
+  const header = '[projects."/home/u/q#1.x"]';
+  assert.equal(stripHeader(`a = 1\n${header}\n`, ['projects', '/home/u/q#1.x']), 'a = 1\n');
+  assert.equal(stripHeader(`a = 1\n${header}\n`, ['projects', '/home/u/q#1']), `a = 1\n${header}\n`);
+  assert.equal(stripHeader('a = 1\n[projects.x]\n', ['projects']), 'a = 1\n[projects.x]\n');
+  assert.equal(stripHeader('a = 1\n', ['t']), 'a = 1\n');
+  assert.equal(stripHeader('[t.env]\nk = 1\n[t]\n', ['t']), '[t.env]\nk = 1\n');
+  assert.equal(stripHeader('[t]\n[t.env]\nk = 1\n', ['t']), '[t.env]\nk = 1\n');
+  assert.equal(stripHeader('[t]\n[t.env]\n', ['t.env']), '[t]\n[t.env]\n');
+  assert.equal(stripHeader('[t]\n[t.env]\n', ['t', 'env']), '[t]\n');
+});
+
+test('removeCreatedTomlTable re-parses its output and ignores the root table', () => {
+  assert.equal(stripHeader('a = 1\n', []), 'a = 1\n');
+  assert.throws(() => removeCreatedTomlTable(Buffer.from('[t]\n[[x]]\n'), ['t'], 'created'), /unsupported-toml-array-table/);
+});
+
+test('setup then removal through the editor restores the original bytes', () => {
+  for (const original of ['', 'a = 1\n', 'a = 1', 'a = 1\r\nb = 2\r\n', 'a = 1\r\nb = 2', '[u]\nk = 1\n', '[u]\nk = 1']) {
+    const entries = [set(['t', 'command'], 'aih'), set(['t', 'env', 'K'], 'v')];
+    const bytes = Buffer.from(original);
+    const tables = createdTomlTables(bytes, entries);
+    let text = renderConfigEntries('toml', bytes, entries);
+    for (const path of [['t', 'env', 'K'], ['t', 'command']]) {
+      text = renderConfigEntries('toml', text, [remove(path)]);
+      const table = JSON.stringify(path.slice(0, -1));
+      if (tables.has(table)) text = removeCreatedTomlTable(text, path.slice(0, -1), tables.get(table));
+    }
+    assert.equal(text.toString(), original, JSON.stringify(original));
+  }
 });

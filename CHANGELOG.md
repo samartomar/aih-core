@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Remove the table header Core created when its last TOML `config.entries` key is removed. Core now
+records, for a key whose table it created, that it appended the header and, at the end of a file
+that lacked a final line break, the break it added before it. Removing the last managed key of that
+table then removes the header too, so setup followed by removal restores the original bytes (the
+line endings of the file included). A table that existed before setup, or that holds a key or comment
+someone else added, keeps its header, and tables created before this change carry no such record and
+keep theirs. Custody of a created table writes ownership root 1.4.0, which earlier Core versions refuse
+as they refuse hook-group 1.1 roots; the root returns to its previous version when the last such
+entry is removed. No recipe or policy schema changed. This candidate is unpublished.
+
 Broaden the TOML `config.entries` editor. It now accepts array values (arrays of strings, numbers and
 booleans, nested arrays included) for set, replace, remove and custody member bytes, and files with
 quoted table headers (`[projects."/home/u/p"]`, `[mcp_servers."name.with.dots"]`, literal `'...'`

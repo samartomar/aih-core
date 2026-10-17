@@ -3,6 +3,7 @@ import type { Json } from '../types.js';
 import { editScalarLines, scalarLineMember } from './scalar-line-editor.js';
 import { editIni, iniMember } from './ini-editor.js';
 import { editToml, tomlMember } from './toml-editor.js';
+export { createdTomlTables, removeCreatedTomlTable } from './toml-editor.js';
 
 export class RecipeEditError extends Error {
   constructor(readonly reason: string) {

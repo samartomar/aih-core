@@ -17,7 +17,7 @@ import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
-import { renderConfigEntries, renderTextBlock } from './internal/recipe-editors.js';
+import { renderConfigEntries, renderTextBlock, createdTomlTables } from './internal/recipe-editors.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
@@ -93,6 +93,13 @@ const PREPARED_11 = 'urn:aihq:core:prepared-work:1.1.0' as const;
 const RESULT_10 = 'urn:aihq:core:run-result:1.0.0' as const;
 const RESULT_11 = 'urn:aihq:core:run-result:1.1.0' as const;
 const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+/** Whether Core created this TOML entry's table: this setup's header, else the recorded value, else a sibling key's in the same table. */
+function tomlTableCustody(member: Extract<ByteMember, { kind: 'entry' }>, created: ReturnType<typeof createdTomlTables>, prior: Owner | undefined,
+    members: Record<string, Owner>): Owner['tomlTable'] {
+  const table = JSON.stringify(member.entry.slice(0, -1));
+  return created.get(table) ?? prior?.tomlTable ?? Object.values(members).find(owner => owner.tomlTable && owner.descriptor?.kind === 'entry' &&
+    owner.descriptor.format === 'toml' && samePath(owner.descriptor.path, member.path) && JSON.stringify(owner.descriptor.entry.slice(0, -1)) === table)?.tomlTable;
+}
 function hookConflict(decision: HookDecision, groupId: string, path: string, privateValues: string[]): Diagnostic {
   const reason = decision.reason!;
   return { code: 'STATE_CONFLICT', reason, message: hookConflictMessage(safeText(groupId, privateValues), decision.neighbor === undefined ? undefined : safeText(decision.neighbor, privateValues)),
@@ -448,7 +455,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
-        let editConflict: string | undefined;
+        let editConflict: string | undefined; let createdTables: ReturnType<typeof createdTomlTables> | undefined;
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
         // Reviewed choices that would change this conflict or acquire identical unowned content.
         const choices: ('replace' | 'adopt')[] = []; let overlayKey: string | undefined;
@@ -537,7 +544,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               return { path: entry.path, action: entry.action,
                 value: sensitive ? '[REDACTED]' : canonicalJson(redactJson(entry.value, privateValues)) };
             }) };
-            try { after = renderConfigEntries(op.format, before, entries); }
+            try { after = renderConfigEntries(op.format, before, entries); if (op.format === 'toml') createdTables = createdTomlTables(before, entries); }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else if (op.kind === 'text.block') {
             details = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker,
@@ -561,7 +568,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ownerState = managed ? 'managed' : 'unowned';
             custody = Object.fromEntries(descriptors.map(member => {
               const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
-              return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member,
+              const tomlTable = createdTables && member.kind === 'entry' && member.entry.length >= 2 ? tomlTableCustody(member, createdTables, prior, projected.members) : undefined;
+              return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
@@ -697,7 +705,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const removalOrder = dependencyOrder(graphIds.map(id => ({ id, requires: [...priorDependencies].filter(([, required]) => required.includes(id)).map(([parent]) => parent) })));
     const rank = new Map(removalOrder.map((item, index) => [item.id, index]));
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
-    members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
+    // Within one rank, the table that carries the added line break goes last: it must be the last header left at the end of the file.
+    const lastTable = (owner: Owner): number => owner.tomlTable === 'created-after-newline' ? 1 : 0;
+    members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)) ||
+      lastTable(a.owner) - lastTable(b.owner));
     const removedIdentities = new Map<PreparedStep, string[]>();
     let removalIndex = 0;
     const projectedMembers = (root: string): Record<string, Owner> => {
@@ -757,7 +768,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : incompatibleHook ? { forced: 'hook-selector-overlap' } : {}) });
       } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
-        if (!remaining.length && matching) after = subtractMember(descriptor, before);
+        if (!remaining.length && matching) after = subtractMember(descriptor, before, owner.tomlTable);
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
