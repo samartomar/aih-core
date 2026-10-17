@@ -8,7 +8,6 @@
 // fallback. The session additions delegate to the immutable 1.0/1.2 validators
 // after stripping their explicit session members, so inherited semantics are
 // preserved by construction rather than copied.
-import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import macosRepairRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
 import macosRepairInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
 import macosSessionCustodySchema from './schemas/macos-session-custody/1.0.0.json' with { type: 'json' };
@@ -18,8 +17,9 @@ import runResult13Schema from './schemas/run-result/1.3.0.json' with { type: 'js
 import { macosRepairIndex } from '../harness/macos-session-definitions.mjs';
 import verificationRequestSchema from './schemas/macos-session-verification-request/1.0.0.json' with { type: 'json' };
 import verificationResultSchema from './schemas/macos-session-verification-result/1.0.0.json' with { type: 'json' };
-import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
+import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
+import { fragmentCheck, registerSchemas, schemaCheck, validateExactDocument } from './internal/contract-validation.js';
 import { validateTrustRepairRequest, validateTrustRepairInputs,
   validatePreparedWork12, validateRunResult12,
   TRUST_REPAIR_REQUEST_1_0_0, TRUST_REPAIR_INPUTS_1_0_0,
@@ -242,49 +242,6 @@ const invalid = (reason: string, path?: string): Diagnostic => ({
 });
 const invalidSession = (path: string): Diagnostic => invalid('invalid-session-selection', path);
 
-/** Reads the caller value once through the shared strict-JSON rules; never invokes a getter. */
-function inspect(value: unknown, maxBytes?: number): { safe: Data } | { diagnostic: Diagnostic } {
-  try {
-    const safe = cloneJsonValueStructureV1(value, 'document', STRICT_JSON_MAX_DEPTH_V1, maxBytes ?? Infinity);
-    assertStrictJsonValueV1(safe, 'document');
-    if (!isObject(safe)) throw new TypeError('document root must be an object');
-    if (maxBytes !== undefined && new TextEncoder().encode(canonicalJson(safe)).length > maxBytes)
-      throw new TypeError('document byte limit');
-    return { safe };
-  } catch {
-    return { diagnostic: { code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' } };
-  }
-}
-
-function validateAgainst(
-  value: unknown,
-  expected: string,
-  check: ValidateFunction,
-  semantics: (document: Data) => Diagnostic[],
-  maxBytes?: number
-): ValidationResult {
-  const inspected = inspect(value, maxBytes);
-  if ('diagnostic' in inspected) return { valid: false, diagnostics: [inspected.diagnostic] };
-  const { safe } = inspected;
-  const found = safe.schema;
-  if (typeof found === 'string' && found !== expected) return {
-    valid: false, schema: found, diagnostics: [{
-      code: 'SCHEMA_UNSUPPORTED', reason: 'schema-unsupported', message: 'This format is not supported.',
-      path: '/schema', encountered: found, supported: [expected]
-    }]
-  };
-  const semantic = semantics(safe);
-  if (semantic.length > 0) return { valid: false, schema: expected, diagnostics: semantic };
-  if (check(safe)) return { valid: true, schema: expected, diagnostics: [] };
-  return {
-    valid: false, schema: expected,
-    diagnostics: (check.errors ?? []).map(error => ({
-      code: 'INPUT_INVALID', reason: error.keyword === 'additionalProperties' ? 'unknown-field' : error.keyword,
-      message: 'The document does not satisfy the published schema.', path: error.instancePath
-    }))
-  };
-}
-
 const unsafePathCharacter = /[\\:\u0000-\u001f\u007f-\u009f\p{Cf}]/u;
 /** Absolute normalized macOS `.app` directory (request) or document-relative path (CLI inputs). */
 function appPathValid(value: unknown, absolute: boolean): value is string {
@@ -358,30 +315,23 @@ function macosRepairInputsSemantics(document: Data): Diagnostic[] {
   return [...inherited.diagnostics, ...macosSessionSemantics(document.macosSession, targets, '/macosSession', false, false)];
 }
 
-const ajv = new Ajv2020({ allErrors: true, strict: true });
-ajv.addSchema(macosRepairRequestSchema);
-ajv.addSchema(macosRepairInputsSchema);
-ajv.addSchema(macosSessionCustodySchema);
-ajv.addSchema(macosSessionProfilesSchemaDocument);
-ajv.addSchema(preparedWork13Schema);
-ajv.addSchema(runResult13Schema);
-ajv.addSchema(verificationRequestSchema);
-ajv.addSchema(verificationResultSchema);
-const checkMacosRepairRequest = ajv.getSchema(macosRepairRequestSchema.$id) as ValidateFunction;
-const checkMacosRepairInputs = ajv.getSchema(macosRepairInputsSchema.$id) as ValidateFunction;
-const checkMacosSessionCustody = ajv.getSchema(macosSessionCustodySchema.$id) as ValidateFunction;
-const checkMacosSessionProfiles = ajv.getSchema(macosSessionProfilesSchemaDocument.$id) as ValidateFunction;
-const checkPreparedWork13 = ajv.getSchema(preparedWork13Schema.$id) as ValidateFunction;
-const checkRunResult13 = ajv.getSchema(runResult13Schema.$id) as ValidateFunction;
-const checkMacosSessionReviewDef = ajv.compile({ $ref: `${preparedWork13Schema.$id}#/$defs/macosSessionReview` });
-const checkMacosSessionRunDef = ajv.compile({ $ref: `${runResult13Schema.$id}#/$defs/macosSessionRun` });
-const checkVerificationRequest = ajv.getSchema(verificationRequestSchema.$id) as ValidateFunction;
-const checkVerificationResult = ajv.getSchema(verificationResultSchema.$id) as ValidateFunction;
+registerSchemas(macosRepairRequestSchema, macosRepairInputsSchema, macosSessionCustodySchema, macosSessionProfilesSchemaDocument,
+  preparedWork13Schema, runResult13Schema, verificationRequestSchema, verificationResultSchema);
+const checkMacosRepairRequest = schemaCheck(macosRepairRequestSchema.$id);
+const checkMacosRepairInputs = schemaCheck(macosRepairInputsSchema.$id);
+const checkMacosSessionCustody = schemaCheck(macosSessionCustodySchema.$id);
+const checkMacosSessionProfiles = schemaCheck(macosSessionProfilesSchemaDocument.$id);
+const checkPreparedWork13 = schemaCheck(preparedWork13Schema.$id);
+const checkRunResult13 = schemaCheck(runResult13Schema.$id);
+const checkMacosSessionReviewDef = fragmentCheck(`${preparedWork13Schema.$id}#/$defs/macosSessionReview`);
+const checkMacosSessionRunDef = fragmentCheck(`${runResult13Schema.$id}#/$defs/macosSessionRun`);
+const checkVerificationRequest = schemaCheck(verificationRequestSchema.$id);
+const checkVerificationResult = schemaCheck(verificationResultSchema.$id);
 
 export const validateMacosRepairRequest = (value: unknown): ValidationResult =>
-  validateAgainst(value, macosRepairRequestSchema.$id, checkMacosRepairRequest, macosRepairRequestSemantics, 1_000_000);
+  validateExactDocument(value, macosRepairRequestSchema.$id, checkMacosRepairRequest, macosRepairRequestSemantics, 1_000_000);
 export const validateMacosRepairInputs = (value: unknown): ValidationResult =>
-  validateAgainst(value, macosRepairInputsSchema.$id, checkMacosRepairInputs, macosRepairInputsSemantics, 1_000_000);
+  validateExactDocument(value, macosRepairInputsSchema.$id, checkMacosRepairInputs, macosRepairInputsSemantics, 1_000_000);
 
 /** Strictly ascending (therefore also duplicate-free) string list. */
 function sortedUniqueStrings(value: unknown): boolean {
@@ -472,7 +422,7 @@ function macosSessionCustodySemantics(document: Data): Diagnostic[] {
 }
 
 export const validateMacosSessionCustody = (value: unknown): ValidationResult =>
-  validateAgainst(value, macosSessionCustodySchema.$id, checkMacosSessionCustody, macosSessionCustodySemantics, 1_048_576);
+  validateExactDocument(value, macosSessionCustodySchema.$id, checkMacosSessionCustody, macosSessionCustodySemantics, 1_048_576);
 
 const environmentKeyName = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function macosSessionProfilesSemantics(document: Data): Diagnostic[] {
@@ -503,7 +453,7 @@ function macosSessionProfilesSemantics(document: Data): Diagnostic[] {
 }
 
 export const validateMacosSessionProfiles = (value: unknown): ValidationResult =>
-  validateAgainst(value, macosSessionProfilesSchemaDocument.$id, checkMacosSessionProfiles, macosSessionProfilesSemantics, 1_048_576);
+  validateExactDocument(value, macosSessionProfilesSchemaDocument.$id, checkMacosSessionProfiles, macosSessionProfilesSemantics, 1_048_576);
 
 const invalidReview = (path: string): Diagnostic => invalid('invalid-session-review', path);
 const invalidRun = (path: string): Diagnostic => invalid('invalid-session-run', path);
@@ -602,14 +552,14 @@ function runResult13Semantics(document: Data): Diagnostic[] {
 }
 
 export const validatePreparedWork13 = (value: unknown): ValidationResult =>
-  validateAgainst(value, preparedWork13Schema.$id, checkPreparedWork13, preparedWork13Semantics);
+  validateExactDocument(value, preparedWork13Schema.$id, checkPreparedWork13, preparedWork13Semantics);
 export const validateRunResult13 = (value: unknown): ValidationResult =>
-  validateAgainst(value, runResult13Schema.$id, checkRunResult13, runResult13Semantics);
+  validateExactDocument(value, runResult13Schema.$id, checkRunResult13, runResult13Semantics);
 export const validateMacosSessionReview = (value: unknown): ValidationResult =>
-  validateAgainst(value, preparedWork13Schema.$id, checkMacosSessionReviewDef,
+  validateExactDocument(value, preparedWork13Schema.$id, checkMacosSessionReviewDef,
     document => sessionReviewSemantics(document, ''));
 export const validateMacosSessionRun = (value: unknown): ValidationResult =>
-  validateAgainst(value, runResult13Schema.$id, checkMacosSessionRunDef,
+  validateExactDocument(value, runResult13Schema.$id, checkMacosSessionRunDef,
     document => sessionRunSemantics(document, ''));
 
 const invalidResult = (path: string) => invalid('invalid-session-result', path);
@@ -666,6 +616,6 @@ function verificationResultSemantics(document: Data): Diagnostic[] {
   return out;
 }
 export const validateMacosSessionVerificationRequest = (value: unknown): ValidationResult =>
-  validateAgainst(value, verificationRequestSchema.$id, checkVerificationRequest, () => [], 4096);
+  validateExactDocument(value, verificationRequestSchema.$id, checkVerificationRequest, () => [], 4096);
 export const validateMacosSessionVerificationResult = (value: unknown): ValidationResult =>
-  validateAgainst(value, verificationResultSchema.$id, checkVerificationResult, verificationResultSemantics, 1_048_576);
+  validateExactDocument(value, verificationResultSchema.$id, checkVerificationResult, verificationResultSemantics, 1_048_576);

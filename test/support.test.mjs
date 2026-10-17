@@ -17,11 +17,14 @@ const inspect = (checks = []) => ({ kind: 'inspect', result: {
   effectiveOptions: { targets: effective('detected'), network: effective('declared'), probeConfiguredMcp: effective(false), budgetMs: effective(180000) },
   limits: { budgetMs: 180000, elapsedMs: 1, maxActiveProbes: 2 }, followUp: []
 } });
+// Prepared reviews and run results are admitted by their published schemas, so
+// bound digests are well-formed; sentinels stay in schema-permitted free text.
+const digest = (char = 'a') => char.repeat(64);
 const review = (useCase = 'policy') => ({
   schema: 'urn:aihq:core:prepared-work:1.0.0', useCase, mode: useCase === 'policy' ? 'vibe' : 'standalone',
-  target: { scope: 'project', project: sentinel }, inputs: useCase === 'policy' ? { policySha256: sentinel, package: { ...pkg } } :
-    { sourceSha256: sentinel, helperSha256: sentinel, certificates: [sentinel], package: { ...pkg } },
-  operations: [], observations: [], conflicts: [], omissions: [], effectiveOptions: { logging: effective('off'), inputs: {} }, reviewDigest: sentinel
+  target: { scope: 'project', project: sentinel }, inputs: useCase === 'policy' ? { policySha256: digest(), package: { ...pkg } } :
+    { sourceSha256: digest('b'), helperSha256: digest('c'), certificates: [digest('d')], package: { ...pkg } },
+  operations: [], observations: [], conflicts: [], omissions: [], effectiveOptions: { logging: effective('off'), inputs: {} }, reviewDigest: digest('e')
 });
 const prepare = (status = 'ready', useCase = 'policy') => ({ kind: 'prepare', result: {
   status, runId: sentinel, review: review(useCase), diagnostics: [], record: { status: 'written', reference: sentinel }
@@ -85,24 +88,34 @@ test('all freeform result fields and unknown fields are omitted by allowlist', (
   assert.match(markdown, /unrecognized diagnostic/);
   for (const input of [prepare('blocked'), run('incomplete')]) {
     input.result.diagnostics = [diagnostic('state-protection')];
-    input.result.unrecognized = { args: [payload], env: { SAFE_LOOKING: sentinel }, certificate: payload, sourceId: sentinel, policyName: sentinel };
     if (input.kind === 'prepare') {
+      // The Prepare wrapper has no published schema; its unknown fields stay omitted by allowlist.
+      input.result.unrecognized = { args: [payload], env: { SAFE_LOOKING: sentinel }, certificate: payload, sourceId: sentinel, policyName: sentinel };
       input.result.review.mode = 'enterprise';
       input.result.review.inputs.organization = { source: { provider: 'github', repository: { owner: sentinel, name: sentinel }, path: payload,
-        revision: { kind: 'branch', value: sentinel } }, policyId: sentinel, contentDigest: sentinel, resolvedCommit: sentinel, blobId: sentinel,
+        revision: { kind: 'branch', value: sentinel } }, policyId: sentinel, contentDigest: `sha256:${digest()}`, resolvedCommit: 'a'.repeat(40), blobId: 'b'.repeat(40),
         helper: { id: 'github-policy-reader', package: { ...pkg } } };
       input.result.review.observations = [{ id: sentinel, reason: payload }];
       input.result.review.operations = [{ id: sentinel, purpose: payload, kind: 'process.run', scope: 'project', effects: 'unavailable', ownership: 'unowned', requires: [sentinel], checks: [],
         details: { reason: 'certificate-chain', target: payload, args: [payload], env: { SAFE: sentinel }, executable: payload, content: payload, stdin: sentinel, material: sentinel, blockId: sentinel } }];
       input.result.review.conflicts = [{ ...diagnostic(sentinel, sentinel), path: payload }]; input.result.review.omissions = [diagnostic(sentinel, sentinel)];
     } else {
-      input.result.operations = [{ id: 'trust/gradle-config', application: 'failed', reason: 'certificate-chain', verification: { status: 'failed', reason: payload }, authoredId: sentinel }];
-      input.result.checks = [{ id: 'npm/tls/node/registry.npmjs.org', operationId: sentinel, status: 'failed', reason: 'certificate-chain', detail: payload }];
+      // A run result is admitted by its published schema: free text rides only in declared fields.
+      input.result.runId = payload; input.result.recovery = payload; input.result.followUp = [payload, url];
+      input.result.diagnostics[0] = { ...input.result.diagnostics[0], path: payload, guidance: payload, encountered: url, supported: [url] };
+      input.result.operations = [{ id: 'trust/gradle-config', application: 'failed', reason: 'certificate-chain', verification: { status: 'failed', reason: payload } }];
+      input.result.checks = [{ id: 'npm/tls/node/registry.npmjs.org', operationId: sentinel, status: 'failed', reason: 'certificate-chain' }];
     }
     const result = privacy(input);
     assert.equal(result.guidance.items.flatMap(item => item.repairs).length, 0, 'policy-authored identifiers must not select trust repairs');
     assert.doesNotMatch(result.raw, /script|example.invalid|https:/);
   }
+  // Fields a published review or run result does not declare make the document malformed.
+  const undeclaredRun = run('incomplete'); undeclaredRun.result.unrecognized = { token: sentinel }; invalid(undeclaredRun);
+  const undeclaredOperation = run('incomplete');
+  undeclaredOperation.result.operations = [{ id: 'x', application: 'failed', verification: { status: 'failed', reason: 'x' }, authoredId: sentinel }];
+  invalid(undeclaredOperation);
+  const undeclaredReview = prepare('blocked'); undeclaredReview.result.review.unrecognized = sentinel; invalid(undeclaredReview);
 });
 
 test('complete, partial, invalid, cancelled and unknown reasons retain honest result state', () => {
@@ -306,7 +319,7 @@ test('contradictory policy and repair input bindings are rejected as malformed p
   assert.equal(getGuidance(candidate, platform).status, 'complete');
   // prepared-work admits an organization binding exactly in enterprise mode.
   const organization = { source: { provider: 'github', repository: { owner: sentinel, name: sentinel }, path: sentinel,
-    revision: { kind: 'branch', value: sentinel } }, resolvedCommit: sentinel, blobId: sentinel, contentDigest: sentinel,
+    revision: { kind: 'branch', value: sentinel } }, resolvedCommit: 'a'.repeat(40), blobId: 'b'.repeat(40), contentDigest: `sha256:${digest()}`,
     policyId: sentinel, helper: { id: 'github-policy-reader', package: { ...pkg } } };
   const standalone = prepare('ready', 'repair'); standalone.result.review.inputs.organization = organization;
   invalid(standalone);

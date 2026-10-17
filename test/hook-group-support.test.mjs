@@ -41,12 +41,16 @@ test('support accepts 1.1 run results, including cleanup-only runs, and still re
     assert.equal(result.schema, 'urn:aihq:core:run-result:1.1.0');
     assert.equal(getGuidance({ kind: 'run', result }, options).status, 'complete');
     assert.equal(getGuidance({ kind: 'prepare', result: prepared }, options).status, 'complete');
-    for (const [kind, mutate] of [['run', value => { value.schema = 'urn:aihq:core:run-result:1.2.0'; return value; }],
-      ['prepare', value => { value.review = { ...value.review, schema: 'urn:aihq:core:prepared-work:1.2.0' }; return value; }]]) {
-      const input = { kind, result: mutate(structuredClone(kind === 'run' ? result : { ...prepared, prepared: undefined })) };
-      const unsupported = getGuidance(input, options);
-      assert.equal(unsupported.status, 'invalid');
-      assert.equal(unsupported.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
+    // Unknown identities are unsupported; relabelling a 1.1 document as a known newer family is malformed, not admitted.
+    for (const [schemaRun, schemaPrepared, code] of [['urn:aihq:core:run-result:1.9.0', 'urn:aihq:core:prepared-work:1.9.0', 'SCHEMA_UNSUPPORTED'],
+      ['urn:aihq:core:run-result:1.2.0', 'urn:aihq:core:prepared-work:1.2.0', 'INPUT_INVALID']]) {
+      for (const [kind, mutate] of [['run', value => { value.schema = schemaRun; return value; }],
+        ['prepare', value => { value.review = { ...value.review, schema: schemaPrepared }; return value; }]]) {
+        const input = { kind, result: mutate(structuredClone(kind === 'run' ? result : { ...prepared, prepared: undefined })) };
+        const refused = getGuidance(input, options);
+        assert.equal(refused.status, 'invalid');
+        assert.equal(refused.diagnostics[0].code, code);
+      }
     }
   } finally { s.dispose(); }
 });

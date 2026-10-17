@@ -1,7 +1,8 @@
 // Portable support presentation over existing public results. Importing or
 // calling these functions performs no host access, process execution,
 // network, writes or state lookup.
-import type { Diagnostic } from './types.js';
+import type { Diagnostic, ValidationResult } from './types.js';
+import { validateProducedPreparedWork, validateProducedRunResult } from './internal/produced-validation.js';
 import { deriveGuidance, reasonLabel, subjectLabel } from '../harness/guidance.mjs';
 import type { GuidanceFact, GuidanceRequest } from '../harness/guidance.mjs';
 import { repairIndex } from '../harness/contracts.mjs';
@@ -31,8 +32,6 @@ export interface GuidanceItem {
 export interface GuidanceResult { status: 'complete' | 'invalid'; items: GuidanceItem[]; diagnostics: Diagnostic[] }
 export interface SupportMarkdownResult { status: 'rendered' | 'invalid'; markdown?: string; diagnostics: Diagnostic[] }
 
-const PREPARED = ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0'] as const;
-const RESULT = ['urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0'] as const;
 const invalid = (): Diagnostic => ({ code: 'INPUT_INVALID', reason: 'support-input', message: 'Use a supported public result.' });
 const unsupported = (): Diagnostic => ({ code: 'SCHEMA_UNSUPPORTED', reason: 'schema-id', message: 'This result format is not supported.' });
 type Data = Record<string, unknown>;
@@ -44,48 +43,15 @@ const fields = (value: unknown, names: readonly string[]): value is Data => obje
 const list = (value: unknown, check: (item: unknown) => boolean): value is Data[] => Array.isArray(value) && value.every(check);
 const diagnostics = (value: unknown): value is Data[] => list(value, item => fields(item, ['code', 'reason', 'message']));
 const effective = (value: unknown, check: (item: unknown) => boolean): boolean => object(value) && oneOf(value.origin, ['default', 'explicit']) && check(value.value);
-const logging = (value: unknown): boolean => object(value) && effective(value.logging, item => oneOf(item, ['on', 'off']));
 const outcomes = ['passed', 'failed', 'unavailable', 'skipped'];
 
+// Inspection results and the Prepare wrapper have no published schema or owning
+// validator, so their minimal shape checks stay here. Every prepared review and
+// run result is admitted only by the validator that owns its exact schema ID.
 function record(value: unknown): boolean {
   return object(value) && (value.status === 'written' ? typeof value.reference === 'string' :
     value.status === 'disabled' ? value.reason === 'logging-off' : value.status === 'failed' &&
       oneOf(value.reason, ['record-limit', 'record-write']) && typeof value.diagnosticId === 'string');
-}
-function inputs(value: unknown): boolean {
-  return object(value) && fields(value.package, ['name', 'version']) &&
-    // Mirrors the schemas' presence-based oneOf: exactly one of the policy or the complete repair binding.
-    (Object.hasOwn(value, 'policySha256') !== ['sourceSha256', 'helperSha256', 'certificates'].every(key => Object.hasOwn(value, key))) &&
-    (!Object.hasOwn(value, 'policySha256') || typeof value.policySha256 === 'string') &&
-    ['sourceSha256', 'helperSha256', 'candidateKind'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'string') &&
-    (!Object.hasOwn(value, 'certificates') || strings(value.certificates)) &&
-    (!Object.hasOwn(value, 'organization') || organizationBinding(value.organization));
-}
-function organizationBinding(value: unknown): boolean {
-  return fields(value, ['resolvedCommit', 'blobId', 'contentDigest', 'policyId']) && object(value.source) &&
-    value.source.provider === 'github' && fields(value.source.repository, ['owner', 'name']) && typeof value.source.path === 'string' &&
-    fields(value.source.revision, ['value']) && oneOf(value.source.revision.kind, ['commit', 'branch', 'tag']) &&
-    object(value.helper) && value.helper.id === 'github-policy-reader' && fields(value.helper.package, ['name', 'version']);
-}
-function reviewCheck(value: unknown): boolean {
-  return fields(value, ['id', 'purpose']) && oneOf(value.kind, ['file.sha256', 'process.exit']) && object(value.details);
-}
-function reviewOperation(value: unknown): boolean {
-  return fields(value, ['id', 'purpose']) && oneOf(value.kind, ['file.write', 'config.entries', 'text.block', 'file.remove', 'process.run', 'hook.group']) &&
-    oneOf(value.scope, ['project', 'user']) && oneOf(value.effects, ['create-file', 'replace-file', 'remove-file', 'already-satisfied', 'conflict', 'opaque-process', 'unavailable']) &&
-    oneOf(value.ownership, ['managed', 'unowned']) && strings(value.requires) && list(value.checks, reviewCheck) && object(value.details);
-}
-function review(value: unknown): value is Data {
-  return object(value) && oneOf(value.schema, PREPARED) && oneOf(value.useCase, value.schema === PREPARED[1] ? ['policy'] : ['policy', 'repair']) &&
-    oneOf(value.mode, ['vibe', 'enterprise', 'standalone']) && object(value.target) && oneOf(value.target.scope, ['project', 'user']) &&
-    typeof value.target.project === 'string' && inputs(value.inputs) &&
-    // prepared-work allOf: an organization binding (with a policy digest) exactly in enterprise mode.
-    (value.mode === 'enterprise') === Object.hasOwn(value.inputs as Data, 'organization') &&
-    (value.mode !== 'enterprise' || Object.hasOwn(value.inputs as Data, 'policySha256')) && list(value.operations, reviewOperation) &&
-    list(value.observations, item => fields(item, ['id', 'reason'])) && diagnostics(value.conflicts) && diagnostics(value.omissions) &&
-    logging(value.effectiveOptions) && object(value.effectiveOptions) && object(value.effectiveOptions.inputs) &&
-    Object.values(value.effectiveOptions.inputs).every(item => object(item) && oneOf(item.origin, ['default', 'explicit', 'private'])) &&
-    typeof value.reviewDigest === 'string';
 }
 function inspectResult(value: Data): boolean {
   return oneOf(value.status, ['complete', 'incomplete', 'invalid', 'cancelled']) && !Object.hasOwn(value, 'schema') &&
@@ -98,21 +64,22 @@ function inspectResult(value: Data): boolean {
     effective(value.effectiveOptions.probeConfiguredMcp, item => typeof item === 'boolean') && effective(value.effectiveOptions.budgetMs, number) &&
     object(value.limits) && ['budgetMs', 'elapsedMs', 'maxActiveProbes'].every(key => number(value.limits && (value.limits as Data)[key]));
 }
-function preparationResult(value: Data): boolean {
+/** The Prepare wrapper has no published schema; its review is admitted separately by schema ID. */
+function preparationWrapper(value: Data): boolean {
   return oneOf(value.status, ['ready', 'partial', 'blocked', 'invalid', 'cancelled']) && typeof value.runId === 'string' &&
-    diagnostics(value.diagnostics) && record(value.record) && (!Object.hasOwn(value, 'review') || review(value.review));
+    diagnostics(value.diagnostics) && record(value.record);
 }
-function runResult(value: Data): boolean {
-  return oneOf(value.schema, RESULT) && typeof value.runId === 'string' && oneOf(value.useCase, value.schema === RESULT[1] ? ['policy'] : ['policy', 'repair']) &&
-    oneOf(value.completion, ['complete', 'incomplete', 'cancelled', 'rejected']) && logging(value.effectiveOptions) &&
-    list(value.operations, item => fields(item, ['id']) && oneOf(item.application, ['not-attempted', 'already-satisfied', 'applied', 'failed']) &&
-      fields(item.verification, ['reason']) && oneOf(item.verification.status, [...outcomes, 'unverified'])) &&
-    list(value.checks, item => fields(item, ['id', 'operationId', 'reason']) && oneOf(item.status, outcomes)) &&
-    diagnostics(value.diagnostics) && record(value.record) && strings(value.followUp) &&
-    (!Object.hasOwn(value, 'inputs') || inputs(value.inputs)) &&
-    (!Object.hasOwn(value, 'authorization') || (object(value.authorization) && oneOf(value.authorization.origin, ['interactive', 'automation']) &&
-      effective(value.authorization.allowPartial, item => typeof item === 'boolean')));
+/**
+ * Admission through the validator that owns the exact schema ID. Only an unknown
+ * top-level ID is unsupported; a known ID that fails its contract is malformed.
+ */
+function admit(check: (value: unknown) => ValidationResult, value: unknown): Diagnostic | undefined {
+  const result = check(value);
+  if (result.valid) return undefined;
+  return result.diagnostics.some(item => item.code === 'SCHEMA_UNSUPPORTED' && item.path === '/schema') ? unsupported() : invalid();
 }
+/** Guidance classification: only policy work carries authored identifiers; other families are Core-defined work. */
+const guidanceUseCase = (useCase: unknown): 'policy' | 'repair' => useCase === 'policy' ? 'policy' : 'repair';
 
 /** Count canonical bytes with shared subtrees memoized before recursive assertion/serialization. */
 function assertCanonicalBound(value: unknown): void {
@@ -170,12 +137,13 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
     if (new TextEncoder().encode(canonicalJson(snapshot)).length > 1_000_000) return invalid();
     const result = snapshot.result as Data;
     const kind = snapshot.kind as SupportInput['kind'];
-    if ((kind === 'run' && Object.hasOwn(result, 'schema') && !oneOf(result.schema, RESULT)) ||
-        (kind === 'prepare' && object(result.review) && Object.hasOwn(result.review, 'schema') &&
-          !oneOf(result.review.schema, PREPARED))) return unsupported();
-    if (!(kind === 'inspect' ? inspectResult(result) : kind === 'prepare' ? preparationResult(result) : runResult(result))) return invalid();
-    const useCase = kind === 'inspect' ? undefined : kind === 'run' ? result.useCase as 'repair' | 'policy' :
-      object(result.review) ? result.review.useCase as 'repair' | 'policy' : snapshot.repair ? 'repair' : 'policy';
+    // An unknown result format is reported before the remaining wrapper shape.
+    const refused = kind === 'run' ? admit(validateProducedRunResult, result) :
+      kind === 'prepare' && Object.hasOwn(result, 'review') ? admit(validateProducedPreparedWork, result.review) : undefined;
+    if (refused?.code === 'SCHEMA_UNSUPPORTED') return refused;
+    if (refused || (kind === 'inspect' && !inspectResult(result)) || (kind === 'prepare' && !preparationWrapper(result))) return invalid();
+    const useCase = kind === 'inspect' ? undefined : kind === 'run' ? guidanceUseCase(result.useCase) :
+      object(result.review) ? guidanceUseCase(result.review.useCase) : snapshot.repair ? 'repair' : 'policy';
     let repair: SupportRepairContext | undefined;
     if (Object.hasOwn(snapshot, 'repair')) {
       const context = snapshot.repair;
@@ -262,8 +230,10 @@ export function renderSupportMarkdown(input: SupportInput, options: SupportOptio
   if ('code' in adapted) return { status: 'invalid', diagnostics: [adapted] };
   const { kind, result } = adapted;
   const items = derive(adapted);
+  // Policy and legacy repair bindings carry the package directly; trust and macOS session bindings carry it under `trust`.
+  const bound = (inputs: unknown) => !object(inputs) ? undefined : object(inputs.trust) ? inputs.trust.package : inputs.package;
   const packageData = kind === 'inspect' ? result.package : kind === 'prepare' ?
-    object(result.review) && object(result.review.inputs) ? result.review.inputs.package : undefined : object(result.inputs) ? result.inputs.package : undefined;
+    object(result.review) ? bound(result.review.inputs) : undefined : bound(result.inputs);
   const checks = Array.isArray(result.checks) ? result.checks as Data[] : [];
   const operations = Array.isArray(result.operations) ? result.operations : object(result.review) && Array.isArray(result.review.operations) ? result.review.operations : [];
   const lines = ['# Support report\n', `Package: ${identity(packageData)}\n`, `Result: ${kind}\n`,

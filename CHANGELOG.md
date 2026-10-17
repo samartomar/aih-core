@@ -8,6 +8,21 @@ call it with `{ id: 'node-os-trust', inputs: { originId: 'npm-registry' } }` for
 Package tests now fail when a code entry exports a runtime name its declaration does not declare.
 This candidate is unpublished.
 
+`@aihq/core/support` (`getGuidance`, `renderSupportMarkdown`) now interprets every prepared-work and
+run-result format Core produces: trust repair and certificate export (prepared-work 1.2.0 and 1.4.0,
+run-result 1.2.0), macOS sessions (prepared-work and run-result 1.3.0) and targeted organization
+reviews (prepared-work 1.5.0), in addition to 1.0.0 and 1.1.0. Each review and run result is admitted
+by the validator that owns its exact schema ID instead of a parallel shape check, so a document that
+does not satisfy its published schema, including one carrying undeclared fields, now returns
+`INPUT_INVALID` where it was previously interpreted. An unknown or future ID still returns
+`SCHEMA_UNSUPPORTED`. Trust and macOS session reports name the package bound in `inputs.trust`.
+Certificate-export and macOS session work is classified like other Core-defined repair work, never by
+policy-authored identifiers. Support reads at most 1,000,000 canonical bytes per input, so a larger
+valid result returns `INPUT_INVALID`. The portable support bundle now includes the schema validator.
+Core's portable contract validators now share one schema registry and compile each schema on its
+first use rather than when `@aihq/core/contracts` or `@aihq/core/support` is imported; their results
+are unchanged. No schema changed. This candidate is unpublished.
+
 Remove the table header Core created when its last TOML `config.entries` key is removed. Core now
 records, for a key whose table it created, that it appended the header and, at the end of a file
 that lacked a final line break, the break it added before it. Removing the last managed key of that

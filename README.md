@@ -1187,6 +1187,22 @@ const guidance = getGuidance({ kind: 'inspect', result: inspection }, { platform
 const rendered = renderSupportMarkdown({ kind: 'inspect', result: inspection }, { platform: 'win32' });
 ```
 
+Prepare and run results are interpreted for every prepared-work and run-result
+format Core produces: prepared-work `1.0.0`–`1.5.0` (policy, repair, trust and
+certificate-export, macOS session and targeted organization reviews) and
+run-result `1.0.0`–`1.3.0`. Each review or run result must satisfy the published
+schema and contract rules of its exact `schema` ID, so undeclared fields or a
+document relabelled with another known ID return `INPUT_INVALID`; an unknown or
+future ID returns `SCHEMA_UNSUPPORTED`. Inspection results and the Prepare
+wrapper (`status`, `runId`, `diagnostics`, `record`) have no published schema and
+keep their bounded shape checks. Support reads each input once as strict JSON
+limited to 1,000,000 canonical UTF-8 bytes and depth 32 for the whole
+`{kind, result, repair?}` wrapper (a Prepare result's live `prepared` handle is
+skipped, not read). A larger result returns `INPUT_INVALID` even when it is
+otherwise valid; Core's produced-format validators themselves set no such cap.
+Organization obligation fulfilment in
+prepared-work `1.5.0` is review information and adds no guidance items.
+
 `getGuidance` returns ordered items naming the audience, summary, steps and any
 applicable published repair with its required inputs; `renderSupportMarkdown`
 returns a sanitized Markdown summary of the same content. Guidance never
