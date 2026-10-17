@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-execFileSync(process.execPath, ['scripts/generate-report-template.mjs','--check'], {windowsHide:true,stdio:'inherit'});
 for (const script of ['generate-linux-runtime-lock.mjs', 'generate-linux-observer-lock.mjs'])
   execFileSync(process.execPath, [`scripts/${script}`, '--check'], { windowsHide: true, stdio: 'inherit' });
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -35,5 +34,5 @@ writeFileSync(new URL('distribution.mjs', dist),
 copyFileSync(new URL('../src/distribution.d.mts', import.meta.url), new URL('distribution.d.mts', dist));
 
 mkdirSync(new URL('harness/report/',dist),{recursive:true});
-for (const name of ['data.mjs','data.d.mts','bounded-json.mjs','local-path.mjs','claims.mjs','claims.d.mts','claims-schema.json','claims-schema-1.1.0.json','render.mjs','render.d.mts','template.mjs','schema.json']) copyFileSync(new URL('../src/harness/report/'+name,import.meta.url),new URL('harness/report/'+name,dist));
+for (const name of ['data.mjs','data.d.mts','bounded-json.mjs','local-path.mjs','claims.mjs','claims.d.mts','claims-schema.json','claims-schema-1.1.0.json','schema.json']) copyFileSync(new URL('../src/harness/report/'+name,import.meta.url),new URL('harness/report/'+name,dist));
 for (const name of ['report-command.mjs','report-command.d.mts']) copyFileSync(new URL('../src/harness/'+name, import.meta.url),new URL('harness/'+name,dist));

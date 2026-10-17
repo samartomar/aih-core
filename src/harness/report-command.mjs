@@ -3,7 +3,6 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, parse, resolve } from 'node:path';
 import { distribution } from '../distribution.mjs';
 import { createReport, exportSnapshot, importSnapshot, ReportInputError } from './report/data.mjs';
-import { renderReport } from './report/render.mjs';
 import { diagnose, validDiagnosticTargets } from './runtime.mjs';
 
 const DEFAULT_TARGETS = Object.freeze(['node', 'git']);
@@ -75,18 +74,17 @@ export async function runReportCommand(request, controls = {}) {
   const { signal } = controls;
   const snapshot = request.snapshotJson === undefined ?
     await acquire(request.targets ?? DEFAULT_TARGETS, signal) : importSupplied(request.snapshotJson);
-  const mode = request.demo ? 'demo' : 'report';
   const json = exportSnapshot(snapshot);
-  const html = renderReport(snapshot, { mode });
-  // Everything is rendered before the directory exists, so cancellation or a render failure leaves nothing behind.
+  // The snapshot is serialized before the directory exists, so cancellation leaves nothing behind.
+  // Presentation belongs to the consuming application; this command writes only the data snapshot.
   if (cancelled(signal)) throw new ReportCommandError('CANCELLED', 'cancelled');
-  write(directory, [['report.json', json], ['report.html', html]]);
+  write(directory, [['report.json', json]]);
   return {
-    status: 'complete', mode, source: request.snapshotJson === undefined ? 'fresh' : 'snapshot',
+    status: 'complete', source: request.snapshotJson === undefined ? 'fresh' : 'snapshot',
     package: { name: distribution.name, version: distribution.version },
     producer: { name: snapshot.producer.name, version: snapshot.producer.version, revision: snapshot.producer.revision },
     evidence: { originalSha256: snapshot.evidence.originalSha256, authentication: snapshot.evidence.authentication },
-    output: { directory, json: resolve(directory, 'report.json'), html: resolve(directory, 'report.html') },
+    output: { directory, json: resolve(directory, 'report.json') },
     diagnosticStatus: snapshot.status, counts: { ...snapshot.metrics.counts },
     totals: { tools: snapshot.tools.length, observations: snapshot.observations.length,
       checks: snapshot.checks.length, diagnostics: snapshot.diagnostics.length }

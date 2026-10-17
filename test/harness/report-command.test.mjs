@@ -49,17 +49,17 @@ test('aih report acquires a bounded offline Node/Git diagnostic into a new direc
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const body = summary(result);
     assert.equal(body.status, 'complete');
-    assert.equal(body.mode, 'report');
+    assert.equal('mode' in body, false);
     assert.equal(body.source, 'fresh');
     assert.deepEqual(body.package, { name: manifest.name, version: manifest.version });
     // macOS may expose the temporary cwd through /var while the child reports /private/var.
     const requestedOutput = join(w.cwd, 'out');
     assert.equal(realpathSync(body.output.directory), realpathSync(requestedOutput));
     assert.equal(body.output.json, join(body.output.directory, 'report.json'));
-    assert.equal(body.output.html, join(body.output.directory, 'report.html'));
+    assert.equal('html' in body.output, false);
     assert.equal(realpathSync(body.output.json), realpathSync(join(requestedOutput, 'report.json')));
-    assert.equal(realpathSync(body.output.html), realpathSync(join(requestedOutput, 'report.html')));
-    assert.deepEqual(readdirSync(join(w.cwd, 'out')).sort(), ['report.html', 'report.json']);
+    // Only the data snapshot is written; presentation belongs to the consuming application.
+    assert.deepEqual(readdirSync(join(w.cwd, 'out')), ['report.json']);
 
     const snapshot = JSON.parse(readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8'));
     assert.equal(snapshot.producer.name, manifest.name);
@@ -77,11 +77,8 @@ test('aih report acquires a bounded offline Node/Git diagnostic into a new direc
     // Offline acquisition performs no network check: no TLS check can have passed or failed.
     assert.equal(snapshot.checks.some(check => check.id.includes('/tls/') && check.outcome !== 'skipped'), false);
 
-    const html = readFileSync(join(w.cwd, 'out', 'report.html'), 'utf8');
-    assert.match(html, /^<!doctype html>/i);
-    assert.equal(html.includes('class="demo-banner"'), false);
     // Summary is machine-readable metadata, never raw evidence or local roots.
-    for (const text of [result.stdout.replace(w.cwd, ''), readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8'), html])
+    for (const text of [result.stdout.replace(w.cwd, ''), readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8')])
       assert.equal(text.toLowerCase().includes(w.home.toLowerCase()), false);
     assert.equal(readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8').includes(w.cwd), false);
     assert.deepEqual(readdirSync(w.home), []);
@@ -105,7 +102,7 @@ test('aih report accepts repeated explicit targets and always runs with the netw
   } finally { w.cleanup(); }
 });
 
-test('aih report renders a supplied snapshot without reacquiring or relabelling it', () => {
+test('aih report imports a supplied snapshot without reacquiring or relabelling it', () => {
   const w = workspace();
   try {
     const file = writeSnapshot(w, snapshot => {
@@ -127,51 +124,39 @@ test('aih report renders a supplied snapshot without reacquiring or relabelling 
     assert.deepEqual(imported.tools.map(tool => tool.id), ['kiro']);
     assert.equal(imported.evidence.authentication, 'not-authenticated');
     assert.equal(imported.evidence.originalSha256, null);
-    assert.match(readFileSync(join(w.cwd, 'imported', 'report.html'), 'utf8'), /Kiro/);
+    assert.deepEqual(readdirSync(join(w.cwd, 'imported')), ['report.json']);
   } finally { w.cleanup(); }
 });
 
-test('aih report round-trips a generated snapshot byte-for-byte and renders deterministically', () => {
+test('aih report round-trips a generated snapshot byte-for-byte', () => {
   const w = workspace();
   try {
     const first = acquire(w, 'first');
     const again = w.run(['report', '--output', join(w.cwd, 'second'), '--snapshot', join(first.out, 'report.json'), '--json']);
     assert.equal(again.status, 0, again.stdout + again.stderr);
-    for (const name of ['report.json', 'report.html'])
-      assert.deepEqual(readFileSync(join(w.cwd, 'second', name)), readFileSync(join(first.out, name)));
+    assert.deepEqual(readFileSync(join(w.cwd, 'second', 'report.json')), readFileSync(join(first.out, 'report.json')));
+    assert.deepEqual(readdirSync(join(w.cwd, 'second')), ['report.json']);
   } finally { w.cleanup(); }
 });
 
-test('aih report --demo labels the render as a design sample and never shows snapshot values', () => {
+test('aih report no longer offers a demo render', () => {
   const w = workspace();
   try {
-    const file = writeSnapshot(w, snapshot => {
-      snapshot.tools = [{ id: 'kiro', label: 'DistinctiveSupplied', state: 'absent', selection: 'unselected' }];
-      snapshot.observations = []; snapshot.diagnostics = [];
-      snapshot.checks = [{ id: 'kiro/version', target: 'kiro', outcome: 'skipped', reason: 'offline', detail: '' }];
-      snapshot.metrics.counts = { passed: 0, failed: 0, unavailable: 0, skipped: 1 };
-    });
-    const result = w.run(['report', '--output', 'demo', '--snapshot', file, '--demo', '--json']);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(summary(result).mode, 'demo');
-    const html = readFileSync(join(w.cwd, 'demo', 'report.html'), 'utf8');
-    assert.match(html, /class="demo-banner"><strong>DEMO<\/strong>/);
-    assert.equal(html.includes('DistinctiveSupplied'), false);
-    // The data file remains the true supplied snapshot.
-    assert.equal(JSON.parse(readFileSync(join(w.cwd, 'demo', 'report.json'), 'utf8')).tools[0].label, 'DistinctiveSupplied');
-    const fresh = w.run(['report', '--output', 'demo-fresh', '--target', 'node', '--demo', '--json']);
-    assert.equal(fresh.status, 0, fresh.stdout + fresh.stderr);
-    assert.equal(summary(fresh).mode, 'demo'); assert.equal(summary(fresh).source, 'fresh');
+    for (const args of [['report', '--output', 'demo', '--target', 'node', '--demo', '--json'],
+      ['report', '--output', 'demo', '--snapshot', join(w.cwd, 'absent.json'), '--demo', '--json']]) {
+      rejected(w.run(args), 'cli-input');
+      assert.equal(existsSync(join(w.cwd, 'demo')), false);
+    }
   } finally { w.cleanup(); }
 });
 
-test('aih report prints a readable summary without --json and still writes both files', () => {
+test('aih report prints a readable summary without --json and still writes the snapshot', () => {
   const w = workspace();
   try {
     const result = w.run(['report', '--output', 'plain', '--target', 'node']);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(summary(result).status, 'complete');
-    assert.equal(existsSync(join(w.cwd, 'plain', 'report.html')), true);
+    assert.deepEqual(readdirSync(join(w.cwd, 'plain')), ['report.json']);
   } finally { w.cleanup(); }
 });
 
@@ -303,14 +288,15 @@ test('existing commands reject report-only options', () => {
   } finally { w.cleanup(); }
 });
 
-test('help documents the report command and its modes', () => {
+test('help documents the report command and its data-only output', () => {
   const w = workspace();
   try {
     const help = w.run(['--help']);
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /aih report --output <new-directory>/);
     assert.match(help.stdout, /--snapshot <report\.json>/);
-    assert.match(help.stdout, /--demo/);
+    assert.doesNotMatch(help.stdout, /--demo/);
+    assert.match(help.stdout, /Writes report\.json only; the consuming application renders it\./);
     assert.match(help.stdout, /aih inspect/);
     assert.match(help.stdout, /aih managed <list\|remove>/);
     for (const args of [['help', 'report'], ['report', '--help'], ['help', 'managed', 'list'], ['managed', 'remove', '--help']]) {

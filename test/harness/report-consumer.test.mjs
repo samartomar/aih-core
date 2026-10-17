@@ -13,8 +13,10 @@ const input={diagnostic,producer:{name:'@aihq/core',version:'1.0.0-dev.3',revisi
 
 test('public capability declarations let consumers discover portable reporting and its snapshot format',async()=>{
  for (const support of [coreSupport,harnessSupport]) {
-  for (const entry of ['@aihq/core/report','@aihq/core/report/render'])
+  for (const entry of ['@aihq/core/report'])
    assert.ok(support.entries.some(item=>item.export===entry&&item.runtime==='portable'),`Missing portable entry ${entry}`);
+  // Rendering belongs to the consuming application; no renderer entry is advertised.
+  assert.equal(support.entries.some(item=>item.export.startsWith('@aihq/core/report/render')),false);
  }
  const snapshot=harnessSupport.contracts.find(item=>item.id==='urn:aihq:report:snapshot:1.0.0');
  assert.ok(snapshot,'Missing reporting snapshot declaration');

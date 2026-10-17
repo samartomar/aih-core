@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFile, mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
+import { copyFile, mkdtemp, writeFile, readFile, readdir, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { build, stop } from 'esbuild';
@@ -35,26 +35,24 @@ try {
   "import assert from 'node:assert/strict';",
   "import { readFile } from 'node:fs/promises';",
   "import { createReport,importSnapshot,exportSnapshot } from '@aihq/core/report';",
-  "import { renderReport } from '@aihq/core/report/render';",
   "const input=JSON.parse(await readFile('input.json','utf8'));",
   "const report=createReport(input); const json=exportSnapshot(report);",
   "assert.deepEqual(importSnapshot(json),report); assert.equal(report.metrics.counts.passed,1);",
   "assert.equal(report.metrics.elapsedMs,0); assert.equal(report.evidence.authentication,'not-authenticated');",
-  "const html=renderReport(report); assert.ok(html.includes('sec-ready')); assert.ok(html.includes('node'));",
+  "await assert.rejects(import('@aihq/core/report/render'),{code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});",
   "await assert.rejects(import('@aihq/core/src/harness/report/data.mjs'),{code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});",
-  "console.log(JSON.stringify({packed:true,status:report.status,passed:report.metrics.counts.passed,htmlBytes:html.length}));"
+  "console.log(JSON.stringify({packed:true,status:report.status,passed:report.metrics.counts.passed}));"
  ].join('\n');
  await writeFile(join(consumer,'check.mjs'),script);
  const result=execFileSync(process.execPath,['check.mjs'],{cwd:consumer,encoding:'utf8',windowsHide:true});
  console.log(result.trim());
- const browser=await build({stdin:{contents:"export * from '@aihq/core/report'; export {renderReport} from '@aihq/core/report/render';",resolveDir:consumer},bundle:true,platform:'browser',format:'iife',globalName:'ReportAPI',write:false,metafile:true,logLevel:'silent'});
+ const browser=await build({stdin:{contents:"export * from '@aihq/core/report';",resolveDir:consumer},bundle:true,platform:'browser',format:'iife',globalName:'ReportAPI',write:false,metafile:true,logLevel:'silent'});
  assert.ok(Object.keys(browser.metafile.inputs).every(path=>!path.startsWith('node:')&&!/harness\/(?:runtime|report-command)\.mjs$/.test(path)));
  const browserContext={TextEncoder,TextDecoder,reportInputJSON:await readFile(join(consumer,'input.json'),'utf8')}; runInNewContext(browser.outputFiles[0].text,browserContext);
  const browserReport=runInNewContext('ReportAPI.createReport(JSON.parse(reportInputJSON))',browserContext);
  assert.equal(browserReport.metrics.counts.passed,1);
  assert.equal(runInNewContext('ReportAPI.importSnapshot(ReportAPI.exportSnapshot(ReportAPI.createReport(JSON.parse(reportInputJSON)))).metrics.counts.passed',browserContext),1);
  assert.throws(()=>runInNewContext('ReportAPI.importSnapshot(ReportAPI.exportSnapshot(ReportAPI.createReport(JSON.parse(reportInputJSON))).replace("\\\"status\\\":\\\"completed\\\"", "\\\"status\\\":\\\"invalid\\\",\\\"status\\\":\\\"completed\\\""))',browserContext),{code:'INPUT_INVALID'});
- assert.ok(browserContext.ReportAPI.renderReport(browserReport).includes('sec-ready'));
  const claimsExamples = join(consumer,'node_modules/@aihq/core/examples/reporting/claims');
  const claimsInput = await readFile(join(claimsExamples,'checks.input.json'),'utf8');
  const claimsProjection = await readFile(join(claimsExamples,'checks.projection.json'),'utf8');
@@ -116,8 +114,7 @@ try {
 
   const declaration=[
   "import {createReport,exportSnapshot,importSnapshot,readClaimSet,projectClaims,validateClaimSet,CLAIMS_SCHEMA,CLAIMS_SCHEMA_1_1_0,type ReportSnapshot,type ClaimSet,type ClaimSetRead,type ClaimsProjection,type CalculationResult,type OrderedAction,type RecurrenceRequest,type RecurrenceResult} from '@aihq/core/report';",
-  "import {renderReport} from '@aihq/core/report/render';",
-  "const snapshot:ReportSnapshot=importSnapshot('{}'); const revision:string|null=snapshot.producer.revision; void [createReport,exportSnapshot,renderReport,revision];",
+  "const snapshot:ReportSnapshot=importSnapshot('{}'); const revision:string|null=snapshot.producer.revision; void [createReport,exportSnapshot,revision];",
   "const schemaId:'urn:aihq:report:claims:1.0.0'=CLAIMS_SCHEMA;",
   "const read:ClaimSetRead=readClaimSet('{}');",
   "if(read.status==='supported'){const set:ClaimSet=read.claimSet; const projection:ClaimsProjection=projectClaims(set); const first:CalculationResult|undefined=projection.calculations[0]; const actions:OrderedAction[]=projection.actions; void [first,actions];}",
@@ -145,6 +142,6 @@ try {
  const actual=await readFile(fresh.output.json,'utf8');
  const saved=JSON.parse(execFileSync(process.execPath,[cli,'report','--snapshot',fresh.output.json,'--output',join(consumer,'saved'),'--json'],{cwd:consumer,env:commandEnv,encoding:'utf8',windowsHide:true,timeout:10000}));
  assert.equal(saved.source,'snapshot'); assert.equal(await readFile(saved.output.json,'utf8'),actual);
- assert.equal(await readFile(saved.output.html,'utf8'),await readFile(fresh.output.html,'utf8'));
- console.log('Packed reporting declarations, real offline command and snapshot replay passed; saved mode reproduces identical JSON/HTML.');
+ for (const result of [fresh,saved]) { assert.equal('html' in result.output,false); assert.deepEqual(await readdir(result.output.directory),['report.json']); }
+ console.log('Packed reporting declarations, real offline command and snapshot replay passed; saved mode reproduces identical JSON and writes no HTML.');
 } finally { await stop(); await rm(temporary,{recursive:true,force:true}); }

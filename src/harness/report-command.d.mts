@@ -7,20 +7,17 @@ export interface ReportCommandRequest {
   snapshotJson?: string;
   /** Explicit bounded offline probes for a fresh diagnostic. Defaults to Node and Git. */
   targets?: string[];
-  /** Render the labelled design sample instead of the snapshot's values. */
-  demo?: boolean;
 }
 
 export interface ReportCommandSummary {
   status: 'complete';
-  mode: 'report' | 'demo';
   source: 'fresh' | 'snapshot';
   /** The installed distribution that ran this command. */
   package: { name: string; version: string };
   /** Producer identity carried by the snapshot: supplied provenance, not authenticated. `revision` is null when unknown. */
   producer: { name: string; version: string; revision: string | null };
   evidence: { originalSha256: string | null; authentication: 'not-authenticated' };
-  output: { directory: string; json: string; html: string };
+  output: { directory: string; json: string };
   diagnosticStatus: DiagnosticStatus;
   counts: { passed: number; failed: number; unavailable: number; skipped: number };
   totals: { tools: number; observations: number; checks: number; diagnostics: number };
@@ -35,6 +32,6 @@ export declare class ReportCommandError extends Error {
   constructor(code: ReportCommandErrorCode, reason: string);
 }
 
-/** Acquire (or import) one snapshot and write matching `report.json` and `report.html` into a new directory. */
+/** Acquire (or import) one snapshot and write it as `report.json` into a new directory. Rendering belongs to the consuming application. */
 export declare function runReportCommand(request: ReportCommandRequest,
   controls?: { signal?: AbortSignal }): Promise<ReportCommandSummary>;
