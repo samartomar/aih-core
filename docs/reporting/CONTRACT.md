@@ -195,19 +195,34 @@ the exact input in `original`. Validation stops at the first refused field.
 
 | Form | Recognized as |
 |---|---|
-| `posix-absolute` | `/` beginning a token followed by a segment and a further `/` (`/srv/app/x`), or a well-known root alone (`/tmp`, `/home`, `/Users`, `/etc` and similar). |
+| `posix-absolute` | A `/` beginning a token whose first segment is a well-known root (`/etc/hosts`, `/tmp`, `/usr/bin/node`, `/home`, `/Users`, `/Library` and similar), or whose segments have a path shape: a dot entry (`/x/.ssh`, `/.env`) or a final file name with an extension (`/data/app/config.json`). |
 | `windows-drive` | A drive root in either separator style (`C:\`, `d:/`). |
 | `unc` | A backslash UNC or device path (`\\server\share`, `\\?\C:\`). |
 | `home-relative` | `~/`, `~\` or `~user/` beginning a token. |
-| `file-url` | Any `file:` URL. |
+| `file-url` | A `file:/` or `file://` URL, in any letter case. |
+| `home-directory` | Any other string the snapshot projection would mask as `<homePath>`, such as a `/home/<name>` or `/Users/<name>` segment inside a relative path or URL. |
 
 A token begins at the start of the string or after whitespace, a quote, an
-opening bracket, `=`, `,`, `;` or `:`. Repository-relative paths
+opening bracket, `>`, `|`, `-`, `=`, `,`, `;` or `:`. Repository-relative paths
 (`src/app.ts`, `./config.json`, `../shared/x`), package names (`@scope/name`),
 URNs and URLs with a scheme other than `file` (`https://…`, `ssh://…`) are not
-local and are accepted; the body of such a URL is not inspected. Every absolute
-home path that the snapshot projection masks as `<homePath>` is also refused
-here, because both use the same internal path shapes.
+local and are accepted; the body of such a URL is checked only by the
+`home-directory` rule. `file:` without a following `/` (`Config file: x`) is
+prose, not a URL.
+
+JSON Pointers and routes are accepted: an absolute token whose segments are
+plain names or numbers and whose first segment is not a well-known root, such
+as `/claims/0/subject`, `/policy/selections/0` or `GET /api/v1/users`, is not a
+path. Core's own diagnostics name locations in that form, so refusing it would
+refuse ordinary claim text. The cost is that an absolute path with no file
+extension under an unlisted root (`/data/app/bin`) is not detected.
+
+Every string the snapshot projection masks as a home path is refused by
+construction: validation applies the same masking and refuses any string it
+would change. Forms that are not detected: forward-slash UNC paths and
+protocol-relative URLs (`//server/share`), environment-variable references
+(`$HOME/x`, `%USERPROFILE%\x`), the pointer-shaped paths above, and bare
+relative paths that happen to name a private directory.
 
 The rule applies to every caller-authored string: claim `id`, `revision`,
 `producer`, `recordSchema`, `subject`, `scope.targets`, `sources` and
@@ -471,8 +486,7 @@ select; the projection does not choose which claims are in scope. Text fields ar
 copied as supplied: the snapshot redaction pipeline does not run on claims, so
 producers must not place secrets in a claim set they intend to share.
 Recognizable machine-local paths are refused (see the privacy rule above), but
-a path in an unrecognized form, such as a bare relative path that happens to
-name a private directory, is not detected.
+the forms that rule lists as undetected pass validation.
 
 ## Evidence limitations
 
