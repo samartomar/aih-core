@@ -255,7 +255,9 @@ try {
   for (const expected of EXPECTED_DEVIATIONS) {
     assert.ok(record.deviations.some(entry => entry.owner === expected.owner), `stale expected deviation: ${expected.owner}`);
   }
-  record.status = 'passed';
+  assert.ok(compared.onlyInSecond.includes(record.checks.currentScenario.upgradeUsed.itemId), 'the applied item is added content');
+  // Only a committed, clean gate source can produce `passed`.
+  record.status = gateSource.clean ? 'passed' : 'passed-dirty';
   save();
   console.log(JSON.stringify({ status: record.status, evidence: join(options.output, 'acceptance.json') }));
 } catch (error) {

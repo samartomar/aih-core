@@ -222,6 +222,15 @@ export function verifyCompareReleases(baseline, current) {
     onlyInSecond: facts.items.filter(item => item.presence === 'only-in-second').map(item => item.itemId) };
 }
 
+/** resolveSelections accepts one root and returns it in its selections. */
+export function verifyResolvedRoot(release, itemId, scope) {
+  const resolved = resolveSelections({ releases: { [release.sha256]: release },
+    roots: [{ releaseSha256: release.sha256, itemId, scope, configuration: {} }], skips: [] });
+  assert.equal(resolved.status, 'ok', JSON.stringify(resolved.diagnostics));
+  assert.ok(resolved.value.selections.some(selection => selection.item.itemId === itemId && selection.scope === scope));
+  return { status: resolved.status, selections: resolved.value.selections.map(selection => selection.item.itemId) };
+}
+
 /** A release whose bytes add one conflict declaration: synthetic acceptance input read by the public reader. */
 export function conflictRelease(bytes, itemId, conflictsWith) {
   const document = JSON.parse(new TextDecoder().decode(bytes));

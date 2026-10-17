@@ -143,6 +143,43 @@ if (variant === 'current') {
   assert.equal(added.valid, true, JSON.stringify(added.diagnostics));
   result.addedContent = await execute(exportPolicy(added.policy), 'target-context');
   assert.ok(result.addedContent.files.some(file => file.path.endsWith('RULE_ROUTER.md')));
+  // The upgrade is used, not only compared: author, resolve, Prepare and Apply one
+  // added ECC item that needs no executable prerequisite, inputs or required items.
+  // It is user-scoped, so Apply writes only into this run's disposable home.
+  const eccInstalled = await readInstalledRelease({
+    root: dirname(fileURLToPath(import.meta.resolve('@aihq/catalog/package.json'))), sourceInput: 'catalog',
+    release: './release-ecc.json',
+  });
+  assert.equal(eccInstalled.valid, true, JSON.stringify(eccInstalled.diagnostics));
+  assert.equal(eccInstalled.release.sha256, ecc.sha256);
+  const addedItem = result.catalog.compare.onlyInSecond.map(id => ecc.items.find(item => item.id === id))
+    .find(item => item.targets.length === 0 && Object.keys(item.inputs).length === 0 &&
+      item.dependencies.requires.length === 0 && item.scopes.includes('user'));
+  assert.ok(addedItem, 'an added ECC item needs no native setup');
+  const resolvedAdded = operations.verifyResolvedRoot(ecc, addedItem.id, 'user');
+  const addedPolicy = authorPolicy({ release: ecc, mode: 'vibe', materialSource: eccInstalled.source, selections: [
+    { id: 'added', managementId: `consumer-${addedItem.id}`, scope: 'user', itemId: addedItem.id, configuration: {} },
+  ] });
+  assert.equal(addedPolicy.valid, true, JSON.stringify(addedPolicy.diagnostics));
+  const addedText = exportPolicy(addedPolicy.policy);
+  const addedProject = join(process.cwd(), 'target-upgrade');
+  mkdirSync(addedProject);
+  const addedHost = createHost({ projectRoot: addedProject, materialRoots: eccInstalled.materialRoots });
+  const addedPrepared = await addedHost.prepareSession({ policyText: addedText });
+  assert.equal(addedPrepared.status, 'ready', JSON.stringify(addedPrepared.diagnostics));
+  assert.ok(addedPrepared.review.operations.length > 0);
+  assert.ok(addedPrepared.review.operations.every(operation => operation.id.startsWith('added/') && operation.scope === 'user'));
+  const addedSelections = operations.verifyOperationSelections(addedPolicy.policy, addedPrepared);
+  const addedRun = await addedHost.applyApproved({ sessionId: addedPrepared.sessionId, reviewDigest: addedPrepared.review.reviewDigest });
+  assert.equal(addedRun.completion, 'complete', JSON.stringify(addedRun));
+  const addedAgain = await addedHost.prepareSession({ policyText: addedText });
+  assert.equal(addedAgain.status, 'ready', JSON.stringify(addedAgain.diagnostics));
+  assert.ok(addedAgain.review.operations.every(operation => operation.effects === 'already-satisfied'), 'Apply established the added item');
+  result.upgradeUsed = { itemId: addedItem.id, release: result.upgrade.release, resolved: resolvedAdded,
+    operations: addedPrepared.review.operations.map(operation => ({ id: operation.id, kind: operation.kind, effects: operation.effects })),
+    operationSelections: addedSelections, completion: addedRun.completion,
+    freshPrepare: [...new Set(addedAgain.review.operations.map(operation => operation.effects))] };
+
   // Every other policy family a plain Prepare produces without native setup:
   // policy 1.1 gives prepared-work 1.1.0, policy 1.2/1.3 give 1.4.0 (runs 1.1.0).
   result.policyFamilies = {};
