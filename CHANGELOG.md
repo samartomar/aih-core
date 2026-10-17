@@ -23,6 +23,7 @@ preparation shape. The README now documents the review operation ID grammar
 produced file-state format, and the 1.0.0 schema stays exported for earlier results. Each
 `@aihq/core/harness` `targets` entry adds a frozen `executables` list: its detection `binaries` first,
 then commands that run under the tool's configuration (`npx` for npm). Detection is unchanged. This
+candidate is unpublished.
 
 `@aihq/core/report` claim-set validation (`validateClaimSet`, `readClaimSet` and `projectClaims`)
 now refuses a claim set whose shared string fields carry a machine-local path: an absolute POSIX
