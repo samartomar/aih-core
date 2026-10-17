@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.
+`assessRepairCandidate` is the one public repair-candidate operation, and its behavior is unchanged;
+call it with `{ id: 'node-os-trust', inputs: { originId: 'npm-registry' } }` for the same assessment.
+Package tests now fail when a code entry exports a runtime name its declaration does not declare.
+This candidate is unpublished.
+
 Remove the table header Core created when its last TOML `config.entries` key is removed. Core now
 records, for a key whose table it created, that it appended the header and, at the end of a file
 that lacked a final line break, the break it added before it. Removing the last managed key of that

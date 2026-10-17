@@ -106,6 +106,32 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(typeof exported, 'string', entry.schemaExport);
       packedSchemas.addSchema(JSON.parse(readFileSync(join(installed, exported), 'utf8')));
     }
+    // Every code entry's runtime names must be declared. Each value its declaration
+    // names must also exist at runtime, except where `export type *` makes
+    // intentional type-only names visible to `typeof`.
+    const codeEntries = Object.entries(manifest.exports)
+      .filter(([, target]) => typeof target === 'object' && target.import && target.types)
+      .map(([key, target]) => ({ specifier: `@aihq/core${key.slice(1)}`,
+        typeOnlyReexports: /\bexport type \*/.test(readFileSync(join(installed, target.types), 'utf8')) }));
+    assert.ok(codeEntries.some(entry => entry.specifier === '@aihq/core/harness/runtime'));
+    writeFileSync(join(consumer, 'export-names.mjs'), `
+      const specifiers = ${JSON.stringify(codeEntries.map(entry => entry.specifier))};
+      const names = {};
+      for (const specifier of specifiers) names[specifier] = Object.keys(await import(specifier)).sort();
+      process.stdout.write(JSON.stringify(names));
+    `);
+    const runtimeNames = JSON.parse(run('export-names.mjs'));
+    assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessRepairCandidate'), true);
+    assert.equal(runtimeNames['@aihq/core/harness/runtime'].includes('assessNodeTrustCandidate'), false);
+    writeFileSync(join(consumer, 'export-parity.mts'), codeEntries.map(({ specifier, typeOnlyReexports }, index) => {
+      const names = runtimeNames[specifier].map(name => JSON.stringify(name)).join(' | ') || 'never';
+      return `import * as entry${index} from '${specifier}';
+        type Runtime${index} = ${names};
+        const undeclared${index}: [Exclude<Runtime${index}, keyof typeof entry${index}>] extends [never] ? 'agree' :
+          { entry: '${specifier}'; undeclared: Exclude<Runtime${index}, keyof typeof entry${index}> } = 'agree';
+        ${typeOnlyReexports ? '' : `const absent${index}: [Exclude<keyof typeof entry${index}, Runtime${index}>] extends [never] ? 'agree' :
+          { entry: '${specifier}'; absentAtRuntime: Exclude<keyof typeof entry${index}, Runtime${index}> } = 'agree';`}`;
+    }).join('\n'));
     writeFileSync(join(consumer, 'contracts.mts'), `
       import {contractSupport,nativeClientIds,repairIndex,selectVerificationPublishers} from '@aihq/core/harness';
       import type {SupportedContract,PublicEntry,VerificationPublisherRecord} from '@aihq/core/harness';
@@ -183,12 +209,19 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       validateRepairDefinition12(macosRepairIndex[0]); void macosSessionProfiles;
       // @ts-expect-error Internal deterministic host adapters are not public runtime arguments.
       observeMacosGuiSession({}, {platform:'darwin'});
+      import {assessRepairCandidate} from '@aihq/core/harness/runtime';
+      import * as harnessRuntime from '@aihq/core/harness/runtime';
+      const candidate = await assessRepairCandidate({id:'node-os-trust',inputs:{originId:'npm-registry'}},{budgetMs:1000});
+      if (candidate.kind === 'extra-ca') { const fingerprint: string = candidate.certs[0]!.fingerprint; }
+      else if (candidate.kind === 'unresolved') { const reason: string = candidate.reason; }
+      // @ts-expect-error The lower-level Node trust assessment is internal to the repair-candidate seam.
+      harnessRuntime.assessNodeTrustCandidate;
     `);
     const compilerManifest = createRequire(import.meta.url).resolve('typescript/package.json');
     const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
     execFileSync(process.execPath, [compiler,
       '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
-      '--target', 'ES2023', 'contracts.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+      '--target', 'ES2023', 'contracts.mts', 'export-parity.mts'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     writeFileSync(join(consumer, 'native-public.mjs'), `
       import assert from 'node:assert/strict';
       import {spawnSync} from 'node:child_process';
