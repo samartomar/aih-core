@@ -63,6 +63,15 @@ const schemaErrors = (check: ValidateFunction, reason: (keyword: string) => stri
   (check.errors ?? []).map(error => ({ code: 'INPUT_INVALID', reason: reason(error.keyword),
     message: 'The document does not satisfy the published schema.', path: error.instancePath }));
 
+// Schema compilation or registry faults are internal errors, not invalid input.
+const internalFaults = new WeakSet<object>();
+function compiled(lazy: LazyCheck): ValidateFunction {
+  try { return lazy(); } catch (error) {
+    if (error !== null && typeof error === 'object') internalFaults.add(error);
+    throw error;
+  }
+}
+
 /**
  * Accepted-format validation (policies, recipes, organization documents and
  * targets): one of several accepted IDs, a missing ID checked against the first,
@@ -87,14 +96,15 @@ export function validateAcceptedDocument(value: unknown, accepted: Readonly<Reco
         reason: 'recipe-schema', message: 'This policy version does not support that recipe format.',
         path: `/selections/${index}/recipe/inline/schema`, encountered: inline.schema, supported: supportedRecipes }] };
     }
-    const check = (typeof found === 'string' ? accepted[found]! : Object.values(accepted)[0]!)();
+    const check = compiled(typeof found === 'string' ? accepted[found]! : Object.values(accepted)[0]!);
     const schema = typeof found === 'string' ? found : Object.keys(accepted)[0]!;
     if (check(safe)) {
       const diagnostics = semantics(safe as never);
       return { valid: diagnostics.length === 0, schema, diagnostics };
     }
     return { valid: false, ...(typeof found === 'string' ? { schema: found } : {}), diagnostics: schemaErrors(check, keyword => keyword) };
-  } catch {
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && internalFaults.has(error)) throw error;
     return strictJsonInvalid();
   }
 }
