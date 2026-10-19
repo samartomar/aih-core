@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
 import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
-import { validCreatedDirectories, type CreatedDirectories } from './created-directories.js';
+import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
 import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
@@ -19,20 +19,20 @@ export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
 export const OWNERSHIP_13 = 'urn:aihq:core:ownership:1.3.0';
 export const OWNERSHIP_14 = 'urn:aihq:core:ownership:1.4.0';
 export const OWNERSHIP_15 = 'urn:aihq:core:ownership:1.5.0';
-export interface Ownership { directories?: CreatedDirectories; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
+export interface Ownership { directories?: CreatedDirectory[]; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
 /** A TOML entry whose path has a non-bare (quoted) segment. */
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
 /** A TOML entry owner can record a created table only when its path has a table segment. */
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
-/** A recorded created TOML table requires 1.4; quoted TOML entry names 1.3; otherwise INI/YAML/properties entries require 1.2, hook groups 1.1, and ordinary members 1.0. */
+/** Directory evidence requires 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
-  const schema = Object.keys(value.directories ?? {}).length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
+  const schema = value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
     Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
   const { directories, ...rest } = value;
-  return { ...rest, ...(directories && Object.keys(directories).length ? { directories } : {}), schema };
+  return { ...rest, ...(directories?.length ? { directories } : {}), schema };
 }
 export function stateFiles(): OwnedFileTransaction {
   return new OwnedFileTransaction(stateRoot(), {

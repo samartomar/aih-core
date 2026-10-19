@@ -4,6 +4,11 @@ import { pathPins, sha256, validSegment } from './host-files.js';
 
 /** Protected absence-before evidence, recorded only after our mkdir succeeds. */
 export type CreatedDirectories = Record<string, string>;
+export interface CreatedDirectory { path: string; identity: string }
+export const directoryMap = (records: CreatedDirectory[] = []): CreatedDirectories =>
+  Object.fromEntries(records.map(item => [item.path, item.identity]));
+export const directoryRecords = (value: CreatedDirectories): CreatedDirectory[] =>
+  Object.entries(value).map(([path, identity]) => ({ path, identity }));
 
 export function directoryIdentity(root: string, path: string): string | undefined {
   const absolute = join(root, ...path.split('/'));
@@ -17,11 +22,12 @@ export function directoryParents(path: string): string[] {
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'));
 }
 
-export function validCreatedDirectories(value: unknown): value is CreatedDirectories {
-  return !!value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(value).length <= 8192 && Object.entries(value).every(([path, identity]) =>
-      path.length <= 1024 && path.split('/').every(validSegment) &&
-      typeof identity === 'string' && /^[a-f0-9]{64}$/.test(identity));
+export function validCreatedDirectories(value: unknown): value is CreatedDirectory[] {
+  return Array.isArray(value) && value.length <= 8192 && value.every(item =>
+    !!item && typeof item === 'object' && !Array.isArray(item) &&
+    Object.keys(item).length === 2 && typeof item.path === 'string' && item.path.length <= 1024 &&
+    item.path.split('/').every(validSegment) && typeof item.identity === 'string' && /^[a-f0-9]{64}$/.test(item.identity)) &&
+    new Set(value.map(item => item.path)).size === value.length;
 }
 
 /** Each removal is nonrecursive and limited to reviewed parents of a removed file. */

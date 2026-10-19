@@ -13,7 +13,7 @@ import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJso
 import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
-import { directoryIdentity, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
+import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
@@ -248,7 +248,7 @@ export function transaction(root: string, directoryCreated?: (path: string) => v
   const create = () => new OwnedFileTransaction(root, { label: 'Core managed content', maxFileBytes: 16 * 1024 * 1024,
     contentDirectoryMode: 0o700, stateDirectoryMode: 0o700, statePaths: new Set<string>(),
     assertOwnedPath(path: string) { if (path.split('/').some(part => !validSegment(part))) throw new Error('invalid-path'); },
-    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } });
+    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } }, directoryCreated);
   if (pathPins(root).at(-1)?.identity !== 'absent') return create();
   return {
     inspect(path: string): OwnedFileRead {
@@ -915,7 +915,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       effectiveOptions: { logging: loggingOption(controls), inputs },
       ...(obligations ? { organizationObligations: obligations } : {}) };
     for (const step of steps) if (step.root && step.path && step.review.effects === 'remove-file') {
-      const stored = ownership.get(step.root)!.value.directories ?? {};
+      const stored = directoryMap(ownership.get(step.root)!.value.directories);
       step.directoryCleanup = Object.fromEntries(directoryParents(step.path).filter(path => {
         try { return stored[path] !== undefined && directoryIdentity(step.root!, path) === stored[path]; }
         catch { return false; }
@@ -1207,7 +1207,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           const tx = transaction(step.root, path => {
             const identity = directoryIdentity(step.root!, path);
             if (!identity) throw new Error('unsafe-path');
-            const created = createdDirectories.get(step.root!) ?? {};
+            const created: CreatedDirectories = createdDirectories.get(step.root!) ?? Object.create(null);
             created[path] = identity; createdDirectories.set(step.root!, created);
           });
           tx.commit([{ action: step.after === null ? 'remove' : 'write', path: step.path, mode: step.mode ?? 0o600,
@@ -1236,7 +1236,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
             updateCustody(next, step, true);
             const created = createdDirectories.get(step.root);
-            if (created) next.directories = { ...next.directories, ...created };
+            if (created) next.directories = directoryRecords({ ...directoryMap(next.directories), ...created });
             protectState([ownershipPath(step.root)]);
             const sealed = sealOwnership(next);
             const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
@@ -1281,14 +1281,14 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     // Wait until all file effects finish so removing a parent cannot invalidate
     // another reviewed step's path pins. Interrupted work keeps conservative evidence.
     for (const root of mutatingRoots) {
-      const reviewed = Object.assign({}, ...state.steps.filter(step => step.root === root &&
+      const reviewed = Object.assign(Object.create(null), ...state.steps.filter(step => step.root === root &&
         outcomes.get(step.review.id) === true).map(step => step.directoryCleanup ?? {})) as CreatedDirectories;
       if (!Object.keys(reviewed).length) continue;
       const tracked = state.ownership.get(root)!;
       if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
-      const directories = removeCreatedDirectories(root, tracked.value.directories ?? {}, reviewed,
+      const directories = removeCreatedDirectories(root, directoryMap(tracked.value.directories), reviewed,
         Object.entries(tracked.value.members).map(([key, owner]) => owner.descriptor?.path ?? key));
-      const sealed = sealOwnership({ ...tracked.value, directories });
+      const sealed = sealOwnership({ ...tracked.value, directories: directoryRecords(directories) });
       const receipt = Buffer.from(JSON.stringify(sealed));
       stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
       state.ownership.set(root, { value: sealed, digest: sha256(receipt) });
@@ -1369,10 +1369,10 @@ async function executeCheck(check: PreparedCheck, operationId: string, runId: st
 }
 
 function reserveDirectoryCapacity(value: Ownership, steps: PreparedStep[]): void {
-  const directories = { ...value.directories };
+  const directories: CreatedDirectories = Object.assign(Object.create(null), directoryMap(value.directories));
   for (const step of steps.filter(item => item.review.effects === 'create-file'))
     for (const path of directoryParents(step.path!)) directories[path] ??= '0'.repeat(64);
-  if (Object.keys(directories).length) value.directories = directories;
+  if (Object.keys(directories).length) value.directories = directoryRecords(directories);
 }
 
 function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string, { value: Ownership; digest: string | null }>,
