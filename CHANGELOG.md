@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Remove empty parent directories Core created for delivered files, after reviewed
+file removal. Setup previously created directories without recording their origin,
+so removal could delete files but had no authority to clean up their parents.
+Protected ownership 1.5.0 now records only successful directory creations and their
+identities. Removal reviews describe conditional cleanup in `details.declaredEffects`;
+Apply uses bounded, nonrecursive removal after file effects, keeping pre-existing,
+replaced, linked, nonempty and still-managed directories. Old receipts gain no
+inferred directory ownership. Older Core versions refuse roots with the new evidence;
+public operation/result formats and package version are unchanged. This candidate
+is unpublished.
+
 Support guidance now recognises Core's own Prepare and Apply conflict diagnostics. A `STATE_CONFLICT`
 diagnostic, review conflict or omission whose reason is `existing-content`, `existing-target-observation`
 or `trust-output-conflict` yields a `content-conflict` developer item (the existing content was preserved;

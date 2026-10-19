@@ -311,7 +311,7 @@ export function resolveOwnedFileRoot(root: string, label: string): string {
 export class OwnedFileTransaction {
   private readonly root: string;
   private readonly policy: SnapshotPolicy;
-  constructor(root: string, policy: OwnedFilePolicy) {
+  constructor(root: string, policy: OwnedFilePolicy, private readonly directoryCreated?: (path: string) => void) {
     this.policy = snapshotPolicy(policy);
     this.root = resolveOwnedFileRoot(root, this.policy.label);
   }
@@ -420,6 +420,7 @@ export class OwnedFileTransaction {
           recursive: false,
           mode: ownState ? this.policy.stateDirectoryMode : this.policy.contentDirectoryMode,
         });
+        this.directoryCreated?.(segments.slice(0, index + 1).join('/'));
       } else if (stats.isSymbolicLink()) {
         throw new Error(
           `refusing a symlinked ${this.policy.label} destination parent: ${safeText(path)}`,

@@ -1021,7 +1021,21 @@ A policy can name complete desired sets:
 
 Members are stable management IDs of the policy's selections. Omitting a set requests no cleanup. Explicitly supplying `"members": []` proposes subtraction of that set's prior managed members. `"selections": []` supports cleanup-only policies and deliberate no-op application. Unmentioned sets and members needed by retained dependencies remain. Selection intent records dependencies and set membership separately from byte custody, including selections with only matching unowned content or approved processes. User custody follows the actual home, including Core-assigned `userState` children; roots in other projects can retain shared user dependencies.
 
-For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed.
+For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed. When setup actually creates a
+missing parent directory, protected custody records that directory's identity.
+A file-removal review lists those parents in `details.declaredEffects` as
+conditional empty-directory cleanup. After successful reviewed file removal, Apply
+removes matching, empty created parents from deepest to shallowest, within the same
+scope. Pre-existing directories, replacement directories, links, directories with
+foreign content or retained managed members, and directories without creation
+evidence are preserved. Older file custody never implies directory ownership.
+Interrupted work keeps conservative custody; prepare again before further changes.
+
+Ownership roots carrying directory evidence use **1.5.0**. Earlier Core versions
+refuse these roots rather than ignore the evidence, including user-scope cleanup
+when another project's receipt cannot be read. After the last directory record is
+removed, the root returns to the format required by its remaining members. Existing
+Prepare/Apply, managed-removal and authored recipe formats are unchanged.
 
 `listManagedSelections({ target: { project }, scope: 'project' | 'user' | 'both' }, { signal?, budgetMs? })` reads the current user's protected custody without creating state or inspecting target bytes. Its `complete` result lists stable management IDs, scope, claim versus legacy reconciliation, and member and shared-member counts. Project scope uses the exact resolved project; user scope also covers Core-managed content roots. A corrupt or unverifiable relevant receipt makes the result `incomplete`, so a partial list must not be treated as all custody. The default budget is 30 seconds (1–120,000 ms); receipt count, bytes and output are bounded. `aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]` defaults to the current directory and both scopes. The public result schema is `@aihq/core/schemas/managed-inventory-result/1.0.0.json`.
 

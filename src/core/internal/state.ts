@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
 import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
+import { validCreatedDirectories, type CreatedDirectories } from './created-directories.js';
 import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
@@ -17,7 +18,8 @@ export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
 export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
 export const OWNERSHIP_13 = 'urn:aihq:core:ownership:1.3.0';
 export const OWNERSHIP_14 = 'urn:aihq:core:ownership:1.4.0';
-export interface Ownership { schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
+export const OWNERSHIP_15 = 'urn:aihq:core:ownership:1.5.0';
+export interface Ownership { directories?: CreatedDirectories; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15; target: string; members: Record<string, Owner>; selections?: Record<string, Claim> }
 /** A TOML entry whose path has a non-bare (quoted) segment. */
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
@@ -25,11 +27,12 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** A recorded created TOML table requires 1.4; quoted TOML entry names 1.3; otherwise INI/YAML/properties entries require 1.2, hook groups 1.1, and ordinary members 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
-  const schema = Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
+  const schema = Object.keys(value.directories ?? {}).length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
     Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
-  return value.schema === schema ? value : { ...value, schema };
+  const { directories, ...rest } = value;
+  return { ...rest, ...(directories && Object.keys(directories).length ? { directories } : {}), schema };
 }
 export function stateFiles(): OwnedFileTransaction {
   return new OwnedFileTransaction(stateRoot(), {
@@ -193,8 +196,9 @@ export function readOwnershipReceipts(check: () => void): { receipts: Ownership[
 export function validateOwnership(input: unknown, target: string): asserts input is Ownership {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('ownership-invalid');
   const value = input as Record<string, unknown>;
-  if (![OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
-  if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
+  if (![OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15].includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
+  if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections', 'directories'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
+  if (value.directories !== undefined && (value.schema !== OWNERSHIP_15 || !validCreatedDirectories(value.directories))) throw new Error('ownership-invalid');
   // Reuse the resolved home only within this synchronous validation call.
   let resolvedHome: string | undefined;
   const homeRoot = (): string => resolvedHome ??= userHomeRoot();
@@ -205,10 +209,10 @@ export function validateOwnership(input: unknown, target: string): asserts input
     // Hook custody exists only in a 1.1 or newer root, and always carries its canonical digest.
     if ((m.descriptor?.kind === 'hook') !== (m.canonicalSha256 !== undefined) ||
         m.canonicalSha256 !== undefined && (typeof m.canonicalSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(m.canonicalSha256)) ||
-        m.descriptor?.kind === 'hook' && ![OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) ||
-        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && ![OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) ||
-        quotedToml(m.descriptor) && ![OWNERSHIP_13, OWNERSHIP_14].includes(value.schema as string) ||
-        Object.hasOwn(m, 'tomlTable') && (value.schema !== OWNERSHIP_14 || !tomlTableAllowed(m.descriptor) ||
+        m.descriptor?.kind === 'hook' && ![OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15].includes(value.schema as string) ||
+        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && ![OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15].includes(value.schema as string) ||
+        quotedToml(m.descriptor) && ![OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15].includes(value.schema as string) ||
+        Object.hasOwn(m, 'tomlTable') && (![OWNERSHIP_14, OWNERSHIP_15].includes(value.schema as string) || !tomlTableAllowed(m.descriptor) ||
           !(tomlTableCustody as readonly unknown[]).includes(m.tomlTable))) throw new Error('ownership-invalid');
     if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');

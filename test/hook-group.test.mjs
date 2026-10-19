@@ -59,13 +59,13 @@ test('a 1.0 policy keeps its 1.0 prepared/result identities and 1.0 ownership by
   } finally { s.dispose(); }
 });
 
-test('the first group upgrades the ownership root to 1.1 and stores only digests', async () => {
+test('the first group records hook and directory custody and stores only digests', async () => {
   const s = sandbox();
   try {
     await run(s, guard());
     const roots = ownershipRoots(s);
     assert.equal(roots.length, 1);
-    assert.equal(roots[0].schema, 'urn:aihq:core:ownership:1.1.0');
+    assert.equal(roots[0].schema, 'urn:aihq:core:ownership:1.5.0');
     const members = Object.values(roots[0].members);
     assert.equal(members.length, 1);
     assert.equal(members[0].descriptor.kind, 'hook');

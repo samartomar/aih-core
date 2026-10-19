@@ -74,7 +74,7 @@ export function projectRoot(project: string): string {
   return realpathSync.native(project);
 }
 export const userHomeRoot = (): string => projectRoot(homedir());
-export function fileTransaction(root: string, stateRoot: string): OwnedFileTransaction {
+export function fileTransaction(root: string, stateRoot: string, directoryCreated?: (path: string) => void): OwnedFileTransaction {
   const assertPath = (parts: readonly string[]) => {
     if (parts.some(part => !validSegment(part))) throw new Error('invalid-path');
     if (containedPath(stateRoot, resolve(root, ...parts))) throw new Error('reserved-state');
@@ -84,6 +84,6 @@ export function fileTransaction(root: string, stateRoot: string): OwnedFileTrans
     stateDirectoryMode: 0o700, statePaths: new Set(),
     assertOwnedPath(path) { assertPath(path.split('/')); },
     assertResolvedSegments(parts) { assertPath(parts); }
-  });
+  }, directoryCreated);
 }
 export function parent(path: string): string { return dirname(path); }
