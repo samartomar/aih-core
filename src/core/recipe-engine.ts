@@ -13,6 +13,7 @@ import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJso
 import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
+import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
@@ -46,6 +47,7 @@ interface PreparedStep {
   custody?: Record<string, Owner | null>; custodyOnly?: boolean; lifecycle?: boolean;
   /** Custody keys the step only updates to hand over a removed TOML header's line break; it does not author or supply them. */
   inherited?: string[];
+  directoryCleanup?: CreatedDirectories;
   /** Keyed resolution address of an authored operation; generated lifecycle cleanup has none. */
   authored?: { selectionId: string; operationId: string; overlayKey?: string; choices: ('replace' | 'adopt')[] };
 }
@@ -240,13 +242,13 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
 export function isManagedContentRoot(root: string): boolean {
   return /^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), root).replaceAll('\\', '/'));
 }
-export function transaction(root: string) {
-  if (!isManagedContentRoot(root)) return fileTransaction(root, stateRoot());
+export function transaction(root: string, directoryCreated?: (path: string) => void) {
+  if (!isManagedContentRoot(root)) return fileTransaction(root, stateRoot(), directoryCreated);
   // userState is a Core-assigned content child, never the reserved state root.
   const create = () => new OwnedFileTransaction(root, { label: 'Core managed content', maxFileBytes: 16 * 1024 * 1024,
     contentDirectoryMode: 0o700, stateDirectoryMode: 0o700, statePaths: new Set<string>(),
     assertOwnedPath(path: string) { if (path.split('/').some(part => !validSegment(part))) throw new Error('invalid-path'); },
-    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } });
+    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } }, directoryCreated);
   if (pathPins(root).at(-1)?.identity !== 'absent') return create();
   return {
     inspect(path: string): OwnedFileRead {
@@ -912,6 +914,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       operations: steps.map(step => step.review), observations, conflicts, omissions, evidence,
       effectiveOptions: { logging: loggingOption(controls), inputs },
       ...(obligations ? { organizationObligations: obligations } : {}) };
+    for (const step of steps) if (step.root && step.path && step.review.effects === 'remove-file') {
+      const stored = directoryMap(ownership.get(step.root)!.value.directories);
+      step.directoryCleanup = Object.fromEntries(directoryParents(step.path).filter(path => {
+        try { return stored[path] !== undefined && directoryIdentity(step.root!, path) === stored[path]; }
+        catch { return false; }
+      }).map(path => [path, stored[path]!]));
+      if (Object.keys(step.directoryCleanup).length) step.review.details.declaredEffects =
+        Object.keys(step.directoryCleanup).map(path => `Remove setup-created directory if empty: ${safeText(path, privateValues)}`);
+    }
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs),...(trustParticipant?{trustBinding:trustParticipant.reviewBinding}:{}), nonce: randomBytes(32).toString('hex') }) });
@@ -1103,6 +1114,9 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         catch { throw new Error('state-unwritable'); }
         next.selections![key] = larger(next.selections![key], update.claim);
       }
+      // Reserve directory evidence too, before any target effect. These placeholders
+      // establish capacity only; only successful mkdir callbacks publish evidence.
+      reserveDirectoryCapacity(next, state.steps.filter(item => item.root === root));
       releases.push(stageOwnership(root, runId, next));
     }
     handles.delete(prepared);
@@ -1111,6 +1125,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       catch { throw new Error('recovery-unavailable'); }
     }
     state.trustParticipant?.stage(runId, result.recovery);
+    const createdDirectories = new Map<string, CreatedDirectories>();
     const outcomes = new Map<string, boolean>(); let stop = false;
     const metadataState = state;
     const publishMetadata = () => {
@@ -1189,7 +1204,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (readOwnership(step.root).digest !== state.ownership.get(step.root)?.digest) throw new Error('review-stale');
         started = true;
         try {
-          const tx = transaction(step.root);
+          const tx = transaction(step.root, path => {
+            const identity = directoryIdentity(step.root!, path);
+            if (!identity) throw new Error('unsafe-path');
+            const created: CreatedDirectories = createdDirectories.get(step.root!) ?? Object.create(null);
+            created[path] = identity; createdDirectories.set(step.root!, created);
+          });
           tx.commit([{ action: step.after === null ? 'remove' : 'write', path: step.path, mode: step.mode ?? 0o600,
             ...(step.after === null ? {} : { contents: step.after }),
             ...(step.before ? { prior: step.before, priorMode: step.mode } : {}),
@@ -1215,6 +1235,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
             const tracked = state.ownership.get(step.root)!;
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
             updateCustody(next, step, true);
+            const created = createdDirectories.get(step.root);
+            if (created) next.directories = directoryRecords({ ...directoryMap(next.directories), ...created });
             protectState([ownershipPath(step.root)]);
             const sealed = sealOwnership(next);
             const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
@@ -1256,6 +1278,22 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       if (!okay && !allowPartial) stop = true;
     }
     publishMetadata();
+    // Wait until all file effects finish so removing a parent cannot invalidate
+    // another reviewed step's path pins. Interrupted work keeps conservative evidence.
+    for (const root of mutatingRoots) {
+      const reviewed = Object.assign(Object.create(null), ...state.steps.filter(step => step.root === root &&
+        outcomes.get(step.review.id) === true).map(step => step.directoryCleanup ?? {})) as CreatedDirectories;
+      if (!Object.keys(reviewed).length) continue;
+      const tracked = state.ownership.get(root)!;
+      if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
+      const directories = removeCreatedDirectories(root, directoryMap(tracked.value.directories), reviewed,
+        Object.entries(tracked.value.members).map(([key, owner]) => owner.descriptor?.path ?? key));
+      const sealed = sealOwnership({ ...tracked.value, directories: directoryRecords(directories) });
+      const receipt = Buffer.from(JSON.stringify(sealed));
+      stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+      state.ownership.set(root, { value: sealed, digest: sha256(receipt) });
+      state.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+    }
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
     state.trustParticipant?.finish(result);
@@ -1330,6 +1368,13 @@ async function executeCheck(check: PreparedCheck, operationId: string, runId: st
     ...(outcome.terminationUnconfirmed ? { terminationUnconfirmed: true } : {}) };
 }
 
+function reserveDirectoryCapacity(value: Ownership, steps: PreparedStep[]): void {
+  const directories: CreatedDirectories = Object.assign(Object.create(null), directoryMap(value.directories));
+  for (const step of steps.filter(item => item.review.effects === 'create-file'))
+    for (const path of directoryParents(step.path!)) directories[path] ??= '0'.repeat(64);
+  if (Object.keys(directories).length) value.directories = directoryRecords(directories);
+}
+
 function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string, { value: Ownership; digest: string | null }>,
     updates: PreparedState['selectionUpdates']): void {
   for (const [root, stored] of ownership) {
@@ -1339,6 +1384,7 @@ function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string
       try { validateOwnership(sealed, root); } catch { throw new Error('custody-record-limit'); }
       if (Buffer.byteLength(JSON.stringify(sealed)) > 1_048_576) throw new Error('custody-record-limit');
     };
+    reserveDirectoryCapacity(current, steps.filter(item => item.root === root));
     check();
     // First bound the union before cleanup, then each actual intermediate image.
     for (const step of steps.filter(step => step.root === root)) for (const [key, owner] of Object.entries(step.custody ?? {}))

@@ -216,7 +216,7 @@ test('a 1.0 policy that references acquired 1.1 recipe bytes is unsupported afte
   } finally { s.dispose(); }
 });
 
-test('a group managed in user scope upgrades the user ownership root and its removal downgrades it', async () => {
+test('user hook removal retains directory custody while its settings file remains', async () => {
   const s = sandbox();
   try {
     const target = { root: 'userHome', segments: [{ literal: '.tool' }, { literal: 'settings.json' }] };
@@ -224,10 +224,10 @@ test('a group managed in user scope upgrades the user ownership root and its rem
     await run(s, userPolicy('set'));
     const file = join(s.home, '.tool', 'settings.json');
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, [groupOf('guard-a')]);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.1.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.5.0']);
     await run(s, userPolicy('remove'));
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, []);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.0.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.5.0']);
   } finally { s.dispose(); }
 });
 

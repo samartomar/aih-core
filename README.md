@@ -907,7 +907,8 @@ than validating every TOML rule. Inline tables follow TOML 1.0 (one line, no
 trailing comma); a multi-line inline table or one with a trailing comma is refused.
 Earlier Core versions refuse rather than misread this content: a file with a quoted
 header is `unsupported-toml-table` and an owned array is `unsupported-toml-value`.
-The ownership root is written as 1.4.0 only while it records a table that Core
+Unless directory evidence requires 1.5.0 (see Managed lifecycle), the ownership
+root is written as 1.4.0 only while it records a table that Core
 created for a TOML entry, and as 1.3.0 only while it owns a TOML entry whose path has
 a non-bare segment; each returns to its previous version after the last such entry is
 removed. An earlier Core fails closed on a 1.3.0 or 1.4.0 root, as it does on a
@@ -927,7 +928,7 @@ policy, supplied-file repair and shared-source trust review. Use
 `validatePreparedWork14` from `@aihq/core/contracts`; validators for older review
 versions remain strict. Run results retain their existing policy 1.1.0,
 supplied-file repair 1.0.0 or shared-source trust 1.2.0 identities because their
-result shapes are unchanged. Ownership roots use 1.2.0 while they contain INI, YAML or properties
+result shapes are unchanged. Unless directory evidence requires 1.5.0, ownership roots use 1.2.0 while they contain INI, YAML or properties
 entries, so older Core versions refuse custody they cannot interpret. Removing
 the last entry requiring 1.2.0 returns the receipt to its remaining supported format.
 
@@ -1021,7 +1022,21 @@ A policy can name complete desired sets:
 
 Members are stable management IDs of the policy's selections. Omitting a set requests no cleanup. Explicitly supplying `"members": []` proposes subtraction of that set's prior managed members. `"selections": []` supports cleanup-only policies and deliberate no-op application. Unmentioned sets and members needed by retained dependencies remain. Selection intent records dependencies and set membership separately from byte custody, including selections with only matching unowned content or approved processes. User custody follows the actual home, including Core-assigned `userState` children; roots in other projects can retain shared user dependencies.
 
-For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed.
+For selected removal use `"removals": [{"managementId":"team-guidance","scope":"project"}]`. References select existing custody; they cannot authorize deletion of unowned content. Updating a selected recipe also reviews subtraction of its obsolete owned members. Review conflicts, removals and recovery information before Apply. Directory descendants are never recursively removed. When setup actually creates a
+missing parent directory, protected custody records that directory's identity.
+A file-removal review lists those parents in `details.declaredEffects` as
+conditional empty-directory cleanup. After successful reviewed file removal, Apply
+removes matching, empty created parents from deepest to shallowest, within the same
+scope. Pre-existing directories, replacement directories, links, directories with
+foreign content or retained managed members, and directories without creation
+evidence are preserved. Older file custody never implies directory ownership.
+Interrupted work keeps conservative custody; prepare again before further changes.
+
+Ownership roots carrying directory evidence use **1.5.0**. Earlier Core versions
+refuse these roots rather than ignore the evidence, including user-scope cleanup
+when another project's receipt cannot be read. After the last directory record is
+removed, the root returns to the format required by its remaining members. Existing
+Prepare/Apply, managed-removal and authored recipe formats are unchanged.
 
 `listManagedSelections({ target: { project }, scope: 'project' | 'user' | 'both' }, { signal?, budgetMs? })` reads the current user's protected custody without creating state or inspecting target bytes. Its `complete` result lists stable management IDs, scope, claim versus legacy reconciliation, and member and shared-member counts. Project scope uses the exact resolved project; user scope also covers Core-managed content roots. A corrupt or unverifiable relevant receipt makes the result `incomplete`, so a partial list must not be treated as all custody. The default budget is 30 seconds (1–120,000 ms); receipt count, bytes and output are bounded. `aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]` defaults to the current directory and both scopes. The public result schema is `@aihq/core/schemas/managed-inventory-result/1.0.0.json`.
 
@@ -1044,7 +1059,7 @@ Byte custody is published after the corresponding successful mutation. Set/depen
 
 Recipe and execution-policy schema 1.1.0 add a `hook.group` operation for JSON and JSONC targets (TOML is unsupported). It manages one element of a shared array (for example a client's hook list) without owning the file: `container` is an object-key path to the array, `selector` (`path`, `value`) identifies the element, `groupId` names custody, and `group` is the literal element for `action: "set"` (`"remove"` deletes it). The selector value must appear in the group literal; neither `groupId` nor the selector is written to the target. Custody records the element's raw-span and canonical digests, so a neighbor edit, insertion or reorder never changes which element a fresh Prepare selects, while an edit to the owned element is a reviewed conflict (`owned-hook-edited`, `owned-hook-missing`, `hook-selector-ambiguous` and related reasons). A different managed group in the same array that has gone missing or ambiguous blocks the step as `hook-selector-overlap`, and the diagnostic names that group; no replace of the current group resolves it. Any edit to the target file between Prepare and Apply, a neighbor's included, makes Apply fail as `REVIEW_STALE` without writing. Reviewed `replace` resolutions use the operation's `details.hookGroup.targetBeforeSha256`. Several claims may share one group; it is deleted only when the last claim is removed, and its content cannot change while another claim retains it. A JSONC removal deletes only the targeted element and one separating comma; whitespace and comments outside that span stay as they were, and an edit that would move or delete an adjacent comment (or a container that is not an array) is reported as `hook-edit-unsafe` instead. An appended element is written as canonical JSON.
 
-A 1.1 policy accepts recipes 1.0 and 1.1, and emits prepared-work and run-result 1.1.0; 1.0 documents keep their bytes and behavior, and a 1.0 policy never admits a 1.1 recipe or touches hook custody. The ownership root is written as 1.1 only while a hook group is owned and returns to 1.0 after the last is removed; an earlier Core fails closed on a 1.1 root: it refuses the 1.1 root's own project and, because it cannot verify custody it cannot read, also withholds user-scope cleanup (`dependency-custody-unverifiable`) requested from any other project until Core is upgraded or the hook group is removed. `checkFileState` folds `hook.group` read-only, and guidance adds fixed recovery text without reading observed group content.
+A 1.1 policy accepts recipes 1.0 and 1.1, and emits prepared-work and run-result 1.1.0; 1.0 documents keep their bytes and behavior, and a 1.0 policy never admits a 1.1 recipe or touches hook custody. Unless directory evidence requires 1.5.0, the ownership root is written as 1.1 only while a hook group is owned and returns to 1.0 after the last is removed; an earlier Core fails closed on a 1.1 root: it refuses the 1.1 root's own project and, because it cannot verify custody it cannot read, also withholds user-scope cleanup (`dependency-custody-unverifiable`) requested from any other project until Core is upgraded or the hook group is removed. `checkFileState` folds `hook.group` read-only, and guidance adds fixed recovery text without reading observed group content.
 
 ## Enterprise policies
 
