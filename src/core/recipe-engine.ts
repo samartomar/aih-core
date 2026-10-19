@@ -921,7 +921,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         catch { return false; }
       }).map(path => [path, stored[path]!]));
       if (Object.keys(step.directoryCleanup).length) step.review.details.declaredEffects =
-        Object.keys(step.directoryCleanup).map(path => `Remove setup-created directory if empty: ${path}`);
+        Object.keys(step.directoryCleanup).map(path => `Remove setup-created directory if empty: ${safeText(path, privateValues)}`);
     }
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
@@ -1116,10 +1116,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       // Reserve directory evidence too, before any target effect. These placeholders
       // establish capacity only; only successful mkdir callbacks publish evidence.
-      const directoryCapacity = { ...next.directories };
-      for (const step of state.steps.filter(item => item.root === root && item.after !== null && item.review.effects === 'create-file'))
-        for (const path of directoryParents(step.path!)) directoryCapacity[path] ??= '0'.repeat(64);
-      if (Object.keys(directoryCapacity).length) next.directories = directoryCapacity;
+      reserveDirectoryCapacity(next, state.steps.filter(item => item.root === root));
       releases.push(stageOwnership(root, runId, next));
     }
     handles.delete(prepared);
@@ -1371,6 +1368,13 @@ async function executeCheck(check: PreparedCheck, operationId: string, runId: st
     ...(outcome.terminationUnconfirmed ? { terminationUnconfirmed: true } : {}) };
 }
 
+function reserveDirectoryCapacity(value: Ownership, steps: PreparedStep[]): void {
+  const directories = { ...value.directories };
+  for (const step of steps.filter(item => item.review.effects === 'create-file'))
+    for (const path of directoryParents(step.path!)) directories[path] ??= '0'.repeat(64);
+  if (Object.keys(directories).length) value.directories = directories;
+}
+
 function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string, { value: Ownership; digest: string | null }>,
     updates: PreparedState['selectionUpdates']): void {
   for (const [root, stored] of ownership) {
@@ -1380,10 +1384,7 @@ function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string
       try { validateOwnership(sealed, root); } catch { throw new Error('custody-record-limit'); }
       if (Buffer.byteLength(JSON.stringify(sealed)) > 1_048_576) throw new Error('custody-record-limit');
     };
-    const directoryCapacity = { ...current.directories };
-    for (const step of steps.filter(item => item.root === root && item.review.effects === 'create-file'))
-      for (const path of directoryParents(step.path!)) directoryCapacity[path] ??= '0'.repeat(64);
-    if (Object.keys(directoryCapacity).length) current.directories = directoryCapacity;
+    reserveDirectoryCapacity(current, steps.filter(item => item.root === root));
     check();
     // First bound the union before cleanup, then each actual intermediate image.
     for (const step of steps.filter(step => step.root === root)) for (const [key, owner] of Object.entries(step.custody ?? {}))
