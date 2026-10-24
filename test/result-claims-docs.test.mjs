@@ -45,3 +45,11 @@ test('the section explains confirming an unverified removal and the pending 1.4 
   assert.match(section, /run result 1\.4/);
   assert.match(section, /https:\/\/github\.com\/samartomar\/aih-core\/issues\/99/);
 });
+
+test('a prepared removal is ready for review only when its inner preparation is ready', () => {
+  const prepared = row('disposition', 'prepared');
+  assert.ok(prepared);
+  assert.match(prepared[2], /`preparation\.status`/);
+  assert.match(prepared[2], /`blocked`/);
+  assert.match(prepared[3], /only when `preparation\.status` is `ready`/);
+});
