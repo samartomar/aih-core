@@ -4,17 +4,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 
 const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 const schema = path => JSON.parse(readFileSync(new URL(`../src/core/schemas/${path}`, import.meta.url), 'utf8'));
-const section = (() => {
-  const start = readme.indexOf('\n## What each result status lets you claim\n');
-  assert.ok(start >= 0, 'README has the result-claims section');
-  const end = readme.indexOf('\n## ', start + 1);
-  return readme.slice(start, end < 0 ? undefined : end);
-})();
+const start = readme.indexOf('\n## What each result status lets you claim\n');
+const end = start < 0 ? -1 : readme.indexOf('\n## ', start + 1);
+const section = start < 0 ? '' : readme.slice(start, end < 0 ? undefined : end);
 const rows = section.split('\n').filter(line => line.startsWith('| `')).map(line =>
   line.slice(1, -1).split(' | ').map(cell => cell.trim()));
 const row = (field, value) => rows.find(cells => cells[0] === `\`${field}\`` && cells[1].startsWith(`\`${value}\``));
 
 test('the result-claims table covers every published status value', () => {
+  assert.ok(section, 'README has the result-claims section');
   const runs = readdirSync(new URL('../src/core/schemas/run-result/', import.meta.url)).map(name => schema(`run-result/${name}`));
   const removals = readdirSync(new URL('../src/core/schemas/managed-removal-preparation/', import.meta.url))
     .map(name => schema(`managed-removal-preparation/${name}`));
