@@ -77,7 +77,7 @@ export interface TrustCapabilities {
   schema: 'urn:aihq:harness:trust-capabilities:1.0.0'; package: { name: '@aihq/core'; version: string };
   cells: readonly TrustCapabilityCell[];
 }
-export interface TrustDefinitionDiagnostic { code: 'INPUT_INVALID'; reason: string; message: string; path: string }
+export interface TrustDefinitionDiagnostic { code: 'INPUT_INVALID' | 'SCHEMA_UNSUPPORTED'; reason: string; message: string; path: string; encountered?: string; supported?: readonly string[] }
 export declare const trustRepairIndex: readonly RepairDefinition11[];
 export declare const exportDefaultNames: Readonly<{ pem: 'os-ca.pem'; 'pkcs7-der': 'os-ca.p7b' }>;
 export declare const trustLimits: TrustLimits;

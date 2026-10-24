@@ -143,7 +143,13 @@ missing bytes, or loader exception is `unavailable`. Older 1.0.0 declarations
 without fixtures remain readable but cannot establish a required fixture check.
 `ok` is true only when every required check passed; an empty check set makes no
 cross-package claim. Refusals preserve encountered/supported schema identifiers,
-and unknown schema fields identify their escaped JSON-pointer path.
+and unknown schema fields identify their escaped JSON-pointer path. Harness
+metadata validators use the same `code`, `path`, `encountered` and `supported`
+fields. Reporting preserves its existing channels: `importSnapshot` throws a
+`ReportInputError` with those optional fields; `readClaimSet` adds them to its
+rejected result while keeping `errors`, `schema` and the unchanged `original`.
+`validateSnapshot` and `validateClaimSet` retain `valid`/`errors` and expose the
+same optional diagnostic detail on invalid input.
 
 ## Readable templates
 

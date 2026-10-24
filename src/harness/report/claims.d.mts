@@ -197,6 +197,7 @@ export interface ClaimSet11 {
 export type ClaimSet = ClaimSet10 | ClaimSet11;
 
 export interface ClaimSetValidation {
+  code?: 'INPUT_INVALID' | 'SCHEMA_UNSUPPORTED'; path?: string; encountered?: string; supported?: readonly string[];
   valid: boolean;
   errors: string[];
 }
@@ -205,6 +206,7 @@ export type ClaimSetRead =
   | { status: 'supported'; claimSet: ClaimSet }
   | {
     status: 'rejected';
+    path?: string; encountered?: string; supported?: readonly string[];
     code: 'SCHEMA_UNSUPPORTED' | 'INPUT_INVALID';
     /** The encountered `schema` string, or null when none was readable. */
     schema: string | null;

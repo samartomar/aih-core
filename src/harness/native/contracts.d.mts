@@ -19,7 +19,7 @@ export type NativeTestIdentity = {
   expected: { accountUuid: string; organizationId: string };
   credential: { path: 'oauth.json'; sha256: string; byteLength: number };
 };
-export type NativeValidationDiagnostic = { code: 'INPUT_INVALID'; reason: string; message: string; path: string };
+export type NativeValidationDiagnostic = { code: 'INPUT_INVALID' | 'SCHEMA_UNSUPPORTED'; reason: string; message: string; path: string; encountered?: string; supported?: readonly string[] };
 export type NativeValidationResult = { valid: boolean; diagnostics: NativeValidationDiagnostic[] };
 export type NativeBundledFixture = {
   id: string; client: NativeClientId; adapterId: string; proofScope: 'bundled-mechanism'; archiveSha256: null;
