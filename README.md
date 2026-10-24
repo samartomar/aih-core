@@ -1164,9 +1164,9 @@ Check install and removal wording against this table. Each status establishes on
 
 An applied removal is not by itself "removed". `application: applied` means Core performed the reviewed removal; with verification `unverified` (reason `no-supplied-check`), nothing confirmed the result. To confirm such a removal:
 
-1. Require `completion: complete` and the removal operation `applied`. Otherwise prepare again.
+1. Require `completion: complete` with every removal operation `applied` or `already-satisfied`. Otherwise prepare again.
 2. Call `listManagedSelections` (`aih managed list`) for the same project and scope. Only a `complete` result that no longer lists the management ID confirms the claim is gone; an `incomplete` list confirms nothing.
-3. Call `prepareManagedRemoval` again for that management ID and scope. `absent` confirms Core holds no claim; any other disposition means the removal is not finished.
+3. Call `prepareManagedRemoval` again for that management ID and scope. `absent` confirms Core holds no claim; any other disposition means the removal is not confirmed. `prepared`, `retained` or `reconcile-required` mean a claim remains.
 4. These confirm Core's custody only. Shared members another owner keeps, preserved directories and unowned content stay in place. Inspect the target yourself before saying the content is gone.
 
 Only then say "removed from Core management"; say "removed from disk" only for files you have inspected. Before confirmation, say "removal applied, not verified".
