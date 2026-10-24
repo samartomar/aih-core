@@ -43,3 +43,19 @@ under existing authorization. A merged change is not a published package; keep
 required publication pending or name its follow-up owner. Confidential details and
 private coordination links stay outside public text. Private maintainer handoffs
 carry any additional internal instructions explicitly.
+
+## Agent skills
+
+Use the installed Matt Pocock engineering skills and aih-extensions within this repository's existing rules. Keep the skills in their managed user installation.
+
+### Issue tracker
+
+Follow the supplied delivery issue and current intake route. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Preserve accepted label mappings and existing categories. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+One product vocabulary with the existing decision authority. See `docs/agents/domain.md`.
