@@ -68,3 +68,33 @@ test('report-local changes select their affected consumers on Linux', () => {
   assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '24' }]);
   assert.equal(result.nativeLinux, false);
 });
+
+test('added, modified or renamed documentation selects no suite', () => {
+  for (const changes of [
+    [{ status: 'A', paths: ['docs/agents/triage-labels.md'] }, { status: 'M', paths: ['AGENTS.md'] }],
+    [{ status: 'R100', paths: ['docs/old.md', 'docs/new.md'] }]
+  ]) {
+    const result = select(changes);
+    assert.equal(result.suite, 'none', JSON.stringify(changes));
+    assert.deepEqual(result.matrix, []);
+    assert.equal(result.reason, 'documentation-only');
+  }
+});
+
+test('documentation with a platform facility selects that platform only', () => {
+  const result = select([{ status: 'A', paths: ['docs/linux.md'] }, { status: 'M', paths: ['src/harness/native/linux/facility.c'] }]);
+  assert.equal(result.suite, 'full');
+  assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '24' }]);
+});
+
+test('a full suite never comes with an empty matrix', () => {
+  for (const changes of [
+    [{ status: 'A', paths: ['docs/new.md'] }],
+    [{ status: 'R100', paths: ['docs/old.md', 'docs/new.md'] }],
+    [{ status: 'D', paths: ['docs/templates.md'] }],
+    [{ status: 'A', paths: ['docs/new.md'] }, { status: 'D', paths: ['docs/old.md'] }]
+  ]) {
+    const result = select(changes);
+    if (result.suite !== 'none') assert.notEqual(result.matrix.length, 0, JSON.stringify(changes));
+  }
+});

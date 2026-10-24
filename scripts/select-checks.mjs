@@ -22,7 +22,7 @@ try {
   changes = [{ status: '?', paths: ['unknown'] }];
 }
 const docs = path => /^(?:docs\/.*\.md|README\.md|CHANGELOG\.md|LICENSE|NOTICE|AGENTS\.md)$/.test(path);
-let suite = changes.every(row => row.status === 'M' && row.paths.every(docs)) ? 'none' : 'full';
+let suite = changes.length && changes.every(row => /^(?:[AM]|R\d*)$/.test(row.status) && row.paths.every(docs)) ? 'none' : 'full';
 const report = path => /^(?:src\/harness\/report\/|test\/harness\/report-|examples\/reporting\/)/.test(path);
 if (changes.length && changes.every(row => /^[AM]$/.test(row.status) && row.paths.every(path => docs(path) || report(path))))
   suite = changes.some(row => row.paths.some(report)) ? 'report' : suite;
@@ -30,7 +30,8 @@ const platform = path => path.startsWith('src/harness/native/linux/') ? 'ubuntu-
   path.startsWith('src/harness/native/windows/') ? 'windows-latest' :
   /^src\/harness\/macos-session-platform\.(?:mjs|d\.mts)$/.test(path) ? 'macos-latest' : undefined;
 const platforms = new Set(changes.flatMap(row => row.paths.filter(path => !docs(path)).map(platform)));
-const platformOnly = changes.length && changes.every(row => /^[AM]$/.test(row.status) && row.paths.every(path => docs(path) || platform(path)));
+// A platform-only change must name at least one platform, or the full suite would run on no OS.
+const platformOnly = platforms.size > 0 && changes.every(row => /^[AM]$/.test(row.status) && row.paths.every(path => docs(path) || platform(path)));
 if (args.includes('--full')) suite = 'full';
 const matrix = args.includes('--full') || !platformOnly ? suite === 'none' ? [] : suite === 'report' ? [{ os: 'ubuntu-latest', node: '24' }] : [
   { os: 'ubuntu-latest', node: '24' }, { os: 'windows-latest', node: '24' },
