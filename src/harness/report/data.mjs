@@ -8,7 +8,7 @@
  */
 import {
   ReportInputError, invalid, isPlainObject, rejectDuplicateKeys, requireArray, requireEnum,
-  requirePlainObject, requireString, toBoundedJson,
+  requirePlainObject, requireString, toBoundedJson, unsupported, errorDetails,
 } from './bounded-json.mjs';
 import { maskHomePaths } from './local-path.mjs';
 
@@ -112,6 +112,8 @@ function validateDiagnostic(diagnostic) {
 
 /** Structural validation of a ReportSnapshot: version, shape and integrity. */
 function validateSnapshotShape(snapshot) {
+  if (isPlainObject(snapshot) && typeof snapshot.schema === 'string' && snapshot.schema !== SNAPSHOT_SCHEMA)
+    unsupported('snapshot.schema: unsupported version', snapshot.schema, [SNAPSHOT_SCHEMA]);
   const root = requirePlainObject(snapshot, 'snapshot', [
     'schema', 'compatibility', 'producer', 'capture', 'evidence', 'status',
     'tools', 'observations', 'checks', 'diagnostics', 'metrics',
@@ -122,6 +124,8 @@ function validateSnapshotShape(snapshot) {
   if (root.producer.name !== '@aihq/core') invalid('snapshot.producer.name: expected @aihq/core');
   requireString(root.producer.version, 'snapshot.producer.version', 128);
   if (root.producer.revision !== null) requireString(root.producer.revision, 'snapshot.producer.revision', 128);
+  if (typeof root.producer.contract === 'string' && root.producer.contract !== DIAGNOSTIC_CONTRACT)
+    unsupported('snapshot.producer.contract: unsupported contract', root.producer.contract, [DIAGNOSTIC_CONTRACT], '/producer/contract');
   if (root.producer.contract !== DIAGNOSTIC_CONTRACT) invalid('snapshot.producer.contract: unsupported contract');
   requirePlainObject(root.capture, 'snapshot.capture', ['observedAt', 'acquisition']);
   if (typeof root.capture.observedAt !== 'string' || !ISO_UTC.test(root.capture.observedAt)) {
@@ -442,7 +446,7 @@ export function validateSnapshot(value) {
     validateSnapshotShape(bounded);
     return { valid: true, errors: [] };
   } catch (error) {
-    if (error instanceof ReportInputError) return { valid: false, errors: [error.message] };
+    if (error instanceof ReportInputError) return { valid: false, errors: [error.message], ...errorDetails(error, true) };
     throw error;
   }
 }
@@ -465,11 +469,11 @@ export function importSnapshot(json, redaction) {
   rejectDuplicateKeys(json);
   if (isPlainObject(bounded)) {
     if (typeof bounded.schema === 'string' && bounded.schema !== SNAPSHOT_SCHEMA) {
-      throw new ReportInputError('SCHEMA_UNSUPPORTED', 'snapshot.schema: unsupported version');
+      unsupported('snapshot.schema: unsupported version', bounded.schema, [SNAPSHOT_SCHEMA]);
     }
     if (isPlainObject(bounded.producer) && typeof bounded.producer.contract === 'string'
       && bounded.producer.contract !== DIAGNOSTIC_CONTRACT) {
-      throw new ReportInputError('SCHEMA_UNSUPPORTED', 'snapshot.producer.contract: unsupported contract');
+      unsupported('snapshot.producer.contract: unsupported contract', bounded.producer.contract, [DIAGNOSTIC_CONTRACT], '/producer/contract');
     }
   }
   validateSnapshotShape(bounded);

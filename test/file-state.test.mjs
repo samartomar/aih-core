@@ -639,7 +639,7 @@ test('file.write compares the explicit POSIX mode only on POSIX', { skip: proces
 });
 
 test('the installed distribution still declares the produced file-state schema', () => {
-  assert.deepEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.1.0'),
+  assert.partialDeepStrictEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.1.0'),
     { id: 'urn:aihq:core:file-state-result:1.1.0', role: 'produces',
       schemaExport: '@aihq/core/schemas/file-state-result/1.1.0.json' });
 });

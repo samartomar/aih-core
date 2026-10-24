@@ -14,7 +14,7 @@
  */
 import {
   ReportInputError, invalid, isPlainObject, rejectDuplicateKeys, requireArray, requireEnum,
-  requireKeys, requireString, toBoundedJson,
+  requireKeys, requireString, toBoundedJson, unsupported, errorDetails,
 } from './bounded-json.mjs';
 import { localPathKind } from './local-path.mjs';
 
@@ -374,7 +374,7 @@ function admitClaimSet(value) {
   if (!isPlainObject(value)) invalid('claimSet: expected object');
   if (typeof value.schema !== 'string') invalid('claimSet.schema: expected a schema identity string');
   if (!CLAIMS_ACCEPTED_VERSIONS.includes(value.schema)) {
-    throw new ReportInputError('SCHEMA_UNSUPPORTED', 'claimSet.schema: unsupported version');
+    unsupported('claimSet.schema: unsupported version', value.schema, CLAIMS_ACCEPTED_VERSIONS);
   }
   requireKeys(value, 'claimSet', ['schema', 'claims'], ['calculations', 'actions']);
 
@@ -848,7 +848,7 @@ export function validateClaimSet(value) {
     admitClaimSet(toBoundedJson(value, 'claimSet', CLAIM_LIMITS));
     return { valid: true, errors: [] };
   } catch (error) {
-    if (error instanceof ReportInputError) return { valid: false, errors: [error.message] };
+    if (error instanceof ReportInputError) return { valid: false, errors: [error.message], ...errorDetails(error, true) };
     throw error;
   }
 }
@@ -883,6 +883,7 @@ export function readClaimSet(json) {
       schema,
       errors: [error.message],
       original: typeof json === 'string' ? json : '',
+      ...errorDetails(error),
     };
   }
 }

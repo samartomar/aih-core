@@ -7,6 +7,7 @@
  * caller value.
  */
 import { parseTree } from 'jsonc-parser';
+import { pointerMember, unknownFieldPath } from '../native/canonical.mjs';
 
 const encoder = new TextEncoder();
 
@@ -21,18 +22,33 @@ export const SNAPSHOT_LIMITS = Object.freeze({
   maxObjectKeys: 256,
 });
 
-/** Invalid or unsupported caller input; never carries the raw offending value. */
+/** Prose omits caller values; optional format details retain encountered schema identifiers. */
 export class ReportInputError extends Error {
-  constructor(code, message) {
+  constructor(code, message, details = {}) {
     super(message);
     this.name = 'ReportInputError';
     this.code = code;
+    for (const key of ['path', 'encountered', 'supported']) if (details[key] !== undefined) this[key] = details[key];
   }
 }
 
-export function invalid(message) {
-  throw new ReportInputError('INPUT_INVALID', message);
+export function invalid(message, details) {
+  throw new ReportInputError('INPUT_INVALID', message, details);
 }
+
+export function unsupported(message, encountered, supported, path = '/schema') {
+  throw new ReportInputError('SCHEMA_UNSUPPORTED', message, { path, encountered, supported: [...supported] });
+}
+
+export function errorDetails(error, includeCode = false) {
+  const details = Object.fromEntries(['path', 'encountered', 'supported'].filter(key => error[key] !== undefined).map(key => [key, error[key]]));
+  if (includeCode && Object.keys(details).length) details.code = error.code;
+  return details;
+}
+
+// Reporting's authored structural labels become JSON pointers in machine diagnostics.
+const pointer = path => path.replace(/^(?:snapshot|claimSet|input|redaction)(?=\.|\[|$)/, '').split(/[.\[\]]/)
+  .filter(Boolean).map(key => '/' + pointerMember(key)).join('');
 
 export function isPlainObject(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -47,7 +63,10 @@ export function hasExactKeys(value, keys) {
 }
 
 export function requirePlainObject(value, path, keys) {
-  if (!isPlainObject(value) || !hasExactKeys(value, keys)) invalid(`${path}: expected object {${keys.join(',')}}`);
+  if (!isPlainObject(value) || !hasExactKeys(value, keys)) {
+    const at = unknownFieldPath(value, keys, pointer(path));
+    invalid(`${path}: expected object {${keys.join(',')}}`, at ? { path: at } : undefined);
+  }
   return value;
 }
 
@@ -58,7 +77,7 @@ export function requireKeys(value, path, required, optional = []) {
   const own = Reflect.ownKeys(value);
   for (const key of own) {
     if (typeof key !== 'string' || (!required.includes(key) && !optional.includes(key))) {
-      invalid(`${path}: expected object ${shape}`);
+      invalid(`${path}: expected object ${shape}`, typeof key === 'string' ? { path: pointer(path) + '/' + pointerMember(key) } : undefined);
     }
   }
   for (const key of required) {

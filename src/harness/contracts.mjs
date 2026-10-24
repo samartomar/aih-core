@@ -1,3 +1,4 @@
+import { describeContract } from '../contract-fixtures.mjs';
 // This entry is data only. Importing it performs no host observation.
 import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
@@ -6,19 +7,20 @@ import { snapshotTrustData } from './trust-data.mjs';
 import { buildTrustCapabilities, selectRepairDefinition as selectDefinition } from './trust-definitions.mjs';
 import { trustCellRecords } from './trust-capabilities.mjs';
 import { selectMacosRepairDefinition } from './macos-session-definitions.mjs';
-export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 } from './macos-session-definitions.mjs';
+export { macosRepairIndex, repairDefinitionSchema12 } from './macos-session-definitions.mjs';
+export { validateRepairDefinition11, validateRepairDefinition12, validateTrustCapabilities } from './trust-validation.mjs';
 export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 export { verificationPublishers, validateVerificationPublisherRecords, selectVerificationPublishers } from './verification-publishers.mjs';
 // Trust definition assembly (definition factories, adapter/profile tables and recipe resolution) stays internal.
-export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles, validateRepairDefinition11,
-  validateTrustCapabilities, selectTrustCell, exportDefaultNames } from './trust-definitions.mjs';
+export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles,
+  selectTrustCell, exportDefaultNames } from './trust-definitions.mjs';
 // Admission cells are static raw data (trust-capabilities.mjs): only exact tested export format/profile cells are admitted;
 // native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export const contractSupport = Object.freeze({
-  schema: 'urn:aihq:package-support:1.0.0',
+  schema: 'urn:aihq:package-support:1.1.0',
   package: distribution,
   contracts: Object.freeze([
     Object.freeze({ id: 'urn:aihq:harness:diagnostic:1.0.0', role: 'produces',
@@ -47,7 +49,7 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.1.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts',
       schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' })
-  ]),
+  ].map(describeContract)),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
     { export: '@aihq/core/report', runtime: 'portable' },

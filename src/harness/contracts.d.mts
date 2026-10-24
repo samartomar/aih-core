@@ -18,11 +18,12 @@ export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificat
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
+  readonly versions: readonly string[]; readonly fixtures: readonly { readonly export: string; readonly expect: 'accept' | 'refuse'; readonly code?: string }[];
 }
 export type PublicEntry = { readonly export: string; readonly runtime: 'portable' } |
   { readonly export: string; readonly runtime: 'node'; readonly nodeRange: string };
 export declare const contractSupport: {
-  readonly schema: 'urn:aihq:package-support:1.0.0'; readonly package: { readonly name: string; readonly version: string };
+  readonly schema: 'urn:aihq:package-support:1.1.0'; readonly package: { readonly name: string; readonly version: string };
   readonly contracts: readonly SupportedContract[]; readonly entries: readonly PublicEntry[];
 };
 export declare const repairIndex: readonly { id: string; description: string;
@@ -76,7 +77,7 @@ export interface TrustCapabilities {
   schema: 'urn:aihq:harness:trust-capabilities:1.0.0'; package: { name: '@aihq/core'; version: string };
   cells: readonly TrustCapabilityCell[];
 }
-export interface TrustDefinitionDiagnostic { code: 'INPUT_INVALID'; reason: string; message: string; path: string }
+export interface TrustDefinitionDiagnostic { code: 'INPUT_INVALID' | 'SCHEMA_UNSUPPORTED'; reason: string; message: string; path: string; encountered?: string; supported?: readonly string[] }
 export declare const trustRepairIndex: readonly RepairDefinition11[];
 export declare const exportDefaultNames: Readonly<{ pem: 'os-ca.pem'; 'pkcs7-der': 'os-ca.p7b' }>;
 export declare const trustLimits: TrustLimits;

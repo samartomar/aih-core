@@ -32,7 +32,7 @@ const deepFreeze = value => {
 test('1.1.0 is an accepted, exported contract with the published identity', () => {
   assert.equal(schema11.$id, SCHEMA11);
   const found = contractSupport.contracts.find(contract => contract.id === SCHEMA11);
-  assert.deepEqual(found, { id: SCHEMA11, role: 'accepts', schemaExport: '@aihq/core/schemas/organization-policy/1.1.0.json' });
+  assert.partialDeepStrictEqual(found, { id: SCHEMA11, role: 'accepts', schemaExport: '@aihq/core/schemas/organization-policy/1.1.0.json' });
   assert.ok(contractSupport.contracts.some(contract => contract.id === SCHEMA10));
   const result = validateOrganizationPolicy(org(entry({ obligation: 'required', clients: ['claude'], repositories: [REPO] })));
   assert.equal(result.valid, true, JSON.stringify(result.diagnostics));

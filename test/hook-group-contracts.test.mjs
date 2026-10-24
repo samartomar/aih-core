@@ -31,11 +31,11 @@ test('1.0.0 schema bytes are immutable while 1.1.0 identities are published besi
 
 test('contract support declares exact 1.1 accepts/produces entries without displacing 1.0', () => {
   const find = id => contractSupport.contracts.find(item => item.id === id);
-  assert.deepEqual(find(POLICY_11), { id: POLICY_11, role: 'accepts', schemaExport: '@aihq/core/schemas/execution-policy/1.1.0.json' });
-  assert.deepEqual(find(RECIPE_11), { id: RECIPE_11, role: 'accepts', schemaExport: '@aihq/core/schemas/recipe/1.1.0.json' });
-  assert.deepEqual(find(PREPARED_11), { id: PREPARED_11, role: 'produces', schemaExport: '@aihq/core/schemas/prepared-work/1.1.0.json' });
-  assert.deepEqual(find(RESULT_11), { id: RESULT_11, role: 'produces', schemaExport: '@aihq/core/schemas/run-result/1.1.0.json' });
-  assert.deepEqual(find('urn:aihq:core:execution-policy:1.0.0'), { id: 'urn:aihq:core:execution-policy:1.0.0', role: 'accepts',
+  assert.partialDeepStrictEqual(find(POLICY_11), { id: POLICY_11, role: 'accepts', schemaExport: '@aihq/core/schemas/execution-policy/1.1.0.json' });
+  assert.partialDeepStrictEqual(find(RECIPE_11), { id: RECIPE_11, role: 'accepts', schemaExport: '@aihq/core/schemas/recipe/1.1.0.json' });
+  assert.partialDeepStrictEqual(find(PREPARED_11), { id: PREPARED_11, role: 'produces', schemaExport: '@aihq/core/schemas/prepared-work/1.1.0.json' });
+  assert.partialDeepStrictEqual(find(RESULT_11), { id: RESULT_11, role: 'produces', schemaExport: '@aihq/core/schemas/run-result/1.1.0.json' });
+  assert.partialDeepStrictEqual(find('urn:aihq:core:execution-policy:1.0.0'), { id: 'urn:aihq:core:execution-policy:1.0.0', role: 'accepts',
     schemaExport: '@aihq/core/schemas/execution-policy/1.0.0.json' });
   assert.equal(contractSupport.contracts[0].id, 'urn:aihq:core:execution-policy:1.0.0');
 });

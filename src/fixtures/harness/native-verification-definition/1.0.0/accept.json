@@ -1,0 +1,59 @@
+{
+  "schema": "urn:aihq:harness:native-verification-definition:1.0.0",
+  "id": "claude-win32-x64-2.1.285",
+  "client": "claude",
+  "state": "candidate",
+  "platform": {
+    "os": "win32",
+    "arch": "x64",
+    "execution": "native",
+    "osRelease": "10.0.26200"
+  },
+  "clientVersions": [
+    "2.1.285"
+  ],
+  "executableNames": [
+    "claude.exe"
+  ],
+  "runtimeMembers": [
+    {
+      "path": "package/harness/native/fixture/server.mjs",
+      "sha256": "fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59",
+      "byteLength": 6952
+    }
+  ],
+  "versionArgv": [
+    "--version"
+  ],
+  "sessionArgv": [
+    "-p",
+    "--verbose",
+    "--output-format",
+    "stream-json"
+  ],
+  "parserId": "claude-stream-json.v1",
+  "identityAdapterId": "claude-oauth-otel.v1",
+  "credentialDestination": {
+    "root": "home",
+    "path": ".claude/.credentials.json"
+  },
+  "guardrails": [
+    {
+      "root": "home",
+      "path": ".claude/settings.json",
+      "member": {
+        "path": "package/harness/native/fixture/claude-settings.json",
+        "sha256": "99b9edf183055d58b80b0ff4215a4bcc481e5fc27bf652f90cd3147d38ef39b4",
+        "byteLength": 523
+      }
+    }
+  ],
+  "guardrailsSha256": "9feae5a2be034510e024166d57d202823a1f60c89c208ad717341a941aee5590",
+  "lifecycleId": "windows-job.v1",
+  "isolation": {
+    "mechanism": "none",
+    "observerId": null,
+    "documentation": []
+  },
+  "evidenceSha256": null
+}

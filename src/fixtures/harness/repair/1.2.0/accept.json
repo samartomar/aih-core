@@ -1,0 +1,701 @@
+{
+  "id": "node-npm-ca",
+  "description": "Add supplied CA certificates to user-scope Node and npm trust",
+  "schema": "urn:aihq:harness:repair:1.2.0",
+  "scope": "user",
+  "managementId": "node-npm-trust",
+  "materialName": "trust.pem",
+  "targets": [
+    "node",
+    "npm"
+  ],
+  "inputs": {},
+  "limits": {
+    "sourceBytes": 1048576,
+    "certificateBlocks": 256,
+    "blockBytes": 65536
+  },
+  "trustLimits": {
+    "candidateIncidences": 4096,
+    "combinedIncidences": 4096,
+    "derBytes": 8388608,
+    "certificateBytes": 65536,
+    "suppliedSources": 32,
+    "outputBytes": 12582912,
+    "custodyBytes": 1048576
+  },
+  "offlineVerification": [
+    {
+      "target": "node",
+      "operationId": "node-config",
+      "checkId": "node-tls"
+    },
+    {
+      "target": "npm",
+      "operationId": "npm-config",
+      "checkId": "npm-behavior"
+    }
+  ],
+  "variants": [
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/node/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/node/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/node+npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/node+npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/node/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/node/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/node+npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/node+npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/node/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/node/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/node+npm/declared",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/node+npm/off",
+      "transformId": "node-npm-ca-bindings",
+      "route": "file",
+      "adapterId": "repair-file-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/node/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/node/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/win32/node+npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "win32",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/win32/node+npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/node/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/node/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/darwin/node+npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "darwin",
+      "architectures": [
+        "arm64",
+        "x64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/darwin/node+npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/node/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/node/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "declared",
+      "recipeRef": "node-npm-ca/linux/node+npm/declared/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    },
+    {
+      "os": "linux",
+      "architectures": [
+        "x64",
+        "arm64"
+      ],
+      "targets": [
+        "node",
+        "npm"
+      ],
+      "network": "off",
+      "recipeRef": "node-npm-ca/linux/node+npm/off/native",
+      "transformId": "node-npm-ca-bindings",
+      "route": "native",
+      "adapterId": "repair-native-v1",
+      "inputIds": [],
+      "capabilityIds": [],
+      "sessionProfileIds": []
+    }
+  ]
+}

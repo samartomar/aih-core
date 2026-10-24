@@ -198,3 +198,31 @@ export function treeEntries(files) {
     sha256: file.member.sha256, byteLength: file.member.byteLength }))
     .sort((a, b) => compareCodeUnits(a.root, b.root) || compareCodeUnits(a.path, b.path));
 }
+
+// Portable diagnostic detail shared by the existing metadata readers.
+export const pointerMember = key => String(key).replace(/~/g, '~0').replace(/\//g, '~1');
+
+export function unsupportedFormat(value, supported) {
+  if (value === null || typeof value !== 'object') return undefined;
+  const encountered = Object.getOwnPropertyDescriptor(value, 'schema')?.value;
+  if (typeof encountered !== 'string' || supported.includes(encountered)) return undefined;
+  return { code: 'SCHEMA_UNSUPPORTED', reason: 'schema-unsupported', path: '/schema',
+    message: 'This format is not supported.', encountered, supported: [...supported] };
+}
+
+/** Unknown members get their exact pointer; other shape failures keep the owning object path. */
+export function unknownFieldPath(value, allowed, base = '') {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return base;
+  const key = Object.keys(value).find(key => !allowed.includes(key));
+  return key === undefined ? base : base + '/' + pointerMember(key);
+}
+
+/** Retain the container path unless an array entry has an undeclared JSON member. */
+export function unknownArrayFieldPath(values, allowed, base) {
+  if (Array.isArray(values)) for (const [index, value] of values.entries()) {
+    const at = `${base}/${index}`;
+    const path = unknownFieldPath(value, allowed, at);
+    if (path !== at) return path;
+  }
+  return base;
+}

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Add portable `checkContracts` and `validatePackageSupport`, package-support 1.1.0
+with explicit versions and fixture export references, and packaged contract
+fixtures. Package-support 1.0.0 remains readable. Required missing checks cannot
+pass, and reader mismatches identify the accepting package to update. Unknown
+schema fields now retain their JSON-pointer path; native unsupported-format
+refusals also list supported identifiers. Harness metadata and reporting readers
+retain encountered/supported format identifiers and escaped unknown-field paths
+in their existing diagnostic, rejected-result or thrown-error channels. This is an unpublished candidate for
+the sole 0.1.0 release effort.
+
+
 Remove empty parent directories Core created for delivered files, after reviewed
 file removal. Setup previously created directories without recording their origin,
 so removal could delete files but had no authority to clean up their parents.

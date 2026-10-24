@@ -1,4 +1,5 @@
 // Portable native-verification metadata. Data and pure validation only: no host effects.
+import { unknownFieldPath, unknownArrayFieldPath, unsupportedFormat } from './canonical.mjs';
 import { ID_RE, SHA256_RE, canonicalJson, hasExactKeys, isRecord, isSafeInteger, isSafeRelativePath,
   isMemberPath, sha256Hex, treeEntries, snapshotNativeData } from './canonical.mjs';
 import { fixtureAnswer, fixtureAttestTool, fixtureFiles, fixtureId, fixtureMarkerSha256, fixturePins,
@@ -130,10 +131,12 @@ const DEFINITION_V10 = 'urn:aihq:harness:native-verification-definition:1.0.0';
 const DEFINITION_V11 = 'urn:aihq:harness:native-verification-definition:1.1.0';
 const VENDOR_OBSERVER_ID = 'anthropic-srt-linux.v1';
 
-const validMember = (value, prefix) => hasExactKeys(value, ['path', 'sha256', 'byteLength']) &&
+const MEMBER_KEYS = ['path', 'sha256', 'byteLength'];
+const TREE_FILE_KEYS = ['root', 'path', 'member'];
+const validMember = (value, prefix) => hasExactKeys(value, MEMBER_KEYS) &&
   (prefix ? isMemberPath(value.path) : isSafeRelativePath(value.path)) && SHA256_RE.test(value.sha256) &&
   isSafeInteger(value.byteLength, 1, 8 * 1024 * 1024);
-const validTreeFile = value => hasExactKeys(value, ['root', 'path', 'member']) &&
+const validTreeFile = value => hasExactKeys(value, TREE_FILE_KEYS) &&
   (value.root === 'home' || value.root === 'project') && isSafeRelativePath(value.path) && validMember(value.member, true);
 const boundedStrings = (value, min, max, length, minLength = 1) => Array.isArray(value) && value.length >= min && value.length <= max &&
   value.every(item => typeof item === 'string' && item.length >= minLength && item.length <= length && !item.includes('\0'));
@@ -148,12 +151,14 @@ export function validateNativeVerificationDefinition(value) {
 }
 
 function validateDefinition(value) {
+  const unsupported = unsupportedFormat(value, [DEFINITION_V10, DEFINITION_V11]);
+  if (unsupported) return { valid: false, diagnostics: [unsupported] };
   const diagnostics = [];
   const bad = (reason, path) => diagnostics.push(diagnostic(reason, path));
   const keys = ['schema', 'id', 'client', 'state', 'platform', 'clientVersions', 'executableNames', 'runtimeMembers',
     'versionArgv', 'sessionArgv', 'parserId', 'identityAdapterId', 'credentialDestination', 'guardrails',
     'guardrailsSha256', 'lifecycleId', 'isolation', 'evidenceSha256'];
-  if (!hasExactKeys(value, keys)) return { valid: false, diagnostics: [diagnostic('definition-shape', '')] };
+  if (!hasExactKeys(value, keys)) return { valid: false, diagnostics: [diagnostic('definition-shape', unknownFieldPath(value, keys))] };
   const v11 = value.schema === DEFINITION_V11;
   const documentation = v11 ? httpsDocumentationV11 : httpsDocumentation;
   if (!v11 && value.schema !== DEFINITION_V10) bad('schema', '/schema');
@@ -165,7 +170,7 @@ function validateDefinition(value) {
   if (!hasExactKeys(platform, ['os', 'arch', 'execution', 'osRelease']) || !OS_VALUES.includes(platform.os) ||
       !['x64', 'arm64'].includes(platform.arch) || !['native', 'wsl2'].includes(platform.execution) ||
       typeof platform.osRelease !== 'string' || platform.osRelease.length < 1 || platform.osRelease.length > 128 ||
-      (platform.execution === 'wsl2' && platform.os !== 'linux')) bad('platform', '/platform');
+      (platform.execution === 'wsl2' && platform.os !== 'linux')) bad('platform', unknownFieldPath(platform, ['os', 'arch', 'execution', 'osRelease'], '/platform'));
   if (!boundedStrings(value.clientVersions, 1, 32, 128) || value.clientVersions.some(v => !SEMVER_RE.test(v)) ||
       new Set(value.clientVersions).size !== value.clientVersions.length) bad('client-versions', '/clientVersions');
   // Admission is a registry fact: an admitted descriptor must be a registered admitted definition, byte-for-byte.
@@ -182,7 +187,8 @@ function validateDefinition(value) {
   if (!boundedStrings(value.executableNames, 1, 8, 255) || value.executableNames.some(n => /[\\/]/.test(n)))
     bad('executable-names', '/executableNames');
   if (!Array.isArray(value.runtimeMembers) || value.runtimeMembers.length < 1 || value.runtimeMembers.length > 256 ||
-      !value.runtimeMembers.every(m => validMember(m, true))) bad('runtime-members', '/runtimeMembers');
+      !value.runtimeMembers.every(m => validMember(m, true)))
+    bad('runtime-members', unknownArrayFieldPath(value.runtimeMembers, MEMBER_KEYS, '/runtimeMembers'));
   const argv = (list, path, emptyAllowed = false) => {
     if (boundedStrings(list, 1, 32, 1024, emptyAllowed ? 0 : 1) && !list.some(item => /\$|\{\{/.test(item))) return true;
     bad('argv', path);
@@ -201,10 +207,17 @@ function validateDefinition(value) {
   if (!nativeIdentityAdapterIds.includes(value.identityAdapterId)) bad('identity-adapter', '/identityAdapterId');
   const destination = value.credentialDestination;
   if (!hasExactKeys(destination, ['root', 'path']) || destination.root !== 'home' || !isSafeRelativePath(destination.path))
-    bad('credential-destination', '/credentialDestination');
+    bad('credential-destination', unknownFieldPath(destination, ['root', 'path'], '/credentialDestination'));
   if (!Array.isArray(value.guardrails) || value.guardrails.length < 1 || value.guardrails.length > 16 ||
-      !value.guardrails.every(validTreeFile)) bad('guardrails', '/guardrails');
-  else {
+      !value.guardrails.every(validTreeFile)) {
+    let path = unknownArrayFieldPath(value.guardrails, TREE_FILE_KEYS, '/guardrails');
+    if (path === '/guardrails' && Array.isArray(value.guardrails)) for (const [index, row] of value.guardrails.entries()) {
+      const at = `/guardrails/${index}/member`;
+      const memberPath = unknownFieldPath(row?.member, MEMBER_KEYS, at);
+      if (memberPath !== at) { path = memberPath; break; }
+    }
+    bad('guardrails', path);
+  } else {
     let digest;
     try { digest = sha256Hex(canonicalJson(treeEntries(value.guardrails))); } catch { digest = ''; }
     if (value.guardrailsSha256 !== digest) bad('guardrails-digest', '/guardrailsSha256');
@@ -218,7 +231,7 @@ function validateDefinition(value) {
       (value.lifecycleId === 'posix-group.v1' && platform?.os === 'win32') ||
       ((srt || vendor) && !(srt && vendor && vendorPlatform))) bad('lifecycle', '/lifecycleId');
   const isolation = value.isolation;
-  if (!hasExactKeys(isolation, ['mechanism', 'observerId', 'documentation'])) bad('isolation', '/isolation');
+  if (!hasExactKeys(isolation, ['mechanism', 'observerId', 'documentation'])) bad('isolation', unknownFieldPath(isolation, ['mechanism', 'observerId', 'documentation'], '/isolation'));
   else if (isolation.mechanism === 'none') {
     if (isolation.observerId !== null || !Array.isArray(isolation.documentation) || isolation.documentation.length)
       bad('isolation', '/isolation');
@@ -240,10 +253,12 @@ export function validateNativeTestIdentity(value) {
 }
 
 function validateIdentity(value) {
+  const unsupported = unsupportedFormat(value, ['urn:aihq:harness:native-test-identity:1.0.0']);
+  if (unsupported) return { valid: false, diagnostics: [unsupported] };
   const diagnostics = [];
   const bad = (reason, path) => diagnostics.push(diagnostic(reason, path));
   if (!hasExactKeys(value, ['schema', 'id', 'client', 'adapterId', 'purpose', 'expected', 'credential']))
-    return { valid: false, diagnostics: [diagnostic('identity-shape', '')] };
+    return { valid: false, diagnostics: [diagnostic('identity-shape', unknownFieldPath(value, ['schema', 'id', 'client', 'adapterId', 'purpose', 'expected', 'credential']))] };
   if (value.schema !== 'urn:aihq:harness:native-test-identity:1.0.0') bad('schema', '/schema');
   if (typeof value.id !== 'string' || !ID_RE.test(value.id)) bad('id', '/id');
   if (value.client !== 'claude') bad('client', '/client');
@@ -251,10 +266,10 @@ function validateIdentity(value) {
   if (value.purpose !== 'dedicated-native-test') bad('purpose', '/purpose');
   const expected = value.expected;
   if (!hasExactKeys(expected, ['accountUuid', 'organizationId']) || !UUID_RE.test(expected.accountUuid) ||
-      !UUID_RE.test(expected.organizationId)) bad('expected', '/expected');
+      !UUID_RE.test(expected.organizationId)) bad('expected', unknownFieldPath(expected, ['accountUuid', 'organizationId'], '/expected'));
   const credential = value.credential;
   if (!hasExactKeys(credential, ['path', 'sha256', 'byteLength']) || credential.path !== 'oauth.json' ||
-      !SHA256_RE.test(credential.sha256) || !isSafeInteger(credential.byteLength, 1, 65536)) bad('credential', '/credential');
+      !SHA256_RE.test(credential.sha256) || !isSafeInteger(credential.byteLength, 1, 65536)) bad('credential', unknownFieldPath(credential, ['path', 'sha256', 'byteLength'], '/credential'));
   return { valid: diagnostics.length === 0, diagnostics };
 }
 

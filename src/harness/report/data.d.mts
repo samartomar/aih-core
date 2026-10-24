@@ -15,7 +15,8 @@ export type ReportInputErrorCode = 'INPUT_INVALID' | 'SCHEMA_UNSUPPORTED';
 /** Invalid or unsupported caller input; the message never contains raw caller values. */
 export declare class ReportInputError extends Error {
   readonly code: ReportInputErrorCode;
-  constructor(code: ReportInputErrorCode, message: string);
+  readonly path?: string; readonly encountered?: string; readonly supported?: readonly string[];
+  constructor(code: ReportInputErrorCode, message: string, details?: {path?: string; encountered?: string; supported?: readonly string[]});
 }
 
 export type Acquisition = 'supplied' | 'newly-acquired';
@@ -106,6 +107,7 @@ export interface ReportSnapshot {
 }
 
 export interface SnapshotValidation {
+  code?: ReportInputErrorCode; path?: string; encountered?: string; supported?: readonly string[];
   valid: boolean;
   errors: string[];
 }

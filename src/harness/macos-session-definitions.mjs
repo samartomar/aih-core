@@ -1,4 +1,5 @@
 // Portable finite definitions. Desktop profiles remain empty until native admission.
+import { unsupportedFormat } from './native/canonical.mjs';
 import { trustRepairIndex, validateRepairDefinition11 } from './trust-definitions.mjs';
 import { macosSessionProfiles } from './macos-session-profiles.mjs';
 
@@ -40,6 +41,8 @@ export function validateRepairDefinition12(value, options = {}) {
   const bad = reason => ({ valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason, message: 'Expected a bounded published macOS repair definition.', path: '' }] });
   try {
     const safe = plainClone(value);
+    const unsupported = unsupportedFormat(safe, [repairDefinitionSchema12]);
+    if (unsupported) return { valid: false, diagnostics: [unsupported] };
     if (new TextEncoder().encode(JSON.stringify(safe)).length > 1_000_000 || safe.schema !== repairDefinitionSchema12 ||
         safe.id === 'certificate-export' || !Array.isArray(safe.variants)) return bad('schema-unsupported');
     for (const variant of safe.variants) {

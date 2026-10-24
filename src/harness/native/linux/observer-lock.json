@@ -3,13 +3,13 @@
   "files": [
     {
       "name": "canonical.mjs",
-      "byteLength": 9341,
-      "sha256": "5c2ea3ee2f8c0ef8a0b85450bc3de8a06670a88a572c159353bcf0d7c6c9a2ad"
+      "byteLength": 10737,
+      "sha256": "dfcaa125d7bbd06126666830812b11a98994eb3e4e5a3f12809c6b6242f5dd3d"
     },
     {
       "name": "contracts.mjs",
-      "byteLength": 18086,
-      "sha256": "89f641235b153f57906ad43b8d0eb230334b3583433dcf23c9754474788dfa87"
+      "byteLength": 19480,
+      "sha256": "498cdd4b80f3471eaded6ab4535763be9114e9238d6e21f02496832f8c5edf42"
     },
     {
       "name": "fixture-data.mjs",

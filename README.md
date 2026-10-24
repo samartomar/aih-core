@@ -14,7 +14,7 @@ macOS session limits are internal to the package and not part of any entry.
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
@@ -44,7 +44,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/repair-request/1.1.0.json`, `repair-inputs/1.1.0.json`, `prepared-work/1.3.0.json`, `run-result/1.3.0.json` | macOS session selection, review and result schemas |
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
 | `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
-| `@aihq/core/schemas/package-support/1.0.0.json` | Package support declaration JSON Schema |
+| `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/repair/1.2.0.json`, `macos-session-profiles/1.0.0.json` | macOS metadata; no desktop profile is admitted in this candidate |
@@ -57,9 +57,11 @@ The [macOS session development guide](docs/macos-session-development.md) describ
 the supplied-file terminal path, observation/removal commands and remaining
 desktop admission requirements.
 
-Both modules use `urn:aihq:package-support:1.0.0`: each contract record names its
-`id`, `role` (`accepts`, `produces` or `both`) and resolvable `schemaExport`.
-Harness's former string-only contract list has been replaced by these records.
+Both modules publish `urn:aihq:package-support:1.1.0`: each contract record names
+its `id`, `role` (`accepts`, `produces` or `both`), `versions`, resolvable
+`schemaExport`, and `fixtures`. `validatePackageSupport` continues to read 1.0.0
+declarations with their original shape. Both versioned schemas remain exported.
+A format's version is independent of the npm package version.
 `repairIndex` remains an array of repair definitions. A caller selects the
 diagnostic schema explicitly when validating a Harness `diagnose` result; the
 result retains its existing shape without a `schema` property.
@@ -71,6 +73,83 @@ Trust/export contracts expose `validateTrustRepairRequest`, `validateTrustRepair
 `validatePreparedWork12`, `validateRunResult12` and `validateTrustCustody` through
 `@aihq/core/contracts`. These validators inspect bounded data without observing
 the host. New trust Prepare controls accept only `signal` and `logging`.
+
+
+## Check package contracts before reading data
+
+`checkContracts({ declarations, readers, loadFixture })` from
+`@aihq/core/contracts` runs supplied readers against another declaration's
+fixtures for the same exact contract `id`. For each `accepts` or `both` entry,
+every referenced fixture from every other declaration is required, including
+fixtures on an `accepts` entry. The current declaration's own fixtures are
+excluded. Package versions and `versions` describe support; they never substitute
+for exercising bytes or imply compatibility.
+
+A fixture reference is `{ export, expect: 'accept' | 'refuse', code? }`.
+Core ships JSON fixture resources at the explicit `@aihq/core/fixtures/…`
+exports listed by its declarations. The corpus includes representative accepted
+inputs/outputs, malformed documents for every listed contract, and a future
+policy major that current readers must refuse. These are contract examples,
+not native acceptance or evidence that a real tool loaded delivered content.
+
+Readers are caller-supplied `{ [contractId]: bytes => ({ accepted, code? }) }`
+adapters, optionally asynchronous. They must call the public reader belonging
+to the accepting package. The same adapter is used for every declaration that
+accepts that id; when packages need different reader implementations, run the
+check separately with each host's adapters and retain each receipt. Schema-only
+adapters establish structural validity only; use the public semantic reader
+where one exists.
+
+`loadFixture(packageName, exportSpecifier)` returns a `Uint8Array` or the literal
+`'unavailable'`, synchronously or asynchronously. Portable callers can supply
+bytes already held in memory. A Node host can resolve the selected installed
+package's exports (the function itself performs no Node work):
+
+```js
+import { readFile } from 'node:fs/promises';
+import { checkContracts, contractSupport, validatePolicy } from '@aihq/core/contracts';
+
+const result = await checkContracts({
+  declarations: [contractSupport, otherPackageSupport],
+  readers: {
+    'urn:aihq:core:execution-policy:1.3.0': bytes => {
+      const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      const checked = validatePolicy(value);
+      return { accepted: checked.valid, code: checked.diagnostics[0]?.code };
+    }
+    // Supply every other required reader from its owning public package entry.
+  },
+  loadFixture: async (packageName, exportSpecifier) => {
+    if (!exportSpecifier.startsWith(packageName + '/')) return 'unavailable';
+    try {
+      return new Uint8Array(await readFile(new URL(import.meta.resolve(exportSpecifier))));
+    } catch { return 'unavailable'; }
+  }
+});
+```
+
+The host resolves only independently selected installed packages and bounds its
+own resource acquisition. No fixture is executable code and the loader must not
+import it as a program. Declarations themselves are validated before checks;
+invalid ones return `ok: false` with diagnostics and no checks.
+
+Each check names `contractId`, `readerPackage`, `fixturePackage`, and (when
+available) `fixtureExport`, expected outcome/code and actual outcome/code.
+`passed` requires both the outcome and any declared code to match. A mismatch,
+reader exception or malformed reader response is `failed` and names the accepting
+`updatePackage`; for example a reader refusing a fixture a newer producer expects
+accepted identifies that reader's package. A missing adapter, empty fixture list,
+missing bytes, or loader exception is `unavailable`. Older 1.0.0 declarations
+without fixtures remain readable but cannot establish a required fixture check.
+`ok` is true only when every required check passed; an empty check set makes no
+cross-package claim. Refusals preserve encountered/supported schema identifiers,
+and unknown schema fields identify their escaped JSON-pointer path. Harness
+metadata validators use the same `code`, `path`, `encountered` and `supported`
+fields. Reporting preserves its existing channels: `importSnapshot` throws a
+`ReportInputError` with those optional fields; `readClaimSet` adds them to its
+rejected result while keeping `errors`, `schema` and the unchanged `original`.
+`validateSnapshot` and `validateClaimSet` retain `valid`/`errors` and expose the
+same optional diagnostic detail on invalid input.
 
 ## Readable templates
 

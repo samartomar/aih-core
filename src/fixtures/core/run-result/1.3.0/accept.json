@@ -1,0 +1,54 @@
+{
+  "schema": "urn:aihq:core:run-result:1.3.0",
+  "runId": "run-session-1",
+  "useCase": "repair",
+  "completion": "complete",
+  "inputs": {
+    "trust": {
+      "route": "native",
+      "definition": { "id": "node-npm-ca", "schema": "urn:aihq:harness:repair:1.2.0" },
+      "helperSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": { "name": "@aihq/core", "version": "1.0.0-dev.9" },
+      "bindingSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sourceSetSha256": null,
+      "targets": [],
+      "sources": [],
+      "certificates": [],
+      "outputs": []
+    },
+    "macosSession": {
+      "context": "terminal",
+      "bindingSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "session": null,
+      "applications": [],
+      "effects": []
+    }
+  },
+  "authorization": {
+    "origin": "interactive",
+    "allowPartial": { "value": false, "origin": "default" }
+  },
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [
+    {
+      "id": "trust/node-config",
+      "application": "already-satisfied",
+      "verification": { "status": "skipped", "reason": "network-off" }
+    }
+  ],
+  "checks": [],
+  "diagnostics": [],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "followUp": ["Start a new login shell so it reads the managed terminal configuration."],
+  "trust": { "outputs": [], "targets": [] },
+  "macosSession": {
+    "context": "terminal",
+    "managementId": "node-npm-trust",
+    "selectionId": "trust",
+    "configuration": "already-satisfied",
+    "persistence": "not-required",
+    "verification": "skipped",
+    "reason": "network-off",
+    "applications": []
+  }
+}

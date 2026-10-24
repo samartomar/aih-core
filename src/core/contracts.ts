@@ -1,3 +1,5 @@
+import { describeContract } from '../contract-fixtures.mjs';
+import type { PackageSupport, SupportedContract } from './package-support.js';
 import { distribution } from '../distribution.mjs';
 import policySchema from './schemas/execution-policy/1.0.0.json' with { type: 'json' };
 import recipeSchema from './schemas/recipe/1.0.0.json' with { type: 'json' };
@@ -90,23 +92,23 @@ const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>
   [trustContractSchemas[6].$id]: 'both'
 });
 export const contractSupport = Object.freeze({
-  schema: 'urn:aihq:package-support:1.0.0',
+  schema: 'urn:aihq:package-support:1.1.0',
   package: distribution,
-  contracts: [
+  contracts: ([
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15].map(schema => ({
+      organizationTargetSchema, preparedSchema15].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
-    ...trustContractSchemas.map(schema => ({
+    ...trustContractSchemas.map((schema): SupportedContract => ({
       id: schema.$id, role: trustSchemaRoles[schema.$id] ?? 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
     ...[macosRequestSchema, macosInputsSchema, macosPreparedSchema, macosResultSchema, macosCustodySchema,
-      macosVerificationRequestSchema, macosVerificationResultSchema].map(schema => ({
+      macosVerificationRequestSchema, macosVerificationResultSchema].map((schema): SupportedContract => ({
       id: schema.$id, role: schema === macosCustodySchema ? 'both' :
         [macosPreparedSchema, macosResultSchema, macosVerificationResultSchema].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -121,8 +123,10 @@ export const contractSupport = Object.freeze({
     { id: 'urn:aihq:core:native-verification-result:1.0.0', role: 'both', schemaExport: '@aihq/core/schemas/native-verification-result/1.0.0.json' },
     { id: 'urn:aihq:core:native-verification-bundle:1.0.0', role: 'accepts', schemaExport: '@aihq/core/schemas/native-verification-bundle/1.0.0.json' },
     { id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.0.0.json' },
-    { id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' }
-  ],
+    { id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts', schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' },
+    { id: 'urn:aihq:package-support:1.0.0', role: 'both', schemaExport: '@aihq/core/schemas/package-support/1.0.0.json' },
+    { id: 'urn:aihq:package-support:1.1.0', role: 'both', schemaExport: '@aihq/core/schemas/package-support/1.1.0.json' }
+  ] as const satisfies readonly SupportedContract[]).map(describeContract),
   entries: [
     { export: '@aihq/core/contracts', runtime: 'portable' },
     { export: '@aihq/core/support', runtime: 'portable' },
@@ -131,7 +135,7 @@ export const contractSupport = Object.freeze({
     { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' },
     { export: '@aihq/core', runtime: 'node', nodeRange: '>=24.15.0 <25' }
   ]
-});
+} satisfies PackageSupport);
 
 const accepting = (...schemas: { $id: string }[]) => Object.freeze(Object.fromEntries(schemas.map(schema => [schema.$id, schemaCheck(schema.$id)])));
 const policies = accepting(policySchema, policySchema11, policySchema12, policySchema13);
@@ -167,3 +171,6 @@ export function parseOrganizationPolicy(text: string): OrganizationParseResult {
     return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };
   }
 }
+
+export { checkContracts, validatePackageSupport } from './package-support.js';
+export type { ContractFixture, SupportedContract, PackageSupport, ContractReadResult, CheckContractsRequest, ContractCheck, ContractCheckResult } from './package-support.js';
