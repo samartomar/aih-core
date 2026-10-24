@@ -1140,14 +1140,14 @@ Check install and removal wording against this table. Each status establishes on
 
 | Field | Value | Establishes | May claim | May not claim |
 |---|---|---|---|---|
-| `application` | `applied` | Core performed this operation's reviewed effect in this run. | "Applied", or for a removal operation "removal applied". | "Installed", "working" or "removed" from this value alone; that the effect was checked (see `verification`). |
+| `application` | `applied` | Core performed this operation's reviewed effect in this run. | "Applied", or for a removal operation "removal applied". | "Installed", "working" or "removed" from this value alone (see the install and removal wording below); that the effect was checked (see `verification`). |
 | `application` | `already-satisfied` | The target already had the desired state, so Core wrote nothing for it. | "Already in place" or "no change needed". | That Core wrote it, or that matching unowned bytes became managed without reviewed adoption. |
 | `application` | `failed` | The operation was attempted and did not succeed; `reason` and `effectsUncertain` say more. | "Failed"; with `effectsUncertain`, "may be partly changed". | "Nothing changed" or "rolled back". Prepare again before further changes. |
 | `application` | `not-attempted` | Core did not run this operation in this run, for example after an earlier stop, cancellation or rejection. | "Not attempted". | "Failed", "unchanged by anyone" or any outcome for the target. |
 | `verification.status` | `passed` | Every check supplied for the operation passed in this run, at that time. | "Verified by its supplied checks". | More than those checks test, or that the state persists later. |
 | `verification.status` | `failed` | At least one supplied check did not pass, including a check that was itself unavailable. | "Check failed". | That the effect is absent or reverted; `application` reports the effect separately. |
 | `verification.status` | `unverified` | Nothing confirmed the operation's effect in this run. An operation that was not attempted also stays `unverified`. | "Not verified". | "Verified", "confirmed" or "removed". |
-| `verification.status` | `unverified`, reason `no-supplied-check` | With `application` `applied` or `already-satisfied`: no check was supplied for the operation, so Core ran none. Convenience removals and generated lifecycle cleanup carry no supplied checks. Every operation starts with this value, so with any other `application` it says nothing about supplied checks. | "Applied, not verified" when `application` is `applied`. | That the target was checked, or that an applied removal is gone from disk. |
+| `verification.status` | `unverified`, reason `no-supplied-check` | In a `complete` run, with `application` `applied` or `already-satisfied`: no check was supplied for the operation, so Core ran none. Convenience removals and generated lifecycle cleanup carry no supplied checks. Every operation starts with this value, so in any other run, or with any other `application`, it says nothing about supplied checks; read `checks` for that operation. | "Applied, not verified" when `application` is `applied`. | That the target was checked, or that an applied removal is gone from disk. |
 | `verification.status` | `unavailable` | Verification stopped without a result: the run was cancelled during the operation's checks, or offline repair suppressed network verification. | "Verification unavailable". | "Passed" or "failed". |
 | `verification.status` | `skipped` | Verification was deliberately not performed for this operation. | "Verification skipped". | "Passed" or "failed". |
 | `disposition` | `prepared` | A live claim was found and a cleanup-only review was prepared. Nothing has been removed yet. | "Removal ready for review". | "Removed" or "removal applied"; approve and Apply the review first. |
@@ -1158,7 +1158,7 @@ Check install and removal wording against this table. Each status establishes on
 | `disposition` | `invalid` | The request was malformed or its organization source was wrong. | "Request invalid". | Anything about custody or the target. |
 | `disposition` | `cancelled` | Preparation stopped on cancellation. | "Cancelled". | Anything about custody or the target. |
 | `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
-| `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted. It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
+| `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`). It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
 | `completion` | `cancelled` | The run stopped on cancellation. Effects completed before it are kept. | "Cancelled", naming the operations that were applied. | "Nothing changed". |
 | `completion` | `rejected` | Apply refused the request before starting work, for example a stale review or missing approval. | "Not run". | Any change to the target. |
 
@@ -1170,6 +1170,12 @@ An applied removal is not by itself "removed". `application: applied` means Core
 4. These confirm Core's custody only. Shared members another owner keeps, preserved directories and unowned content stay in place. Inspect the target yourself before saying the content is gone.
 
 Only then say "removed from Core management"; say "removed from disk" only for files you have inspected. Before confirmation, say "removal applied, not verified".
+
+Install wording follows the same rule. Say "installed" only for an operation that is `applied` or `already-satisfied` in a `complete` run; in any other run name only the applied operations, as the `completion` rows say. Then:
+
+- with verification `passed`, say "installed and verified by its supplied checks";
+- with verification `unverified`, say "installed, not verified";
+- say "working" or "confirmed on disk" only for what you have checked yourself, because no current status establishes either.
 
 This table will gain the run result 1.4 member values (`outcome` and `check`) when they are published ([samartomar/aih-core#99](https://github.com/samartomar/aih-core/issues/99)).
 
