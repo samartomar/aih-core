@@ -216,3 +216,13 @@ export function unknownFieldPath(value, allowed, base = '') {
   const key = Object.keys(value).find(key => !allowed.includes(key));
   return key === undefined ? base : base + '/' + pointerMember(key);
 }
+
+/** Retain the container path unless an array entry has an undeclared JSON member. */
+export function unknownArrayFieldPath(values, allowed, base) {
+  if (Array.isArray(values)) for (const [index, value] of values.entries()) {
+    const at = `${base}/${index}`;
+    const path = unknownFieldPath(value, allowed, at);
+    if (path !== at) return path;
+  }
+  return base;
+}

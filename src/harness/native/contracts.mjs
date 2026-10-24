@@ -1,5 +1,5 @@
 // Portable native-verification metadata. Data and pure validation only: no host effects.
-import { unknownFieldPath, unsupportedFormat } from './canonical.mjs';
+import { unknownFieldPath, unknownArrayFieldPath, unsupportedFormat } from './canonical.mjs';
 import { ID_RE, SHA256_RE, canonicalJson, hasExactKeys, isRecord, isSafeInteger, isSafeRelativePath,
   isMemberPath, sha256Hex, treeEntries, snapshotNativeData } from './canonical.mjs';
 import { fixtureAnswer, fixtureAttestTool, fixtureFiles, fixtureId, fixtureMarkerSha256, fixturePins,
@@ -131,10 +131,12 @@ const DEFINITION_V10 = 'urn:aihq:harness:native-verification-definition:1.0.0';
 const DEFINITION_V11 = 'urn:aihq:harness:native-verification-definition:1.1.0';
 const VENDOR_OBSERVER_ID = 'anthropic-srt-linux.v1';
 
-const validMember = (value, prefix) => hasExactKeys(value, ['path', 'sha256', 'byteLength']) &&
+const MEMBER_KEYS = ['path', 'sha256', 'byteLength'];
+const TREE_FILE_KEYS = ['root', 'path', 'member'];
+const validMember = (value, prefix) => hasExactKeys(value, MEMBER_KEYS) &&
   (prefix ? isMemberPath(value.path) : isSafeRelativePath(value.path)) && SHA256_RE.test(value.sha256) &&
   isSafeInteger(value.byteLength, 1, 8 * 1024 * 1024);
-const validTreeFile = value => hasExactKeys(value, ['root', 'path', 'member']) &&
+const validTreeFile = value => hasExactKeys(value, TREE_FILE_KEYS) &&
   (value.root === 'home' || value.root === 'project') && isSafeRelativePath(value.path) && validMember(value.member, true);
 const boundedStrings = (value, min, max, length, minLength = 1) => Array.isArray(value) && value.length >= min && value.length <= max &&
   value.every(item => typeof item === 'string' && item.length >= minLength && item.length <= length && !item.includes('\0'));
@@ -185,7 +187,8 @@ function validateDefinition(value) {
   if (!boundedStrings(value.executableNames, 1, 8, 255) || value.executableNames.some(n => /[\\/]/.test(n)))
     bad('executable-names', '/executableNames');
   if (!Array.isArray(value.runtimeMembers) || value.runtimeMembers.length < 1 || value.runtimeMembers.length > 256 ||
-      !value.runtimeMembers.every(m => validMember(m, true))) bad('runtime-members', '/runtimeMembers');
+      !value.runtimeMembers.every(m => validMember(m, true)))
+    bad('runtime-members', unknownArrayFieldPath(value.runtimeMembers, MEMBER_KEYS, '/runtimeMembers'));
   const argv = (list, path, emptyAllowed = false) => {
     if (boundedStrings(list, 1, 32, 1024, emptyAllowed ? 0 : 1) && !list.some(item => /\$|\{\{/.test(item))) return true;
     bad('argv', path);
@@ -206,8 +209,15 @@ function validateDefinition(value) {
   if (!hasExactKeys(destination, ['root', 'path']) || destination.root !== 'home' || !isSafeRelativePath(destination.path))
     bad('credential-destination', unknownFieldPath(destination, ['root', 'path'], '/credentialDestination'));
   if (!Array.isArray(value.guardrails) || value.guardrails.length < 1 || value.guardrails.length > 16 ||
-      !value.guardrails.every(validTreeFile)) bad('guardrails', '/guardrails');
-  else {
+      !value.guardrails.every(validTreeFile)) {
+    let path = unknownArrayFieldPath(value.guardrails, TREE_FILE_KEYS, '/guardrails');
+    if (path === '/guardrails' && Array.isArray(value.guardrails)) for (const [index, row] of value.guardrails.entries()) {
+      const at = `/guardrails/${index}/member`;
+      const memberPath = unknownFieldPath(row?.member, MEMBER_KEYS, at);
+      if (memberPath !== at) { path = memberPath; break; }
+    }
+    bad('guardrails', path);
+  } else {
     let digest;
     try { digest = sha256Hex(canonicalJson(treeEntries(value.guardrails))); } catch { digest = ''; }
     if (value.guardrailsSha256 !== digest) bad('guardrails-digest', '/guardrailsSha256');

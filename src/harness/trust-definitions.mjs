@@ -1,5 +1,5 @@
 // Portable trust definitions and admission metadata: no host observation or Node imports.
-import { unknownFieldPath, unsupportedFormat } from './native/canonical.mjs';
+import { unknownFieldPath, unknownArrayFieldPath, pointerMember, unsupportedFormat } from './native/canonical.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 // Static raw admission data, excluded from every evidence subject; it is imported only to associate variants.
@@ -188,22 +188,29 @@ export function validateRepairDefinition11(value, options = {}) {
   if (!targetsOk) bad('targets', '/targets', 'Targets follow the fixed family roster.');
   if (!isPlain(value.limits) || !exactKeys(value.limits, Object.keys(sourceLimits)) ||
       Object.entries(sourceLimits).some(([key, limit]) => value.limits[key] !== limit))
-    bad('limits', '/limits', 'Source-file limits are fixed.');
+    bad('limits', unknownFieldPath(value.limits, Object.keys(sourceLimits), '/limits'), 'Source-file limits are fixed.');
   if (!exactKeys(value.trustLimits, Object.keys(trustLimits)) ||
       Object.entries(trustLimits).some(([key, limit]) => value.trustLimits[key] !== limit))
-    bad('trust-limits', '/trustLimits', 'Trust limits are fixed.');
+    bad('trust-limits', unknownFieldPath(value.trustLimits, Object.keys(trustLimits), '/trustLimits'), 'Trust limits are fixed.');
   const inputs = isPlain(value.inputs) ? value.inputs : undefined;
   if (!inputs || Object.hasOwn(inputs, 'caFile') || Object.keys(inputs).some(key => !identifier.test(key) ||
       !exactKeys(inputs[key], ['type', 'required', 'description'], ['maxLength']) ||
       !['file', 'string', 'boolean', 'number'].includes(inputs[key].type) || typeof inputs[key].required !== 'boolean' ||
       !plainText(inputs[key].description, 1024) ||
-      Object.hasOwn(inputs[key], 'maxLength') && !(Number.isSafeInteger(inputs[key].maxLength) && inputs[key].maxLength >= 1)))
-    bad('inputs', '/inputs', 'Inputs are declared scalar/file inputs without caFile.');
+      Object.hasOwn(inputs[key], 'maxLength') && !(Number.isSafeInteger(inputs[key].maxLength) && inputs[key].maxLength >= 1))) {
+    let path = '/inputs';
+    if (inputs) for (const [name, declaration] of Object.entries(inputs)) {
+      const at = `/inputs/${pointerMember(name)}`;
+      const fieldPath = unknownFieldPath(declaration, ['type', 'required', 'description', 'maxLength'], at);
+      if (fieldPath !== at) { path = fieldPath; break; }
+    }
+    bad('inputs', path, 'Inputs are declared scalar/file inputs without caFile.');
+  }
   if (exported && inputs && Object.keys(inputs).length) bad('inputs', '/inputs', 'Export declares no inputs.');
   if (!Array.isArray(value.offlineVerification) || value.offlineVerification.some(item =>
       !exactKeys(item, ['target', 'operationId', 'checkId']) || !plainText(item.target, 128) ||
       !plainText(item.operationId, 128) || !plainText(item.checkId, 128)))
-    bad('offline-verification', '/offlineVerification', 'Offline verification entries are exact.');
+    bad('offline-verification', unknownArrayFieldPath(value.offlineVerification, ['target', 'operationId', 'checkId'], '/offlineVerification'), 'Offline verification entries are exact.');
   const variants = value.variants;
   if (!Array.isArray(variants) || variants.length < 1 || variants.length > 512) {
     bad('variants', '/variants', 'A definition has 1 to 512 variants.');

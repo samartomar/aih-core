@@ -85,4 +85,28 @@ for(const [validate,value,path] of [
   [harness.validateRepairDefinition12,{...structuredClone(harness.macosRepairIndex[0]),variants:[{...structuredClone(harness.macosRepairIndex[0].variants[0]),'unknown/~':true}]},'/variants/0/unknown~1~0'],
   [harness.validateTrustCapabilities,{...structuredClone(harness.trustCapabilities),package:{...harness.trustCapabilities.package,'unknown/~':true}},'/package/unknown~1~0']
 ]) assert.ok(validate(value).diagnostics.some(d=>d.path===path),validate.name+' nested unknown path');
+
+// Nested closed objects retain the owning refusal reason and exact unknown key.
+const nestedCases = [];
+for (const definition of harness.nativeVerificationDefinitions) {
+  for (const [parts, reason] of [[['runtimeMembers',0],'runtime-members'],[['guardrails',0],'guardrails'],[['guardrails',0,'member'],'guardrails']])
+    nestedCases.push([harness.validateNativeVerificationDefinition,definition,parts,reason]);
+}
+for (const [validate, definitions] of [[harness.validateRepairDefinition11,harness.trustRepairIndex],[harness.validateRepairDefinition12,harness.macosRepairIndex]]) {
+  for (const definition of definitions) {
+    nestedCases.push([validate,definition,['limits'],'limits'],[validate,definition,['trustLimits'],'trust-limits']);
+    for (const name of Object.keys(definition.inputs)) nestedCases.push([validate,definition,['inputs',name],'inputs']);
+    for (const [index] of definition.offlineVerification.entries()) nestedCases.push([validate,definition,['offlineVerification',index],'offline-verification']);
+  }
+}
+for (const [validate,fixture,parts,reason] of nestedCases) {
+  assert.equal(validate(fixture).valid,true,validate.name+' unmodified fixture');
+  const value=structuredClone(fixture);let target=value;
+  for (const part of parts) target=target[part];
+  target['unknown/~']=true;
+  const refused=validate(value);assert.equal(refused.valid,false);
+  const diagnostic=refused.diagnostics.find(item=>item.reason===reason);
+  const expected='/'+parts.map(part=>String(part).replaceAll('~','~0').replaceAll('/','~1')).join('/')+'/unknown~1~0';
+  assert.equal(diagnostic?.path,expected,validate.name+' '+expected);
+}
 console.log(JSON.stringify({contracts:all.length,fixtures:checked.checks.length,status:'passed',preciseReaderRefusals:'passed'}));
