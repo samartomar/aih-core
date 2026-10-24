@@ -37,6 +37,8 @@ jobs:
           miniforge-version: latest
           activate-environment: ''
           auto-activate: true
+          # Avoid conda init rewriting the Windows launcher; activate the installed hook below.
+          run-init: ${{ runner.os != 'Windows' }}
       - name: Build candidate
         shell: bash -el {0}
         run: |
@@ -46,6 +48,10 @@ jobs:
       - name: Packed native acceptance
         shell: bash -el {0}
         run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            source "$(cygpath -u "$CONDA")/etc/profile.d/conda.sh"
+            conda activate base
+          fi
           mkdir -p native-trust-results
           python --version > native-trust-results/tool-versions.txt
           pip --version >> native-trust-results/tool-versions.txt
