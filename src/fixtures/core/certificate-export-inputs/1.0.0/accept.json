@@ -1,0 +1,9 @@
+{
+  "schema": "urn:aihq:core:certificate-export-inputs:1.0.0",
+  "sources": {
+    "os": false,
+    "supplied": [
+      { "id": "team", "file": "certs/team.pem" }
+    ]
+  }
+}

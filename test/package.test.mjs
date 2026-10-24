@@ -23,14 +23,14 @@ const expectedRuntimeNames = {
   '@aihq/core/contracts': [
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
-    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
+    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
     'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
     'validateMacosSessionVerificationResult', 'validateNativeVerificationBundle',
     'validateNativeVerificationRequest', 'validateNativeVerificationResult', 'validateOrganizationPolicy',
-    'validateOrganizationTarget', 'validatePolicy', 'validatePreparedWork12', 'validatePreparedWork13',
+    'validateOrganizationTarget', 'validatePackageSupport', 'validatePolicy', 'validatePreparedWork12', 'validatePreparedWork13',
     'validatePreparedWork14', 'validateRecipe', 'validateRunResult12', 'validateRunResult13', 'validateTrustCustody',
     'validateTrustRepairInputs', 'validateTrustRepairRequest'
   ],
@@ -100,7 +100,7 @@ const expectedTypeNames = {
   ],
   '@aihq/core/contracts': [
     'AuthoringDiagnostic', 'AuthoringResult', 'CertificateExportInputs', 'CertificateExportRequest',
-    'CertificateReview', 'ConfigEntryRemove', 'ConfigEntrySet', 'ConfigOperation', 'DeriveRecipeIdentityRequest',
+    'CertificateReview', 'CheckContractsRequest', 'ContractCheck', 'ContractCheckResult', 'ContractFixture', 'ContractReadResult', 'ConfigEntryRemove', 'ConfigEntrySet', 'ConfigOperation', 'DeriveRecipeIdentityRequest',
     'Diagnostic', 'Executable', 'ExecutionPolicy', 'FileCheck', 'FileOperation', 'HookGroupOperation',
     'InlineMaterial', 'InputSpec', 'Json', 'JsonObject', 'MacosRepairInputs', 'MacosRepairRequest', 'MacosSession',
     'MacosSessionApplication', 'MacosSessionApplicationReview', 'MacosSessionApplicationRun', 'MacosSessionCheck',
@@ -118,7 +118,7 @@ const expectedTypeNames = {
     'OrganizationObligationResultBase', 'OrganizationObligationsPreview', 'OrganizationParseResult',
     'OrganizationPolicy', 'OrganizationPolicy10', 'OrganizationPolicy11', 'OrganizationSelection',
     'OrganizationSelection11', 'OrganizationTarget', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
-    'OrganizationTargetFacts', 'PackageDetails', 'ParseResult', 'Prerequisite',
+    'OrganizationTargetFacts', 'PackageDetails', 'PackageSupport', 'SupportedContract', 'ParseResult', 'Prerequisite',
     'PreviewOrganizationAdmissionRequest', 'PreviewOrganizationObligationsRequest', 'ProcessCheck',
     'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RecipeOperationKind',
     'RecipeOperationKindRecord', 'RecipeSchemaId', 'RemoveOperation',
@@ -182,7 +182,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       // Bundled dependency sources are part of their reviewed package bytes.
       // Product sources and private instructions/scratch remain excluded.
       assert.equal(/^(?:src|test|ai-harness)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|\.scratch)(?:\/|$)/.test(entry.path), false, entry.path);
-      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:(?:native-(?:windows|linux)-verification|native-persistence-diagnostics|macos-session-development|templates)\.md|reporting\/(?:CONTRACT|FIELDS|REPRODUCE)\.md)|examples\/templates\/core-recipe\.json|examples\/reporting\/(?:claims\/[A-Za-z0-9._-]+\.json|data-only\.mjs|http\.mjs|workflow\/(?:report\.json|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes|@anthropic-ai\/sandbox-runtime|@pondwader\/socks5-server|commander|node-forge|zod)\/.*|dist\/core\/.*|dist\/distribution\.(?:mjs|d\.mts)|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json)|linux\/(?:facility|facility\.c|build-record\.json|interop-canary\.cs|interop-canary\.exe|interop-build-record\.json|runtime-lock\.json|runtime-platform\.json|observer-lock\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|(?:bounded-json|local-path)\.mjs|claims(?:\.mjs|\.d\.mts|-schema(?:-1\.1\.0)?\.json)|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/repair\/1\.[12]\.0\.json|schemas\/macos-session-profiles\/1\.0\.0\.json|schemas\/native-verification-definition\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|macos-session(?:-public|-platform|-profiles|-definitions)?\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
+      assert.ok(/^(?:package\.json|README\.md|CHANGELOG\.md|LICENSE|NOTICE|docs\/(?:(?:native-(?:windows|linux)-verification|native-persistence-diagnostics|macos-session-development|templates)\.md|reporting\/(?:CONTRACT|FIELDS|REPRODUCE)\.md)|examples\/templates\/core-recipe\.json|examples\/reporting\/(?:claims\/[A-Za-z0-9._-]+\.json|data-only\.mjs|http\.mjs|workflow\/(?:report\.json|data-only-result\.json|http-check\.json))|node_modules\/(?:@sigstore\/(?:verify|core|bundle|protobuf-specs)|pkijs|asn1js|bytestreamjs|pvutils|pvtsutils|tslib|@noble\/hashes|@anthropic-ai\/sandbox-runtime|@pondwader\/socks5-server|commander|node-forge|zod)\/.*|dist\/core\/.*|dist\/(?:distribution|contract-fixtures)\.(?:mjs|d\.mts)|dist\/fixtures\/[a-z0-9/.-]+\.json|dist\/harness\/(?:native\/(?:[a-z0-9-]+\.(?:mjs|d\.mts|json)|windows\/(?:facility\.(?:cs|exe)|build-record\.json)|linux\/(?:facility|facility\.c|build-record\.json|interop-canary\.cs|interop-canary\.exe|interop-build-record\.json|runtime-lock\.json|runtime-platform\.json|observer-lock\.json))|acceptance\/export-(?:pem|p7b)-win32-(?:declared|off)\.json|report\/(?:data\.(?:mjs|d\.mts)|(?:bounded-json|local-path)\.mjs|claims(?:\.mjs|\.d\.mts|-schema(?:-1\.1\.0)?\.json)|schema\.json)|report-command\.(?:mjs|d\.mts)|schemas\/(?:diagnostic|repair|package-support|native-verification-definition|native-test-identity)\/1\.0\.0\.json|schemas\/(?:repair|package-support)\/1\.[12]\.0\.json|schemas\/macos-session-profiles\/1\.0\.0\.json|schemas\/native-verification-definition\/1\.1\.0\.json|schemas\/trust-capabilities\/1\.0\.0\.json|contracts\.(?:mjs|d\.mts)|runtime\.(?:mjs|d\.mts)|macos-session(?:-public|-platform|-profiles|-definitions)?\.(?:mjs|d\.mts)|ca\.mjs|candidate\.mjs|user-trust(?:-definitions)?\.mjs|jvm-trust(?:-definitions)?\.mjs|github-policy\.mjs|scan-trust\.mjs|verification-publishers\.mjs|trust(?:-data|-definitions|-capabilities|-encoding|-source|-os)?\.(?:mjs|d\.mts)|guidance\.(?:mjs|d\.mts)))$/.test(entry.path), entry.path);
     }
     for (const name of ['verify', 'core', 'bundle', 'protobuf-specs']) {
       assert.ok(packed.files.some(entry => entry.path === `node_modules/@sigstore/${name}/package.json`),
@@ -203,6 +203,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     install(packed);
     const installed = join(consumer, 'node_modules/@aihq/core');
+    copyFileSync(new URL('./fixtures/package-support-consumer.mjs', import.meta.url), join(consumer, 'package-support.mjs'));
+    assert.match(run('package-support.mjs'), /"status":"passed"/);
     if (process.platform === 'linux') {
       const { linuxSafePath, createLinuxBaseProfile } = await import(pathToFileURL(join(installed, 'dist/harness/native/linux-profile.mjs')).href);
       const workload = realpathSync(join(installed, 'dist/harness/native/linux-workload.mjs'));
@@ -325,7 +327,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import type {TrustProfile} from '@aihq/core/harness';
       // @ts-expect-error macOS budgets are internal helper limits.
       import type {MacosSessionBudgets} from '@aihq/core/harness/runtime';
-      const schema: 'urn:aihq:package-support:1.0.0' = contractSupport.schema;
+      const schema: 'urn:aihq:package-support:1.1.0' = contractSupport.schema;
+      const portableContracts = await import('@aihq/core/contracts');
+      await portableContracts.checkContracts({declarations:[portableContracts.contractSupport,contractSupport],readers:{},loadFixture:()=> 'unavailable'});
       const contract: SupportedContract = contractSupport.contracts[0]!;
       const role: 'accepts'|'produces'|'both' = contract.role;
       const schemaExport: string = contract.schemaExport;
@@ -659,15 +663,15 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       for (const [id, schemaExport] of [
         ['urn:aihq:core:managed-inventory-result:1.0.0','@aihq/core/schemas/managed-inventory-result/1.0.0.json'],
         ['urn:aihq:core:managed-removal-preparation:1.0.0','@aihq/core/schemas/managed-removal-preparation/1.0.0.json']])
-        assert.deepEqual(contractSupport.contracts.find(entry=>entry.id===id),{id,role:'produces',schemaExport});
+        assert.deepEqual(contractSupport.contracts.find(entry=>entry.id===id),{id,role:'produces',schemaExport,versions:['1.0.0'],fixtures:[{export:'@aihq/core/fixtures/'+id.slice(9).replaceAll(':','/')+'/refuse.json',expect:'refuse',code:'INPUT_INVALID'}]});
       for (const entry of harnessSupport.contracts) {
         const schema=(await import(entry.schemaExport,{with:{type:'json'}})).default;
         assert.equal(schema.$id,entry.id);
         assert.equal(schema.$schema,'https://json-schema.org/draft/2020-12/schema');
         if (!ajv.getSchema(schema.$id)) ajv.addSchema(schema);
       }
-      const supportSchema=(await import('@aihq/core/schemas/package-support/1.0.0.json',{with:{type:'json'}})).default;
-      ajv.addSchema(supportSchema);
+      const supportSchema=(await import('@aihq/core/schemas/package-support/1.1.0.json',{with:{type:'json'}})).default;
+      if (!ajv.getSchema(supportSchema.$id)) ajv.addSchema(supportSchema);
       for (const declaration of [contractSupport,harnessSupport])
         assert.equal(ajv.validate(supportSchema.$id,declaration),true,JSON.stringify(ajv.errors));
       for (const definition of repairIndex)
@@ -679,7 +683,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(ajv.validate('urn:aihq:harness:diagnostic:1.0.0',diagnostic),true,JSON.stringify(ajv.errors));
       assert.ok(contractSupport.contracts.some(entry=>entry.id==='urn:aihq:core:organization-policy:1.0.0'&&entry.role==='accepts'));
       assert.deepEqual(contractSupport.contracts.find(entry=>entry.id==='urn:aihq:core:organization-policy:1.1.0'),
-        {id:'urn:aihq:core:organization-policy:1.1.0',role:'accepts',schemaExport:'@aihq/core/schemas/organization-policy/1.1.0.json'});
+        {id:'urn:aihq:core:organization-policy:1.1.0',role:'accepts',schemaExport:'@aihq/core/schemas/organization-policy/1.1.0.json',versions:['1.1.0'],fixtures:[{export:'@aihq/core/fixtures/core/organization-policy/1.1.0/accept.json',expect:'accept'},{export:'@aihq/core/fixtures/core/organization-policy/1.1.0/refuse.json',expect:'refuse',code:'INPUT_INVALID'}]});
       const organization11=(await import('@aihq/core/schemas/organization-policy/1.1.0.json',{with:{type:'json'}})).default;
       assert.equal(organization11.$id,'urn:aihq:core:organization-policy:1.1.0');
       assert.ok(contractSupport.entries.some(entry=>entry.export==='@aihq/core/support'&&entry.runtime==='portable'));
@@ -781,7 +785,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     `);
     assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
-      import {parsePolicy,contractSupport,deriveRecipeIdentity,previewOrganizationAdmission,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {checkContracts,validatePackageSupport,parsePolicy,contractSupport,deriveRecipeIdentity,previewOrganizationAdmission,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers,nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
         contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length,
@@ -789,6 +793,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       globalThis.authoring = deriveRecipeIdentity({recipe:${JSON.stringify(policy().selections[0].recipe.inline)}}).then(identity=>[
         identity.status,previewOrganizationAdmission({organization:{schema:'urn:aihq:core:organization-policy:1.0.0',id:'team',selections:[]},selections:[],lifecycle:[]}).value.admitted
       ]);
+      const exampleDeclaration = (name,role,fixtures=[]) => ({schema:'urn:aihq:package-support:1.1.0',package:{name,version:'0.1.0'},entries:[],contracts:[{id:'example',role,versions:['1.0.0'],schemaExport:'example/schema',fixtures}]});
+      globalThis.contractChecks = checkContracts({declarations:[exampleDeclaration('reader','accepts'),exampleDeclaration('producer','produces',[{export:'producer/fixture',expect:'accept'}])],readers:{example:bytes=>({accepted:bytes.length===2})},loadFixture:()=>new TextEncoder().encode('{}')});
+      globalThis.supportValid = validatePackageSupport(contractSupport).valid;
       globalThis.nativePortable = [
         validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'}).valid,
         validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',command:'untrusted'}).valid,
@@ -802,6 +809,10 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     assert.equal(Object.keys(browser.metafile.inputs).some(name=>/core\/evidence\/|@sigstore\//.test(name)), false);
     const browserGlobals = { TextEncoder, TextDecoder, atob, btoa, crypto: globalThis.crypto };
     runInNewContext(browser.outputFiles[0].text, browserGlobals, { timeout: 5000 });
+    const portableChecks = await browserGlobals.contractChecks;
+    assert.equal(portableChecks.ok, true);
+    assert.equal(portableChecks.checks[0].status, 'passed');
+    assert.equal(browserGlobals.supportValid, true);
     const portableAuthoring = await browserGlobals.authoring;
     assert.equal(portableAuthoring[0], 'ok');
     assert.equal(portableAuthoring[1], true);

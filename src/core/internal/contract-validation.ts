@@ -61,7 +61,8 @@ function admit(value: unknown, maxBytes: number | undefined, requireObject: bool
 }
 const schemaErrors = (check: ValidateFunction, reason: (keyword: string) => string): Diagnostic[] =>
   (check.errors ?? []).map(error => ({ code: 'INPUT_INVALID', reason: reason(error.keyword),
-    message: 'The document does not satisfy the published schema.', path: error.instancePath }));
+    message: 'The document does not satisfy the published schema.', path: error.instancePath +
+      (error.keyword === 'additionalProperties' ? '/' + String(error.params.additionalProperty).replace(/~/g, '~0').replace(/\//g, '~1') : '') }));
 
 // Schema compilation or registry faults are internal errors, not invalid input.
 const internalFaults = new WeakSet<object>();

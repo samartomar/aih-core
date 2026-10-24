@@ -1,0 +1,16 @@
+{
+  "schema": "urn:aihq:core:run-result:1.2.0",
+  "runId": "run-blocked-1",
+  "useCase": "repair",
+  "completion": "incomplete",
+  "effectiveOptions": { "logging": { "value": "off", "origin": "default" } },
+  "operations": [],
+  "checks": [],
+  "diagnostics": [
+    { "code": "PREREQUISITE_UNAVAILABLE", "reason": "trust-custody-pending", "message": "A pending trust intent blocks another mutation." }
+  ],
+  "record": { "status": "disabled", "reason": "logging-off" },
+  "recovery": "Reconcile the pending trust intent before retrying.",
+  "followUp": ["Run the reviewed reconciliation."],
+  "trust": { "outputs": [], "targets": [] }
+}

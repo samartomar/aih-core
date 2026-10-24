@@ -83,11 +83,11 @@ test('the accepted versions, calculation methods and schema export are advertise
     { id: 'recurrence', version: '1.0.0' },
   ]);
   assert.equal(Object.isFrozen(CALCULATION_METHODS), true);
-  assert.deepEqual(
+  assert.partialDeepStrictEqual(
     contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA),
     { id: CLAIMS_SCHEMA, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.0.0.json' },
   );
-  assert.deepEqual(
+  assert.partialDeepStrictEqual(
     contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA_1_1_0),
     { id: CLAIMS_SCHEMA_1_1_0, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.1.0.json' },
   );

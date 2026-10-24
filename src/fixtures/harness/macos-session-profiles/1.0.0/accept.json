@@ -1,0 +1,8 @@
+{
+  "schema": "urn:aihq:harness:macos-session-profiles:1.0.0",
+  "package": {
+    "name": "@aihq/core",
+    "version": "1.0.0-dev.37"
+  },
+  "profiles": []
+}

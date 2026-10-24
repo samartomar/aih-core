@@ -64,7 +64,7 @@ test('contractSupport publishes all seven pinned trust schemas and their roles',
   for (const [id, schemaExport] of [
     ['urn:aihq:harness:repair:1.1.0', '@aihq/core/harness/schemas/repair/1.1.0.json'],
     ['urn:aihq:harness:trust-capabilities:1.0.0', '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json']
-  ]) assert.deepEqual(contractSupport.contracts.find(entry => entry.id === id), { id, role: 'accepts', schemaExport });
+  ]) assert.partialDeepStrictEqual(contractSupport.contracts.find(entry => entry.id === id), { id, role: 'accepts', schemaExport });
 });
 
 test('unknown schema ids are refused without fallback', () => {

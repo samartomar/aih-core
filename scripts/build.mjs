@@ -36,3 +36,7 @@ copyFileSync(new URL('../src/distribution.d.mts', import.meta.url), new URL('dis
 mkdirSync(new URL('harness/report/',dist),{recursive:true});
 for (const name of ['data.mjs','data.d.mts','bounded-json.mjs','local-path.mjs','claims.mjs','claims.d.mts','claims-schema.json','claims-schema-1.1.0.json','schema.json']) copyFileSync(new URL('../src/harness/report/'+name,import.meta.url),new URL('harness/report/'+name,dist));
 for (const name of ['report-command.mjs','report-command.d.mts']) copyFileSync(new URL('../src/harness/'+name, import.meta.url),new URL('harness/'+name,dist));
+
+cpSync(new URL('../src/fixtures/', import.meta.url), new URL('fixtures/', dist), { recursive: true });
+for (const name of ['contract-fixtures.mjs', 'contract-fixtures.d.mts'])
+  copyFileSync(new URL('../src/' + name, import.meta.url), new URL(name, dist));

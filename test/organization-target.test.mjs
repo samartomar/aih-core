@@ -49,9 +49,9 @@ const reasons = result => result.diagnostics.map(item => [item.code, item.reason
 
 test('the organization target is an exported, accepted contract over Core\'s client list', () => {
   assert.equal(targetSchema.$id, TARGET);
-  assert.deepEqual(contractSupport.contracts.find(item => item.id === TARGET),
+  assert.partialDeepStrictEqual(contractSupport.contracts.find(item => item.id === TARGET),
     { id: TARGET, role: 'accepts', schemaExport: '@aihq/core/schemas/organization-target/1.0.0.json' });
-  assert.deepEqual(contractSupport.contracts.find(item => item.id === PREPARED15),
+  assert.partialDeepStrictEqual(contractSupport.contracts.find(item => item.id === PREPARED15),
     { id: PREPARED15, role: 'produces', schemaExport: '@aihq/core/schemas/prepared-work/1.5.0.json' });
   assert.deepEqual(targetSchema.properties.client.enum, [...nativeClients]);
   assert.deepEqual(prepared15Schema.properties.organizationObligations.properties.target.properties.client.enum, [...nativeClients]);

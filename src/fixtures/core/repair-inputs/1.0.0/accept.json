@@ -1,0 +1,11 @@
+{
+  "schema": "urn:aihq:core:repair-inputs:1.0.0",
+  "route": "file",
+  "repairs": { "node-npm-ca": {} },
+  "sources": {
+    "os": false,
+    "supplied": [
+      { "id": "team", "file": "certs/team.pem" }
+    ]
+  }
+}

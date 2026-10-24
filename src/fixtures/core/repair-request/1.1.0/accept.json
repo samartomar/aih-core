@@ -1,0 +1,14 @@
+{
+  "schema": "urn:aihq:core:repair-request:1.1.0",
+  "useCase": "repair",
+  "repairs": [{ "id": "user-tools-ca", "targets": ["python", "git"], "inputs": {} }],
+  "route": "file",
+  "sources": { "os": false, "supplied": [{ "id": "company", "file": "/Users/example/inbox/company-ca.pem" }] },
+  "macosSession": {
+    "context": "both",
+    "applications": [
+      { "clientId": "claude", "appPath": "/Applications/Claude.app", "targets": ["python"], "launch": "finder" },
+      { "clientId": "codex", "appPath": "/Applications/Codex.app", "targets": ["git"], "launch": "dock" }
+    ]
+  }
+}

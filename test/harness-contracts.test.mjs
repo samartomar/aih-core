@@ -7,8 +7,8 @@ import { contractSupport as coreSupport, validateOrganizationTarget } from '@aih
 import organizationTargetSchema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
 
 test('Harness declares exact supported formats and the installed public runtime entries', () => {
-  assert.equal(contractSupport.schema, 'urn:aihq:package-support:1.0.0');
-  assert.deepEqual(contractSupport.contracts, [
+  assert.equal(contractSupport.schema, 'urn:aihq:package-support:1.1.0');
+  assert.deepEqual(contractSupport.contracts.map(({id,role,schemaExport})=>({id,role,schemaExport})), [
     { id: 'urn:aihq:harness:diagnostic:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/diagnostic/1.0.0.json' },
     { id: 'urn:aihq:harness:repair:1.0.0', role: 'produces',
@@ -44,9 +44,9 @@ test('Harness declares exact supported formats and the installed public runtime 
 });
 
 test('the common package-support schema validates both modules and all advertised schema exports resolve', async () => {
-  const schema = (await import('@aihq/core/schemas/package-support/1.0.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('@aihq/core/schemas/package-support/1.1.0.json', { with: { type: 'json' } })).default;
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
-  assert.equal(schema.$id, 'urn:aihq:package-support:1.0.0');
+  assert.equal(schema.$id, 'urn:aihq:package-support:1.1.0');
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
   for (const declaration of [contractSupport, coreSupport]) {
     assert.equal(validate(declaration), true, JSON.stringify(validate.errors));

@@ -168,7 +168,6 @@ const documentLimits: Record<NativeDocumentKind, { bytes: number; depth: number 
   result: { bytes: 65536, depth: 16 },
   bundle: { bytes: 262144, depth: 16 },
 };
-const safeDiagnosticPath = /^(?:\/[A-Za-z0-9._-]+)*$/;
 function diagnostic(code: string, reason: string, path?: string, encountered?: string): Diagnostic {
   return {
     code, reason,
@@ -188,8 +187,8 @@ function schemaErrorPath(error: ErrorObject): string | undefined {
   const key = error.keyword === 'additionalProperties'
     ? (error.params as { additionalProperty?: unknown }).additionalProperty
     : error.keyword === 'required' ? (error.params as { missingProperty?: unknown }).missingProperty : undefined;
-  if (typeof key === 'string') path = `${path}/${key}`;
-  return path.length > 0 && path.length <= 512 && safeDiagnosticPath.test(path) ? path : undefined;
+  if (typeof key === 'string') path = `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+  return path || undefined;
 }
 
 function bundleSemantics(document: NativeVerificationBundle): Diagnostic[] {
@@ -307,7 +306,7 @@ function validateDocument(value: unknown, kind: NativeDocumentKind, schemaId: st
     const found = safe && typeof safe === 'object' && !Array.isArray(safe)
       ? (safe as { schema?: unknown }).schema : undefined;
     if (typeof found === 'string' && found !== schemaId) return { valid: false, schema: found,
-      diagnostics: [diagnostic('SCHEMA_UNSUPPORTED', 'schema-id', '/schema', found)] };
+      diagnostics: [{ ...diagnostic('SCHEMA_UNSUPPORTED', 'schema-id', '/schema', found), supported: [schemaId] }] };
     if (!check(safe)) return { valid: false, ...(typeof found === 'string' ? { schema: found } : {}),
       diagnostics: (check.errors ?? []).slice(0, 32)
         .map(error => diagnostic('INPUT_INVALID', fieldReason(kind, error), schemaErrorPath(error))) };

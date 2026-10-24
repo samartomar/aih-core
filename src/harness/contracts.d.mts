@@ -18,11 +18,12 @@ export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificat
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
+  readonly versions: readonly string[]; readonly fixtures: readonly { readonly export: string; readonly expect: 'accept' | 'refuse'; readonly code?: string }[];
 }
 export type PublicEntry = { readonly export: string; readonly runtime: 'portable' } |
   { readonly export: string; readonly runtime: 'node'; readonly nodeRange: string };
 export declare const contractSupport: {
-  readonly schema: 'urn:aihq:package-support:1.0.0'; readonly package: { readonly name: string; readonly version: string };
+  readonly schema: 'urn:aihq:package-support:1.1.0'; readonly package: { readonly name: string; readonly version: string };
   readonly contracts: readonly SupportedContract[]; readonly entries: readonly PublicEntry[];
 };
 export declare const repairIndex: readonly { id: string; description: string;

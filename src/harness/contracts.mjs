@@ -1,3 +1,4 @@
+import { describeContract } from '../contract-fixtures.mjs';
 // This entry is data only. Importing it performs no host observation.
 import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
@@ -18,7 +19,7 @@ export const trustCapabilities = buildTrustCapabilities(distribution, trustCellR
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export const contractSupport = Object.freeze({
-  schema: 'urn:aihq:package-support:1.0.0',
+  schema: 'urn:aihq:package-support:1.1.0',
   package: distribution,
   contracts: Object.freeze([
     Object.freeze({ id: 'urn:aihq:harness:diagnostic:1.0.0', role: 'produces',
@@ -47,7 +48,7 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.1.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts',
       schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' })
-  ]),
+  ].map(describeContract)),
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
     { export: '@aihq/core/report', runtime: 'portable' },

@@ -1,0 +1,13 @@
+{
+  "schema": "urn:aihq:core:certificate-export-request:1.0.0",
+  "useCase": "certificate-export",
+  "format": "pkcs7-der",
+  "output": ".aih/exports/team.p7b",
+  "network": "off",
+  "sources": {
+    "os": false,
+    "supplied": [
+      { "id": "team", "file": "/home/example/inbox/team.pem" }
+    ]
+  }
+}
