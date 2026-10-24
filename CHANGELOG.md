@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Document what each result status lets a consumer claim. The README now has a
+table for operation `application`, `verification.status`, managed-removal
+`disposition` and run `completion`, and explains how to confirm an applied but
+unverified removal before calling it removed. Documentation only; no behavior,
+format or package version changes.
+
 Add portable `checkContracts` and `validatePackageSupport`, package-support 1.1.0
 with explicit versions and fixture export references, and packaged contract
 fixtures. Package-support 1.0.0 remains readable. Required missing checks cannot

@@ -1134,6 +1134,45 @@ Policy Prepare adds `resolutionInputs` outside the immutable prepared-work revie
 
 Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
 
+## What each result status lets you claim
+
+Check install and removal wording against this table. Each status establishes only what its row says; the fields are independent, so read them together. Operation `application` and `verification` are per operation in a run result; `completion` is the whole run; `disposition` is the `prepareManagedRemoval` (`aih managed remove`) preflight before any Apply.
+
+| Field | Value | Establishes | May claim | May not claim |
+|---|---|---|---|---|
+| `application` | `applied` | Core performed this operation's reviewed effect in this run. | "Applied", or for a removal operation "removal applied". | "Installed", "working" or "removed" from this value alone; that the effect was checked (see `verification`). |
+| `application` | `already-satisfied` | The target already had the desired state, so Core wrote nothing for it. | "Already in place" or "no change needed". | That Core wrote it, or that matching unowned bytes became managed without reviewed adoption. |
+| `application` | `failed` | The operation was attempted and did not succeed; `reason` and `effectsUncertain` say more. | "Failed"; with `effectsUncertain`, "may be partly changed". | "Nothing changed" or "rolled back". Prepare again before further changes. |
+| `application` | `not-attempted` | Core did not run this operation in this run, for example after an earlier stop, cancellation or rejection. | "Not attempted". | "Failed", "unchanged by anyone" or any outcome for the target. |
+| `verification.status` | `passed` | Every check supplied for the operation passed in this run, at that time. | "Verified by its supplied checks". | More than those checks test, or that the state persists later. |
+| `verification.status` | `failed` | At least one supplied check did not pass. | "Check failed". | That the effect is absent or reverted; `application` reports the effect separately. |
+| `verification.status` | `unverified` | Nothing confirmed the operation's effect in this run. An operation that was not attempted also stays `unverified`. | "Not verified". | "Verified", "confirmed" or "removed". |
+| `verification.status` | `unverified`, reason `no-supplied-check` | No check was supplied for the operation, so Core ran none. Convenience removals and generated lifecycle cleanup carry no supplied checks. | "Applied, not verified" when `application` is `applied`. | That the target was checked, or that an applied removal is gone from disk. |
+| `verification.status` | `unavailable` | A check could not produce a result, for example after cancellation or in offline repair. | "Verification unavailable". | "Passed" or "failed". |
+| `verification.status` | `skipped` | Verification was deliberately not performed, for example with network off. | "Verification skipped". | "Passed" or "failed". |
+| `disposition` | `prepared` | A live claim was found and a cleanup-only review was prepared. Nothing has been removed yet. | "Removal ready for review". | "Removed" or "removal applied"; approve and Apply the review first. |
+| `disposition` | `absent` | No claim for this management ID is recorded in that scope. | "Not managed by Core in this scope". | That the target bytes are absent; unowned content is never inspected or deleted. |
+| `disposition` | `retained` | Another managed selection still requires this one, so its claim is kept and no removal was prepared. | "Kept because another selection needs it". | "Removed" or "removal pending"; remove the dependent selection first. |
+| `disposition` | `reconcile-required` | Recorded custody and the live state disagree, or a legacy member has no claim, so nothing was prepared. | "Needs reconciliation before removal". | "Removed" or "not managed". |
+| `disposition` | `unavailable` | Custody or a prerequisite could not be verified, so nothing was prepared. | "Could not check". | "Absent", "not managed" or "removed". |
+| `disposition` | `invalid` | The request was malformed or its organization source was wrong. | "Request invalid". | Anything about custody or the target. |
+| `disposition` | `cancelled` | Preparation stopped on cancellation. | "Cancelled". | Anything about custody or the target. |
+| `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
+| `completion` | `incomplete` | Work started but some operation did not finish as reviewed, or something was omitted. Completed effects are kept. | "Partly done", naming the operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
+| `completion` | `cancelled` | The run stopped on cancellation. Effects completed before it are kept. | "Cancelled", naming the operations that were applied. | "Nothing changed". |
+| `completion` | `rejected` | Apply refused the request before starting work, for example a stale review or missing approval. | "Not run". | Any change to the target. |
+
+An applied removal is not by itself "removed". `application: applied` means Core performed the reviewed removal; with verification `unverified` (reason `no-supplied-check`), nothing confirmed the result. To confirm such a removal:
+
+1. Require `completion: complete` and the removal operation `applied`. Otherwise prepare again.
+2. Call `listManagedSelections` (`aih managed list`) for the same project and scope. Only a `complete` result that no longer lists the management ID confirms the claim is gone; an `incomplete` list confirms nothing.
+3. Call `prepareManagedRemoval` again for that management ID and scope. `absent` confirms Core holds no claim; any other disposition means the removal is not finished.
+4. These confirm Core's custody only. Shared members another owner keeps, preserved directories and unowned content stay in place. Inspect the target yourself before saying the content is gone.
+
+Only then say "removed from Core management"; say "removed from disk" only for files you have inspected. Before confirmation, say "removal applied, not verified".
+
+This table will gain the run result 1.4 member values (`outcome` and `check`) when they are published ([samartomar/aih-core#99](https://github.com/samartomar/aih-core/issues/99)).
+
 ## Owned hook groups
 
 Recipe and execution-policy schema 1.1.0 add a `hook.group` operation for JSON and JSONC targets (TOML is unsupported). It manages one element of a shared array (for example a client's hook list) without owning the file: `container` is an object-key path to the array, `selector` (`path`, `value`) identifies the element, `groupId` names custody, and `group` is the literal element for `action: "set"` (`"remove"` deletes it). The selector value must appear in the group literal; neither `groupId` nor the selector is written to the target. Custody records the element's raw-span and canonical digests, so a neighbor edit, insertion or reorder never changes which element a fresh Prepare selects, while an edit to the owned element is a reviewed conflict (`owned-hook-edited`, `owned-hook-missing`, `hook-selector-ambiguous` and related reasons). A different managed group in the same array that has gone missing or ambiguous blocks the step as `hook-selector-overlap`, and the diagnostic names that group; no replace of the current group resolves it. Any edit to the target file between Prepare and Apply, a neighbor's included, makes Apply fail as `REVIEW_STALE` without writing. Reviewed `replace` resolutions use the operation's `details.hookGroup.targetBeforeSha256`. Several claims may share one group; it is deleted only when the last claim is removed, and its content cannot change while another claim retains it. A JSONC removal deletes only the targeted element and one separating comma; whitespace and comments outside that span stay as they were, and an edit that would move or delete an adjacent comment (or a container that is not an array) is reported as `hook-edit-unsafe` instead. An appended element is written as canonical JSON.
