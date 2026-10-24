@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import * as core from '@aihq/core/contracts';
 import { contractSupport as harnessSupport, validateNativeVerificationDefinition } from '@aihq/core/harness';
@@ -109,4 +110,8 @@ for (const [validate,fixture,parts,reason] of nestedCases) {
   const expected='/'+parts.map(part=>String(part).replaceAll('~','~0').replaceAll('/','~1')).join('/')+'/unknown~1~0';
   assert.equal(diagnostic?.path,expected,validate.name+' '+expected);
 }
+const runtime = await import('@aihq/core/harness/runtime');
+const packageRoot = fileURLToPath(new URL('../../', import.meta.resolve('@aihq/core')));
+const admission = runtime.verifyTrustAdmissionEvidence({packageRoot,capabilities:harness.trustCapabilities});
+assert.equal(admission.valid,true,JSON.stringify(admission.diagnostics));
 console.log(JSON.stringify({contracts:all.length,fixtures:checked.checks.length,status:'passed',preciseReaderRefusals:'passed'}));

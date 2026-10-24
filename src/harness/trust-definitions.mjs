@@ -1,5 +1,4 @@
 // Portable trust definitions and admission metadata: no host observation or Node imports.
-import { unknownFieldPath, unknownArrayFieldPath, pointerMember, unsupportedFormat } from './native/canonical.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 // Static raw admission data, excluded from every evidence subject; it is imported only to associate variants.
@@ -161,16 +160,13 @@ const variantKey = variant => JSON.stringify([variant.route, variant.os, [...var
 
 /** Strict structural validation of one repair definition 1.1 document. */
 export function validateRepairDefinition11(value, options = {}) {
-  const unsupported = unsupportedFormat(value, [repairDefinitionSchema11]);
-  if (unsupported) return { valid: false, diagnostics: [unsupported] };
   const diagnostics = [];
   const bad = (reason, path, message) => diagnostics.push(diag(reason, path, message));
   const adapters = options.adapters ?? trustAdapters;
   const capabilities = options.capabilities;
   if (!exactKeys(value, ['id', 'description', 'schema', 'scope', 'managementId', 'materialName', 'variants',
     'targets', 'inputs', 'limits', 'trustLimits', 'offlineVerification'])) {
-    bad('unknown-field', unknownFieldPath(value, ['id', 'description', 'schema', 'scope', 'managementId', 'materialName', 'variants',
-      'targets', 'inputs', 'limits', 'trustLimits', 'offlineVerification']), 'A 1.1 definition has exactly its published members.');
+    bad('unknown-field', '', 'A 1.1 definition has exactly its published members.');
     return { valid: false, diagnostics };
   }
   if (value.schema !== repairDefinitionSchema11) bad('schema-unsupported', '/schema', 'Unsupported definition schema.');
@@ -188,29 +184,22 @@ export function validateRepairDefinition11(value, options = {}) {
   if (!targetsOk) bad('targets', '/targets', 'Targets follow the fixed family roster.');
   if (!isPlain(value.limits) || !exactKeys(value.limits, Object.keys(sourceLimits)) ||
       Object.entries(sourceLimits).some(([key, limit]) => value.limits[key] !== limit))
-    bad('limits', unknownFieldPath(value.limits, Object.keys(sourceLimits), '/limits'), 'Source-file limits are fixed.');
+    bad('limits', '/limits', 'Source-file limits are fixed.');
   if (!exactKeys(value.trustLimits, Object.keys(trustLimits)) ||
       Object.entries(trustLimits).some(([key, limit]) => value.trustLimits[key] !== limit))
-    bad('trust-limits', unknownFieldPath(value.trustLimits, Object.keys(trustLimits), '/trustLimits'), 'Trust limits are fixed.');
+    bad('trust-limits', '/trustLimits', 'Trust limits are fixed.');
   const inputs = isPlain(value.inputs) ? value.inputs : undefined;
   if (!inputs || Object.hasOwn(inputs, 'caFile') || Object.keys(inputs).some(key => !identifier.test(key) ||
       !exactKeys(inputs[key], ['type', 'required', 'description'], ['maxLength']) ||
       !['file', 'string', 'boolean', 'number'].includes(inputs[key].type) || typeof inputs[key].required !== 'boolean' ||
       !plainText(inputs[key].description, 1024) ||
-      Object.hasOwn(inputs[key], 'maxLength') && !(Number.isSafeInteger(inputs[key].maxLength) && inputs[key].maxLength >= 1))) {
-    let path = '/inputs';
-    if (inputs) for (const [name, declaration] of Object.entries(inputs)) {
-      const at = `/inputs/${pointerMember(name)}`;
-      const fieldPath = unknownFieldPath(declaration, ['type', 'required', 'description', 'maxLength'], at);
-      if (fieldPath !== at) { path = fieldPath; break; }
-    }
-    bad('inputs', path, 'Inputs are declared scalar/file inputs without caFile.');
-  }
+      Object.hasOwn(inputs[key], 'maxLength') && !(Number.isSafeInteger(inputs[key].maxLength) && inputs[key].maxLength >= 1)))
+    bad('inputs', '/inputs', 'Inputs are declared scalar/file inputs without caFile.');
   if (exported && inputs && Object.keys(inputs).length) bad('inputs', '/inputs', 'Export declares no inputs.');
   if (!Array.isArray(value.offlineVerification) || value.offlineVerification.some(item =>
       !exactKeys(item, ['target', 'operationId', 'checkId']) || !plainText(item.target, 128) ||
       !plainText(item.operationId, 128) || !plainText(item.checkId, 128)))
-    bad('offline-verification', unknownArrayFieldPath(value.offlineVerification, ['target', 'operationId', 'checkId'], '/offlineVerification'), 'Offline verification entries are exact.');
+    bad('offline-verification', '/offlineVerification', 'Offline verification entries are exact.');
   const variants = value.variants;
   if (!Array.isArray(variants) || variants.length < 1 || variants.length > 512) {
     bad('variants', '/variants', 'A definition has 1 to 512 variants.');
@@ -221,8 +210,7 @@ export function validateRepairDefinition11(value, options = {}) {
     const at = `/variants/${index}`;
     if (!exactKeys(variant, ['os', 'architectures', 'targets', 'network', 'recipeRef', 'transformId', 'route',
       'adapterId', 'inputIds', 'capabilityIds'], ['configFiles', 'executableBindings', 'requiredAbsences'])) {
-      bad('unknown-field', unknownFieldPath(variant, ['os', 'architectures', 'targets', 'network', 'recipeRef', 'transformId', 'route',
-        'adapterId', 'inputIds', 'capabilityIds', 'configFiles', 'executableBindings', 'requiredAbsences'], at), 'A variant has exactly its published members.'); return;
+      bad('unknown-field', at, 'A variant has exactly its published members.'); return;
     }
     if (!OSES.includes(variant.os)) bad('os', `${at}/os`, 'Unsupported OS.');
     if (!Array.isArray(variant.architectures) || !variant.architectures.length || !unique(variant.architectures) ||
@@ -287,15 +275,13 @@ const relativeReference = value => typeof value === 'string' && plainText(value,
 
 /** Validate the admission document against the published shape. Evidence bytes are checked by the Node helper. */
 export function validateTrustCapabilities(value, options = {}) {
-  const unsupported = unsupportedFormat(value, [trustCapabilitiesSchema]);
-  if (unsupported) return { valid: false, diagnostics: [unsupported] };
   const diagnostics = [];
   const bad = (reason, path, message) => diagnostics.push(diag(reason, path, message));
-  if (!exactKeys(value, ['schema', 'package', 'cells'])) return { valid: false, diagnostics: [diag('unknown-field', unknownFieldPath(value, ['schema', 'package', 'cells']), 'Admission metadata has exactly its published members.')] };
+  if (!exactKeys(value, ['schema', 'package', 'cells'])) return { valid: false, diagnostics: [diag('unknown-field', '', 'Admission metadata has exactly its published members.')] };
   if (value.schema !== trustCapabilitiesSchema) bad('schema-unsupported', '/schema', 'Unsupported admission schema.');
   if (!exactKeys(value.package, ['name', 'version']) || value.package.name !== '@aihq/core' || !plainText(value.package.version, 512) ||
       options.package && (value.package.name !== options.package.name || value.package.version !== options.package.version))
-    bad('package-identity', unknownFieldPath(value.package, ['name', 'version'], '/package'), 'Package identity must equal the installed distribution.');
+    bad('package-identity', '/package', 'Package identity must equal the installed distribution.');
   if (!Array.isArray(value.cells) || value.cells.length > 256) { bad('cells', '/cells', 'At most 256 cells.'); return { valid: false, diagnostics }; }
   try { if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 1048576) bad('size', '', 'Metadata is capped at 1 MiB.'); }
   catch { bad('size', '', 'Metadata is not serializable data.'); }
@@ -304,8 +290,7 @@ export function validateTrustCapabilities(value, options = {}) {
   value.cells.forEach((cell, index) => {
     const at = `/cells/${index}`;
     if (!exactKeys(cell, ['id', 'definitionId', 'route', 'target', 'platform', 'network', 'projection', 'client',
-      'configurationProfile', 'probeProfile', 'launchContext', 'evidence'])) { bad('unknown-field', unknownFieldPath(cell,
-        ['id', 'definitionId', 'route', 'target', 'platform', 'network', 'projection', 'client', 'configurationProfile', 'probeProfile', 'launchContext', 'evidence'], at), 'A cell has exactly its published members.'); return; }
+      'configurationProfile', 'probeProfile', 'launchContext', 'evidence'])) { bad('unknown-field', at, 'A cell has exactly its published members.'); return; }
     if (typeof cell.id !== 'string' || !identifier.test(cell.id) || ids.has(cell.id)) bad('cell-id', `${at}/id`, 'Cell IDs use the identifier grammar and are unique.');
     ids.add(cell.id);
     const definition = definitions.find(item => item.id === cell.definitionId);
@@ -316,7 +301,7 @@ export function validateTrustCapabilities(value, options = {}) {
     const platform = exactKeys(cell.platform, ['os', 'release', 'architecture']) ?
       trustPlatformMatrix.find(item => item.os === cell.platform.os && item.release === cell.platform.release &&
         item.architecture === cell.platform.architecture) : undefined;
-    if (!platform) bad('platform', unknownFieldPath(cell.platform, ['os', 'release', 'architecture'], `${at}/platform`), 'The platform must be an initial tested matrix entry.');
+    if (!platform) bad('platform', `${at}/platform`, 'The platform must be an initial tested matrix entry.');
     else if (cell.projection !== platform.projection) bad('projection', `${at}/projection`, 'The projection must match the platform.');
     if (!['declared', 'off'].includes(cell.network)) bad('network', `${at}/network`, 'Network is declared or off.');
     const configuration = Object.hasOwn(trustProfiles, cell.configurationProfile) ? trustProfiles[cell.configurationProfile] : undefined;
@@ -332,13 +317,12 @@ export function validateTrustCapabilities(value, options = {}) {
       const client = cell.client;
       if (!exactKeys(client, ['version', 'build', 'backend', 'backendVersion', 'applicationId']) ||
           cellStrings.slice(1).some(key => !plainText(client[key], 512)) ||
-          client.applicationId !== null && !plainText(client.applicationId, 512)) bad('client', unknownFieldPath(client,
-            ['version', 'build', 'backend', 'backendVersion', 'applicationId'], `${at}/client`), 'A client record is required for non-export cells.');
+          client.applicationId !== null && !plainText(client.applicationId, 512)) bad('client', `${at}/client`, 'A client record is required for non-export cells.');
       if (cell.launchContext !== 'fresh-cli-user-home') bad('launch-context', `${at}/launchContext`, 'Only fresh-cli-user-home cells are admitted here.');
     }
     const evidence = cell.evidence;
     if (!exactKeys(evidence, ['reference', 'sha256', 'subjectSha256']) || !relativeReference(evidence.reference) ||
-        !sha(evidence.sha256) || !sha(evidence.subjectSha256)) bad('evidence', unknownFieldPath(evidence, ['reference', 'sha256', 'subjectSha256'], `${at}/evidence`), 'Evidence requires a package-relative reference and digests.');
+        !sha(evidence.sha256) || !sha(evidence.subjectSha256)) bad('evidence', `${at}/evidence`, 'Evidence requires a package-relative reference and digests.');
     const tuple = JSON.stringify([cell.definitionId, cell.route, cell.target, cell.platform, cell.network,
       cell.launchContext, exported ? cell.configurationProfile : null, cell.client?.version, cell.client?.build]);
     if (tuples.has(tuple)) bad('cell-ambiguous', at, 'Matching tuples are unique.');
