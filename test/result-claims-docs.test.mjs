@@ -2,11 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
+// A Windows checkout may convert README.md to CRLF; the section is read as LF text either way.
 const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 const schema = path => JSON.parse(readFileSync(new URL(`../src/core/schemas/${path}`, import.meta.url), 'utf8'));
-const start = readme.indexOf('\n## What each result status lets you claim\n');
-const end = start < 0 ? -1 : readme.indexOf('\n## ', start + 1);
-const section = start < 0 ? '' : readme.slice(start, end < 0 ? undefined : end);
+const claimsSection = text => {
+  const lf = text.replace(/\r\n/g, '\n');
+  const start = lf.indexOf('\n## What each result status lets you claim\n');
+  const end = start < 0 ? -1 : lf.indexOf('\n## ', start + 1);
+  return start < 0 ? '' : lf.slice(start, end < 0 ? undefined : end);
+};
+const section = claimsSection(readme);
 const rows = section.split('\n').filter(line => line.startsWith('| `')).map(line =>
   line.slice(1, -1).split(' | ').map(cell => cell.trim()));
 const row = (field, value) => rows.find(cells => cells[0] === `\`${field}\`` && cells[1].startsWith(`\`${value}\``));
@@ -52,4 +57,10 @@ test('a prepared removal is ready for review only when its inner preparation is 
   assert.match(prepared[2], /`preparation\.status`/);
   assert.match(prepared[2], /`blocked`/);
   assert.match(prepared[3], /only when `preparation\.status` is `ready`/);
+});
+
+test('the section reads the same from LF and CRLF checkouts', () => {
+  const lf = readme.replace(/\r\n/g, '\n');
+  assert.ok(claimsSection(lf));
+  assert.equal(claimsSection(lf.replace(/\n/g, '\r\n')), claimsSection(lf));
 });
