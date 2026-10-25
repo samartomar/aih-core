@@ -53,7 +53,7 @@ export async function checkContracts({ declarations, readers, loadFixture }: Che
     if (contract.role === 'produces') continue;
     for (const [producerIndex, producer] of declarations.entries()) {
       if (producerIndex === consumerIndex) continue;
-      for (const published of producer.contracts.filter(item => item.id === contract.id)) {
+      for (const published of producer.contracts.filter(item => item.id === contract.id && item.role !== 'accepts')) {
         const base = { contractId: contract.id, readerPackage: consumer.package.name, fixturePackage: producer.package.name };
         if (!published.fixtures?.length) {
           checks.push({ ...base, status: 'unavailable', reason: 'fixtures-missing' });

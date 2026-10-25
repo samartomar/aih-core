@@ -52,6 +52,50 @@ assert.equal(checked.ok,true,JSON.stringify(checked.checks.filter(c=>c.status!==
 assert.ok(checked.checks.some(c=>c.expect==='accept'));
 assert.ok(checked.checks.some(c=>c.expectedCode==='SCHEMA_UNSUPPORTED'));
 
+// An accepting-only peer consumes published bytes without becoming a producer.
+const policyContract = all.find(contract => contract.id === 'urn:aihq:core:execution-policy:1.0.0');
+const both = {...contractSupport, contracts:[{...policyContract, role:'both'}]};
+const acceptingPeer = {...consumer, contracts:[{...policyContract, role:'accepts', fixtures:[]}]};
+const directional = await checkContracts({declarations:[both, acceptingPeer], readers, loadFixture});
+assert.equal(directional.ok, true, JSON.stringify(directional.checks, null, 2));
+assert.deepEqual(directional.checks.map(row => [row.readerPackage, row.fixturePackage, row.fixtureExport, row.status]),
+  policyContract.fixtures.map(fixture => ['fixture-consumer', '@aihq/core', fixture.export, 'passed']));
+
+// Accepting-only entries stay consumers even if they list fixture references.
+for (const entry of [acceptingPeer.contracts[0], {...policyContract, role:'accepts'}]) {
+  const peer = {...acceptingPeer, contracts:[entry]};
+  for (const declarations of [[both, peer], [peer, both]]) {
+    const result = await checkContracts({declarations, readers, loadFixture});
+    assert.equal(result.ok, true, JSON.stringify(result.checks, null, 2));
+    assert.equal(result.checks.length, 3);
+    assert.ok(result.checks.every(row => row.readerPackage === 'fixture-consumer' && row.fixturePackage === '@aihq/core' && row.status === 'passed'));
+  }
+}
+
+// Genuine producing declarations without fixtures remain required and unavailable.
+for (const role of ['produces', 'both']) {
+  const missing = {...both, contracts:[{...policyContract, role, fixtures:[]}]};
+  const result = await checkContracts({declarations:[acceptingPeer, missing], readers, loadFixture});
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.checks, [{contractId:policyContract.id, readerPackage:'fixture-consumer',
+    fixturePackage:'@aihq/core', status:'unavailable', reason:'fixtures-missing'}]);
+}
+
+// Producer selection must not turn unavailable checks or wrong refusal codes into passes.
+for (const [adapters, loader, reason] of [
+  [{}, loadFixture, 'reader-missing'],
+  [readers, () => 'unavailable', 'fixture-unavailable']
+]) {
+  const result = await checkContracts({declarations:[acceptingPeer, both], readers:adapters, loadFixture:loader});
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.length, 3);
+  assert.ok(result.checks.every(row => row.status === 'unavailable' && row.reason === reason));
+}
+const wrongRefusal = await checkContracts({declarations:[acceptingPeer, both], loadFixture,
+  readers:{[policyContract.id]:async bytes => ({...await readers[policyContract.id](bytes), code:'OTHER'})}});
+assert.equal(wrongRefusal.ok, false);
+assert.equal(wrongRefusal.checks.find(row => row.expectedCode === 'SCHEMA_UNSUPPORTED').reason, 'outcome-mismatch');
+
 
 // Every advertised reader must preserve the format and unknown-field location.
 const harness = await import('@aihq/core/harness');
