@@ -15,6 +15,8 @@ export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-sessio
 import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
 export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface } from './tool-registry.mjs';
+export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
+export type { BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';

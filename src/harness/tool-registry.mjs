@@ -1,6 +1,7 @@
 // Portable Harness data: the AI tools Harness knows, by surface. Importing it performs no host observation.
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import registrySchema from './schemas/tool-registry/1.0.0.json' with { type: 'json' };
+import bindingData from './tool-bindings.json' with { type: 'json' };
 import { pointerMember, unsupportedFormat } from './native/canonical.mjs';
 
 const REGISTRY = 'urn:aihq:harness:tool-registry:1.0.0';
@@ -29,9 +30,10 @@ export const toolRegistry = Object.freeze({
   ])
 });
 
-// Seeded observation presence: tools with at least one observed cell in the 23 October 2026 Windows
-// canary runs. The observed binding table (urn:aihq:harness:tool-binding:1.0.0) replaces this seed.
-const observedTools = new Set(['claude', 'codex', 'kiro', 'copilot', 'antigravity']);
+// Tools with at least one observed cell in the binding table (urn:aihq:harness:tool-binding:1.0.0).
+const observedTools = new Set(bindingData
+  .filter(binding => Object.values(binding.layouts).some(layout => layout.observations.length > 0))
+  .map(binding => binding.tool));
 
 /** Tools with at least one observed binding cell, in registry order; `includeUnobserved` lists the rest too. */
 export function listTools(options = {}) {

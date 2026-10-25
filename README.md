@@ -20,7 +20,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
-| `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
+| `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, and read-only macOS session/app/key observations and LaunchAgent rendering |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
@@ -51,6 +51,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/harness/schemas/repair/1.2.0.json`, `macos-session-profiles/1.0.0.json` | macOS metadata; no desktop profile is admitted in this candidate |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
 | `@aihq/core/harness/schemas/tool-registry/1.0.0.json` | AI tool registry JSON Schema |
+| `@aihq/core/harness/schemas/tool-binding/1.0.0.json` | Observed tool binding JSON Schema |
 | `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate/admitted definitions; 1.1 adds the Linux vendor-runtime mechanism |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
@@ -454,11 +455,103 @@ selectTool('unknown');                  // { status: 'refused', code: 'INPUT_INV
 `listTools()` offers only tools with an observed binding cell: today Claude Code,
 Codex CLI, Kiro CLI, Copilot CLI and Antigravity CLI. No IDE has been observed, so
 no IDE is offered. Use `listTools({ includeUnobserved: true })` to display the
-others. Observation presence comes from Windows canary runs on 23 October 2026,
+others. Observation presence comes from the [observed tool bindings](#observed-tool-bindings)
 shipped with this package. A request naming an unobserved tool is refused with
 `tool-not-observed`. IDE support claims in Catalog 1.x content are display data
 only; Core never binds content from them. Being listed does not mean a tool is
 installed, configured or verified.
+
+## Observed tool bindings
+
+`toolBindings` from `@aihq/core/harness` is the observed binding table: one
+`urn:aihq:harness:tool-binding:1.0.0` binding per observed tool, validated by
+`validateToolBinding` and described by its schema export. It is portable, frozen
+Harness data with no host effects.
+
+```ts
+{ schema, tool, digest, layouts: Record<Kind, Layout>, entryFiles[], entryPointer?, alsoReads[] }
+// Kind: skill | agent | command | rule | hook | mcp-server | document (toolBindingKinds)
+// Layout: { support, reason, observations[], roots, skillKey?, convert?, namespace?,
+//           register?: { file, container[], format, approval, permissionStep? },
+//           formats?, hookEvents?, hookProtocols?, commandTemplate? }
+// Observation: { toolVersion, observedAt, coreVersion, os, arch, isolation, runRecordDigest,
+//                delivered, registered, recognised }
+```
+
+A layout says where the tool reads that kind (`roots`, relative to the project or
+the user home) and how far that has been proven. `reason` is shown for every
+cell. `digest` is the lowercase SHA-256 of the binding's canonical JSON (sorted
+keys, no whitespace) without `digest`; any change to a binding changes it.
+
+**Support is derived only from observations.** `support` is `native`, `none` or
+`unconfirmed`:
+
+- An observation counts only under qualifying isolation: `os-account`, `sandbox`
+  or `env-redirect-outside-profile`. `env-redirect-inside-profile` never counts.
+  An outside-profile redirect is recorded only for a tool shown to honour it.
+- `native` needs a counted observation on a named tool version where the tool
+  `registered` the item (including `registered-pending-approval`), showed it to
+  the model (`visible-to-model`) or the model used it (`recognised`). `listed-only`
+  alone never counts, and neither does `contaminated`. A `document` (licence,
+  notice) needs only `delivered`.
+- `none` means a counted observation shows the tool did not take a delivered item
+  (`not-registered` or `not-recognised`) and nothing proves it.
+- `unconfirmed` means no qualifying observation yet. It is never shown as working
+  and never as "doesn't work".
+- Agents and commands are `native` only where the tool reads that kind, and a
+  `convert` is named only on a native cell, where the converter's output was
+  observed. There are no reference files. Copilot `.agent.md` and Kiro agent JSON
+  cells stay `none` until a converter is observed.
+
+`validateToolBinding` refuses a cell whose `support` differs from what its
+observations give (`support-not-derived`) and a converter on a cell that is not
+native (`convert-not-observed`).
+
+**Support is scoped to the platform it was observed on.** `deriveCellSupport({ kind,
+observations, platform?, installedVersion? })` counts only observations made on
+`platform`'s OS and architecture, so a cell observed only on Windows is
+`unconfirmed` on Linux. When `installedVersion` is newer than every proving
+observation, the cell is `stale` and claims no more than `registered`. The result
+is `{ support, observed, stale, observedOn? }`, where `observed` is the strongest
+counted level (`recognised`, `registered`, `listed-only`, `delivered` or `none`).
+
+```js
+import { selectBindingCell } from '@aihq/core/harness';
+
+selectBindingCell({ tool: 'claude-code', kind: 'hook', platform: { os: 'windows', arch: 'x64' } });
+// { status: 'selected', tool: 'claude', kind: 'hook', support: 'native', observed: 'recognised',
+//   stale: false, observedOn, digest, layout }
+selectBindingCell({ tool: 'kiro', kind: 'hook', platform: { os: 'windows', arch: 'x64' } });
+// { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'kind-not-native', tool: 'kiro',
+//   kind: 'hook', cell: { support: 'unconfirmed', reason: 'Not observed: no Kiro CLI hook layout was delivered.' } }
+```
+
+`selectBindingCell` selects only a cell that is native on that platform and
+refuses any other with the cell's reason. Unknown and unobserved tools are refused
+as by `selectTool`.
+
+**Seeded observations.** The table is seeded with Windows x64 canary runs from
+23 October 2026 for the five observed tools: Claude Code 2.1.308, Codex CLI
+0.163.0 and Copilot CLI 1.0.103 (`env-redirect-outside-profile`), and Kiro CLI
+2.33.1 and Antigravity CLI 1.4.6 (`sandbox`), with Core 1.0.0-dev.37. Kiro and
+Antigravity list commands ran outside the sandbox and are kept as
+`env-redirect-inside-profile` observations that never count. The Antigravity
+skill cell is `listed-only`: the body reached the model through a file read, not
+as a skill. Each observation names its OS, architecture, isolation and the SHA-256
+of the run record it came from (`runRecordDigest`). The run record is retained by
+the maintainers; it is not shipped because it contains local machine paths.
+
+**These are scoped claims.** Observations come from the existing
+`verifyNativeClient` route or a canary run with a run record. They hold only for
+their tool version, OS, architecture and isolation, and they do not satisfy native
+verification acceptance, which keeps its stronger bar.
+
+**Every binding change needs a new Core version.** The table is Harness data
+shipped in `@aihq/core`. Refreshing observations by a canary run is a separate
+operation with its own maintainer approval; package tests never run one. The
+fixture `@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json` lists
+derived support for the shipped table, including a `stale` and an `unconfirmed`
+cell.
 
 ## Supported AI clients
 

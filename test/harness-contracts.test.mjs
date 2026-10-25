@@ -23,6 +23,8 @@ test('Harness declares exact supported formats and the installed public runtime 
       schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' },
     { id: 'urn:aihq:harness:tool-registry:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/tool-registry/1.0.0.json' },
+    { id: 'urn:aihq:harness:tool-binding:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/tool-binding/1.0.0.json' },
     { id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
       schemaExport: '@aihq/core/report/schema' },
     { id: 'urn:aihq:report:claims:1.0.0', role: 'accepts',
