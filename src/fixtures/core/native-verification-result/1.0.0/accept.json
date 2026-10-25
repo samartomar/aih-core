@@ -1,0 +1,354 @@
+{
+  "schema": "urn:aihq:core:native-verification-result:1.0.0",
+  "package": {
+    "name": "@aihq/core",
+    "version": "1.0.0-dev.7"
+  },
+  "status": "complete",
+  "verdict": "verified",
+  "proofScope": "test-configuration",
+  "admission": "candidate-smoke",
+  "client": {
+    "id": "claude",
+    "observedVersion": "2.1.285"
+  },
+  "adapter": {
+    "id": "claude-win32-x64-2.1.285",
+    "sha256": "ae1eae1d76e5b7c865c4122ce366a08025842566d2d96c75cc13e6353a73db0d"
+  },
+  "platform": {
+    "os": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.26200",
+    "execution": "native"
+  },
+  "content": {
+    "bundleId": "catalog.claude.graph.v1",
+    "manifestSha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f",
+    "archiveSha256": "0eb3e36bfb24dcd9bb1d1bece1531216b59539a8fde17ee80224af0653c92aa3",
+    "outputTreeSha256": "e0ee8bb50685e05fa0f47ed04203ae953fdfd055f5bd2892ea186504254f8c3a",
+    "guardrailsSha256": "5dc897f81321d2bafc2dc70f25356752d7cbd6f0b6cbd9e44b5f9969bc25042a",
+    "stagedConfigurationDigest": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28"
+  },
+  "sessions": [
+    {
+      "index": 1,
+      "process": {
+        "pid": 4001,
+        "clientSessionId": "session-1"
+      },
+      "launchArgvDigest": "5a6e537c2ba28ef19cad9f47cbb139af0bc071b53c3969479e06ff8868284e33",
+      "stagedConfigurationDigest": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28",
+      "challengeSha256": "023212d1fd4f0a3ad03c45c52a40871f468abc416ec181f6eebfc3226cc4753c",
+      "stages": [
+        {
+          "id": "session-freshness",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "loading-mode",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "tool-restrictions",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "provider-authentication",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "tool-discovery",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "counts",
+            "count": 2
+          }
+        },
+        {
+          "id": "instruction-loading",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "read-only-query",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "digest",
+            "sha256": "0db52f4076c082518412afd3dd3576e2cb0c63703fd7fed5e23ade60efef31d9"
+          }
+        },
+        {
+          "id": "isolation",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "cleanup",
+          "session": 1,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "none"
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "process": {
+        "pid": 4002,
+        "clientSessionId": "session-2"
+      },
+      "launchArgvDigest": "5a6e537c2ba28ef19cad9f47cbb139af0bc071b53c3969479e06ff8868284e33",
+      "stagedConfigurationDigest": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28",
+      "challengeSha256": "b16b36bff6d0baefb5cda5f800d778c852cb838fcdca8c35f2bc9214172ae3d1",
+      "stages": [
+        {
+          "id": "session-freshness",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "loading-mode",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "tool-restrictions",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "provider-authentication",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "tool-discovery",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "counts",
+            "count": 2
+          }
+        },
+        {
+          "id": "instruction-loading",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "read-only-query",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "digest",
+            "sha256": "0db52f4076c082518412afd3dd3576e2cb0c63703fd7fed5e23ade60efef31d9"
+          }
+        },
+        {
+          "id": "isolation",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "match",
+            "matched": true
+          }
+        },
+        {
+          "id": "cleanup",
+          "session": 2,
+          "outcome": "passed",
+          "reason": "observed",
+          "evidence": {
+            "kind": "none"
+          }
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "id": "fixture-integrity",
+      "session": null,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "digest",
+        "sha256": "05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f"
+      }
+    },
+    {
+      "id": "host-presence",
+      "session": null,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "identity-binding",
+      "session": null,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "match",
+        "matched": true
+      }
+    },
+    {
+      "id": "cell-staging",
+      "session": null,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "digest",
+        "sha256": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28"
+      }
+    },
+    {
+      "id": "session-start",
+      "session": 1,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "configuration-unchanged",
+      "session": 2,
+      "outcome": "passed",
+      "reason": "before-session-2",
+      "evidence": {
+        "kind": "digest",
+        "sha256": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28"
+      }
+    },
+    {
+      "id": "session-start",
+      "session": 2,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "configuration-unchanged",
+      "session": 2,
+      "outcome": "passed",
+      "reason": "after-session-2",
+      "evidence": {
+        "kind": "digest",
+        "sha256": "8d906d61f92c9696387e566ecee255b733c79536074173a8eab915bad2d1fa28"
+      }
+    },
+    {
+      "id": "cleanup",
+      "session": null,
+      "outcome": "passed",
+      "reason": "observed",
+      "evidence": {
+        "kind": "none"
+      }
+    }
+  ],
+  "security": {
+    "sandbox": {
+      "level": "observed-os-boundary",
+      "mechanism": "windows-job.v1",
+      "reason": "observed"
+    },
+    "hostSecretIsolation": {
+      "outcome": "passed",
+      "reason": "observed"
+    }
+  },
+  "authority": "not-evaluated",
+  "survivingProcesses": [],
+  "cleanup": {
+    "processes": "confirmed",
+    "files": "removed",
+    "retainedCell": null
+  },
+  "diagnostics": [],
+  "limits": {
+    "budgetMs": 180000,
+    "elapsedMs": 1200,
+    "sessionsStarted": 2,
+    "stagesCompleted": 27,
+    "observedBytes": 0,
+    "telemetryEvents": 2,
+    "rpcMessages": 4,
+    "evidenceTruncated": false
+  }
+}

@@ -24,7 +24,7 @@ import fileStateSchema from './schemas/file-state-result/1.1.0.json' with { type
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
-import { registerSchemas, schemaCheck, validateAcceptedDocument } from './internal/contract-validation.js';
+import { registerSchemas, schemaCheck, validateAcceptedDocument, validateExactDocument } from './internal/contract-validation.js';
 import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
 import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { trustContractSchemas } from './trust-contracts.js';
@@ -81,7 +81,12 @@ export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
 registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, policySchema, policySchema11, policySchema12, policySchema13,
-  organizationSchema, organizationSchema11, organizationTargetSchema, organizationTargetSchema11);
+  organizationSchema, organizationSchema11, organizationTargetSchema, organizationTargetSchema11, fileStateSchema);
+const checkFileStateResult = schemaCheck(fileStateSchema.$id);
+/** Validate a stored file-state 1.1.0 result without observing or changing the host. */
+export const validateFileStateResult = (value: unknown): ValidationResult =>
+  validateExactDocument(value, fileStateSchema.$id, checkFileStateResult, () => []);
+
 const schemaVersion = (id: string): string => id.split(':')[4]!;
 const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
   [trustContractSchemas[0].$id]: 'accepts',

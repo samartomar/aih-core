@@ -22,6 +22,7 @@ const accepting = new Set([
   "urn:aihq:harness:trust-capabilities:1.0.0",
   "urn:aihq:harness:native-verification-definition:1.0.0",
   "urn:aihq:core:file-state-result:1.1.0",
+  "urn:aihq:core:native-verification-result:1.0.0",
   "urn:aihq:core:macos-session-custody:1.0.0",
   "urn:aihq:core:prepared-work:1.3.0",
   "urn:aihq:core:repair-inputs:1.1.0",
