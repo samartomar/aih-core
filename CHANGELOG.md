@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Fix `checkContracts` inventing missing-fixture checks for accepts-only entries
+that publish no fixtures. Every actual published fixture remains required,
+including fixtures listed by accepts-only entries. Genuine missing producer
+fixtures, readers and bytes remain unavailable, and required-check and exact
+refusal-code rules are unchanged. No format or package version changes.
+
 Add the Harness tool registry (`urn:aihq:harness:tool-registry:1.0.0`), exported
 from `@aihq/core/harness` as `toolRegistry` with its schema. Each entry is
 `{ id, label, surface, binaries, aliases }`. Command-line tools and IDEs are
