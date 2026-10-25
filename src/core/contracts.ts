@@ -12,6 +12,7 @@ import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
 import preparedSchema14 from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
 import preparedSchema15 from './schemas/prepared-work/1.5.0.json' with { type: 'json' };
 import organizationTargetSchema from './schemas/organization-target/1.0.0.json' with { type: 'json' };
+import organizationTargetSchema11 from './schemas/organization-target/1.1.0.json' with { type: 'json' };
 import managedRemovalSchema11 from './schemas/managed-removal-preparation/1.1.0.json' with { type: 'json' };
 import policySchema11 from './schemas/execution-policy/1.1.0.json' with { type: 'json' };
 import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
@@ -52,7 +53,7 @@ export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, 
   RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember, InlineMaterial, MaterialRecipeReference,
   Prerequisite, Recipe, Selection, ExecutionPolicy, OrganizationInputPermission, OrganizationSelection,
   OrganizationObligation, OrganizationTargetFact, OrganizationTargetFacts, OrganizationTarget,
-  OrganizationTargetDeclaration, OrganizationApplicability, OrganizationObligationResultBase,
+  OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase,
   OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationSelection11, OrganizationPolicy10,
   OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult } from './types.js';
 export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
@@ -80,7 +81,7 @@ export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
 registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, policySchema, policySchema11, policySchema12, policySchema13,
-  organizationSchema, organizationSchema11, organizationTargetSchema);
+  organizationSchema, organizationSchema11, organizationTargetSchema, organizationTargetSchema11);
 const schemaVersion = (id: string): string => id.split(':')[4]!;
 const trustSchemaRoles: Readonly<Record<string, 'accepts' | 'produces' | 'both'>> = Object.freeze({
   [trustContractSchemas[0].$id]: 'accepts',
@@ -98,7 +99,7 @@ export const contractSupport = Object.freeze({
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15].map((schema): SupportedContract => ({
+      organizationTargetSchema, preparedSchema15, organizationTargetSchema11].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -141,14 +142,14 @@ const accepting = (...schemas: { $id: string }[]) => Object.freeze(Object.fromEn
 const policies = accepting(policySchema, policySchema11, policySchema12, policySchema13);
 const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13);
 const organizations = accepting(organizationSchema, organizationSchema11);
-const organizationTargets = accepting(organizationTargetSchema);
+const organizationTargets = accepting(organizationTargetSchema, organizationTargetSchema11);
 export const validatePolicy = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, policies, policySemantics as never);
 export const validateRecipe = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, recipes, recipeSemantics as never);
 export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, organizations, organizationSemantics as never);
-/** Caller-declared client and optional repository for Enterprise preparation; declared, never inferred. */
+/** Caller-declared client (1.0.0) or registry tool (1.1.0) and optional repository for Enterprise preparation; declared, never inferred. */
 export const validateOrganizationTarget = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, organizationTargets, organizationTargetSemantics as never);
 export function parsePolicy(text: string): ParseResult {

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Add the Harness tool registry (`urn:aihq:harness:tool-registry:1.0.0`), exported
+from `@aihq/core/harness` as `toolRegistry` with its schema. Each entry is
+`{ id, label, surface, binaries, aliases }`. Command-line tools and IDEs are
+separate entries, `claude-code` is an alias of `claude`, and `antigravity`
+(binary `agy`) is distinct from Gemini CLI. Every existing native client ID stays
+valid. Registry IDs and labels are a stable vocabulary. `listTools()` returns tools
+with at least one observed binding cell, read from the seeded 23 October 2026
+observations: Claude Code, Codex CLI, Kiro CLI, Copilot CLI and Antigravity CLI,
+and no IDE. `includeUnobserved` also lists the rest. `selectTool` resolves an ID or
+alias and refuses an unobserved tool with `tool-not-observed`. Organization target
+1.1.0 accepts registry tool IDs with their surface; target 1.0.0 keeps its closed
+client list. Enterprise Prepare blocks a 1.1.0 target naming an unobserved tool; 1.0.0 targets
+are unchanged. TypeScript: `OrganizationTargetDeclaration` is now the union of
+`OrganizationTargetDeclaration10` and `OrganizationTargetDeclaration11`, so code
+reading `.client` must first narrow on `schema`.
+Unpublished candidate for the sole 0.1.0 release effort.
+
 Document what each result status lets a consumer claim. The README now has a
 table for operation `application`, `verification.status`, managed-removal
 `disposition` and run `completion`, and explains how to confirm an applied but

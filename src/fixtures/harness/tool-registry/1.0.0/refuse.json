@@ -1,0 +1,14 @@
+{
+  "schema": "urn:aihq:harness:tool-registry:1.0.0",
+  "tools": [
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "surface": "desktop",
+      "binaries": [
+        "claude"
+      ],
+      "aliases": []
+    }
+  ]
+}

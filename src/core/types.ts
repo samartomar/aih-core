@@ -130,11 +130,18 @@ export type OrganizationTargetFact = 'client' | 'repository';
 export interface OrganizationTargetFacts { client?: import('./internal/native-clients.js').NativeClientId; repository?: string }
 export interface OrganizationTarget extends OrganizationTargetFacts { scope: 'project' | 'user' }
 /** Caller-declared client and repository for organization applicability; declared, never inferred or verified. */
-export interface OrganizationTargetDeclaration {
+export interface OrganizationTargetDeclaration10 {
   schema: 'urn:aihq:core:organization-target:1.0.0';
   client: import('./internal/native-clients.js').NativeClientId;
   repository?: string;
 }
+/** Caller-declared Harness registry tool (canonical id and its surface) and repository; declared, never inferred or verified. */
+export interface OrganizationTargetDeclaration11 {
+  schema: 'urn:aihq:core:organization-target:1.1.0';
+  tool: { id: string; surface: 'cli' | 'ide' };
+  repository?: string;
+}
+export type OrganizationTargetDeclaration = OrganizationTargetDeclaration10 | OrganizationTargetDeclaration11;
 export type OrganizationApplicability = 'applies' | 'not-applicable' | 'unknown';
 export interface OrganizationObligationResultBase {
   selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability;

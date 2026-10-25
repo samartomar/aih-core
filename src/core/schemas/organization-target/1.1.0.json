@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:organization-target:1.1.0",
+  "title": "Caller-declared organization target naming a registry tool",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "tool"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:organization-target:1.1.0"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "surface"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+        },
+        "surface": {
+          "enum": [
+            "cli",
+            "ide"
+          ]
+        }
+      }
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  }
+}

@@ -4,7 +4,7 @@ export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, Operati
   ConfigEntryRemove, ConfigOperation, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
   HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
   InlineMaterial, MaterialRecipeReference, Prerequisite, Recipe, Selection, ExecutionPolicy, OrganizationTargetFact,
-  OrganizationTargetDeclaration, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
+  OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
   OrganizationFulfillmentResult } from './types.js';
 export { verifyNativeClient } from './native-verification.js';
 export type { NativeVerificationControls } from './native-verification.js';

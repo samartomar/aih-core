@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import * as core from '@aihq/core/contracts';
-import { contractSupport as harnessSupport, validateNativeVerificationDefinition } from '@aihq/core/harness';
+import { contractSupport as harnessSupport, validateNativeVerificationDefinition, validateToolRegistry } from '@aihq/core/harness';
 
 const { contractSupport, checkContracts, validatePackageSupport } = core;
 assert.equal(contractSupport.schema, 'urn:aihq:package-support:1.1.0');
@@ -32,6 +32,9 @@ const readers = Object.fromEntries(all.map(contract=>[contract.id, bytes=> {
   if(contract.id.startsWith('urn:aihq:harness:native-verification-definition:')) {
     const result=validateNativeVerificationDefinition(value); return {accepted:result.valid,code:result.diagnostics[0]?.code};
   }
+  if(contract.id==='urn:aihq:harness:tool-registry:1.0.0') {
+    const result=validateToolRegistry(value); return {accepted:result.valid,code:result.diagnostics[0]?.code};
+  }
   const validate=contract.id.startsWith('urn:aihq:core:') && publicReaders[contract.id.split(':')[3]];
   if(validate) { const result=validate(value); return {accepted:result.valid,code:result.diagnostics[0]?.code}; }
   try { return {accepted:ajv.validate(contract.id,value),code:'INPUT_INVALID'}; } catch(error) { console.error(contract.id,error.message); throw error; }
@@ -59,7 +62,8 @@ for(const [validate,value,supported] of [
   [harness.validateNativeTestIdentity,identity,[identity.schema]],
   [harness.validateRepairDefinition11,harness.trustRepairIndex[0],[harness.trustRepairIndex[0].schema]],
   [harness.validateRepairDefinition12,harness.macosRepairIndex[0],[harness.macosRepairIndex[0].schema]],
-  [harness.validateTrustCapabilities,harness.trustCapabilities,[harness.trustCapabilities.schema]]
+  [harness.validateTrustCapabilities,harness.trustCapabilities,[harness.trustCapabilities.schema]],
+  [harness.validateToolRegistry,harness.toolRegistry,[harness.toolRegistry.schema]]
 ]) {
   const future=value.schema.replace(/:[0-9]+\.[0-9]+\.[0-9]+$/,':2.0.0');
   const refusal=validate({...value,schema:future}).diagnostics.find(d=>d.code==='SCHEMA_UNSUPPORTED');

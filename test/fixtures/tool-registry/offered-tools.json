@@ -1,0 +1,7 @@
+[
+  { "id": "claude", "label": "Claude Code", "surface": "cli", "binaries": ["claude"], "aliases": ["claude-code"] },
+  { "id": "codex", "label": "Codex CLI", "surface": "cli", "binaries": ["codex"], "aliases": [] },
+  { "id": "kiro", "label": "Kiro CLI", "surface": "cli", "binaries": ["kiro-cli"], "aliases": [] },
+  { "id": "copilot", "label": "Copilot CLI", "surface": "cli", "binaries": ["copilot"], "aliases": [] },
+  { "id": "antigravity", "label": "Antigravity CLI", "surface": "cli", "binaries": ["agy"], "aliases": [] }
+]

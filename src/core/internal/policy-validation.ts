@@ -1,6 +1,7 @@
 import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import { nativeClients } from './native-clients.js';
+import { findTool } from '../../harness/tool-registry.mjs';
 import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
@@ -140,9 +141,18 @@ export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is Or
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
 
 /** Rechecks the client against Core's list and requires a well-formed declared repository identity. */
-export function organizationTargetSemantics(target: { client: string; repository?: string }): Diagnostic[] {
+export function organizationTargetSemantics(target: { client?: string; tool?: { id: string; surface: string }; repository?: string }): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  if (!isNativeClient(target.client)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',
+  if (target.tool !== undefined) {
+    // 1.1.0 names a Harness registry tool by its canonical id; the 1.0.0 client roster stays closed.
+    const { id, surface } = target.tool;
+    const found = findTool(id);
+    if (found?.via !== 'id') diagnostics.push(found ?
+      { code: 'INPUT_INVALID', reason: 'tool-alias', path: '/tool/id', message: 'The organization target names a tool alias; use its registry id.' } :
+      { code: 'INPUT_INVALID', reason: 'unknown-tool', path: '/tool/id', message: 'The organization target names a tool the registry does not know.' });
+    else if (found.tool.surface !== surface) diagnostics.push({ code: 'INPUT_INVALID', reason: 'tool-surface-mismatch', path: '/tool/surface',
+      message: 'The organization target names a surface the registry tool does not have.' });
+  } else if (!isNativeClient(target.client!)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',
     message: 'The organization target names a client that Core does not know.' });
   if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) diagnostics.push({ code: 'INPUT_INVALID',
     reason: 'repository-identity', path: '/repository', message: 'The organization target names a malformed repository identity.' });

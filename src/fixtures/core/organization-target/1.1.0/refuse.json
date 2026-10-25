@@ -1,0 +1,7 @@
+{
+  "schema": "urn:aihq:core:organization-target:1.1.0",
+  "tool": {
+    "id": "kiro",
+    "surface": "ide"
+  }
+}

@@ -20,13 +20,14 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
-| `@aihq/core/harness` | Portable `contractSupport`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
+| `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, and read-only macOS session/app/key observations and LaunchAgent rendering |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.1.0.json` | Organization-policy 1.1.0 JSON Schema (obligations and target selectors) |
 | `@aihq/core/schemas/organization-target/1.0.0.json` | Caller-declared Enterprise client/repository target JSON Schema |
+| `@aihq/core/schemas/organization-target/1.1.0.json` | Caller-declared Enterprise target naming a registry tool and its surface |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
 | `@aihq/core/schemas/run-result/1.0.0.json` | Run-result JSON Schema |
 | `@aihq/core/schemas/file-state-result/1.0.0.json` | File-state observation result JSON Schema (earlier candidates) |
@@ -49,6 +50,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
 | `@aihq/core/harness/schemas/repair/1.2.0.json`, `macos-session-profiles/1.0.0.json` | macOS metadata; no desktop profile is admitted in this candidate |
 | `@aihq/core/harness/schemas/diagnostic/1.0.0.json` | Node Harness diagnostic result JSON Schema |
+| `@aihq/core/harness/schemas/tool-registry/1.0.0.json` | AI tool registry JSON Schema |
 | `@aihq/core/harness/schemas/native-verification-definition/1.0.0.json`, `1.1.0.json` | Fixed native candidate/admitted definitions; 1.1 adds the Linux vendor-runtime mechanism |
 
 Read `contractSupport` for the actual package version, accepted/produced format IDs and runtime requirements. Schema versions and npm versions are independent. An unsupported ID yields `SCHEMA_UNSUPPORTED` with the encountered and supported IDs. Read the owning release's changelog before upgrading. Do not infer compatibility from a tuple of package version numbers.
@@ -422,6 +424,42 @@ Each `targets` entry from `@aihq/core/harness` declares `binaries` (the names in
 
 Inspection also covers the helpers `rg`, `fd` (or Debian's `fdfind`), `jq`, `curl`, `keytool` and `bash`, and the clients Antigravity (`agy`, legacy `antigravity`) and Zed (`zed`, or `zeditor`/`zedit` where a distribution renames it). Each is a presence and version probe, not a general tool inventory; `keytool`'s own `-version` exists only in newer JDKs, so its probe passes `-version` to the Java launcher through the documented `-J` option. When several distinct PATH candidates (after resolving symlinks, and counting one install directory once) resolve for one of these tools, the `<id>/resolution` observation names the file and 1-based PATH entry used and how many others exist. On Windows a `bash` in System32 or WindowsApps is reported as an ambiguous WSL launcher rather than assumed to be Git Bash, and its version command is skipped (`bash/version` reason `wsl-launcher`) so inspection never starts WSL. For Antigravity and Zed, a detected installation or configuration adds an `<id>/loading` observation and manual guidance: presence and configuration are shown, but native loading is not verified. Gemini CLI configuration is recognised only from its own `~/.gemini/tmp`, `extensions`, `commands` or `history` directories, so an Antigravity-only `~/.gemini` (`antigravity`, `antigravity-cli`, `config`) does not report `gemini` as configured. A Gemini `settings.json` or `GEMINI.md` alone is not treated as a trace, because Antigravity shares the `~/.gemini` namespace; an installed `gemini` executable is still detected.
 
+## AI tool registry
+
+`toolRegistry` from `@aihq/core/harness` (`urn:aihq:harness:tool-registry:1.0.0`)
+lists the AI tools Harness knows. It is portable, frozen data with no host effects.
+Each entry is `{ id, label, surface, binaries, aliases }`, where `surface` is
+`"cli"` or `"ide"`.
+
+- Command-line tools and IDEs are separate entries. For example `kiro` is Kiro CLI
+  and `kiro-ide` is Kiro IDE; an IDE layout is never used for a CLI.
+- `claude-code` is an alias of `claude`. Antigravity's CLI is `antigravity`
+  (binary `agy`), distinct from Gemini CLI (`gemini`).
+- Every existing native client ID is a registry ID.
+
+**Registry IDs and labels are a stable vocabulary.** Other packages may cite them.
+Aliases are other IDs for the same tool.
+
+```js
+import { listTools, selectTool } from '@aihq/core/harness';
+
+listTools();                            // tools with at least one observed binding cell
+listTools({ includeUnobserved: true }); // every registry tool, in registry order
+selectTool('claude-code');              // { status: 'selected', tool: { id: 'claude', ... } }
+selectTool('kiro-ide');                 // { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE',
+                                        //   reason: 'tool-not-observed', tool: { id: 'kiro-ide', ... } }
+selectTool('unknown');                  // { status: 'refused', code: 'INPUT_INVALID', reason: 'unknown-tool' }
+```
+
+`listTools()` offers only tools with an observed binding cell: today Claude Code,
+Codex CLI, Kiro CLI, Copilot CLI and Antigravity CLI. No IDE has been observed, so
+no IDE is offered. Use `listTools({ includeUnobserved: true })` to display the
+others. Observation presence comes from Windows canary runs on 23 October 2026,
+shipped with this package. A request naming an unobserved tool is refused with
+`tool-not-observed`. IDE support claims in Catalog 1.x content are display data
+only; Core never binds content from them. Being listed does not mean a tool is
+installed, configured or verified.
+
 ## Supported AI clients
 
 `nativeClientIds` from `@aihq/core/harness` is Core's supported AI client list. It is a portable, frozen array with no host effects.
@@ -431,7 +469,7 @@ import { nativeClientIds } from '@aihq/core/harness';
 import type { NativeClientId } from '@aihq/core/contracts';
 ```
 
-The same ids are the accepted `client` values for organization targets and selectors (`NativeClientId`, exported from `@aihq/core` and `@aihq/core/contracts`). Membership does not mean a client is installed, configured, connected or admitted for native verification, and the order is not a ranking.
+The same ids are the accepted `client` values for organization target 1.0.0 and selectors (`NativeClientId`, exported from `@aihq/core` and `@aihq/core/contracts`). Membership does not mean a client is installed, configured, connected or admitted for native verification, and the order is not a ranking.
 
 ## Explicit native client verification
 
@@ -1198,6 +1236,18 @@ rules in the authoring section. `validateOrganizationTarget` from
 `@aihq/core/contracts` validates this closed, versioned declaration without host
 effects. Malformed declarations are invalid; Vibe requests reject the field.
 These facts are caller-declared, never inferred from a checkout or verified.
+
+Organization target 1.1.0 names a [registry tool](#ai-tool-registry) with its
+surface instead of a client:
+`{ schema: 'urn:aihq:core:organization-target:1.1.0', tool: { id: 'claude', surface: 'cli' },
+repository?: ... }`. The ID must be a registry ID, not an alias (`tool-alias`),
+and the surface must be that tool's surface (`tool-surface-mismatch`); an unknown
+ID is `unknown-tool`. Target 1.0.0 keeps its closed client list, so an ID outside
+it, such as `kiro-ide`, is still refused there. Prepare blocks a 1.1.0 target whose
+tool has not been observed with `PREREQUISITE_UNAVAILABLE / tool-not-observed`,
+before any organization read. A 1.0.0 target keeps its existing behavior and is not
+subject to this observation check. Selectors and the review's
+`organizationObligations.target.client` use the tool's ID.
 
 With a target, Prepare emits `urn:aihq:core:prepared-work:1.5.0` and
 `organizationObligations: { target: { basis: 'declared', client, repository? },

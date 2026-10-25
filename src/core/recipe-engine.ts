@@ -6,6 +6,8 @@ import { isProxy } from 'node:util/types';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './contracts.js';
 import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
+import { selectTool } from '../harness/tool-registry.mjs';
+import { isNativeClient } from './internal/policy-validation.js';
 import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
@@ -28,6 +30,7 @@ import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './
 import { readRegularFile } from './internal/fsxn.js';
 import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
+import type { NativeClientId } from './internal/native-clients.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
 import type { Authorization, CheckResult, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
@@ -334,9 +337,26 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const checked = validateOrganizationTarget(request.organizationTarget);
       if (!checked.valid) { result.diagnostics = checked.diagnostics; return finish(); }
       organizationTarget = clone(request.organizationTarget);
+      if ('tool' in organizationTarget) {
+        // A registry tool without an observed binding cell is never a preparation target.
+        const selected = selectTool(organizationTarget.tool.id);
+        if (selected.status !== 'selected') {
+          result.status = 'blocked';
+          result.diagnostics = [diagnostic('PREREQUISITE_UNAVAILABLE', 'tool-not-observed', 'The organization target names a tool that has not been observed.')];
+          return finish();
+        }
+        // Prepared work 1.5.0 records the declared target as a native client id.
+        if (!isNativeClient(selected.tool.id)) {
+          result.status = 'blocked';
+          result.diagnostics = [diagnostic('PREREQUISITE_UNAVAILABLE', 'tool-target-unsupported', 'This Core cannot yet record that tool as a declared target.')];
+          return finish();
+        }
+      }
     }
+    const targetClient = organizationTarget === undefined ? undefined :
+      ('tool' in organizationTarget ? organizationTarget.tool.id : organizationTarget.client) as NativeClientId;
     const targetFacts: OrganizationTargetFacts | undefined = organizationTarget === undefined ? undefined :
-      { client: organizationTarget.client, ...(organizationTarget.repository === undefined ? {} : { repository: organizationTarget.repository }) };
+      { client: targetClient, ...(organizationTarget.repository === undefined ? {} : { repository: organizationTarget.repository }) };
     const captureBudget = createMaterialCaptureBudget();
     for (const selection of policy.selections) {
       if ('reference' in selection.recipe) captureBudget.declareReference(selection.recipe.reference);
@@ -891,7 +911,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const taken = admissions.filter(item => !unavailableSelections.has(item.id));
         const scoped = (['project', 'user'] as const).map(scope => ({ scope,
           ...evaluateOrganizationObligations(organization!.document, taken, [], { scope, ...targetFacts }) }));
-        obligations = { target: { basis: 'declared', client: organizationTarget.client, ...targetFacts },
+        obligations = { target: { basis: 'declared', client: targetClient!, ...targetFacts },
           fulfillment: scoped.flatMap(({ scope, fulfillment }) => fulfillment.flatMap(item =>
             item.status === 'not-applicable' ? [] : [{ scope, ...item, status: item.status }])),
           advisory: scoped.flatMap(({ scope, advisory }) => advisory.filter(item => item.applicability !== 'not-applicable')
