@@ -38,12 +38,12 @@ test('unknown fields identify their escaped JSON pointer; unsupported formats li
   assert.ok(unsupported.diagnostics[0].supported.includes('urn:aihq:core:execution-policy:1.3.0'));
 });
 
-test('every other producing declaration fixture is required, including declarations in the same distribution', async () => {
+test('every other declaration fixture is required, including accepts-only entries in the same distribution', async () => {
   const fixtures=[{export:'producer/yes',expect:'accept'},{export:'producer/no',expect:'refuse'}];
   const declarations=[declaration('same-package','accepts'),declaration('same-package','both',fixtures),declaration('third','accepts',fixtures)];
   const result=await contracts.checkContracts({declarations,readers:{example:bytes=>({accepted:bytes[0]===1})},loadFixture:(_name,ref)=>new Uint8Array([ref.endsWith('yes')?1:0])});
-  assert.equal(result.ok,true,'accepts-only declarations do not contribute producer checks');
-  assert.equal(result.checks.length,4);
+  assert.equal(result.ok,true,'accepts-only entries without fixtures add no phantom unavailable rows');
+  assert.equal(result.checks.length,8);
   assert.ok(result.checks.every(c=>c.status==='passed'));
 });
 test('adapter exceptions, absent bytes, malformed results and invalid support are never passes', async () => {

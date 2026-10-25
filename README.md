@@ -82,10 +82,10 @@ the host. New trust Prepare controls accept only `signal` and `logging`.
 `checkContracts({ declarations, readers, loadFixture })` from
 `@aihq/core/contracts` runs supplied readers against another declaration's
 fixtures for the same exact contract `id`. For each `accepts` or `both` entry,
-every referenced fixture from each `produces` or `both` entry in every other
-declaration is required. An `accepts` entry contributes no producer checks, even
-if it lists fixture references. Missing fixtures on a producing entry remain
-unavailable. The current declaration's own fixtures are excluded.
+every referenced fixture from every other declaration is required, including
+fixtures on an `accepts` entry. An `accepts` entry with no fixtures contributes
+no checks. Missing fixtures on a `produces` or `both` entry remain unavailable.
+The current declaration's own fixtures are excluded.
 Package versions and `versions` describe support; they never substitute
 for exercising bytes or imply compatibility.
 

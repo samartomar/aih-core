@@ -61,16 +61,40 @@ assert.equal(directional.ok, true, JSON.stringify(directional.checks, null, 2));
 assert.deepEqual(directional.checks.map(row => [row.readerPackage, row.fixturePackage, row.fixtureExport, row.status]),
   policyContract.fixtures.map(fixture => ['fixture-consumer', '@aihq/core', fixture.export, 'passed']));
 
-// Accepting-only entries stay consumers even if they list fixture references.
-for (const entry of [acceptingPeer.contracts[0], {...policyContract, role:'accepts'}]) {
-  const peer = {...acceptingPeer, contracts:[entry]};
-  for (const declarations of [[both, peer], [peer, both]]) {
-    const result = await checkContracts({declarations, readers, loadFixture});
-    assert.equal(result.ok, true, JSON.stringify(result.checks, null, 2));
-    assert.equal(result.checks.length, 3);
-    assert.ok(result.checks.every(row => row.readerPackage === 'fixture-consumer' && row.fixturePackage === '@aihq/core' && row.status === 'passed'));
+// Every actual published fixture is required, including accepts-only entries.
+const publishedPeer = {...acceptingPeer, contracts:[{...policyContract, role:'accepts',
+  fixtures:policyContract.fixtures.map(fixture => ({...fixture, export:fixture.export.replace('@aihq/core/', 'fixture-consumer/')}))}]};
+const loadPublishedFixture = (packageName, exportSpecifier) => {
+  assert.ok(['@aihq/core', 'fixture-consumer'].includes(packageName));
+  assert.ok(exportSpecifier.startsWith(packageName+'/fixtures/'));
+  return loadFixture('@aihq/core', exportSpecifier.replace('fixture-consumer/', '@aihq/core/'));
+};
+for (const declarations of [[both, publishedPeer], [publishedPeer, both]]) {
+  const result = await checkContracts({declarations, readers, loadFixture:loadPublishedFixture});
+  assert.equal(result.ok, true, JSON.stringify(result.checks, null, 2));
+  assert.equal(result.checks.length, 6);
+  for (const [readerPackage, publisher] of [['fixture-consumer', both], ['@aihq/core', publishedPeer]]) {
+    assert.deepEqual(result.checks.filter(row => row.readerPackage === readerPackage)
+      .map(row => [row.fixturePackage, row.fixtureExport, row.status]),
+    publisher.contracts[0].fixtures.map(fixture => [publisher.package.name, fixture.export, 'passed']));
   }
 }
+
+// Missing readers/bytes and wrong refusals on accepts-only published fixtures cannot pass.
+const publishedOnly = [{...both, contracts:[{...policyContract, role:'accepts', fixtures:[]}]}, publishedPeer];
+for (const [adapters, loader, reason] of [
+  [{}, loadPublishedFixture, 'reader-missing'],
+  [readers, () => 'unavailable', 'fixture-unavailable']
+]) {
+  const result = await checkContracts({declarations:publishedOnly, readers:adapters, loadFixture:loader});
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.length, 3);
+  assert.ok(result.checks.every(row => row.fixturePackage === 'fixture-consumer' && row.status === 'unavailable' && row.reason === reason));
+}
+const publishedWrongRefusal = await checkContracts({declarations:publishedOnly, loadFixture:loadPublishedFixture,
+  readers:{[policyContract.id]:async bytes => ({...await readers[policyContract.id](bytes), code:'OTHER'})}});
+assert.equal(publishedWrongRefusal.ok, false);
+assert.equal(publishedWrongRefusal.checks.find(row => row.expectedCode === 'SCHEMA_UNSUPPORTED').reason, 'outcome-mismatch');
 
 // Genuine producing declarations without fixtures remain required and unavailable.
 for (const role of ['produces', 'both']) {
