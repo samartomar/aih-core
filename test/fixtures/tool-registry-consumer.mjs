@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { prepare } from '@aihq/core';
 import { contractSupport as coreSupport, deriveRecipeIdentity, validateOrganizationTarget } from '@aihq/core/contracts';
-import { contractSupport as harnessSupport, listTools, nativeClientIds, selectTool, toolRegistry,
+import { contractSupport as harnessSupport, listTools, nativeClientIds, selectTool, targets, toolRegistry,
   validateToolRegistry } from '@aihq/core/harness';
 import registrySchema from '@aihq/core/harness/schemas/tool-registry/1.0.0.json' with { type: 'json' };
 import target10Schema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
@@ -58,6 +58,11 @@ check('existing native client ids stay valid registry ids', () => {
   const ids = toolRegistry.tools.map(entry => entry.id);
   for (const client of nativeClientIds) assert.ok(ids.includes(client), client);
   assert.deepEqual(target10Schema.properties.client.enum, [...nativeClientIds]);
+  // A registry binary is one the inspection targets already recognise for that tool.
+  for (const entry of toolRegistry.tools) {
+    const known = targets.find(item => item.id === entry.id);
+    if (known) for (const binary of entry.binaries) assert.ok(known.executables.includes(binary), `${entry.id}: ${binary}`);
+  }
 });
 
 check('listTools offers only observed tools: today\'s command-line tools and no IDE', () => {

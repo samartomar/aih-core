@@ -1245,7 +1245,8 @@ and the surface must be that tool's surface (`tool-surface-mismatch`); an unknow
 ID is `unknown-tool`. Target 1.0.0 keeps its closed client list, so an ID outside
 it, such as `kiro-ide`, is still refused there. Prepare blocks a 1.1.0 target whose
 tool has not been observed with `PREREQUISITE_UNAVAILABLE / tool-not-observed`,
-before any organization read. Selectors and the review's
+before any organization read. A 1.0.0 target keeps its existing behavior and is not
+subject to this observation check. Selectors and the review's
 `organizationObligations.target.client` use the tool's ID.
 
 With a target, Prepare emits `urn:aihq:core:prepared-work:1.5.0` and

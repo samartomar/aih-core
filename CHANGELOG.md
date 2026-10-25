@@ -13,7 +13,10 @@ observations: Claude Code, Codex CLI, Kiro CLI, Copilot CLI and Antigravity CLI,
 and no IDE. `includeUnobserved` also lists the rest. `selectTool` resolves an ID or
 alias and refuses an unobserved tool with `tool-not-observed`. Organization target
 1.1.0 accepts registry tool IDs with their surface; target 1.0.0 keeps its closed
-client list. Enterprise Prepare blocks a 1.1.0 target naming an unobserved tool.
+client list. Enterprise Prepare blocks a 1.1.0 target naming an unobserved tool; 1.0.0 targets
+are unchanged. TypeScript: `OrganizationTargetDeclaration` is now the union of
+`OrganizationTargetDeclaration10` and `OrganizationTargetDeclaration11`, so code
+reading `.client` must first narrow on `schema`.
 Unpublished candidate for the sole 0.1.0 release effort.
 
 Document what each result status lets a consumer claim. The README now has a

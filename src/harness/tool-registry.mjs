@@ -43,9 +43,16 @@ export function listTools(options = {}) {
   return Object.freeze(tools);
 }
 
+/** The registry entry a name denotes, and whether the name is its id or an alias; undefined when unknown. */
+export function findTool(name) {
+  if (typeof name !== 'string') return undefined;
+  const tool = toolRegistry.tools.find(item => item.id === name || item.aliases.includes(name));
+  return tool && { tool, via: tool.id === name ? 'id' : 'alias' };
+}
+
 /** Resolves a requested tool id or alias. An unobserved tool is refused, never offered as a target. */
 export function selectTool(id) {
-  const entry = typeof id === 'string' ? toolRegistry.tools.find(item => item.id === id || item.aliases.includes(id)) : undefined;
+  const entry = findTool(id)?.tool;
   if (!entry) return { status: 'refused', code: 'INPUT_INVALID', reason: 'unknown-tool' };
   if (!observedTools.has(entry.id)) return { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed', tool: entry };
   return { status: 'selected', tool: entry };

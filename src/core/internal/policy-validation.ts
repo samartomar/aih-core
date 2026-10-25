@@ -1,7 +1,7 @@
 import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import { nativeClients } from './native-clients.js';
-import { toolRegistry } from '../../harness/tool-registry.mjs';
+import { findTool } from '../../harness/tool-registry.mjs';
 import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
@@ -146,11 +146,11 @@ export function organizationTargetSemantics(target: { client?: string; tool?: { 
   if (target.tool !== undefined) {
     // 1.1.0 names a Harness registry tool by its canonical id; the 1.0.0 client roster stays closed.
     const { id, surface } = target.tool;
-    const entry = toolRegistry.tools.find(item => item.id === id);
-    if (entry === undefined) diagnostics.push(toolRegistry.tools.some(item => item.aliases.includes(id)) ?
+    const found = findTool(id);
+    if (found?.via !== 'id') diagnostics.push(found ?
       { code: 'INPUT_INVALID', reason: 'tool-alias', path: '/tool/id', message: 'The organization target names a tool alias; use its registry id.' } :
       { code: 'INPUT_INVALID', reason: 'unknown-tool', path: '/tool/id', message: 'The organization target names a tool the registry does not know.' });
-    else if (entry.surface !== surface) diagnostics.push({ code: 'INPUT_INVALID', reason: 'tool-surface-mismatch', path: '/tool/surface',
+    else if (found.tool.surface !== surface) diagnostics.push({ code: 'INPUT_INVALID', reason: 'tool-surface-mismatch', path: '/tool/surface',
       message: 'The organization target names a surface the registry tool does not have.' });
   } else if (!isNativeClient(target.client!)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',
     message: 'The organization target names a client that Core does not know.' });
