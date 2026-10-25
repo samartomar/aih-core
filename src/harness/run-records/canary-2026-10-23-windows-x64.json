@@ -1,0 +1,680 @@
+{
+  "record": "AIHQ canary run record",
+  "run": "canary-2026-10-23-windows-x64",
+  "coreVersion": "1.0.0-dev.37",
+  "platform": {
+    "os": "windows",
+    "arch": "x64"
+  },
+  "levels": {
+    "delivered": "The file landed where Core put it.",
+    "registered": "The tool's own list showed it, or the session started it.",
+    "recognised": "The model used it in a real session; listed-only means the model saw only its name or description."
+  },
+  "sessions": [
+    {
+      "tool": "claude",
+      "toolVersion": "2.1.308",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-23T18:25:50.241Z",
+      "endedAt": "2026-10-23T18:26:03.334Z",
+      "exit": 0,
+      "command": "claude -p <prompt.txt> --output-format stream-json --verbose --model sonnet --max-turns 6 --disallowedTools 'Bash Read Grep Glob Edit Write MultiEdit NotebookEdit WebFetch WebSearch LS'",
+      "toolCalls": [
+        "ToolSearch",
+        "Skill",
+        "mcp__canary-probe__canary_token"
+      ],
+      "fileCalls": 0,
+      "hookLines": 1,
+      "mcpEvents": [
+        "started",
+        "request",
+        "request",
+        "request",
+        "request",
+        "stdin-closed"
+      ]
+    },
+    {
+      "tool": "codex",
+      "toolVersion": "0.163.0",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-23T18:26:08.560Z",
+      "endedAt": "2026-10-23T18:26:26.258Z",
+      "exit": 0,
+      "command": "codex exec --skip-git-repo-check -C <project> -s read-only --json -o A.last.txt  <prompt.txt>",
+      "toolCalls": [
+        "mcp:canary-probe/canary_token",
+        "mcp:canary-probe/canary_token"
+      ],
+      "fileCalls": 0,
+      "hookLines": 0,
+      "mcpEvents": [
+        "started",
+        "request",
+        "request",
+        "request"
+      ]
+    },
+    {
+      "tool": "kiro",
+      "toolVersion": "2.33.1",
+      "isolation": "sandbox",
+      "startedAt": "2026-10-23T07:51:30.000Z",
+      "endedAt": "2026-10-23T07:52:30.000Z",
+      "exit": 0,
+      "command": "kiro-cli chat --no-interactive --trust-tools= <prompt.txt flattened to one line, double quotes -> single>",
+      "toolCalls": [],
+      "fileCalls": 0,
+      "hookLines": 0,
+      "mcpEvents": []
+    },
+    {
+      "tool": "copilot",
+      "toolVersion": "1.0.103",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-23T18:26:26.326Z",
+      "endedAt": "2026-10-23T18:26:41.878Z",
+      "exit": 0,
+      "command": "copilot -p <prompt.txt> --output-format json --no-auto-update --trust-folder --allow-all-tools --deny-tool=shell --deny-tool=write --excluded-tools=view,glob,grep,rg,bash,read_bash,write_bash,stop_bash,list_bash,powershell,read_powershell,write_powershell,stop_powershell,list_powershell,create,edit,str_replace_editor,apply_patch,web_fetch,web_search,fetch_copilot_cli_documentation,task,sql,ask_user --disable-builtin-mcps --no-ask-user --disallow-temp-dir --disable-client-telemetry --log-dir <out>\\logs --share <out>\\A.share.md --usage-output-file <out>\\A.usage.json",
+      "toolCalls": [
+        "mcp:canary-probe/canary_token",
+        "skill"
+      ],
+      "fileCalls": 0,
+      "hookLines": 0,
+      "mcpEvents": [
+        "started",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "tool-called"
+      ]
+    },
+    {
+      "tool": "antigravity",
+      "toolVersion": "1.4.6",
+      "isolation": "sandbox",
+      "startedAt": "2026-10-23T08:09:30.000Z",
+      "endedAt": "2026-10-23T08:10:20.000Z",
+      "exit": 0,
+      "command": "agy -p <prompt flattened> --output-format stream-json --sandbox --mode plan --print-timeout 300s",
+      "toolCalls": [
+        "call_mcp_tool",
+        "call_mcp_tool",
+        "read_file",
+        "read_file"
+      ],
+      "fileCalls": 2,
+      "hookLines": 0,
+      "mcpEvents": [
+        "started",
+        "request",
+        "request",
+        "request",
+        "request",
+        "started",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "stdin-closed",
+        "started",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "request",
+        "tool-called",
+        "stdin-closed"
+      ]
+    }
+  ],
+  "listings": [
+    {
+      "tool": "claude",
+      "kind": "skill",
+      "toolVersion": "2.1.308",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:20.527Z",
+      "registered": "inconclusive",
+      "commands": [
+        "claude plugin validate .claude --json"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "command",
+      "toolVersion": "2.1.308",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:27.171Z",
+      "registered": "inconclusive",
+      "commands": [
+        "claude plugin validate .claude --json"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "agent",
+      "toolVersion": "2.1.308",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:29.878Z",
+      "registered": "inconclusive",
+      "commands": [
+        "claude plugin validate .claude --json"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "mcp-server",
+      "toolVersion": "2.1.308",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:35.855Z",
+      "registered": "registered-pending-approval",
+      "commands": [
+        "claude mcp list",
+        "claude mcp get canary-probe"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "skill",
+      "toolVersion": "0.163.0",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:46.495Z",
+      "registered": "visible-to-model",
+      "commands": [
+        "codex debug prompt-input"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "rule",
+      "toolVersion": "0.163.0",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:49.636Z",
+      "registered": "visible-to-model",
+      "commands": [
+        "codex debug prompt-input"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "mcp-server",
+      "toolVersion": "0.163.0",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:22:52.366Z",
+      "registered": "registered",
+      "commands": [
+        "codex mcp list --json",
+        "codex mcp get canary-probe --json"
+      ]
+    },
+    {
+      "tool": "kiro",
+      "kind": "agent",
+      "toolVersion": "2.32.0",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:23:05.093Z",
+      "registered": "not-registered",
+      "commands": [
+        "kiro-cli agent list"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "skill",
+      "toolVersion": "1.0.103",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:50:01.952Z",
+      "registered": "registered",
+      "commands": [
+        "copilot skill list --json"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "rule",
+      "toolVersion": "1.0.103",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:50:06.419Z",
+      "registered": "registered",
+      "commands": [
+        "copilot instruction list --json"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "command",
+      "toolVersion": "1.0.103",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:50:10.567Z",
+      "registered": "not-registered",
+      "commands": [
+        "copilot skill list --json"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "mcp-server",
+      "toolVersion": "1.0.103",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T06:50:18.201Z",
+      "registered": "registered-pending-approval",
+      "commands": [
+        "copilot mcp list --json",
+        "copilot mcp list --json"
+      ]
+    },
+    {
+      "tool": "antigravity",
+      "kind": "mcp-server",
+      "toolVersion": "1.4.6",
+      "isolation": "env-redirect-inside-profile",
+      "observedAt": "2026-10-23T07:23:21.768Z",
+      "registered": "registered",
+      "commands": [
+        "agy mcp list"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "tool": "claude",
+      "kind": "skill",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/skills/canary-skill/LICENSE",
+          "sha256": "76fa257f07662e872e6097022f97a27f89da208d9a72c8530476c4e49045be47",
+          "bytes": 84
+        },
+        {
+          "root": "project",
+          "path": ".claude/skills/canary-skill/SKILL.md",
+          "sha256": "40067e9adc98d6fdc342b932fa0800ba9ffe10c20f25011a69d779c61e5d5af0",
+          "bytes": 224
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "body token in answer"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "rule",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/rules/canary-rule.md",
+          "sha256": "741ed9b57f38e9e80ed2a8d04273efaf032260703f81326da03694eb4bfe92e4",
+          "bytes": 130
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "rule token in answer"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "command",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/commands/canary-command.md",
+          "sha256": "bcf029ae152969ce8981c6ec9c8a9ea0a142f0776d45be2cab979eab163934d5",
+          "bytes": 110
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "session B ran /canary-command"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "agent",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/agents/canary-agent.md",
+          "sha256": "11e4c68e9eab49e43d809d9ec44dcec7dfac9ace79d445a31a70a5649ec58dc6",
+          "bytes": 197
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "agent description token in answer"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "hook",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/hooks/canary-hook.mjs",
+          "sha256": "f613944b2f26c2a898420d7df38347cd7a0010075009e93e649a2708559d03c7",
+          "bytes": 881
+        },
+        {
+          "root": "project",
+          "path": ".claude/settings.json",
+          "sha256": "c4ea2778deecd2746db91278cb781342ed4f5a45b013121cfa47ef62c052eb8b",
+          "bytes": 265
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "hook-fired.log: CANARY-HOOK-4614 2026-10-23T18:25:50.741Z SessionStart",
+        "hook stdout reached the model"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "mcp-server",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aihq/canary/canary-mcp-server.mjs",
+          "sha256": "67bb33a1d9ecbced465f00e8c1c38f0aea8bd94e6fe0f392686813c7ca5d4829",
+          "bytes": 2435
+        },
+        {
+          "root": "project",
+          "path": ".mcp.json",
+          "sha256": "57d9630051a80d20c87afadcbcecb5f22cee1e6f0bcb6fdd562c03c136758e0c",
+          "bytes": 267
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "server started (registered at runtime) but tool not called"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "skill",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".agents/skills/canary-skill/LICENSE",
+          "sha256": "76fa257f07662e872e6097022f97a27f89da208d9a72c8530476c4e49045be47",
+          "bytes": 84
+        },
+        {
+          "root": "project",
+          "path": ".agents/skills/canary-skill/SKILL.md",
+          "sha256": "82bcaae0c3b2fb0502c73e3cc6474eeacad848819494be7ca7bf9848d1f7559a",
+          "bytes": 224
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "description token in answer"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "rule",
+      "delivered": [
+        {
+          "root": "project",
+          "path": "AGENTS.md",
+          "sha256": "102e203bee10c8a81552f5b6c5e2767c2688bae84c9812e711d3d6e45197db57",
+          "bytes": 182
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "rule token in answer"
+      ]
+    },
+    {
+      "tool": "codex",
+      "kind": "mcp-server",
+      "delivered": [
+        {
+          "root": "userHome",
+          "path": ".aihq/canary/canary-mcp-server.mjs",
+          "sha256": "67bb33a1d9ecbced465f00e8c1c38f0aea8bd94e6fe0f392686813c7ca5d4829",
+          "bytes": 2435
+        },
+        {
+          "root": "userHome",
+          "path": ".codex/config.toml",
+          "sha256": "97b2a7426d00b69e9f28a126d9a300f59e0a439ebc051b0a412c46a7ebe978ad",
+          "bytes": 305
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "server started (registered at runtime) but tool not called"
+      ]
+    },
+    {
+      "tool": "kiro",
+      "kind": "skill",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".kiro/skills/canary-skill/LICENSE",
+          "sha256": "76fa257f07662e872e6097022f97a27f89da208d9a72c8530476c4e49045be47",
+          "bytes": 84
+        },
+        {
+          "root": "project",
+          "path": ".kiro/skills/canary-skill/SKILL.md",
+          "sha256": "f53da1d60f3119c1ffd4e0b290f730e19758a8008f5b7b63f9ecfd54058a5d75",
+          "bytes": 224
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "description token in answer"
+      ]
+    },
+    {
+      "tool": "kiro",
+      "kind": "rule",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".kiro/steering/canary-rule.md",
+          "sha256": "2cb4e9ef03646cc8ad6dfe3d484de4cb264792ef56d242a1cadb09c063fbb3cd",
+          "bytes": 157
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "rule token in answer"
+      ]
+    },
+    {
+      "tool": "kiro",
+      "kind": "command",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aih-extensions/kiro-ide/reference/commands/canary-command.md",
+          "sha256": "e4bfa6893b43f493f70be76fd69bdfedbfc38634dba4a9b3931ef339fbaab479",
+          "bytes": 110
+        }
+      ],
+      "recognised": "not-recognised",
+      "evidence": []
+    },
+    {
+      "tool": "kiro",
+      "kind": "agent",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aih-extensions/kiro-ide/reference/agents/canary-agent.md",
+          "sha256": "d99c2fcda546f58414848936de86d4f7690d2107851b8402d380236efc021482",
+          "bytes": 197
+        }
+      ],
+      "recognised": "not-recognised",
+      "evidence": []
+    },
+    {
+      "tool": "copilot",
+      "kind": "skill",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".github/skills/canary-skill/LICENSE",
+          "sha256": "76fa257f07662e872e6097022f97a27f89da208d9a72c8530476c4e49045be47",
+          "bytes": 84
+        },
+        {
+          "root": "project",
+          "path": ".github/skills/canary-skill/SKILL.md",
+          "sha256": "d429061f8bdde1ff6dc27a63ccdb7d99f48f70aa56f4404cd0bf024a36028de5",
+          "bytes": 224
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "body token in answer"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "rule",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".github/copilot-instructions.md",
+          "sha256": "ade642e13887adf328b1f11d511ba1cc3f463a9947272d6d476d95f2871066ab",
+          "bytes": 182
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "rule token in answer"
+      ]
+    },
+    {
+      "tool": "copilot",
+      "kind": "command",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aih-extensions/copilot-vscode/reference/commands/canary-command.md",
+          "sha256": "222b8d08c28da95afdafee883ee90ce8f8cb85183297afc259e165f6b2872e33",
+          "bytes": 110
+        }
+      ],
+      "recognised": "not-recognised",
+      "evidence": []
+    },
+    {
+      "tool": "copilot",
+      "kind": "agent",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aih-extensions/copilot-vscode/reference/agents/canary-agent.md",
+          "sha256": "d61acf1347f463948100151b58b487344ca9c2565de5081ad41c7f40725909ee",
+          "bytes": 197
+        }
+      ],
+      "recognised": "not-recognised",
+      "evidence": []
+    },
+    {
+      "tool": "copilot",
+      "kind": "mcp-server",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".aihq/canary/canary-mcp-server.mjs",
+          "sha256": "67bb33a1d9ecbced465f00e8c1c38f0aea8bd94e6fe0f392686813c7ca5d4829",
+          "bytes": 2435
+        },
+        {
+          "root": "project",
+          "path": ".mcp.json",
+          "sha256": "d9b958f0ae00a72b44af31e2efdb37f455eb26e4ced055167f3e13802cf91679",
+          "bytes": 267
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "server log shows tool-called; token in answer"
+      ]
+    },
+    {
+      "tool": "antigravity",
+      "kind": "skill",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".agents/skills/canary-skill/LICENSE",
+          "sha256": "76fa257f07662e872e6097022f97a27f89da208d9a72c8530476c4e49045be47",
+          "bytes": 84
+        },
+        {
+          "root": "project",
+          "path": ".agents/skills/canary-skill/SKILL.md",
+          "sha256": "389f3588fbf9dd5b33ca332a062a76c23e65484add93b2989d99cc20f294eabb",
+          "bytes": 224
+        }
+      ],
+      "recognised": "listed-only",
+      "evidence": [
+        "body token in answer"
+      ]
+    },
+    {
+      "tool": "antigravity",
+      "kind": "rule",
+      "delivered": [
+        {
+          "root": "project",
+          "path": "GEMINI.md",
+          "sha256": "8326b04131262a9af378e2e321bce3ea80014fbecc10a59dc31304da793256a5",
+          "bytes": 182
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "rule token in answer"
+      ]
+    },
+    {
+      "tool": "antigravity",
+      "kind": "mcp-server",
+      "delivered": [
+        {
+          "root": "userHome",
+          "path": ".aihq/canary/canary-mcp-server.mjs",
+          "sha256": "67bb33a1d9ecbced465f00e8c1c38f0aea8bd94e6fe0f392686813c7ca5d4829",
+          "bytes": 2435
+        },
+        {
+          "root": "userHome",
+          "path": ".gemini/config/mcp_config.json",
+          "sha256": "80bef1e0208a6ead676b79a5f01a2f95ff516f4d805fdef28bb745f639bd7cd5",
+          "bytes": 391
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "server log shows tool-called; token in answer"
+      ]
+    }
+  ],
+  "retainedRecordSha256": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039"
+}

@@ -1,6 +1,7 @@
 // Runs inside a disposable consumer with the packed @aihq/core installed; public entries only.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { contractSupport as harnessSupport, deriveCellSupport, listTools, selectBindingCell, toolBindingKinds, toolBindings,
   toolRegistry, validateToolBinding } from '@aihq/core/harness';
@@ -8,9 +9,11 @@ import bindingSchema from '@aihq/core/harness/schemas/tool-binding/1.0.0.json' w
 import acceptBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/accept.json' with { type: 'json' };
 import refuseBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/refuse.json' with { type: 'json' };
 import supportCases from '@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json' with { type: 'json' };
+import runRecord from '@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json' with { type: 'json' };
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
-const RUN_RECORD = '2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039';
+const RUN_RECORD = createHash('sha256')
+  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json')))).digest('hex');
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
 const WINDOWS = { os: 'windows', arch: 'x64' };
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -51,9 +54,10 @@ check('the binding table is published with its schema, one binding per observed 
 check('each digest is the SHA-256 of the canonical binding without its digest', () => {
   for (const { digest, ...rest } of toolBindings)
     assert.equal(digest, createHash('sha256').update(canonical(plain(rest))).digest('hex'), rest.tool);
-  const changed = structuredClone(plain(byTool.claude));
+  const { digest, ...changed } = structuredClone(plain(byTool.claude));
+  assert.equal(createHash('sha256').update(canonical(changed)).digest('hex'), digest);
   changed.layouts.skill.reason = 'Changed.';
-  assert.notEqual(createHash('sha256').update(canonical({ ...changed, digest: undefined })).digest('hex'), byTool.claude.digest);
+  assert.notEqual(createHash('sha256').update(canonical(changed)).digest('hex'), digest);
 });
 
 check('the 23 October 2026 Windows observations are seeded with scope and run record', () => {
@@ -63,14 +67,14 @@ check('the 23 October 2026 Windows observations are seeded with scope and run re
   for (const binding of toolBindings) for (const kind of KINDS) for (const item of binding.layouts[kind].observations) {
     assert.deepEqual([item.os, item.arch, item.runRecordDigest, item.coreVersion], ['windows', 'x64', RUN_RECORD, '1.0.0-dev.37']);
     assert.ok(item.observedAt.startsWith('2026-10-23T'), item.observedAt);
-    // Kiro and Antigravity list commands ran on the host, inside the user profile; they never count.
-    if (item.isolation === 'env-redirect-inside-profile') assert.ok(['kiro', 'antigravity'].includes(binding.tool));
+    // Model-free list commands ran on the host, inside the user profile; they are kept but never count.
+    if (item.isolation === 'env-redirect-inside-profile') assert.equal(item.recognised, 'not-run');
     else assert.deepEqual([item.toolVersion, item.isolation], [versions[binding.tool], isolation[binding.tool]], `${binding.tool} ${kind}`);
   }
   const supports = Object.fromEntries(toolBindings.map(binding => [binding.tool, KINDS.map(kind => binding.layouts[kind].support)]));
   assert.deepEqual(supports, {
     claude: ['native', 'unconfirmed', 'native', 'native', 'native', 'native', 'native'],
-    codex: ['native', 'unconfirmed', 'unconfirmed', 'native', 'unconfirmed', 'native', 'native'],
+    codex: ['unconfirmed', 'unconfirmed', 'unconfirmed', 'native', 'unconfirmed', 'native', 'native'],
     kiro: ['unconfirmed', 'none', 'none', 'native', 'unconfirmed', 'unconfirmed', 'native'],
     copilot: ['native', 'none', 'none', 'native', 'unconfirmed', 'native', 'native'],
     antigravity: ['unconfirmed', 'unconfirmed', 'unconfirmed', 'native', 'unconfirmed', 'native', 'native']
@@ -82,6 +86,30 @@ check('the 23 October 2026 Windows observations are seeded with scope and run re
     if (layout.support !== 'native') assert.ok(layout.reason.length > 0);
     assert.equal(layout.convert, undefined, 'no converter output has been observed');
   }
+});
+
+check('every observation names the published run record and claims no more than it shows', () => {
+  assert.equal(runRecord.run, 'canary-2026-10-23-windows-x64');
+  assert.deepEqual(runRecord.platform, WINDOWS);
+  assert.equal(runRecord.coreVersion, '1.0.0-dev.37');
+  const session = tool => runRecord.sessions.find(item => item.tool === tool);
+  for (const binding of toolBindings) for (const kind of KINDS) for (const item of binding.layouts[kind].observations) {
+    assert.equal(item.runRecordDigest, RUN_RECORD);
+    if (item.isolation === 'env-redirect-inside-profile') {
+      const listing = runRecord.listings.find(entry => entry.tool === binding.tool && entry.kind === kind);
+      assert.deepEqual([item.toolVersion, item.observedAt, item.registered], [listing.toolVersion, listing.observedAt, listing.registered]);
+      continue;
+    }
+    const run = session(binding.tool);
+    assert.deepEqual([item.toolVersion, item.isolation, item.observedAt], [run.toolVersion, run.isolation, run.startedAt]);
+    const recorded = runRecord.cells.find(entry => entry.tool === binding.tool && entry.kind === (kind === 'document' ? 'skill' : kind));
+    if (kind === 'document') assert.ok(recorded.delivered.some(file => file.path.endsWith('/LICENSE')));
+    else assert.equal(item.recognised, recorded.recognised, `${binding.tool} ${kind}`);
+    // In a session the only registration shown is an MCP server the tool started.
+    if (item.registered !== 'not-checked') assert.ok(kind === 'mcp-server' && run.mcpEvents.includes('started'));
+  }
+  assert.deepEqual(cell('codex', 'skill').observations.map(item => [item.isolation, item.registered, item.recognised]),
+    [['env-redirect-outside-profile', 'not-checked', 'listed-only'], ['env-redirect-inside-profile', 'visible-to-model', 'not-run']]);
 });
 
 check('support is derived only from qualifying observations', () => {
@@ -103,6 +131,8 @@ check('support is derived only from qualifying observations', () => {
   assert.equal(derive('command', observation({ registered: 'not-registered', isolation: 'env-redirect-inside-profile' })), 'unconfirmed');
   assert.equal(derive('hook'), 'unconfirmed', 'no observation gives unconfirmed');
   assert.throws(() => deriveCellSupport({ kind: 'reference', observations: [] }), TypeError);
+  assert.equal(derive('skill', observation({ delivered: 'not-delivered', recognised: 'recognised' })), 'unconfirmed');
+  assert.throws(() => deriveCellSupport({ kind: 'skill', observations: [{ recognised: 'recognised' }], installedVersion: '1.0' }), TypeError);
 });
 
 check('support is scoped to the observed platform', () => {
@@ -141,6 +171,9 @@ check('a hook requested for Kiro CLI is refused with that cell\'s reason', () =>
     { status: 'refused', cell: { support: 'none' } });
   assert.partialDeepStrictEqual(selectBindingCell({ tool: 'claude', kind: 'skill', platform: { os: 'linux', arch: 'x64' } }),
     { status: 'refused', cell: { support: 'unconfirmed' } });
+  // A Windows-only reason is never shown for another platform.
+  assert.deepEqual(plain(selectBindingCell({ tool: 'claude', kind: 'agent', platform: { os: 'linux', arch: 'x64' } }).cell),
+    { support: 'unconfirmed', reason: 'Not observed on linux x64; observations from another platform do not count.' });
   const selected = selectBindingCell({ tool: 'claude-code', kind: 'hook', platform: WINDOWS, installedVersion: '2.1.308' });
   assert.partialDeepStrictEqual(selected, { status: 'selected', tool: 'claude', kind: 'hook', support: 'native', observed: 'recognised',
     stale: false, digest: byTool.claude.digest });
@@ -151,6 +184,7 @@ check('a hook requested for Kiro CLI is refused with that cell\'s reason', () =>
     { status: 'refused', code: 'INPUT_INVALID', reason: 'unknown-tool' });
   assert.throws(() => selectBindingCell({ tool: 'kiro', kind: 'reference', platform: WINDOWS }), TypeError);
   assert.throws(() => selectBindingCell({ tool: 'kiro', kind: 'hook' }), TypeError);
+  assert.throws(() => selectBindingCell({ tool: 'kiro', kind: 'hook', platform: { os: 'win32', arch: 'x64' } }), TypeError);
 });
 
 check('the validator refuses claims observations do not support', () => {
@@ -167,6 +201,9 @@ check('the validator refuses claims observations do not support', () => {
   assert.deepEqual(reasons(validateToolBinding(unknown)), [['INPUT_INVALID', 'unknown-tool']]);
   const missing = claude(); delete missing.layouts.document;
   assert.deepEqual(reasons(validateToolBinding(missing)).map(([code]) => code), ['INPUT_INVALID']);
+  const contradiction = claude(); contradiction.layouts.skill.observations[0].delivered = 'not-delivered';
+  assert.deepEqual(reasons(validateToolBinding(contradiction)),
+    [['INPUT_INVALID', 'observation-inconsistent'], ['INPUT_INVALID', 'support-not-derived']]);
   const isolation = claude(); isolation.layouts.rule.observations[0].isolation = 'container';
   assert.equal(validateToolBinding(isolation).valid, false);
   assert.deepEqual(reasons(validateToolBinding({ ...claude(), schema: 'urn:aihq:harness:tool-binding:2.0.0' })),

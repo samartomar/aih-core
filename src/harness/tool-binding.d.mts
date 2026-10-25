@@ -2,7 +2,7 @@ import type { RegistryTool } from './tool-registry.mjs';
 export type BindingKind = 'skill' | 'agent' | 'command' | 'rule' | 'hook' | 'mcp-server' | 'document';
 export type BindingSupport = 'native' | 'none' | 'unconfirmed';
 export type ObservedLevel = 'recognised' | 'registered' | 'listed-only' | 'delivered' | 'none';
-export interface BindingPlatform { readonly os: string; readonly arch: string }
+export interface BindingPlatform { readonly os: 'windows' | 'macos' | 'linux'; readonly arch: 'x64' | 'arm64' }
 export interface BindingObservation {
   readonly toolVersion: string; readonly observedAt: string; readonly coreVersion: string;
   readonly os: 'windows' | 'macos' | 'linux'; readonly arch: 'x64' | 'arm64';
@@ -30,7 +30,7 @@ export interface ToolBinding {
 }
 export interface CellSupport {
   support: BindingSupport; observed: ObservedLevel; stale: boolean;
-  observedOn?: { toolVersion: string; os: string; arch: string; observedAt: string };
+  observedOn?: { toolVersion: string; os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64'; observedAt: string };
 }
 export type BindingSelection =
   | ({ status: 'selected'; tool: string; kind: BindingKind; digest: string; layout: ToolLayout } & CellSupport & { support: 'native' })

@@ -28,7 +28,7 @@ test('a packed consumer reads the observed binding table and derives platform-sc
     copyFileSync(new URL('./fixtures/tool-binding-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 10);
+    assert.equal(receipt.checks.length, 11);
     writeFileSync(join(consumer, 'types.mts'), `
       import { deriveCellSupport, selectBindingCell, toolBindingKinds, toolBindings, validateToolBinding } from '@aihq/core/harness';
       import type { BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from '@aihq/core/harness';

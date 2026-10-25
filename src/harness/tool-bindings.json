@@ -2,7 +2,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "claude",
-    "digest": "de359479a27855c138e0b0d7750e44214287ab531b9df9b8634972dacb6d3165",
+    "digest": "7f00d001a1fdf71f801da2dcf5dfae58b6a2366a852015503257a88d41eadc56",
     "layouts": {
       "skill": {
         "support": "native",
@@ -15,10 +15,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:20.527Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "inconclusive",
-            "recognised": "recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -36,10 +48,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:29.878Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "inconclusive",
-            "recognised": "listed-only"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -57,10 +81,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:27.171Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "inconclusive",
-            "recognised": "recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -78,7 +114,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "recognised"
@@ -99,7 +135,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "recognised"
@@ -135,10 +171,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered-pending-approval",
             "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:35.855Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -165,7 +213,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-run"
@@ -180,11 +228,11 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "codex",
-    "digest": "318f173baeb1fa2bece61ac87de5603cb71141a916c2c04c968037b56b4b9a31",
+    "digest": "4c63939c16d636a0706e313459e7710463093a87ff46a739bc6af7f85bf5b0b8",
     "layouts": {
       "skill": {
-        "support": "native",
-        "reason": "Visible to the model by name; the body loads on use.",
+        "support": "unconfirmed",
+        "reason": "Listed only: the model saw the skill by name but did not use its body.",
         "observations": [
           {
             "toolVersion": "0.163.0",
@@ -193,10 +241,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:46.495Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "visible-to-model",
-            "recognised": "listed-only"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -226,10 +286,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:49.636Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "visible-to-model",
-            "recognised": "recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -253,16 +325,28 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered",
             "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:52.366Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "not-run"
           }
         ],
         "roots": {
           "user": {
             "path": ".codex/config.toml",
-            "resolvedBy": "CODEX_HOME"
+            "resolvedBy": "CODEX_HOME, default ~/.codex"
           }
         },
         "register": {
@@ -286,7 +370,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-run"
@@ -308,7 +392,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "kiro",
-    "digest": "61770dfebddffe14ab72a3a9df21d4153cbbc6163ecf2d1a6aaf06ab31debb29",
+    "digest": "8842093d7f774d68861195024c3256d5640e17d42915f5c73fded473cc8b628a",
     "layouts": {
       "skill": {
         "support": "unconfirmed",
@@ -321,7 +405,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "listed-only"
@@ -342,7 +426,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-recognised"
@@ -354,7 +438,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-inside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-registered",
             "recognised": "not-run"
@@ -373,7 +457,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-recognised"
@@ -392,7 +476,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "recognised"
@@ -425,7 +509,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-run"
@@ -445,7 +529,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "copilot",
-    "digest": "5347179d5cbe82da67a12bc7c21d765c65edd1029eed2273a451f080bab4ecd9",
+    "digest": "c5b637edad3b5d4af69242a64fb5910c8bc39bdf36e84cd34e0ed869995b393e",
     "layouts": {
       "skill": {
         "support": "native",
@@ -458,10 +542,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:01.952Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered",
-            "recognised": "recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -479,7 +575,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-recognised"
@@ -498,10 +594,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:10.567Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-registered",
-            "recognised": "not-recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {}
@@ -517,10 +625,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:06.419Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered",
-            "recognised": "recognised"
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -544,10 +664,22 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered-pending-approval",
             "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:18.201Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "not-run"
           }
         ],
         "roots": {
@@ -574,7 +706,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-run"
@@ -600,7 +732,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "antigravity",
-    "digest": "c9aa1361afd71e760774eaef01f2f24f5a5e2a160e8d7e5910e55b82ea3a262b",
+    "digest": "8c9e20d962cfcbbf82d7e197fde9261295e4488afe1d77555d5cdcbbc45f3f49",
     "layouts": {
       "skill": {
         "support": "unconfirmed",
@@ -613,7 +745,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "listed-only"
@@ -646,7 +778,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "recognised"
@@ -673,9 +805,9 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
-            "registered": "not-checked",
+            "registered": "registered",
             "recognised": "recognised"
           },
           {
@@ -685,7 +817,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-inside-profile",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "registered",
             "recognised": "not-run"
@@ -718,7 +850,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "sandbox",
-            "runRecordDigest": "2ed5e37e60e5cc8ddcb4b47ba69ca90db828ac8a12c1868bbfc7b3bfbbdbe039",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
             "delivered": "delivered",
             "registered": "not-checked",
             "recognised": "not-run"

@@ -3,22 +3,15 @@
 // scoped claims; they do not satisfy native verification acceptance. Importing this performs no host observation.
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import bindingSchema from './schemas/tool-binding/1.0.0.json' with { type: 'json' };
-import bindingData from './tool-bindings.json' with { type: 'json' };
 import { pointerMember, snapshotNativeData, unsupportedFormat } from './native/canonical.mjs';
+import { qualifyingIsolation, toolBindings } from './tool-binding-data.mjs';
 import { findTool, selectTool } from './tool-registry.mjs';
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
 export const toolBindingKinds = Object.freeze(['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document']);
+export { toolBindings };
 
-const deepFreeze = value => {
-  if (value && typeof value === 'object') Object.values(value).forEach(deepFreeze);
-  return Object.freeze(value);
-};
-// Seeded with the 23 October 2026 Windows canary observations. Every change here ships in a new Core version.
-export const toolBindings = deepFreeze(bindingData);
-
-// Isolation that keeps the user's own configuration out of the observation. Inside-profile redirection never counts.
-const QUALIFYING = new Set(['os-account', 'sandbox', 'env-redirect-outside-profile']);
+const QUALIFYING = new Set(qualifyingIsolation);
 const REGISTERED = new Set(['registered', 'registered-pending-approval', 'visible-to-model']);
 const LEVELS = ['none', 'delivered', 'listed-only', 'registered', 'recognised'];
 const VERSION = /^[0-9]{1,9}(?:\.[0-9]{1,9}){0,3}$/;
@@ -26,8 +19,8 @@ const VERSION = /^[0-9]{1,9}(?:\.[0-9]{1,9}){0,3}$/;
 const level = item => item.recognised === 'recognised' ? 'recognised' : REGISTERED.has(item.registered) ? 'registered'
   : item.recognised === 'listed-only' ? 'listed-only' : item.delivered === 'delivered' ? 'delivered' : 'none';
 // Documents need only delivery; every other kind needs the tool to list it, show it to the model or use it.
-const proves = (kind, item) => kind === 'document' ? item.delivered === 'delivered'
-  : REGISTERED.has(item.registered) || item.recognised === 'recognised';
+const proves = (kind, item) => item.delivered === 'delivered' &&
+  (kind === 'document' || REGISTERED.has(item.registered) || item.recognised === 'recognised');
 const refutes = (kind, item) => kind !== 'document' && item.delivered === 'delivered' &&
   (item.registered === 'not-registered' || item.recognised === 'not-recognised');
 const compareVersions = (left, right) => {
@@ -38,7 +31,17 @@ const compareVersions = (left, right) => {
   }
   return 0;
 };
-const isPlatform = value => value !== null && typeof value === 'object' && typeof value.os === 'string' && typeof value.arch === 'string';
+const OPERATING_SYSTEMS = ['windows', 'macos', 'linux'], ARCHITECTURES = ['x64', 'arm64'];
+const isPlatform = value => value !== null && typeof value === 'object' &&
+  OPERATING_SYSTEMS.includes(value.os) && ARCHITECTURES.includes(value.arch);
+let checkObservation;
+const isObservation = item => {
+  checkObservation ??= new Ajv2020({ strict: true }).addSchema(bindingSchema).getSchema(`${BINDING}#/$defs/observation`);
+  return checkObservation(item);
+};
+// A not-delivered observation cannot show the tool listing or using the item.
+const contradicts = item => item.delivered !== 'delivered' && (REGISTERED.has(item.registered) ||
+  ['recognised', 'listed-only', 'contaminated'].includes(item.recognised));
 
 /**
  * Derives a cell's support from its observations. With `platform`, only observations made on that OS and
@@ -47,8 +50,10 @@ const isPlatform = value => value !== null && typeof value === 'object' && typeo
  */
 export function deriveCellSupport({ kind, observations, platform, installedVersion } = {}) {
   if (!toolBindingKinds.includes(kind)) throw new TypeError(`Unknown content kind: ${kind}`);
-  if (!Array.isArray(observations)) throw new TypeError('observations must be an array');
-  if (platform !== undefined && !isPlatform(platform)) throw new TypeError('platform must be { os, arch }');
+  if (!Array.isArray(observations) || !observations.every(isObservation))
+    throw new TypeError('observations must be an array of tool-binding observations');
+  if (platform !== undefined && !isPlatform(platform))
+    throw new TypeError("platform must be { os: 'windows' | 'macos' | 'linux', arch: 'x64' | 'arm64' }");
   if (installedVersion !== undefined && (typeof installedVersion !== 'string' || !VERSION.test(installedVersion)))
     throw new TypeError('installedVersion must be a dotted numeric version');
   const counted = observations.filter(item => QUALIFYING.has(item.isolation) &&
@@ -72,15 +77,18 @@ export function deriveCellSupport({ kind, observations, platform, installedVersi
  */
 export function selectBindingCell({ tool, kind, platform, installedVersion } = {}) {
   if (!toolBindingKinds.includes(kind)) throw new TypeError(`Unknown content kind: ${kind}`);
-  if (!isPlatform(platform)) throw new TypeError('platform must be { os, arch }');
+  if (!isPlatform(platform)) throw new TypeError("platform must be { os: 'windows' | 'macos' | 'linux', arch: 'x64' | 'arm64' }");
   const selected = selectTool(tool);
   if (selected.status === 'refused') return selected;
+  // selectTool admits only tools the binding table observes.
   const binding = toolBindings.find(item => item.tool === selected.tool.id);
-  if (!binding) return { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed', tool: selected.tool };
   const layout = binding.layouts[kind];
   const derived = deriveCellSupport({ kind, observations: layout.observations, platform, installedVersion });
+  // The stored reason describes the platforms observed; elsewhere the cell is simply not observed.
+  const elsewhere = layout.observations.length > 0 &&
+    !layout.observations.some(item => item.os === platform.os && item.arch === platform.arch);
   if (derived.support !== 'native') return { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'kind-not-native',
-    tool: binding.tool, kind, cell: { support: derived.support, reason: derived.support === layout.support ? layout.reason
+    tool: binding.tool, kind, cell: { support: derived.support, reason: !elsewhere && derived.support === layout.support ? layout.reason
       : `Not observed on ${platform.os} ${platform.arch}; observations from another platform do not count.` } };
   return { status: 'selected', tool: binding.tool, kind, ...derived, digest: binding.digest, layout };
 }
@@ -88,9 +96,10 @@ export function selectBindingCell({ tool, kind, platform, installedVersion } = {
 const invalid = (reason, path, message) => ({ code: 'INPUT_INVALID', reason, path, message });
 let check;
 /**
- * Validates a tool-binding 1.0.0 document: its schema, a registry tool id, and every cell's support derived
- * from its own observations. A converter is named only on a native cell. The digest is the lowercase SHA-256
- * of the binding's canonical JSON without `digest`; consumers that need it bound recompute it.
+ * Validates a tool-binding 1.0.0 document: its schema, a registry tool id, consistent observations and every
+ * cell's support derived from its own observations. A converter is named only on a native cell. The digest
+ * (lowercase SHA-256 of the binding's canonical JSON without `digest`) is not checked here; consumers that
+ * bind it recompute it.
  */
 export function validateToolBinding(value) {
   const unsupported = unsupportedFormat(value, [BINDING]);
@@ -105,6 +114,8 @@ export function validateToolBinding(value) {
   if (findTool(value.tool)?.via !== 'id') diagnostics.push(invalid('unknown-tool', '/tool', 'The binding must name a registry tool id.'));
   for (const kind of toolBindingKinds) {
     const layout = value.layouts[kind], path = `/layouts/${kind}`;
+    layout.observations.forEach((item, index) => { if (contradicts(item)) diagnostics.push(invalid('observation-inconsistent',
+      `${path}/observations/${index}`, 'An observation without delivery cannot show the tool listing or using the item.')); });
     if (deriveCellSupport({ kind, observations: layout.observations }).support !== layout.support)
       diagnostics.push(invalid('support-not-derived', `${path}/support`, "The cell's support is not the one its observations give."));
     if (layout.convert !== undefined && layout.support !== 'native')

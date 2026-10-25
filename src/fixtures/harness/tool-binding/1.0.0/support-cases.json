@@ -12,6 +12,8 @@
     { "tool": "claude", "kind": "document", "platform": { "os": "windows", "arch": "x64" },
       "expect": { "support": "native", "observed": "delivered", "stale": false } },
     { "tool": "codex", "kind": "skill", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "listed-only", "stale": false } },
+    { "tool": "codex", "kind": "mcp-server", "platform": { "os": "windows", "arch": "x64" },
       "expect": { "support": "native", "observed": "registered", "stale": false } },
     { "tool": "kiro", "kind": "rule", "platform": { "os": "windows", "arch": "x64" }, "installedVersion": "2.32.0",
       "expect": { "support": "native", "observed": "recognised", "stale": false } },
