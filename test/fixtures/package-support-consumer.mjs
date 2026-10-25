@@ -18,12 +18,18 @@ for (const contract of all) {
   ajv.addSchema(schema);
   assert.ok(contract.fixtures.length > 0);
 }
+// These result contracts must exercise both outcomes through public readers.
+for (const id of ['urn:aihq:core:file-state-result:1.1.0', 'urn:aihq:core:native-verification-result:1.0.0']) {
+  const contract = all.find(contract => contract.id === id);
+  assert.deepEqual(contract.fixtures.map(fixture => fixture.expect), ['accept', 'refuse']);
+}
 const publicReaders = {
   'execution-policy':core.validatePolicy, recipe:core.validateRecipe,
   'organization-policy':core.validateOrganizationPolicy, 'organization-target':core.validateOrganizationTarget,
   'repair-request':value=>value.schema.endsWith('1.1.0') ? core.validateMacosRepairRequest(value):core.validateTrustRepairRequest(value),
   'repair-inputs':value=>value.schema.endsWith('1.1.0') ? core.validateMacosRepairInputs(value):core.validateTrustRepairInputs(value),
   'certificate-export-request':core.validateCertificateExportRequest, 'certificate-export-inputs':core.validateCertificateExportInputs,
+  'file-state-result':core.validateFileStateResult,
   'native-verification-request':core.validateNativeVerificationRequest, 'native-verification-result':core.validateNativeVerificationResult,
   'native-verification-bundle':core.validateNativeVerificationBundle
 };
