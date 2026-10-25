@@ -13,6 +13,8 @@ export { macosRepairIndex, repairDefinitionSchema12, validateRepairDefinition12 
 export type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 import type { RepairDefinition12 } from './macos-session-definitions.mjs';
+export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
+export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface } from './tool-registry.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';

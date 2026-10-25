@@ -65,7 +65,7 @@ export interface OrganizationBinding {
 }
 /** Obligation results for the declared target; a not-fulfilled result never blocks preparation. */
 export interface OrganizationObligationsReview {
-  target: { basis: 'declared'; client: OrganizationTargetDeclaration['client']; repository?: string };
+  target: { basis: 'declared'; client: import('./internal/native-clients.js').NativeClientId; repository?: string };
   fulfillment: (Omit<OrganizationFulfillmentResult, 'status'> & { scope: 'project' | 'user';
     status: Exclude<OrganizationFulfillmentResult['status'], 'not-applicable'> })[];
   advisory: (OrganizationAdvisoryResult & { scope: 'project' | 'user' })[];

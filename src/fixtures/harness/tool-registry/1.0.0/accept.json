@@ -1,0 +1,126 @@
+{
+  "schema": "urn:aihq:harness:tool-registry:1.0.0",
+  "tools": [
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "surface": "cli",
+      "binaries": [
+        "claude"
+      ],
+      "aliases": [
+        "claude-code"
+      ]
+    },
+    {
+      "id": "codex",
+      "label": "Codex CLI",
+      "surface": "cli",
+      "binaries": [
+        "codex"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "kiro",
+      "label": "Kiro CLI",
+      "surface": "cli",
+      "binaries": [
+        "kiro-cli"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "copilot",
+      "label": "Copilot CLI",
+      "surface": "cli",
+      "binaries": [
+        "copilot"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "antigravity",
+      "label": "Antigravity CLI",
+      "surface": "cli",
+      "binaries": [
+        "agy"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini CLI",
+      "surface": "cli",
+      "binaries": [
+        "gemini"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "surface": "cli",
+      "binaries": [
+        "opencode"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi Code",
+      "surface": "cli",
+      "binaries": [
+        "kimi"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "cursor",
+      "label": "Cursor",
+      "surface": "ide",
+      "binaries": [
+        "cursor"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "windsurf",
+      "label": "Windsurf",
+      "surface": "ide",
+      "binaries": [
+        "windsurf"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "zed",
+      "label": "Zed",
+      "surface": "ide",
+      "binaries": [
+        "zed",
+        "zeditor",
+        "zedit"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "kiro-ide",
+      "label": "Kiro IDE",
+      "surface": "ide",
+      "binaries": [
+        "kiro"
+      ],
+      "aliases": []
+    },
+    {
+      "id": "copilot-vscode",
+      "label": "GitHub Copilot in VS Code",
+      "surface": "ide",
+      "binaries": [
+        "code"
+      ],
+      "aliases": []
+    }
+  ]
+}
