@@ -69,6 +69,13 @@ function invalidRequest(request, controls) {
   return undefined;
 }
 
+const newerVersion = (left, right) => {
+  const a = left.split('.').map(Number), b = right.split('.').map(Number);
+  for (let index = 0; index < Math.max(a.length, b.length); index++)
+    if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0);
+  return false;
+};
+
 const hostPlatform = () => {
   const os = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform];
   const arch = ['x64', 'arm64'].includes(process.arch) ? process.arch : undefined;
@@ -172,17 +179,25 @@ export async function inspectToolHost(request, controls = {}) {
   const binNames = manifest => typeof manifest.bin === 'string' ? [String(manifest.name).split('/').at(-1)]
     : manifest.bin !== null && typeof manifest.bin === 'object' ? Object.keys(manifest.bin) : [];
   const shimPackageVersion = shim => {
+    // A native executable is not a shim; only a script beside `node_modules` names an npm package.
+    if (extname(shim).toLowerCase() === '.exe') return { state: 'unknown', reason: 'version-not-readable' };
     const modules = join(dirname(shim), 'node_modules');
     const entries = directory => { try { return read(() => readdirSync(directory, { withFileTypes: true })); }
       catch (error) { if (error instanceof Stop) throw error; return []; } };
+    // Past these bounds a second matching package could be missed, so the version is not claimed.
     const packages = [];
-    for (const entry of entries(modules).slice(0, 512)) {
+    const top = entries(modules);
+    if (top.length > 512) return { state: 'unknown', reason: 'version-not-readable' };
+    for (const entry of top) {
       if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith('@')) for (const scoped of entries(join(modules, entry.name)).slice(0, 512)) {
-        if (scoped.isDirectory()) packages.push(join(modules, entry.name, scoped.name));
+      if (entry.name.startsWith('@')) {
+        const scope = entries(join(modules, entry.name));
+        if (scope.length > 512) return { state: 'unknown', reason: 'version-not-readable' };
+        for (const scoped of scope) if (scoped.isDirectory()) packages.push(join(modules, entry.name, scoped.name));
       } else packages.push(join(modules, entry.name));
     }
-    const matches = packages.slice(0, 1024).map(directory => manifestAt(join(directory, 'package.json')))
+    if (packages.length > 1024) return { state: 'unknown', reason: 'version-not-readable' };
+    const matches = packages.map(directory => manifestAt(join(directory, 'package.json')))
       .filter(manifest => manifest && binNames(manifest).some(name => selected.tool.binaries.includes(name)));
     if (matches.length !== 1) return { state: 'unknown', reason: 'version-not-readable' };
     return typeof matches[0].version === 'string' && VERSION.test(matches[0].version)
@@ -360,7 +375,8 @@ export async function inspectToolHost(request, controls = {}) {
     const proving = layout.observations.filter(observation =>
       deriveCellSupport({ kind: item.kind, observations: [observation] }).support === 'native');
     const here = proving.filter(observation => platform && observation.os === platform.os && observation.arch === platform.arch);
-    const newest = proving.length ? deriveCellSupport({ kind: item.kind, observations: proving }).observedOn.toolVersion : undefined;
+    const newest = proving.map(observation => observation.toolVersion).reduce((best, version) =>
+      best === undefined || newerVersion(version, best) ? version : best, undefined);
     let stale, staleReason;
     if (installedVersion.state !== 'known') staleReason = 'tool-version-unknown';
     else if (!proving.length) staleReason = 'cell-not-proven';

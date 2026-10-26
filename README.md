@@ -609,7 +609,8 @@ items it already holds. A complete result reports:
 - per item, each executable as `present`, `absent` or `unknown`. `absent` means
   every `PATH` folder was read and none holds a regular executable file of that
   name; an unset `PATH`, a relative `PATH` entry or an unreadable folder gives
-  `unknown`.
+  `unknown`. `absent` is about `PATH` only: on Windows, a shell or
+  `CreateProcess` may also search the current or system folders.
 - per item, same-key `copies` at `user` level, in `parentFolders` and in
   `plugins`, each `found` (with `paths`), `none` or `unavailable` (with a
   reason). Copies are read only where the [binding](#observed-tool-bindings)
