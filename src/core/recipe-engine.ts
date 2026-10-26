@@ -23,7 +23,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { checkMember, completeItem, locateMember, pointerOf, preExistingFor, publicKind, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
+import { checkMember, completeItem, locateMember, pointerOf, preExistingFor, publicKind, redactedPathFor, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
@@ -917,13 +917,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const droppedDependencyGuards = policy.selections.flatMap(selection => retainingAncestors.has(claimId(selection)) ? selectionOps.get(selection.id) ?? [] : []);
       const inheritance = heir ? inheritTomlBreak(projectedMembers(root), descriptor.path, [heir]) : undefined;
       let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
+      // Cleanup runs without the private inputs that formed a path; the redaction recorded at install stands in.
+      const redactedPath = redactedPathFor(ownership.get(root)!.value, key);
       steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
-        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: hookDecision?.reason ?? (restores ? 'restore-pre-existing' : 'explicit-managed-removal'),
+        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, redactedPath ?? descriptor.path), reason: hookDecision?.reason ?? (restores ? 'restore-pre-existing' : 'explicit-managed-removal'),
           ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [restores ? { path: descriptor.entry, action: 'set' as const, value: '[REDACTED]' } : { path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) },
           ...(namesSelections ? { selectionId: null } : {}) },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, members: [descriptor], ...(restores ? { restores } : {}),
+        ...(redactedPath ? { redactedPaths: { [key]: redactedPath } } : {}),
         custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
         ...(inheritance ? { inherited: Object.keys(inheritance) } : {}),
         custodyOnly: hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
@@ -1477,7 +1480,7 @@ function memberReports(state: PreparedState, result: RunResult): RunMember[] {
       }
       reports.push({ operationId: step.review.id, selectionId: step.authored?.selectionId ?? null, managementId: step.managementId,
         scope: step.review.scope, kind: publicKind(descriptor),
-        path: safeText(join(step.root, descriptor.path), privateValues),
+        path: safeText(join(step.root, step.redactedPaths?.[memberKey(descriptor)] ?? descriptor.path), privateValues),
         ...(descriptor.kind === 'entry' ? { pointer: safeText(pointerOf(descriptor.entry), privateValues) } : {}),
         ...(descriptor.kind === 'block' ? { blockId: descriptor.blockId } : {}),
         ...(descriptor.kind === 'hook' ? { groupId: descriptor.groupId } : {}), intent, outcome, check });

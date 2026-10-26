@@ -1597,7 +1597,8 @@ where it applies, the entry `pointer` (RFC 6901), `blockId` or hook `groupId`:
 
 A member is compared with its state after the step when the step succeeded, or before
 it otherwise. No digest, earlier value or input value is reported; a private input value
-inside a path is shown as `[REDACTED]`. A run touching more members than the schema's
+inside a path is shown as `[REDACTED]`, also in later cleanup runs, which use the
+redaction recorded at install. A run touching more members than the schema's
 65,536 omits `members` and reports `SOURCE_LIMIT` reason `member-check-limit`, so it
 supports no member claim. The portable
 `runMemberClaims(result)` from `@aihq/core/contracts` applies the

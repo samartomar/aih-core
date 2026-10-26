@@ -153,6 +153,11 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   return true;
 }
 
+/** The publishable path recorded for a member whose path holds a private input value, if any. */
+export function redactedPathFor(value: Custody, key: string): string | undefined {
+  for (const item of Object.values(value.items ?? {})) if (item.redactedPaths && Object.hasOwn(item.redactedPaths, key)) return item.redactedPaths[key];
+  return undefined;
+}
 /** Restoration data recorded for an owned member in this root, if any. */
 export function preExistingFor(value: Custody, key: string): { value: Json } | undefined {
   for (const item of Object.values(value.items ?? {})) if (item.preExisting && Object.hasOwn(item.preExisting, key)) return item.preExisting[key];

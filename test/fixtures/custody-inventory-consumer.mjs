@@ -209,6 +209,8 @@ await check('a private input value inside a member path is redacted in the run r
   assert.deepEqual(result.members.map(member => [member.path, member.check]), [[join(project, 'vault', '[REDACTED]'), 'present-matching']]);
   const listed = await inventory(project);
   assert.deepEqual(listed.selections[0].members.map(member => [member.path, member.fileState]), [[join(project, 'vault', '[REDACTED]'), 'matches']]);
+  const { result: removed } = await run(project, policy('1.4.0', [], { removals: [{ managementId: 'vault', scope: 'project' }] }));
+  assert.deepEqual(removed.members.map(member => [member.path, member.outcome, member.check]), [[join(project, 'vault', '[REDACTED]'), 'claim-removed', 'absent']]);
 });
 
 await check('no input value, restoration value, member digest or private-input hash appears in any output, history or receipt', async () => {

@@ -280,6 +280,11 @@ test('inventory 1.1 never publishes a private input value bound into a member pa
   const listed = await inventory(root);
   assert.deepEqual(listed.selections[0].members.map(member => [member.path, member.fileState]), [[join(root, 'vault', '[REDACTED]'), 'matches']]);
   for (const output of [prepared.review, result, listed]) assert.equal(JSON.stringify(output).includes(SECRET), false);
+  // A removal run carries no private inputs; its review, member checks and history still use the recorded redaction.
+  const removal = await run(root, policy([], { removals: [{ managementId: 'vault-managed', scope: 'project' }] }), { logging: 'on' });
+  assert.deepEqual(removal.result.members.map(member => [member.path, member.outcome, member.check]), [[join(root, 'vault', '[REDACTED]'), 'claim-removed', 'absent']]);
+  const history = readFileSync(join(home, '.aih', 'core', removal.result.record.reference), 'utf8');
+  for (const output of [removal.prepared.review, removal.result, history]) assert.equal(JSON.stringify(output).includes(SECRET), false);
 });
 
 test('a value the person deleted after a replace is not brought back by removal', async () => {
