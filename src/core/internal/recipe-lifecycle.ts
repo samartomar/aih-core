@@ -1,13 +1,15 @@
 import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
-import { configMemberBytes, blockMemberBytes, renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
+import { configArrayMemberBytes, configMemberBytes, blockMemberBytes, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { Ownership } from './state.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
 export type MemberDescriptor = { path: string; kind: 'file' } | HookDescriptor |
   { path: string; kind: 'entry'; format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties'; entry: string[] } |
-  { path: string; kind: 'block'; blockId: string; startMarker: string; endMarker: string };
+  { path: string; kind: 'block'; blockId: string; startMarker: string; endMarker: string } | MemberValueDescriptor;
+/** Recipe 1.4.0: one scalar member of a JSON/JSONC array, identified by the digest of its canonical JSON value. */
+export type MemberValueDescriptor = { path: string; kind: 'member'; format: 'json' | 'jsonc'; container: string[]; valueSha256: string };
 export function memberKey(member: MemberDescriptor): string {
   if (member.kind === 'file') return process.platform === 'win32' ? member.path.toLowerCase() : member.path;
   // The selector is deliberately outside identity: a changed selector under one group ID is detected, not re-keyed.
@@ -22,16 +24,26 @@ export type ByteMember = Exclude<MemberDescriptor, HookDescriptor>;
 export function memberBytes(member: ByteMember, bytes: Buffer | null): Buffer | null {
   if (member.kind === 'file') return bytes;
   if (member.kind === 'entry') return configMemberBytes(member.format, bytes, member.entry);
+  if (member.kind === 'member') return configArrayMemberBytes(member.format, bytes, member.container, member.valueSha256);
   return blockMemberBytes(bytes, { ...member, action: 'remove' });
 }
-/** A recorded created TOML table also loses its header once the last managed key is gone; `heir` is the table that then inherits the added line break. */
-export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTable?: TomlTableCustody): { bytes: Buffer | null; heir?: string } {
+/**
+ * A recorded created TOML table also loses its header once the last managed key is gone; `heir` is the table that then
+ * inherits the added line break. An array Core created (`createdContainer`) goes with its last member.
+ */
+export function subtractMember(member: ByteMember, bytes: Buffer | null, custody: { tomlTable?: TomlTableCustody; createdContainer?: true } = {}): { bytes: Buffer | null; heir?: string } {
   if (member.kind === 'file') return { bytes: null };
+  if (member.kind === 'member') {
+    const found = memberBytes(member, bytes);
+    if (bytes === null || found === null) return { bytes };
+    return { bytes: renderConfigMember(member.format, bytes, { container: member.container, action: 'remove',
+      value: JSON.parse(found.toString('utf8')) as string | boolean | number }, { dropEmpty: custody.createdContainer === true }) };
+  }
   if (member.kind === 'entry') {
     if (bytes === null) return { bytes: null };
     const removed = renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
     const table = member.format === 'toml' ? tomlTableOf(member.entry) : undefined;
-    return table && tomlTable ? removeCreatedTomlTable(removed, table.segments, tomlTable) : { bytes: removed };
+    return table && custody.tomlTable ? removeCreatedTomlTable(removed, table.segments, custody.tomlTable) : { bytes: removed };
   }
   return { bytes: renderTextBlock(bytes, { ...member, action: 'remove' }) };
 }
@@ -41,9 +53,13 @@ export function validDescriptor(value: unknown): value is MemberDescriptor {
   const member = value as MemberDescriptor;
   if (typeof member.path !== 'string' || member.path.length > 4096 || member.path.split('/').some(part => !validSegment(part))) return false;
   const keys = member.kind === 'file' ? ['path', 'kind'] : member.kind === 'entry' ? ['path', 'kind', 'format', 'entry'] :
+    member.kind === 'member' ? ['path', 'kind', 'format', 'container', 'valueSha256'] :
     member.kind === 'hook' ? ['path', 'kind', 'format', 'container', 'groupId', 'selector'] : ['path', 'kind', 'blockId', 'startMarker', 'endMarker'];
   if (Object.keys(member).some(key => !keys.includes(key)) || keys.some(key => !Object.hasOwn(member, key))) return false;
   if (member.kind === 'hook') return validHook(member);
+  if (member.kind === 'member') return ['json', 'jsonc'].includes(member.format) && Array.isArray(member.container) && member.container.length >= 1 &&
+    member.container.length <= 32 && member.container.every(part => typeof part === 'string' && part.length > 0 && part.length <= 256 &&
+      !/[\u0000-\u001f\u007f]/u.test(part)) && typeof member.valueSha256 === 'string' && /^[a-f0-9]{64}$/.test(member.valueSha256);
   try {
     if (member.kind === 'entry') { renderConfigEntries(member.format, null, [{ path: member.entry, action: 'set', value: ['ini', 'yaml', 'properties'].includes(member.format) ? 'value' : true }]); return true; }
     if (member.kind === 'block') { renderTextBlock(null, { ...member, action: 'remove' }); return true; }
@@ -97,6 +113,15 @@ export function overlappingMembers(a: MemberDescriptor, b: MemberDescriptor, byt
   if (!samePath) return false;
   if (a.kind === 'file' || b.kind === 'file') return true;
   const prefix = (outer: string[], inner: string[]) => outer.length <= inner.length && outer.every((part, index) => part === inner[index]);
+  if (a.kind === 'member' || b.kind === 'member') {
+    // An array member overlaps whatever owns the array or a place inside it; members of one array are separate.
+    const place = (member: MemberDescriptor): string[] | undefined => member.kind === 'member' || member.kind === 'hook' ? member.container :
+      member.kind === 'entry' ? member.entry : undefined;
+    const left = place(a), right = place(b);
+    if (!left || !right) return true;
+    if (a.kind === 'member' && b.kind === 'member' && left.join('\0') === right.join('\0')) return a.valueSha256 === b.valueSha256 || a.format !== b.format;
+    return prefix(left, right) || prefix(right, left);
+  }
   if (a.kind === 'hook' && b.kind === 'hook') return a.format !== b.format || prefix(a.container, b.container) && a.container.length !== b.container.length || prefix(b.container, a.container) && a.container.length !== b.container.length;
   if (a.kind === 'hook' && b.kind === 'entry') return prefix(b.entry, a.container) || prefix(a.container, b.entry);
   if (a.kind === 'entry' && b.kind === 'hook') return prefix(a.entry, b.container) || prefix(b.container, a.entry);

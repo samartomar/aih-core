@@ -89,6 +89,15 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     if (invocation.stdin) checkSlot(invocation.stdin, `${path}/stdin`, true);
   };
   const hookIdentities = new Set<string>();
+  // Recipe 1.4.0: an approval is one person's OK for one server this recipe registers, never a switch for all of them.
+  const approvals = recipe.operations.flatMap((op, index) => (op.kind === 'config.entries' || op.kind === 'config.member') && op.approval ? [{ op, index }] : []);
+  for (const [position, { op, index }] of approvals.entries()) {
+    if (position > 0) { invalid('approval-one-server', `/operations/${index}/approval`); continue; }
+    const server = op.kind === 'config.member' ? op.value.literal : op.entries[0]?.path.at(-1);
+    const registered = typeof server === 'string' && recipe.operations.some(other => other.kind === 'config.entries' && !other.approval &&
+      op.requires.includes(other.id) && other.entries.some(entry => entry.action === 'set' && entry.path.includes(server)));
+    if (!registered) invalid('approval-server-unregistered', `/operations/${index}/approval`);
+  }
   recipe.operations.forEach((op, index) => {
     const path = `/operations/${index}`;
     if (!recipe.targets.includes(op.scope)) invalid('scope-mismatch', `${path}/scope`);
@@ -108,6 +117,18 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
         paths.push(entry.path);
         if (entry.action === 'set') checkSlot(entry.value, `${path}/entries/${entryIndex}/value`, false);
       }
+      // An approval is exactly one literal JSON entry the person can recognise as their tool's own choice.
+      if (op.approval && (op.entries.length !== 1 || op.entries[0]!.action !== 'set' || !('literal' in op.entries[0]!.value) ||
+          (op.format !== 'json' && op.format !== 'jsonc'))) invalid('approval-entry', `${path}/approval`);
+    } else if (op.kind === 'config.member') {
+      const prefix = (a: string[], b: string[]) => a.slice(0, b.length).join('\u0000') === b.slice(0, a.length).join('\u0000');
+      if (op.container.some(part => /[\p{Cc}\p{Cf}]/u.test(part))) invalid('member-container', `${path}/container`);
+      (op.exclusiveWith ?? []).forEach((other, otherIndex) => {
+        if (other.some(part => /[\p{Cc}\p{Cf}]/u.test(part)) || prefix(other, op.container) ||
+            (op.exclusiveWith ?? []).some((another, anotherIndex) => anotherIndex !== otherIndex && prefix(another, other)))
+          invalid('member-exclusive', `${path}/exclusiveWith/${otherIndex}`);
+      });
+      if (op.approval && op.action !== 'add') invalid('approval-member', `${path}/approval`);
     } else if (op.kind === 'text.block') {
       if (op.startMarker === op.endMarker || /[\r\n]/.test(op.startMarker + op.endMarker)) invalid('block-marker', path);
       if (op.content) checkSlot(op.content, `${path}/content`, true);

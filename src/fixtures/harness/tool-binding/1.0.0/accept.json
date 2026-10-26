@@ -1,7 +1,7 @@
 {
   "schema": "urn:aihq:harness:tool-binding:1.0.0",
   "tool": "claude",
-  "digest": "7f00d001a1fdf71f801da2dcf5dfae58b6a2366a852015503257a88d41eadc56",
+  "digest": "7cd16c3564361bd9fa71c895ffa5582ae9e0417e5f76bf0ae4df21b8a76cff6e",
   "layouts": {
     "skill": {
       "support": "native",
@@ -198,7 +198,18 @@
         ],
         "format": "json",
         "approval": "per-project",
-        "permissionStep": "Approve the project MCP server in Claude Code."
+        "permissionStep": "Approve the project MCP server in Claude Code.",
+        "approvalLocation": {
+          "shape": "array",
+          "file": ".claude/settings.local.json",
+          "format": "json",
+          "container": [
+            "enabledMcpjsonServers"
+          ],
+          "denied": [
+            "disabledMcpjsonServers"
+          ]
+        }
       }
     },
     "document": {

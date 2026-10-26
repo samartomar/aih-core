@@ -11,6 +11,7 @@ const accepting = new Set([
   "urn:aihq:core:execution-policy:1.3.0",
   "urn:aihq:core:execution-policy:1.4.0",
   "urn:aihq:core:recipe:1.3.0",
+  "urn:aihq:core:recipe:1.4.0",
   "urn:aihq:core:organization-policy:1.0.0",
   "urn:aihq:core:organization-policy:1.1.0",
   "urn:aihq:core:organization-target:1.0.0",

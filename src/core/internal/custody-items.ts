@@ -3,7 +3,7 @@
 // every seal, so they can never diverge from the claims, markers, modes and selectors
 // that Core actually enforces. Restoration data stays inside protected custody.
 import { canonicalJson } from './canonical.js';
-import { RecipeEditError, configMemberBytes, blockMemberBytes } from './recipe-editors.js';
+import { RecipeEditError, configArrayMemberBytes, configMemberBytes, blockMemberBytes } from './recipe-editors.js';
 import { locateHookGroups } from './hook-group.js';
 import { sha256 } from './host-files.js';
 import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
@@ -31,26 +31,33 @@ export interface CustodyItem extends ItemFacts {
   /** Publishable member paths, keyed by member, where a private input value formed part of the path. */
   redactedPaths?: Record<string, string>;
 }
-interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[] }
+interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
 /** An RFC 6901 JSON Pointer naming a configuration entry path. */
 export const pointerOf = (segments: readonly string[]): string =>
   segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
-/** Approval and private-member kinds come from operations other tickets add; they are carried, not derived. */
-const carried = (member: TypedMember): boolean => member.kind === 'config-member' || member.kind === 'approval-change';
-
 /** The published kind of a target-keyed member. */
-export function publicKind(descriptor: MemberDescriptor): 'file' | 'text-block' | 'config-entry' | 'hook-group-member' {
-  return descriptor.kind === 'file' ? 'file' : descriptor.kind === 'block' ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' : 'hook-group-member';
+export function publicKind(descriptor: MemberDescriptor): 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member' {
+  return descriptor.kind === 'file' ? 'file' : descriptor.kind === 'block' ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' :
+    descriptor.kind === 'member' ? 'config-member' : 'hook-group-member';
 }
-export function typedMember(key: string, owner: Owned): TypedMember {
+/** The RFC 6901 pointer of an entry or of the array holding a member. */
+export function memberPointer(descriptor: MemberDescriptor): string | undefined {
+  return descriptor.kind === 'entry' ? pointerOf(descriptor.entry) : descriptor.kind === 'member' ? pointerOf(descriptor.container) : undefined;
+}
+/** A target-keyed member's typed custody; an approval Core wrote is also an `approval-change` at the same pointer. */
+export function typedMembers(key: string, owner: Owned): TypedMember[] {
   const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
-  if (descriptor.kind === 'file') return { kind: 'file', path: descriptor.path, sha256: owner.sha256, executable: (owner.mode & 0o111) !== 0 };
-  if (descriptor.kind === 'block') return { kind: 'text-block', file: descriptor.path, blockId: descriptor.blockId, sha256: owner.sha256 };
-  if (descriptor.kind === 'entry') return { kind: 'config-entry', file: descriptor.path, pointer: pointerOf(descriptor.entry), sha256: owner.sha256 };
-  return { kind: 'hook-group-member', file: descriptor.path, selector: { path: [...descriptor.selector.path], valueSha256: descriptor.selector.valueSha256 }, sha256: owner.sha256 };
+  const approval = (pointer: string): TypedMember[] => owner.approval ? [{ kind: 'approval-change', tool: owner.approval.tool, file: descriptor.path, pointer }] : [];
+  if (descriptor.kind === 'file') return [{ kind: 'file', path: descriptor.path, sha256: owner.sha256, executable: (owner.mode & 0o111) !== 0 }];
+  if (descriptor.kind === 'block') return [{ kind: 'text-block', file: descriptor.path, blockId: descriptor.blockId, sha256: owner.sha256 }];
+  if (descriptor.kind === 'entry') return [{ kind: 'config-entry', file: descriptor.path, pointer: pointerOf(descriptor.entry), sha256: owner.sha256 },
+    ...approval(pointerOf(descriptor.entry))];
+  if (descriptor.kind === 'member') return [{ kind: 'config-member', file: descriptor.path, pointer: pointerOf(descriptor.container),
+    'value-sha256': descriptor.valueSha256 }, ...approval(pointerOf(descriptor.container))];
+  return [{ kind: 'hook-group-member', file: descriptor.path, selector: { path: [...descriptor.selector.path], valueSha256: descriptor.selector.valueSha256 }, sha256: owner.sha256 }];
 }
 
 const claimed = (owner: Owned, scope: string, managementId: string): boolean =>
@@ -67,7 +74,6 @@ export function claimedMembers(value: Custody, scope: string, managementId: stri
  * and redacted paths) with a claim that still owns the member. When the recording claim goes
  * while another claim keeps the member, that data moves to the remaining claim's item, so the
  * last removal can still restore the value and the path stays redacted.
- * Carried member kinds remain until their owning operation removes them.
  */
 export function refreshItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): Record<string, CustodyItem> | undefined {
   if (!value.items) return undefined;
@@ -82,7 +88,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
     const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
     const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
-    items[id] = { ...facts, members: [...owned.map(([key, owner]) => typedMember(key, owner)), ...item.members.filter(carried)],
+    items[id] = { ...facts, members: owned.flatMap(([key, owner]) => typedMembers(key, owner)),
       ...(Object.keys(preExisting).length ? { preExisting } : {}), ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}) };
   }
   for (const field of ['preExisting', 'redactedPaths'] as const) for (const [key, entry] of Object.entries(orphaned[field])) {
@@ -90,7 +96,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     if (!claim) continue;
     const id = identity(claim.scope, claim.managementId);
     const heir: CustodyItem = items[id] ?? { managementId: claim.managementId, scope: claim.scope, name: null, kind: null, framework: null, item: null,
-      tool: null, origins: [], members: claimedMembers(value, claim.scope, claim.managementId).map(([member, owner]) => typedMember(member, owner)) };
+      tool: null, origins: [], members: claimedMembers(value, claim.scope, claim.managementId).flatMap(([member, owner]) => typedMembers(member, owner)) };
     const record = { ...(heir[field] as Record<string, unknown> | undefined) };
     record[key] ??= entry;
     items[id] = { ...heir, [field]: record };
@@ -113,12 +119,6 @@ function validOrigin(value: unknown): boolean {
     exact(value.requiredBy, ['itemId'], ['framework']) && text(value.requiredBy.itemId, 128) &&
     (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));
 }
-function validCarried(value: unknown): boolean {
-  if (exact(value, ['kind', 'file', 'pointer', 'value-sha256']) && value.kind === 'config-member')
-    return text(value.file, 4096) && typeof value.pointer === 'string' && value.pointer.length <= 4096 && hex(value['value-sha256']);
-  return exact(value, ['kind', 'tool', 'file', 'pointer']) && value.kind === 'approval-change' && text(value.tool, 128) &&
-    text(value.file, 4096) && typeof value.pointer === 'string' && value.pointer.length <= 4096;
-}
 
 /** Strict item validation: facts are well formed and typed members equal the derived custody. */
 export function validItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): boolean {
@@ -136,9 +136,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     const owned = claimedMembers(value, item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id]) return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
-    const derived = owned.map(([key, owner]) => typedMember(key, owner));
-    const extra = item.members.slice(derived.length);
-    if (canonicalJson(item.members.slice(0, derived.length)) !== canonicalJson(derived) || !extra.every(validCarried)) return false;
+    if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format)).map(([key]) => key));
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
@@ -173,6 +171,7 @@ export function locateMember(descriptor: MemberDescriptor, bytes: Buffer | null)
     if (descriptor.kind === 'file') return sha256(bytes);
     if (descriptor.kind === 'entry') { const member = configMemberBytes(descriptor.format, bytes, descriptor.entry); return member === null ? null : sha256(member); }
     if (descriptor.kind === 'block') { const member = blockMemberBytes(bytes, { ...descriptor, action: 'remove' }); return member === null ? null : sha256(member); }
+    if (descriptor.kind === 'member') { const member = configArrayMemberBytes(descriptor.format, bytes, descriptor.container, descriptor.valueSha256); return member === null ? null : sha256(member); }
     const found = locateHookGroups(descriptor.format, bytes, descriptor.container, descriptor.selector);
     return found.candidates.length === 0 ? null : found.candidates.length === 1 ? found.candidates[0]!.rawSha256 : 'different';
   } catch (error) {

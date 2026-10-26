@@ -57,6 +57,7 @@
             "enum": [
               "file.write",
               "config.entries",
+              "config.member",
               "text.block",
               "file.remove",
               "process.run",
@@ -123,7 +124,7 @@
             }
           },
           "details": {
-            "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/reviewDetails"
+            "$ref": "#/$defs/reviewDetails"
           },
           "selectionId": {
             "oneOf": [
@@ -533,6 +534,273 @@
           }
         }
       ]
+    },
+    "reviewDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "executable": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "stdinProtected": {
+          "type": "boolean"
+        },
+        "material": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/effectiveInteger"
+        },
+        "maxOutputBytes": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/effectiveInteger"
+        },
+        "declaredEffects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "materialSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "materialBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executableSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedExitCodes": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "format": {
+          "enum": [
+            "json",
+            "jsonc",
+            "toml",
+            "ini",
+            "yaml",
+            "properties"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "action": {
+                "enum": [
+                  "set",
+                  "remove"
+                ]
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "action"
+            ]
+          }
+        },
+        "blockId": {
+          "type": "string"
+        },
+        "startMarker": {
+          "type": "string"
+        },
+        "endMarker": {
+          "type": "string"
+        },
+        "blockAction": {
+          "enum": [
+            "set",
+            "remove"
+          ]
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "hookGroup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container",
+            "groupId",
+            "selector",
+            "action",
+            "matchedIndex",
+            "memberBeforeSha256",
+            "memberAfterSha256",
+            "targetBeforeSha256",
+            "desiredGroup"
+          ],
+          "properties": {
+            "container": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "groupId": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "valueSha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  }
+                },
+                "valueSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "action": {
+              "enum": [
+                "set",
+                "remove"
+              ]
+            },
+            "matchedIndex": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "memberBeforeSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "memberAfterSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "targetBeforeSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "desiredGroup": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "member": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container",
+            "action"
+          ],
+          "properties": {
+            "container": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "action": {
+              "enum": [
+                "add",
+                "remove"
+              ]
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool"
+          ],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      },
+      "required": []
     }
   }
 }

@@ -2,7 +2,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "claude",
-    "digest": "7f00d001a1fdf71f801da2dcf5dfae58b6a2366a852015503257a88d41eadc56",
+    "digest": "7cd16c3564361bd9fa71c895ffa5582ae9e0417e5f76bf0ae4df21b8a76cff6e",
     "layouts": {
       "skill": {
         "support": "native",
@@ -199,7 +199,18 @@
           ],
           "format": "json",
           "approval": "per-project",
-          "permissionStep": "Approve the project MCP server in Claude Code."
+          "permissionStep": "Approve the project MCP server in Claude Code.",
+          "approvalLocation": {
+            "shape": "array",
+            "file": ".claude/settings.local.json",
+            "format": "json",
+            "container": [
+              "enabledMcpjsonServers"
+            ],
+            "denied": [
+              "disabledMcpjsonServers"
+            ]
+          }
         }
       },
       "document": {
@@ -228,7 +239,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "codex",
-    "digest": "4c63939c16d636a0706e313459e7710463093a87ff46a739bc6af7f85bf5b0b8",
+    "digest": "427ff0a5c4c6bab4830b25854cd5b9aea67b80ec03b6b9e31f5a34dcab4b39eb",
     "layouts": {
       "skill": {
         "support": "unconfirmed",
@@ -356,7 +367,10 @@
           ],
           "format": "toml",
           "approval": "per-user",
-          "permissionStep": "Allow the server's tool calls in the Codex approval policy."
+          "permissionStep": "Allow the server's tool calls in the Codex approval policy.",
+          "approvalLocation": {
+            "shape": "other"
+          }
         }
       },
       "document": {
@@ -529,7 +543,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "copilot",
-    "digest": "c5b637edad3b5d4af69242a64fb5910c8bc39bdf36e84cd34e0ed869995b393e",
+    "digest": "f1e3c7bca52ddbd3820fe93c36cb6ccc4ceff677d30ed93dbae9789a8357e49d",
     "layouts": {
       "skill": {
         "support": "native",
@@ -692,7 +706,10 @@
           ],
           "format": "json",
           "approval": "per-project",
-          "permissionStep": "Trust the folder and allow the server's tools in Copilot CLI."
+          "permissionStep": "Trust the folder and allow the server's tools in Copilot CLI.",
+          "approvalLocation": {
+            "shape": "other"
+          }
         }
       },
       "document": {
@@ -732,7 +749,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "antigravity",
-    "digest": "8c9e20d962cfcbbf82d7e197fde9261295e4488afe1d77555d5cdcbbc45f3f49",
+    "digest": "89886fe00ed4ba67ba35cef3f439fa1998d891e6c1a5f316f73fd1747c469743",
     "layouts": {
       "skill": {
         "support": "unconfirmed",
@@ -836,7 +853,10 @@
           ],
           "format": "json",
           "approval": "per-user",
-          "permissionStep": "Allow the server's tool in Antigravity's permissions.allow setting."
+          "permissionStep": "Allow the server's tool in Antigravity's permissions.allow setting.",
+          "approvalLocation": {
+            "shape": "other"
+          }
         }
       },
       "document": {

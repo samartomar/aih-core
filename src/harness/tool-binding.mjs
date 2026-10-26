@@ -118,6 +118,11 @@ export function validateToolBinding(value) {
       `${path}/observations/${index}`, 'An observation without delivery cannot show the tool listing or using the item.')); });
     if (deriveCellSupport({ kind, observations: layout.observations }).support !== layout.support)
       diagnostics.push(invalid('support-not-derived', `${path}/support`, "The cell's support is not the one its observations give."));
+    const location = layout.register?.approvalLocation;
+    if (location && (kind !== 'mcp-server' || layout.register.permissionStep === undefined || location.shape === 'array' && location.denied &&
+        location.denied.slice(0, location.container.length).join('\0') === location.container.slice(0, location.denied.length).join('\0')))
+      diagnostics.push(invalid('approval-location-invalid', `${path}/register/approvalLocation`,
+        'An approval location belongs to an MCP server permission step, and its denied list is separate from the approved one.'));
     if (layout.convert !== undefined && layout.support !== 'native')
       diagnostics.push(invalid('convert-not-observed', `${path}/convert`, 'A converter is named only where its output was observed.'));
   }

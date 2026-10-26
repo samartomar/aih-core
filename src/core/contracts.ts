@@ -10,6 +10,7 @@ import preparedSchema16 from './schemas/prepared-work/1.6.0.json' with { type: '
 import resultSchema14 from './schemas/run-result/1.4.0.json' with { type: 'json' };
 import policySchema13 from './schemas/execution-policy/1.3.0.json' with { type: 'json' };
 import recipeSchema13 from './schemas/recipe/1.3.0.json' with { type: 'json' };
+import recipeSchema14 from './schemas/recipe/1.4.0.json' with { type: 'json' };
 import policySchema12 from './schemas/execution-policy/1.2.0.json' with { type: 'json' };
 import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
 import preparedSchema14 from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
@@ -85,7 +86,7 @@ export { runMemberClaims, type RunMemberClaims } from './run-claims.js';
 export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
-registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, policySchema, policySchema11, policySchema12, policySchema13, policySchema14,
+registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, recipeSchema14, policySchema, policySchema11, policySchema12, policySchema13, policySchema14,
   organizationSchema, organizationSchema11, organizationTargetSchema, organizationTargetSchema11, fileStateSchema);
 const checkFileStateResult = schemaCheck(fileStateSchema.$id);
 /** Validate a stored file-state 1.1.0 result without observing or changing the host. */
@@ -109,7 +110,7 @@ export const contractSupport = Object.freeze({
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11].map((schema): SupportedContract => ({
+      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11, recipeSchema14].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14, managedInventorySchema11].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -150,7 +151,7 @@ export const contractSupport = Object.freeze({
 
 const accepting = (...schemas: { $id: string }[]) => Object.freeze(Object.fromEntries(schemas.map(schema => [schema.$id, schemaCheck(schema.$id)])));
 const policies = accepting(policySchema, policySchema11, policySchema12, policySchema13, policySchema14);
-const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13);
+const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, recipeSchema14);
 const organizations = accepting(organizationSchema, organizationSchema11);
 const organizationTargets = accepting(organizationTargetSchema, organizationTargetSchema11);
 export const validatePolicy = (value: unknown): ValidationResult =>

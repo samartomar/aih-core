@@ -38,7 +38,7 @@ export interface Effective<T> { value: T; origin: 'default' | 'explicit' }
 export type RecordStatus = { status: 'written'; reference: string } | { status: 'disabled'; reason: 'logging-off' } |
   { status: 'failed'; reason: 'record-limit' | 'record-write'; diagnosticId: string };
 export interface ReviewOperation {
-  id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'text.block' | 'file.remove' | 'process.run' | 'hook.group'; scope: 'project' | 'user';
+  id: string; purpose: string; kind: 'file.write' | 'config.entries' | 'config.member' | 'text.block' | 'file.remove' | 'process.run' | 'hook.group'; scope: 'project' | 'user';
   effects: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'opaque-process' | 'unavailable';
   ownership: 'managed' | 'unowned';
   requires: string[]; checks: ReviewCheck[];
@@ -50,7 +50,11 @@ export interface ReviewOperation {
     format?: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties'; entries?: { path: string[]; action: 'set' | 'remove'; value?: string }[];
     blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove';
     /** Present exactly for `hook.group` operations (prepared-work 1.1.0). */
-    hookGroup?: HookGroupReview };
+    hookGroup?: HookGroupReview;
+    /** Prepared work 1.6.0, `config.member`: the array and the one member's canonical JSON (omitted in generated cleanup). */
+    member?: { container: string[]; action: 'add' | 'remove'; value?: string };
+    /** Prepared work 1.6.0: this edit is the person's OK for one MCP server in `tool`. */
+    approval?: { tool: string } };
   /** Prepared work 1.6.0: the selection behind this operation; `null` for generated lifecycle cleanup. */
   selectionId?: string | null;
 }

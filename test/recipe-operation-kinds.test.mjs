@@ -6,7 +6,7 @@ import { prepare } from '../dist/core/index.js';
 import { contractSupport, recipeOperationKinds, validateRecipe } from '@aihq/core/contracts';
 import { hookOp, policy11, request, sandbox } from './hook-group-fixture.mjs';
 
-const RECIPES = ['1.0.0', '1.1.0', '1.2.0', '1.3.0'].map(version => `urn:aihq:core:recipe:${version}`);
+const RECIPES = ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0'].map(version => `urn:aihq:core:recipe:${version}`);
 const schemaOf = async id => (await import(`@aihq/core/schemas/recipe/${id.split(':').at(-1)}.json`, { with: { type: 'json' } })).default;
 
 test('each accepted recipe format lists exactly the operation kinds its schema admits', async () => {
@@ -24,7 +24,9 @@ test('each accepted recipe format lists exactly the operation kinds its schema a
   const effects = id => Object.fromEntries(recipeOperationKinds[id].map(item => [item.kind, item.effects]));
   assert.deepEqual(effects('urn:aihq:core:recipe:1.0.0'), { 'file.write': 'observable', 'config.entries': 'observable',
     'text.block': 'observable', 'file.remove': 'observable', 'process.run': 'opaque' });
-  for (const id of RECIPES.slice(1)) assert.deepEqual(effects(id), { ...effects('urn:aihq:core:recipe:1.0.0'), 'hook.group': 'observable' }, id);
+  for (const id of RECIPES.slice(1, 4)) assert.deepEqual(effects(id), { ...effects('urn:aihq:core:recipe:1.0.0'), 'hook.group': 'observable' }, id);
+  // Recipe 1.4.0 adds one-member configuration edits, which Prepare reads and compares like any file target.
+  assert.deepEqual(effects('urn:aihq:core:recipe:1.4.0'), { ...effects('urn:aihq:core:recipe:1.3.0'), 'config.member': 'observable' });
 });
 
 test('a fresh Prepare reviews exactly the opaque kinds as opaque processes', async () => {

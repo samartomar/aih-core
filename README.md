@@ -46,6 +46,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
 | `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
 | `@aihq/core/schemas/execution-policy/1.4.0.json` | Execution-policy 1.4.0 JSON Schema (descriptive Catalog selection metadata, `excludedItems`) |
+| `@aihq/core/schemas/recipe/1.4.0.json` | Recipe 1.4.0 JSON Schema (adds `config.member` and one-server `approval`) |
 | `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding and checking each touched member |
 | `@aihq/core/schemas/managed-inventory-result/1.1.0.json` | Managed inventory naming each installed selection, its origins, members and their states |
 | `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
@@ -478,7 +479,7 @@ Harness data with no host effects.
 { schema, tool, digest, layouts: Record<Kind, Layout>, entryFiles[], entryPointer?, alsoReads[] }
 // Kind: skill | agent | command | rule | hook | mcp-server | document (toolBindingKinds)
 // Layout: { support, reason, observations[], roots, skillKey?, convert?, namespace?,
-//           register?: { file, container[], format, approval, permissionStep? },
+//           register?: { file, container[], format, approval, permissionStep?, approvalLocation? },
 //           formats?, hookEvents?, hookProtocols?, commandTemplate? }
 // Observation: { toolVersion, observedAt, coreVersion, os, arch, isolation, runRecordDigest,
 //                delivered, registered, recognised }
@@ -491,6 +492,23 @@ user home, and `roots.user.resolvedBy` names what the tool uses to find it.
 binding's canonical JSON (sorted keys, no whitespace) without `digest`; any change
 to a binding changes it. `validateToolBinding` does not check the digest, so a
 consumer that binds it recomputes it.
+
+**Permission steps.** An MCP server layout names the tool's `permissionStep` and,
+in `register.approvalLocation`, where the tool records a person's OK for one server
+and its shape: `{ shape: 'array', file, format, container, denied? }` (the server
+key is a member of a list, with an optional separate list of denied servers),
+`{ shape: 'object-keyed', file, format, container, approved }` (the value
+`approved` at the server's key) or `{ shape: 'other' }`, which Core never writes.
+`file` is relative to the same root as the registration, and `format` is `json` or
+`jsonc`. The shipped Claude Code binding names its project approvals list,
+`enabledMcpjsonServers` in `.claude/settings.local.json`, with
+`disabledMcpjsonServers` as its denied list; Codex CLI, Copilot CLI and
+Antigravity CLI record approval in policies or folder trust, so their shape is
+`other`. These locations are binding data from the tools' settings formats, not
+observed grants: no canary has yet observed a tool reading an approval Core wrote.
+`validateToolBinding` refuses an approval location outside an MCP server layout
+with a permission step, or one whose denied list overlaps its approved list
+(`approval-location-invalid`).
 
 **Support is derived only from observations.** `support` is `native`, `none` or
 `unconfirmed`:
@@ -628,8 +646,16 @@ length.
   `ai-coding`). Agents and commands deliver their `payload.files`; they are
   refused with `native-only-kind` where the binding records the tool not reading
   that kind or names no location for it. An MCP server delivers its registration
-  under `register.container` and `payload.key`; input-backed `env` and `headers`
-  values become recipe inputs, never literals.
+  under `register.container` and `payload.key`. An input-backed `env` or `headers`
+  value stays a declared recipe input, so the review names it, but the
+  configuration holds only the reference `${<input name>}`, never a value, for
+  sensitive and ordinary inputs alike. Set that environment variable where the
+  tool runs. The input name must be a valid environment variable name
+  (`input-reference-invalid` otherwise). A sensitive value travels only in the
+  live request (`controls.privateInputs`), an ordinary one only in the policy's
+  `configuration`, and neither is reviewed or written anywhere;
+  where a tool reads only literal values in its configuration, the reference is
+  still what Core writes, with no literal fallback.
 - **Hooks.** The binding must speak the hook's `protocol` (`hookProtocols`) and
   map its `event` (`hookEvents`), else `protocol-not-spoken`. Scripts are written
   to `<hooks root>/<itemId>/`, and one group is registered in `register.file` at
@@ -652,9 +678,20 @@ length.
 - **Identity.** The recipe's description names both item identities and the
   binding digest, so the identity from `deriveRecipeIdentity` changes when either
   item identity or the binding changes.
-- **Not here.** Allowing an MCP server (`grantApproval`) and single array
-  members (`config.member`) are not rendered by this Core; a non-empty
-  `grantApproval` is refused with `grant-approval-unsupported`.
+- **Allowing one MCP server.** `grantApproval: { framework, itemId }` names the
+  MCP server item being rendered when the person ticked it; anything else (a
+  list, another item, a non-server) is `INPUT_INVALID` `grant-approval`. It adds
+  exactly one operation, `approve-server`, after the registration, for the
+  binding's [approval location](#observed-tool-bindings): one `config.entries`
+  set of `approved` at the server's key for `object-keyed`, or one
+  `config.member` add of the server key for `array` (with the `denied` list as
+  `exclusiveWith`). Either carries `approval: { tool }`, and the recipe is
+  `urn:aihq:core:recipe:1.4.0`. Any other shape, or none, is refused with
+  `PREREQUISITE_UNAVAILABLE` `approval-shape-unsupported` and `guidance` saying
+  the server still needs your OK in the tool, with its permission step. Core
+  never writes an approve-all switch (such as Claude Code's
+  `enableAllProjectMcpServers`). See [one-server approval](#allow-one-mcp-server)
+  for how Core applies and removes it.
 
 **Authority fence.** A rendered recipe is ordinary execution-policy content. Put
 it in a policy selection like any recipe: Vibe applies it after review, and in
@@ -694,6 +731,8 @@ depend on order. Per item the result is:
 - **Platform.** Only observations made on that OS and architecture count, so a
   cell observed only on Windows is `unconfirmed` on Linux, with a reason saying
   so and `observedOn: null`.
+- **Permission step.** `permissionStep` says the item still needs your OK in the
+  tool: `Still needs your OK in <tool label>. <the binding's permission step>`.
 - **Static blockers.** `protocol-not-spoken` (hook protocol or event the binding
   does not map), `required-but-unsupported` (a `required` item whose cell is
   `none` on this platform), `native-only-kind` (an agent or command the tool does
@@ -1505,7 +1544,7 @@ Execution policy `urn:aihq:core:execution-policy:1.4.0` keeps every 1.3.0 field:
 [`renderDelivery`](#render-catalog-items-and-check-compatibility)), `managementId`,
 selection-id `requires`, `managedSelections` (omitted keeps earlier members; a set
 with `members: []` reconciles them), scoped `removals` and `evidence`, and admits
-the same recipe formats. It adds:
+the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
 
 - **Descriptive selection metadata,** given all together or not at all:
 
@@ -1540,7 +1579,8 @@ one entry per policy selection, in policy order:
 { selectionId, managementId, scope,
   item?, tool?, name?, kind?, origins?,          // the selection's metadata, unchanged
   hookCommands?: string[],                       // each hook group's hooks[].command, verbatim
-  permissionStep?: string,                       // from the shipped binding for tool and kind
+  permissionStep?: string,                       // "Still needs your OK in <tool>. <step>" from the shipped binding;
+                                                 // omitted when the recipe writes that tool's approval itself
   inputs: string[],                              // bound input names; never values
   deliveredSize?: { bytes, chars, alwaysLoaded?: { bytes, chars } } }
 ```
@@ -1604,6 +1644,65 @@ supports no member claim. The portable
 `runMemberClaims(result)` from `@aihq/core/contracts` applies the
 [claim rules](#what-each-result-status-lets-you-claim): `confirmedOnDisk` and `removed`.
 
+## Allow one MCP server
+
+Recipe `urn:aihq:core:recipe:1.4.0` keeps every 1.3.0 operation and adds two things,
+admitted by execution policy 1.4.0. Each recipe 1.4.0 operation kind is in
+`recipeOperationKinds`.
+
+- **`config.member`** adds or removes one scalar member of a JSON or JSONC array:
+
+  ```ts
+  { id, purpose, kind: 'config.member', scope, target, format: 'json' | 'jsonc',
+    container: string[], action: 'add' | 'remove', value: { literal: string | boolean | number },
+    exclusiveWith?: string[][], approval?: { tool }, requires, checks }
+  ```
+
+  The member is identified by its value. Every other member, comment and line keeps
+  its text, so adding a member and removing it again gives back the earlier bytes;
+  an array Core created is removed with the last member Core added to it. Adding a
+  value already present changes nothing. A container that is not an array
+  (`member-container-invalid`), two equal members (`member-ambiguous`) or the value
+  found in an `exclusiveWith` array (`member-excluded`) is a `STATE_CONFLICT`. Custody
+  is per member: two operations owning different members of one array never
+  conflict, and removal takes only the owned member. Inputs and object values are
+  refused by the schema, and so is anything other than one member.
+- **`approval: { tool }`** on a one-entry JSON or JSONC `config.entries` set, or on a
+  `config.member` add, marks the edit as the person's OK for one MCP server in that
+  tool (`approval-entry`, `approval-member` otherwise). A recipe holds at most one
+  approval (`approval-one-server`), and it must require a `config.entries`
+  operation of the same recipe that registers that server, the entry's last key or
+  the member's value naming it (`approval-server-unregistered`). So a recipe can
+  never mark a global switch, such as an approve-all setting, as an approval.
+
+Core applies an approval only where no choice was made yet:
+
+- **Already approved.** The same value already there is `already-satisfied` and
+  `unowned`; it is never adopted, so removal leaves the person's approval alone.
+- **Denied.** A different value at the server's key, or the server in an
+  `exclusiveWith` list, is a `STATE_CONFLICT` with reason `approval-denied`. It is
+  never overwritten: a reviewed `replace` or `adopt` resolution on an approval is
+  `resolution-invalid`. Change the choice in the tool itself.
+- **Granted.** Otherwise the one value is written. The review operation's details
+  carry `approval: { tool }` and, for a member, `member: { container, action, value }`.
+  Custody records a `config-entry` or `config-member` member and an
+  `approval-change { tool, file, pointer }`, and inventory 1.1.0 reports
+  `approval: 'granted-by-aih'`. The selection's review entry no longer says the
+  server still needs your OK; neither does it for an already approved server,
+  while a denied one still does. Without an approval operation Prepare does not
+  read the approval location, so an unticked server keeps the notice even when
+  inventory later reads `not-needed` for it.
+- **Removed.** Removing the server removes only the approval Core wrote, which
+  restores the location's earlier state (Core never replaces an earlier value, so
+  there is none to write back). When the person has since changed that approval,
+  removal keeps their edit: the review reports the member as a `STATE_CONFLICT`
+  (`managed-content-changed`) and the run result as `kept`. Removal preparation
+  1.2.0's named `keep-changed` action is not part of this Core. A file Core created
+  only to hold the location stays behind as an empty object.
+
+Only the approval file Core writes is read: an approval or denial the tool records
+elsewhere (for example in the user's own state) is not seen.
+
 ## Managed lifecycle
 
 `managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML/INI/YAML/properties entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
@@ -1660,16 +1759,18 @@ whose framework is no longer offered. Each selection adds:
 
 - `name`, `kind`, `framework`, `item` (both identities) and `tool`, or `null` for a claim recorded without them;
 - `origins[]`, every qualified inclusion (`chosen`; `in-set` with framework, set id and set digest; `required-by`), so a restart can rebuild the exact selection;
-- `members[]`, each member's `kind`, `path` (with `pointer`, `blockId` or `groupId`) and `fileState`: `matches`, `changed`, `missing` or `unchecked`, and for marker blocks `block-changed` or `block-missing`;
+- `members[]`, each member's `kind`, `path` (with `pointer` — for a `config-member`, the array's pointer —, `blockId` or `groupId`) and `fileState`: `matches`, `changed`, `missing` or `unchecked`, and for marker blocks `block-changed` or `block-missing`;
 - `updateState` from the consumer's optional `index: { offered, revoked?, superseded? }`: `revoked`, `superseded`, then `current` or `update-available` against the offered identities, `no-longer-offered` when the index does not offer the item, and `unknown` without an index or recorded identity;
 - `policyState`, only when Enterprise passes `organization: { document }`: the obligation admitting the recorded recipe identity and scope (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here;
-- `approval`: `granted-by-aih` when Core recorded an approval change, `needed` when the tool's binding names a permission step, `not-needed`, or `null` without a recorded tool and kind;
+- `approval`: `granted-by-aih` while Core holds an approval it wrote ("Allowed by AIH in the tool; removed with the server"), `needed` when the tool's binding names a permission step the person has not yet taken, `not-needed` when it names none or the person already allowed the server there, or `null` without a recorded tool and kind. An approval the person made themselves is never Core's;
 - `installState`: `interrupted` from an Apply's first write of the selection until all its reviewed operations succeed, otherwise `complete`. Finishing or removing an interrupted install uses a fresh review.
 
 Inventory 1.1.0 reads the target files of listed members (16 MiB per file, 64 MiB in
 total, reported in `limits.checkedBytes`); members beyond that budget are `unchecked`
 and the result is `incomplete`. It never exposes a member digest, a `preExisting` or
-approval value, or a private-input hash. When a private input value formed part of a
+approval value, or a private-input hash. A server the person already allowed at the
+binding's approval location reads `approval: 'not-needed'`; the location is read
+within the same check budget, and an unreadable one leaves it `needed`. When a private input value formed part of a
 member's path, Apply records the redacted path in protected custody and the inventory
 publishes only that (`[REDACTED]` in place of the value); custody written before this
 version carries no such record. The schema is

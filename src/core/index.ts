@@ -1,7 +1,7 @@
 // Explicit type exports: each name appears in a request, control or result of an operation exported here.
 // Portable document types, validators and their schema identities belong to '@aihq/core/contracts'.
 export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, OperationBase, FileOperation, ConfigEntrySet,
-  ConfigEntryRemove, ConfigOperation, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
+  ConfigEntryRemove, ConfigOperation, ConfigMemberOperation, ApprovalMarker, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
   HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
   InlineMaterial, MaterialRecipeReference, Prerequisite, Recipe, Selection, SelectionMetadata, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationTargetFact,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,

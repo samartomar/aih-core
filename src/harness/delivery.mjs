@@ -4,6 +4,7 @@
 import { SHA256_RE, canonicalJson, compareCodeUnits, isRecord, isSafeRelativePath, sha256Hex } from './native/canonical.mjs';
 import { deriveCellSupport, toolBindingKinds, validateToolBinding } from './tool-binding.mjs';
 import { selectTool } from './tool-registry.mjs';
+import { permissionNotice } from './delivery-review.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const BEHAVIOUR = 'aih-behaviour.json';
@@ -11,6 +12,9 @@ const PLACEHOLDER = /\{([^{}]*)\}/g;
 const CATALOG_PLACEHOLDERS = new Set(['projectDir', 'homeDir', 'itemDir', 'pluginRoot']);
 const INTERPRETERS = new Set(['node', 'bash', 'python', 'pwsh']);
 const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** The MCP registration operation id; the one approval a recipe grants depends on it. */
+const REGISTER_SERVER = 'register-server';
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 // Kinds a tool must read natively: there are no reference files, so these are never delivered where unread.
 const NATIVE_ONLY = new Set(['agent', 'command']);
 // How each hook protocol's runtime names the project and home folders inside a hook command.
@@ -235,6 +239,26 @@ function hookCommand(info, plan, scope) {
 }
 
 /**
+ * The one operation that allows one MCP server where the binding says the tool records approval: one entry at the
+ * server's key, or one member of a list. Any other shape is refused, and the person approves in the tool. Core never
+ * writes an approve-all switch, and the operation never replaces a choice the person already made (see Core).
+ */
+function approvalOperation(binding, register, plan, scope, key) {
+  const location = register.approvalLocation;
+  const label = selectTool(binding.tool).tool.label;
+  if (!location || location.shape === 'other')
+    refuse('PREREQUISITE_UNAVAILABLE', 'approval-shape-unsupported', '/grantApproval', `Core cannot write ${label}'s approval for one server.`,
+      { guidance: register.permissionStep ? permissionNotice(label, register.permissionStep) : `Approve the server in ${label}.` });
+  const base = { id: 'approve-server', purpose: `Allow the ${key} MCP server in ${label}`, scope,
+    target: target(plan.base, segmentsOf(location.file)), format: location.format };
+  const tail = { approval: { tool: binding.tool }, requires: [REGISTER_SERVER], checks: [] };
+  if (location.shape === 'object-keyed') return { ...base, kind: 'config.entries',
+    entries: [{ path: [...location.container, key], action: 'set', value: { literal: location.approved } }], ...tail };
+  return { ...base, kind: 'config.member', container: [...location.container], action: 'add', value: { literal: key },
+    ...(location.denied ? { exclusiveWith: [[...location.denied]] } : {}), ...tail };
+}
+
+/**
  * Renders one checked Catalog item as an ordinary Core recipe for one tool. The recipe identity, through Core's
  * public deriveRecipeIdentity, binds both item identities and the binding digest. Rendering never grants authority:
  * the recipe is ordinary execution-policy content that Enterprise organization policy governs in full.
@@ -245,10 +269,14 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     if (scope !== 'project' && scope !== 'user') invalid('scope', '/scope', 'Expected project or user.');
     if (projectFolder !== undefined && (!text(projectFolder, 255) || !isSafeRelativePath(projectFolder)))
       invalid('project-folder', '/projectFolder', 'Expected a safe relative folder.');
-    if (grantApproval !== undefined && !Array.isArray(grantApproval)) invalid('grant-approval', '/grantApproval', 'Expected a list of items.');
-    if (grantApproval?.length) unavailable('grant-approval-unsupported', '/grantApproval', 'Granting MCP approval is not rendered by this Core.');
+    // One ticked server, named exactly: there is no list, wildcard or approve-all form.
+    if (grantApproval !== undefined && !(isRecord(grantApproval) && Object.keys(grantApproval).length === 2 &&
+        typeof grantApproval.framework === 'string' && typeof grantApproval.itemId === 'string'))
+      invalid('grant-approval', '/grantApproval', 'Name the one MCP server to allow as { framework, itemId }.');
     if (contents !== undefined && !isRecord(contents)) invalid('contents', '/contents', 'Expected material text keyed by material id.');
     const info = readItem(item, '/item');
+    if (grantApproval && (grantApproval.framework !== info.ref.framework || grantApproval.itemId !== info.ref.itemId || info.kind !== 'mcp-server'))
+      invalid('grant-approval', '/grantApproval', 'grantApproval names the MCP server item being rendered, and only that one.');
     const plan = deliveryPlan(info, binding, scope, { projectFolder });
     const key = recipeKey(info, '/item');
     const recipeId = `${binding.tool}.${info.ref.itemId}`;
@@ -300,17 +328,22 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
       } else invalid('item-invalid', `${at}/transport`, 'Expected stdio, http or sse.');
       for (const field of ['env', 'headers']) for (const [name, value] of Object.entries(isRecord(payload[field]) ? payload[field] : {})) {
         if (isRecord(value) && typeof value.input === 'string' && Object.hasOwn(info.inputs, value.input)) {
+          // An input value is never written into a tool's configuration: the entry holds a reference by input name,
+          // which the tool resolves from its environment, and the value itself travels only in the live request.
+          if (!ENV_NAME.test(value.input)) unavailable('input-reference-invalid', `${at}/${field}/${name}`,
+            'An MCP input is written as a ${NAME} reference, so its name must be a valid environment variable name.');
           inputs[value.input] = info.inputs[value.input];
-          entries.push(entry([field, name], { input: value.input }));
+          entries.push(entry([field, name], { literal: `\${${value.input}}` }));
         } else if (isRecord(value) && Object.hasOwn(value, 'value')) entries.push(entry([field, name], { literal: value.value }));
         else invalid('item-invalid', `${at}/${field}/${name}`, 'Expected an input reference or a value.');
       }
-      operations.push({ id: 'register-server', purpose: `Register the ${payload.key} MCP server in ${register.file}`, kind: 'config.entries',
+      operations.push({ id: REGISTER_SERVER, purpose: `Register the ${payload.key} MCP server in ${register.file}`, kind: 'config.entries',
         scope, target: target(plan.base, segmentsOf(register.file)), format: register.format, entries, requires: [], checks: [] });
+      if (grantApproval) operations.push(approvalOperation(binding, register, plan, scope, payload.key));
     }
     if (operations.length === 0) unavailable('nothing-to-deliver', '/item', 'The item delivers no content for this tool.');
     const recipe = {
-      schema: info.kind === 'hook' ? 'urn:aihq:core:recipe:1.1.0' : 'urn:aihq:core:recipe:1.0.0',
+      schema: grantApproval ? 'urn:aihq:core:recipe:1.4.0' : info.kind === 'hook' ? 'urn:aihq:core:recipe:1.1.0' : 'urn:aihq:core:recipe:1.0.0',
       id: recipeId,
       description: `Deliver ${info.ref.framework}/${info.ref.itemId} (${info.kind}) to ${binding.tool}: ` +
         `content sha256:${item.contentSha256}, behaviour sha256:${item.behaviourSha256}, binding sha256:${binding.digest}.`,
@@ -427,7 +460,8 @@ export function checkCompatibility({ tool, platform, items, binding } = {}) {
       return { entry, bound, plan, result: {
         item: entry.info.ref, support: cell.support, reason: cell.reason, observed: cell.observed, observedOn: cell.observedOn,
         ...(boundAs ? { boundAs } : {}), ...(isExcluded ? { excluded: true } : {}), ...(notRendered ? { notRendered } : {}),
-        ...(cell.layout.register?.permissionStep && !isExcluded ? { permissionStep: cell.layout.register.permissionStep } : {}),
+        ...(cell.layout.register?.permissionStep && !isExcluded ?
+          { permissionStep: permissionNotice(selectTool(binding.tool).tool.label, cell.layout.register.permissionStep) } : {}),
         deliveredSize: plan ? deliveredSize(bound, plan) : emptySize(), staticBlockers } };
     });
     // Two different items writing one folder (a skill or hook folder) or one file. Items bound to the same item,

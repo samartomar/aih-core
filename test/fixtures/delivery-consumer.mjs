@@ -197,7 +197,7 @@ const github = catalogItem({ id: 'github', kind: 'mcp-server', files: { LICENSE:
   payload: { key: 'github', transport: 'stdio', command: 'npx', args: ['-y', 'github-mcp'],
     env: { GITHUB_TOKEN: { input: 'githubToken' }, LOG_LEVEL: { value: 'warn' } } } });
 
-await check('an MCP server renders as object-keyed config.entries; approval grants are not rendered here', async () => {
+await check('an MCP server renders as object-keyed config.entries; a sensitive input is a reference by name; a grant names one server', async () => {
   const project = renderDelivery({ tool: 'claude', item: github, binding: bindingWith('claude'), scope: 'project' });
   assert.equal(project.status, 'rendered', JSON.stringify(project));
   assert.equal(validateRecipe(project.recipe).valid, true, JSON.stringify(validateRecipe(project.recipe)));
@@ -206,7 +206,7 @@ await check('an MCP server renders as object-keyed config.entries; approval gran
   assert.deepEqual(op.entries, [
     { path: ['mcpServers', 'github', 'command'], action: 'set', value: { literal: 'npx' } },
     { path: ['mcpServers', 'github', 'args'], action: 'set', value: { literal: ['-y', 'github-mcp'] } },
-    { path: ['mcpServers', 'github', 'env', 'GITHUB_TOKEN'], action: 'set', value: { input: 'githubToken' } },
+    { path: ['mcpServers', 'github', 'env', 'GITHUB_TOKEN'], action: 'set', value: { literal: '${githubToken}' } },
     { path: ['mcpServers', 'github', 'env', 'LOG_LEVEL'], action: 'set', value: { literal: 'warn' } }]);
   assert.deepEqual(project.recipe.inputs, { githubToken: { type: 'string', required: true, sensitive: true } });
   assert.deepEqual(project.recipe.materials, [], 'the registration is the delivery');
@@ -215,10 +215,12 @@ await check('an MCP server renders as object-keyed config.entries; approval gran
     ['userHome/.codex/config.toml', 'toml', ['user']]);
   const wrongScope = renderDelivery({ tool: 'codex', item: github, binding: bindingWith('codex'), scope: 'project' });
   assert.deepEqual([wrongScope.status, wrongScope.reason], ['refused', 'scope-not-bound']);
-  const granted = renderDelivery({ tool: 'claude', item: github, binding: bindingWith('claude'), scope: 'project',
+  const listed = renderDelivery({ tool: 'claude', item: github, binding: bindingWith('claude'), scope: 'project',
     grantApproval: [{ framework: FRAMEWORK, itemId: 'github' }] });
-  assert.deepEqual([granted.status, granted.reason], ['refused', 'grant-approval-unsupported']);
-  assert.equal(renderDelivery({ tool: 'claude', item: github, binding: bindingWith('claude'), scope: 'project', grantApproval: [] }).status, 'rendered');
+  assert.deepEqual([listed.status, listed.reason], ['refused', 'grant-approval'], 'a grant names one server, never a list');
+  const granted = renderDelivery({ tool: 'claude', item: github, binding: bindingWith('claude'), scope: 'project',
+    grantApproval: { framework: FRAMEWORK, itemId: 'github' } });
+  assert.deepEqual(granted.recipe.operations.map(item => item.kind), ['config.entries', 'config.member']);
 });
 
 await check('the recipe identity binds both item identities and the binding digest', async () => {
@@ -287,7 +289,7 @@ await check('only observations from the same OS and architecture count: a Window
   }
   const result = compat('claude', LINUX, [{ item: github }]);
   assert.deepEqual([result.tool, result.platform, result.bindingDigest], ['claude', LINUX, bindingWith('claude').digest]);
-  assert.equal(byId(compat('claude', WINDOWS, [{ item: github }]), 'github').permissionStep, 'Approve the project MCP server in Claude Code.');
+  assert.equal(byId(compat('claude', WINDOWS, [{ item: github }]), 'github').permissionStep, 'Still needs your OK in Claude Code. Approve the project MCP server in Claude Code.');
   const refused = checkCompatibility({ tool: 'claude', platform: { os: 'plan9', arch: 'x64' }, items: [], binding: bindingWith('claude') });
   assert.deepEqual([refused.status, refused.reason], ['refused', 'platform']);
 });
