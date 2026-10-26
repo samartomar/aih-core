@@ -21,7 +21,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
-| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, and read-only macOS session/app/key observations and LaunchAgent rendering |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, and `inspectToolHost` host inspection for an observed tool |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
@@ -572,6 +572,85 @@ operation with its own maintainer approval; package tests never run one. The
 fixture `@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json` lists
 derived support for the shipped table, including a `stale` and an `unconfirmed`
 cell.
+
+## Inspect a tool host
+
+`inspectToolHost({ tool, project, items }, controls?)` from
+`@aihq/core/harness/runtime` extends [inspection](#inspect-existing-tools) to one
+observed tool and a set of items on this computer. It observes with bounded
+reads and **runs nothing**: no tool, hook, MCP server or item content is started,
+not even for `--version`. It never writes, removes or edits anything it finds.
+
+```js
+import { inspectToolHost } from '@aihq/core/harness/runtime';
+
+const result = await inspectToolHost({
+  tool: 'claude',                      // a registry id or alias with an observed binding
+  project: '/absolute/project/folder', // an existing folder
+  items: [
+    { framework: 'example', itemId: 'review', kind: 'skill', key: 'review' },
+    { framework: 'example', itemId: 'github', kind: 'mcp-server', key: 'github',
+      executables: ['npx'], inputs: ['GITHUB_TOKEN'], requires: [{ framework: 'example', itemId: 'base' }] }
+  ]
+}, { budgetMs: 10000 });
+```
+
+Each item names its Catalog `framework` and `itemId`, a binding `kind`, and
+optionally the `key` the tool sees (a skill folder, an agent, command, rule or
+document file name, or an MCP server key), the `executables` it needs on `PATH`
+(for example a hook's interpreter), its input names (never values) and the
+items it `requires`, as resolved by Catalog. The consumer derives these from the
+items it already holds. A complete result reports:
+
+- `installedVersion`: `{ state: 'known', version, source }`, read only from files
+  beside the tool's executable on `PATH` (the npm package whose `bin` names it,
+  through a link or as the one such package beside an npm command shim, or a
+  `versions/<version>` file), or `{ state: 'unknown', reason }`.
+- per item, each executable as `present`, `absent` or `unknown`. `absent` means
+  every `PATH` folder was read and none holds a regular executable file of that
+  name; an unset `PATH`, a relative `PATH` entry or an unreadable folder gives
+  `unknown`. `absent` is about `PATH` only: on Windows, a shell or
+  `CreateProcess` may also search the current or system folders.
+- per item, same-key `copies` at `user` level, in `parentFolders` and in
+  `plugins`, each `found` (with `paths`), `none` or `unavailable` (with a
+  reason). Copies are read only where the [binding](#observed-tool-bindings)
+  says the tool reads that kind: `roots.user` for the user level (following
+  `CODEX_HOME` for Codex; another redirect named in `resolvedBy` that is set
+  makes it `unavailable`), and, only where the binding's `alsoReads` records
+  reading every folder above the project (today Copilot CLI skills), the project
+  root repeated in each of those folders, up to but not including the user home.
+  A registration file is read for the item's key in its container (JSON and
+  JSONC; other formats and malformed files are `unavailable`). A hook has no key,
+  and no binding observes a plugin location yet, so those are `unavailable`.
+- per item, the `inputs` still required: input values never reach inspection, so
+  every declared input is still required.
+- `stale` per item and overall: `true` when the installed version is newer than
+  every observation proving the cell (`observedVersion` is the newest of them),
+  `false` only when a proving observation on this OS and architecture is not
+  older, and otherwise `'unchecked'`: the installed version is unknown, nothing
+  proves the cell, or no proving observation was made on this platform.
+- `hostBlockers[]`: `executable-missing` (an `absent` executable),
+  `input-required` (each declared input) and `dependency-missing` (a required
+  item not among the inspected items).
+- `warnings[]`: `same-key-elsewhere` with `where` (`user`, `parent-folder` or
+  `plugin`) and the found `path`, and `also-reads` for each of the binding's
+  `alsoReads` entries.
+- `unchecked[]`: an explicit note, with its reason, for every fact that is
+  `unknown` or `unavailable`.
+
+**Unknown never becomes a claim.** An `unknown` executable is never
+`executable-missing`, an `unavailable` copy is never `same-key-elsewhere`, and an
+unknown version or an unproven cell is never `stale: false`. These are host observations of this
+computer only: they do not verify that the tool loads or uses an item, and they
+do not satisfy native verification. Platform-scoped support stays the binding's
+static answer.
+
+A request outside this shape is `invalid` (`INPUT_INVALID` with the field), an
+unknown tool is `refused` with `unknown-tool` and an unobserved tool with
+`tool-not-observed`. `controls` take `signal` and `budgetMs` (1 to 60000, default
+10000). Reads run synchronously and are bounded by that budget and a fixed read
+count in `limits`; past either, the result is `incomplete` and the remaining
+facts are unchecked. A signal already aborted gives `cancelled` with no facts.
 
 ## Supported AI clients
 
