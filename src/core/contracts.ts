@@ -179,4 +179,6 @@ export function parseOrganizationPolicy(text: string): OrganizationParseResult {
 }
 
 export { checkContracts, validatePackageSupport } from './package-support.js';
+export { stateLocation } from './state-location.js';
+export type { StateLocation, StateLocationRoot, StateLocationMarker } from './state-location.js';
 export type { ContractFixture, SupportedContract, PackageSupport, ContractReadResult, CheckContractsRequest, ContractCheck, ContractCheckResult } from './package-support.js';
