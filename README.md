@@ -13,8 +13,8 @@ macOS session limits are internal to the package and not part of any entry.
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, `resolveStateLocation`, and the types named by those operations' requests, controls, reviews and results |
+| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, `stateLocation`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
@@ -1822,6 +1822,46 @@ Core uses the current account's `~/.aih/core` for protected ownership records, r
 New files use reviewed mode 0600 by default and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest points to private original-file snapshots for manual inspection; it is never a resumable plan. There is no automatic history expiry or cleanup.
 
 Strict document admission limits each document to 1,000,000 UTF-8 bytes and depth 32. Duplicate decoded keys, non-NFC/malformed strings, nonfinite/negative-zero/unsafe integer values, number tokens that lose their value, accessors, cycles and non-data objects reject. Canonical JSON uses UTF-16 key ordering, authored array order, UTF-8 and no whitespace. This restricted profile is not unrestricted RFC 8785.
+
+### Published state location
+
+Read where Core keeps its state instead of hard-coding it, for example to refuse a
+project folder inside Core's state. The location is information only: it is not
+permission to write there. Core alone creates, protects and changes its state, and
+its operations refuse supplied targets inside it.
+
+`stateLocation` from `@aihq/core/contracts` is portable and holds relative
+descriptors only. It imports nothing from Node and does not discover host paths.
+`root` is relative to the current account's home folder; each `projectMarkers`
+path is relative to `root`, `/`-separated, and names a child holding Core's records
+of the changes it makes to project folders (or home):
+
+```js
+import { stateLocation } from '@aihq/core/contracts';
+
+stateLocation.root;           // { base: 'userHome', segments: ['.aih', 'core'] }
+stateLocation.projectMarkers; // [{ path: 'ownership', meaning }, { path: 'recovery', meaning }, { path: 'runs', meaning }]
+```
+
+| Marker | Meaning |
+| --- | --- |
+| `ownership` | Ownership records: one per project folder (or home) whose files Core manages. |
+| `recovery` | Recovery manifests and private original-file snapshots, one folder per run that changed files. |
+| `runs` | Redacted run history, one record per run. |
+
+A marker may be absent until Core first needs it. Core writes no marker file into
+project folders. The values are frozen.
+
+`resolveStateLocation()` from `@aihq/core` (Node) returns the same descriptors as
+absolute paths for the running host: `{ root, projectMarkers: { path, meaning }[] }`.
+It resolves the home folder as Core's operations do, creates and reads nothing,
+and throws when the home folder is not an existing absolute directory.
+
+```js
+import { resolveStateLocation } from '@aihq/core';
+
+const { root } = resolveStateLocation(); // for example /home/me/.aih/core
+```
 
 ## Development checks
 
