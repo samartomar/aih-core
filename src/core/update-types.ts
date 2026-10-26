@@ -17,7 +17,7 @@ export interface UpdateItemFacts {
 }
 /** One member an update lists before Apply. */
 export interface UpdateMember {
-  kind: 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member';
+  kind: 'file' | 'text-block' | 'entry-block' | 'entry-pointer' | 'config-entry' | 'config-member' | 'hook-group-member';
   path: string; pointer?: string; blockId?: string; groupId?: string;
   /** Present when the member is an approval for one server in that tool. */
   approval?: { tool: string };

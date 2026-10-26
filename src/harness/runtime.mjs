@@ -33,6 +33,7 @@ export function managedRepairRemovalNeedsReconciliation({ managementId, scope, m
 export { readGitHubPolicy } from './github-policy.mjs';
 export { readLocalPolicy } from './local-policy.mjs';
 export { inspectToolHost } from './tool-host.mjs';
+export { detectProjectFacts } from './project-facts.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
 export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,
