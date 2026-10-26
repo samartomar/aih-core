@@ -4,7 +4,7 @@
 // from the files it read is omitted, never guessed; only the package-manager default is
 // inferred, and only from direct evidence (a package.json with no stronger package-manager
 // signal), which the fact's confidence states.
-import { closeSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -65,14 +65,20 @@ export async function detectProjectFacts(request, controls = {}) {
   // At most MAX_FILE_BYTES+1 bytes are read from a candidate, so a large file is reported
   // over-limit instead of being read whole. The candidate must be a regular file: a FIFO or
   // device can block a synchronous open forever, past any budget, so links and non-regular
-  // files are refused before the open.
+  // files are refused. The open is non-blocking and refuses symlinks, and the opened handle
+  // is fstat'ed, so a path swapped between the check and the open cannot hang the read.
+  const NOFOLLOW = constants.O_NOFOLLOW ?? 0, NONBLOCK = constants.O_NONBLOCK ?? 0;
   const boundedRead = path => read(() => {
     let handle;
     try {
       const stat = lstatSync(path);
       if (stat.isSymbolicLink() || !stat.isFile()) return { present: false, overLimit: false, text: null, irregular: true };
-      handle = openSync(path, 'r');
-      const opened = statSync(path);
+      try { handle = openSync(path, constants.O_RDONLY | NOFOLLOW | NONBLOCK); }
+      catch (error) {
+        if (error && typeof error === 'object' && error.code === 'ELOOP') return { present: false, overLimit: false, text: null, irregular: true };
+        throw error;
+      }
+      const opened = fstatSync(handle);
       if (!opened.isFile()) return { present: false, overLimit: false, text: null, irregular: true };
       const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
       const length = readSync(handle, buffer, 0, MAX_FILE_BYTES + 1, 0);
@@ -91,7 +97,7 @@ export async function detectProjectFacts(request, controls = {}) {
       message: 'The project folder is not an existing absolute folder.' }], limits: limits(reads) };
   }
   let directory = false;
-  try { directory = read(() => statSync(project).isDirectory()); }
+  try { directory = read(() => lstatSync(project).isDirectory()); }
   catch {
     return { status: 'invalid', facts: null, diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
       message: 'The project folder is not an existing absolute folder.' }], limits: limits(reads) };

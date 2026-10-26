@@ -363,6 +363,17 @@ await check('the facts diagnostic refuses links and non-regular candidates inste
   assert.ok(result.diagnostics.some(entry => entry.reason === 'candidate-not-regular-file'));
   assert.equal(result.facts.find(fact => fact.field === 'packageManager').confidence, 'detected', 'the readable lockfile still counts');
   assert.equal(result.facts.find(fact => fact.field === 'stack'), undefined, 'the directory named package.json is not read');
+  if (process.platform !== 'win32') {
+    // A FIFO with no writer must never block the bounded read, even raced in as a swap.
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('mkfifo', [join(root, 'yarn.lock')]);
+    const fifo = await Promise.race([
+      detectProjectFacts({ project: root }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('FIFO candidate blocked the diagnostic')), 5000)),
+    ]);
+    assert.equal(fifo.status, 'incomplete');
+    assert.ok(fifo.diagnostics.filter(entry => entry.reason === 'candidate-not-regular-file').length >= 2);
+  }
 });
 
 await check('rendering validates and echoes the reviewed facts into the rendered Project basics delivery', () => {
