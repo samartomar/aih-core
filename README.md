@@ -21,7 +21,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `renderDelivery`, `checkCompatibility`, `deliveryMaterialRoot`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
-| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` and offline `readLocalPolicy` organization-document readers, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, and `inspectToolHost` host inspection for an observed tool |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` and offline `readLocalPolicy` organization-document readers, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, `inspectToolHost` host inspection for an observed tool, and `detectProjectFacts` for Project basics |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
@@ -938,6 +938,48 @@ unknown tool is `refused` with `unknown-tool` and an unobserved tool with
 10000). Reads run synchronously and are bounded by that budget and a fixed read
 count in `limits`; past either, the result is `incomplete` and the remaining
 facts are unchecked. A signal already aborted gives `cancelled` with no facts.
+
+## Project basics per repository
+
+`detectProjectFacts({ project }, controls?)` from `@aihq/core/harness/runtime` reads a project with
+bounded reads and **runs nothing** — no tool, script or package manager is executed, not even for a
+version. It reads only a fixed candidate list (`package.json`, the common lockfiles, `.nvmrc`,
+`.node-version`), capped per file and per read count, and reports
+`facts: { field, value, confidence: 'detected' | 'inferred' }[]` for the stack, the package manager,
+the Node version and the test, build and lint commands. A fact is `detected` only from a file the
+diagnostic read (a manifest, a lockfile, a script, a version file); the only inferred fact is the
+npm default for a manifest with no stronger package-manager signal, and the confidence says so.
+A fact it cannot establish is omitted, never fabricated. The result envelope mirrors the other
+bounded diagnostics: `complete`, `incomplete`, `invalid` or `cancelled`, with `limits` accounting
+and one diagnostic per read failure. The consumer reviews the facts; rendering carries them into
+the Project basics selections.
+
+The consumer records the reviewed facts as descriptive selection metadata, and they flow into both
+public surfaces: the prepared review (prepared work 1.6.0 `selections[].projectFacts`) and the
+inventory (managed-inventory-result 1.1.0 `selections[].projectFacts`), shown as
+"Detected: {value}" or "Inferred: {value}". Custody retains them with the selection's other facts,
+so a restart reads them back without the Catalog. `projectFacts` is optional metadata: it never
+adds operations, inputs or authority, and a malformed entry refuses the policy.
+
+A rule item with `placement: 'entry-block'` renders one shared guidance block into **each** of the
+binding's `entryFiles`, between `<!-- BEGIN aih:shared -->` and `<!-- END aih:shared -->`; a
+binding that declares `entryPointer { file, template }` also gets one pointer block in that file,
+`<!-- BEGIN aih:shared:pointer -->` … `<!-- END aih:shared:pointer -->`, whose text is the
+template with `{projectFolder}` replaced by the reviewed folder name (default `ai-coding`, carried
+as a required recipe input). Text outside the blocks is kept byte for byte. Custody records these
+as typed `entry-block { file, marker, sha256 }` and `entry-pointer { file, marker, sha256 }`
+members (inventory member kinds of the same names), reporting `block-changed` and `block-missing`
+like any marker block.
+
+On update, a person's own lines found **added inside** the shared block move to the user-owned
+`<projectFolder>/PROJECT.md` — the write is part of the reviewed update, so the preview shows the
+move, and the block itself updates instead of conflicting. The notes file is written but never
+claimed: removal never touches it and later edits are never conflicts. Edits that delete or change
+Core's own lines stay ordinary conflicts, never rescued.
+
+Removal takes only the blocks: the entry files and everything the person wrote outside the blocks
+stay byte for byte, and any `preExisting` value a replaced configuration entry had is restored as
+before. Project-folder items go into the folder the consumer named (default `ai-coding`).
 
 ## Supported AI clients
 
@@ -1936,10 +1978,13 @@ assumes one process namespace per host name.
 Ownership roots that record what a person chose use **1.6.0**. This versioned
 migration adds, per claim, the item's name, kind, framework, both identities, tool and
 every qualified origin; typed members (`file { path, sha256, executable }`,
-`text-block { file, blockId, sha256 }`, `config-entry { file, pointer, sha256 }`,
+`text-block { file, blockId, sha256 }`, `entry-block { file, marker, sha256 }` and
+`entry-pointer { file, marker, sha256 }` for the shared Project basics blocks,
+`config-entry { file, pointer, sha256 }`,
 `config-member { file, pointer, value-sha256 }`, `hook-group-member { file, selector, sha256 }`
 and `approval-change { tool, file, pointer }`); and protected `preExisting` restoration
-data. Target-keyed claims, dependency edges, sets, hook-group selectors, markers, modes,
+data. Shared blocks also record the exact guidance text they wrote, so an update can tell a
+person's own lines inside the block from Core's text. Target-keyed claims, dependency edges, sets, hook-group selectors, markers, modes,
 created tables and directory records stay exactly as they were and remain
 authoritative: typed members are re-derived from them on every write, and a root
 whose typed members disagree with them is refused. Older roots are read through the

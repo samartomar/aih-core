@@ -84,6 +84,18 @@
             "itemId": "onboarding"
           }
         }
+      ],
+      "projectFacts": [
+        {
+          "field": "stack",
+          "value": "node",
+          "confidence": "detected"
+        },
+        {
+          "field": "packageManager",
+          "value": "npm",
+          "confidence": "inferred"
+        }
       ]
     }
   ],

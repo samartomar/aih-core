@@ -9,7 +9,7 @@ export interface RemovalSelector {
 }
 /** One member a removal lists before Apply, with the action the review takes on it. */
 export interface RemovalMember {
-  kind: 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member';
+  kind: 'file' | 'text-block' | 'entry-block' | 'entry-pointer' | 'config-entry' | 'config-member' | 'hook-group-member';
   path: string; pointer?: string; blockId?: string; groupId?: string;
   /** Present when the member is an approval Core wrote for one server in that tool. */
   approval?: { tool: string };

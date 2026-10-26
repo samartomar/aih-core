@@ -167,7 +167,7 @@ export interface OperationResult {
  */
 export interface RunMember {
   operationId: string; selectionId: string | null; managementId: string; scope: 'project' | 'user';
-  kind: 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member';
+  kind: 'file' | 'text-block' | 'entry-block' | 'entry-pointer' | 'config-entry' | 'config-member' | 'hook-group-member';
   /** The member's file. */
   path: string;
   /** JSON Pointer of a configuration entry or member. */

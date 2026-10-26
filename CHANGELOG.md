@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+Add Project basics per repository. `@aihq/core/harness/runtime` gains
+`detectProjectFacts({ project }, controls?)`, a bounded read-only diagnostic that runs
+nothing: it reads only a fixed candidate list (`package.json`, the common lockfiles,
+`.nvmrc`, `.node-version`), capped per file, per read count and by `budgetMs`, and returns
+`facts: { field, value, confidence: 'detected' | 'inferred' }[]` for the stack, package
+manager, Node version and test, build and lint commands. `detected` names file evidence;
+`inferred` names the npm default for a manifest with no stronger package-manager signal.
+Absent evidence is omitted, never fabricated. The reviewed facts ride descriptive selection
+metadata into both public surfaces: prepared work 1.6.0 `selections[].projectFacts` and
+managed-inventory-result 1.1.0 `selections[].projectFacts` ("Detected: …", "Inferred: …"),
+retained in custody across restarts. The schemas stay at their versions within this
+unreleased batch; the metadata remains descriptive and never adds operations or authority.
+A rule item with `placement: 'entry-block'` now renders the shared guidance block into each
+of the binding's `entryFiles` between `<!-- BEGIN aih:shared -->` and
+`<!-- END aih:shared -->`, and a binding `entryPointer` renders one
+`aih:shared:pointer` block from its template with `{projectFolder}` replaced (folder
+default `ai-coding`, a required recipe input). Text outside the blocks is kept byte for
+byte. Custody records typed `entry-block { file, marker, sha256 }` and
+`entry-pointer { file, marker, sha256 }` members (run result 1.4.0, removal preparation
+1.2.0, update preparation 1.0.0 and inventory 1.1.0 member kinds), reports
+`block-changed`/`block-missing` for them, and keeps the exact shared-block text so an
+update can rescue a person's own lines: lines added inside the block move to the
+user-owned `<projectFolder>/PROJECT.md` in the same reviewed update (shown in the
+preview), the file is written but never claimed, and edits that change Core's own lines
+stay ordinary conflicts. Removal takes only the blocks and restores any `preExisting`
+value as before. Unpublished candidate for the sole 0.1.0 release effort.
+
 Add organization policy 1.2.0 with content selectors, a local organization source and
 supplied set membership. 1.2.0 keeps every 1.1.0 rule (exact recipe admission, input and
 lifecycle permissions, client, repository and scope selectors, contradiction rejection

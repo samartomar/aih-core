@@ -30,6 +30,7 @@ import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
+import { USER_NOTES_FILE, extractBlockBody, personLinesInside, sharedBlockRole } from './internal/shared-blocks.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
@@ -552,6 +553,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let ownerState: 'managed' | 'unowned' = 'unowned'; let resolution: 'replace' | 'adopt' | undefined;
         // Reviewed choices that would change this conflict or acquire identical unowned content.
         const choices: ('replace' | 'adopt')[] = []; let overlayKey: string | undefined;
+        // Project basics update: the person's own lines rescued from a shared block, with the user-owned
+        // notes write that preserves them; null unless this step updates a shared block they added lines to.
+        let rescuedLines: string[] | null = null;
+        let rescueStep: { path: string; before: Buffer | null; after: Buffer; mode: number } | null = null;
         if (op.kind === 'process.run') {
           const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
@@ -682,6 +687,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             op.kind === 'config.member' ? [{ path, kind: 'member', format: op.format, container: op.container, valueSha256: memberDigest(op.value.literal) }] :
             op.kind === 'text.block' ? [{ path, kind: 'block', blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker }] : [{ path, kind: 'file' }];
           stepMembers = descriptors;
+          // Project basics: record the exact text of a shared block so a later update can tell a
+          // person's own lines inside it from the content Core wrote.
+          const sharedContent = op.kind === 'text.block' && op.action === 'set' && op.content &&
+            sharedBlockRole(op.startMarker, op.endMarker) !== null ? resolveString(op.content, bound) : null;
           try {
             const claim: Claim = { managementId: selection.managementId, scope: selection.scope, sets: (policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id), requires: selection.requires.map(id => { const dependency = policy.selections.find(item => item.id === id)!; return claimIdentity(dependency.scope, dependency.managementId, project!); }) };
             const matches = descriptors.map(member => {
@@ -697,6 +706,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               const tomlTable = createdTables && member.kind === 'entry' ? createdTableCustody(member, createdTables, prior, projected.members) : undefined;
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 ...(approval ? { approval: { tool: approval.tool } } : {}), ...(member.kind === 'member' && (createdContainer || prior?.createdContainer) ? { createdContainer: true as const } : {}),
+                ...(sharedContent !== null && sharedContent.length <= 65536 ? { sharedContent } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
@@ -722,6 +732,39 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           }
           if (custody && owner && !owner.descriptor && managed && !descriptors.some(member => memberKey(member) === ownerKey)) custody[ownerKey!] = null;
           const currentDigest = before === null ? null : sha256(before);
+          // Project basics update: a person's own lines added inside a shared block move to the user-owned
+          // notes file, shown in this review, and the block itself updates instead of conflicting. Anything
+          // but added lines (deletions or edits of Core's text) stays an ordinary conflict, never rescued.
+          if (update !== undefined && op.kind === 'text.block' && op.action === 'set' && op.content && before !== null &&
+              descriptors.length === 1 && sharedBlockRole(op.startMarker, op.endMarker) !== null) {
+            const member = descriptors[0]!;
+            const prior = projected.members[memberKey(member)];
+            if (member.kind === 'block' && prior?.sharedContent !== undefined &&
+                (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope)) {
+              const body = extractBlockBody(before.toString('utf8'), member.startMarker, member.endMarker);
+              const extra = body === null ? null : personLinesInside(body, prior.sharedContent.replace(/\r\n?/g, '\n'));
+              if (extra) {
+                const folder = typeof bound.projectFolder === 'string' && bound.projectFolder.length >= 1 && bound.projectFolder.length <= 64 &&
+                  !bound.projectFolder.includes('/') ? bound.projectFolder : 'ai-coding';
+                const notesPath = `${folder}/${USER_NOTES_FILE}`;
+                const notesKey = `${project}:${process.platform === 'win32' ? notesPath.toLowerCase() : notesPath}`;
+                const notesOverlay = overlays.get(notesKey);
+                const notesLive = transaction(project!).inspect(notesPath);
+                if (notesLive.state !== 'unreadable') {
+                  const notesBefore = notesOverlay ? notesOverlay.after : notesLive.state === 'present' ? Buffer.from(notesLive.bytes) : null;
+                  const eol = notesBefore && notesBefore.includes('\r\n') ? '\r\n' : '\n';
+                  const existing = notesBefore ? notesBefore.toString('utf8') : '';
+                  const base = existing && !existing.endsWith('\n') && !existing.endsWith('\r') ? existing + eol : existing;
+                  const afterText = base + extra.join(eol) + eol;
+                  if (Buffer.byteLength(afterText, 'utf8') <= 16 * 1024 * 1024) {
+                    rescuedLines = extra;
+                    rescueStep = { path: notesPath, before: notesBefore, after: Buffer.from(afterText, 'utf8'),
+                      mode: notesLive.state === 'present' ? notesLive.mode : 0o600 };
+                  }
+                }
+              }
+            }
+          }
           const choice = resolutions.find(item => item.selectionId === selection.id && item.operationId === op.id);
           if (choice) {
             usedResolutions.add(`${selection.id}/${op.id}`);
@@ -733,10 +776,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             (op.kind !== 'file.write' || op.mode === undefined || process.platform === 'win32' ||
               live.state === 'present' && live.mode === op.mode);
           if (op.kind === 'file.remove' && Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.descriptor?.kind !== 'file')) managed = false;
-          const changingOwned = managed && before !== null;
+          const changingOwned = (managed && before !== null) || rescuedLines !== null;
           const selectedAbsent = !editConflict && descriptors.every(member => { const bytes = memberBytes(member, before!); const prior = projected.members[memberKey(member)];
             return bytes === null || !!prior && bytes !== null && prior.sha256 === sha256(bytes) && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); });
-          const drift = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
+          const drift = !editConflict && descriptors.some(member => {
+            if (rescuedLines !== null && memberKey(member) === memberKey(descriptors[0]!)) return false;
+            const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
             return prior && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope) && (bytes === null || prior.sha256 !== sha256(bytes)); });
           const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
             return prior?.claims?.some(claim => claim.managementId !== selection.managementId || claim.scope !== selection.scope) && (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
@@ -790,6 +835,25 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
         }
         emit();
+        // The companion write is reviewed but never claimed: PROJECT.md stays user-owned, so removal
+        // never touches it and later edits are never conflicts. It requires the block step it rescues for.
+        if (rescuedLines !== null && rescueStep) {
+          const rescueId = `${selection.id}/${op.id}-rescued`;
+          const rescueKey = `${project}:${process.platform === 'win32' ? rescueStep.path.toLowerCase() : rescueStep.path}`;
+          const rescueReview: ReviewOperation = { id: rescueId, purpose: `Move your lines from the aih:shared block to ${rescueStep.path}`,
+            kind: 'file.write', scope: op.scope,
+            effects: rescueStep.before === null ? 'create-file' : rescueStep.before.equals(rescueStep.after) ? 'already-satisfied' : 'replace-file',
+            ownership: 'unowned', requires: [id], checks: [],
+            details: { target: safeText(join(project!, rescueStep.path), privateValues),
+              content: redactExact(rescueStep.after.toString('utf8'), privateValues), mode: rescueStep.mode },
+            ...(namesSelections ? { selectionId: selection.id } : {}) };
+          steps.push({ review: rescueReview, root: project!, path: rescueStep.path, initialBefore: rescueStep.before, before: rescueStep.before,
+            after: rescueStep.after, mode: rescueStep.mode, pins: pathPins(join(project!, rescueStep.path)), managementId: selection.managementId,
+            recipeIdentity, checks: [], authored: { selectionId: selection.id, operationId: `${op.id}-rescued`, overlayKey: rescueKey, choices: [] },
+            item: selectionItem(selection, project!, privateValues) });
+          overlays.set(rescueKey, { initial: rescueStep.before, after: rescueStep.after, priorId: rescueId });
+          currentIds.push(rescueId);
+        }
         function emit(): void {
           const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable ? 'executable-missing' :
             checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
@@ -1134,6 +1198,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(source === undefined ? {} : { materialSource: source }),
         ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
           kind: selection.kind!, origins: clone(selection.origins!) }),
+        ...(selection.projectFacts === undefined ? {} : { projectFacts: clone(selection.projectFacts) }),
         ...(facts?.hookCommands.length ? { hookCommands: facts.hookCommands } : {}),
         ...(step === undefined ? {} : { permissionStep: step }),
         inputs: facts?.inputs ?? [],
@@ -1818,6 +1883,7 @@ function selectionItem(selection: ExecutionPolicy['selections'][number], project
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
       tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins),
+      ...(selection.projectFacts === undefined ? {} : { projectFacts: clone(selection.projectFacts) }),
       ...(source === undefined ? {} : { materialSource: source }) } };
 }
 /** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */
@@ -1827,5 +1893,7 @@ function selectionSource(selection: ExecutionPolicy['selections'][number]): GitM
 }
 function factsOf(item: ItemFacts): ItemFacts {
   return { managementId: item.managementId, scope: item.scope, name: item.name, kind: item.kind, framework: item.framework,
-    item: item.item, tool: item.tool, origins: item.origins, ...(item.materialSource ? { materialSource: item.materialSource } : {}) };
+    item: item.item, tool: item.tool, origins: item.origins,
+    ...(item.projectFacts ? { projectFacts: clone(item.projectFacts) } : {}),
+    ...(item.materialSource ? { materialSource: item.materialSource } : {}) };
 }

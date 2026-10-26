@@ -1,6 +1,8 @@
 import { performance } from 'node:perf_hooks';
 import { join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
+
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 import { installedDistribution } from './internal/installed-distribution.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { readOwnership, readOwnershipReceipts, stateRoot } from './internal/state.js';
@@ -53,7 +55,7 @@ export interface ManagedInventorySelection {
   sharedMemberCount: number;
 }
 export interface ManagedInventoryMember {
-  kind: 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member';
+  kind: 'file' | 'text-block' | 'entry-block' | 'entry-pointer' | 'config-entry' | 'config-member' | 'hook-group-member';
   path: string; pointer?: string; blockId?: string; groupId?: string;
   fileState: 'matches' | 'changed' | 'missing' | 'unchecked' | 'block-changed' | 'block-missing';
 }
@@ -61,6 +63,8 @@ export interface ManagedInventoryMember {
 export interface ManagedInventorySelection11 extends ManagedInventorySelection {
   name: string | null; kind: SelectionMetadata['kind'] | null; framework: string | null;
   item: SelectionMetadata['item'] | null; tool: string | null; origins: InclusionOrigin[];
+  /** Reviewed project facts recorded with this selection, shown as "Detected: …" or "Inferred: …". */
+  projectFacts?: SelectionMetadata['projectFacts'];
   /** The exact git commit the selection was last applied from (`identity` is `owner/repo@<commit>`); absent otherwise. */
   materialSource?: GitMaterialProvenance;
   members: ManagedInventoryMember[];
@@ -422,7 +426,8 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
       });
     };
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
-      origins: facts?.origins ?? [], ...(source ? { materialSource: { ...source } } : {}), members, updateState: updateState(facts?.item ?? null, request.index),
+      origins: facts?.origins ?? [], ...(facts?.projectFacts ? { projectFacts: clone(facts.projectFacts) } : {}),
+      ...(source ? { materialSource: { ...source } } : {}), members, updateState: updateState(facts?.item ?? null, request.index),
       ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
         new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ?? null },
         new SetMembership(request.organization.setMembers)) } : {}),
