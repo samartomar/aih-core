@@ -651,8 +651,9 @@ length.
   configuration holds only the reference `${<input name>}`, never a value, for
   sensitive and ordinary inputs alike. Set that environment variable where the
   tool runs. The input name must be a valid environment variable name
-  (`input-reference-invalid` otherwise). Input values travel only in the live
-  request (`controls.privateInputs` and configuration) and are written nowhere;
+  (`input-reference-invalid` otherwise). A sensitive value travels only in the
+  live request (`controls.privateInputs`), an ordinary one only in the policy's
+  `configuration`, and neither is reviewed or written anywhere;
   where a tool reads only literal values in its configuration, the reference is
   still what Core writes, with no literal fallback.
 - **Hooks.** The binding must speak the hook's `protocol` (`hookProtocols`) and
@@ -1688,7 +1689,9 @@ Core applies an approval only where no choice was made yet:
   `approval-change { tool, file, pointer }`, and inventory 1.1.0 reports
   `approval: 'granted-by-aih'`. The selection's review entry no longer says the
   server still needs your OK; neither does it for an already approved server,
-  while a denied one still does.
+  while a denied one still does. Without an approval operation Prepare does not
+  read the approval location, so an unticked server keeps the notice even when
+  inventory later reads `not-needed` for it.
 - **Removed.** Removing the server removes only the approval Core wrote, which
   restores the location's earlier state (Core never replaces an earlier value, so
   there is none to write back). When the person has since changed that approval,
