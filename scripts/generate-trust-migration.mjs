@@ -41,6 +41,17 @@ const existingCells = JSON.parse(/export const trustCellRecords = Object\.freeze
 const predecessorIds = new Set(records.map(item => item.id));
 const existingNative = existingCells.filter(cell => !predecessorIds.has(cell.id));
 assert.ok(existingNative.length === 0 || existingNative.length === 4, 'retain only a complete separately captured new-host table');
+const expectedNative = records.map(({ original }) => {
+  const id = original.cell.id.replace('win32-', 'win32-26340-9767-');
+  return { ...original.cell, id, platform: { ...original.cell.platform, release: 'Windows 11 26H2 build 26340.9767' } };
+});
+if (existingNative.length) {
+  assert.deepEqual(existingNative.map(cell => cell.id).sort(), expectedNative.map(cell => cell.id).sort(), 'exact unique four native cell IDs required');
+  for (const { evidence, ...cell } of existingNative) {
+    assert.deepEqual(cell, expectedNative.find(item => item.id === cell.id), 'native format/network/platform tuple must match');
+    assert.equal(evidence.reference, `dist/harness/acceptance/${cell.id}.json`, 'fixed native evidence path required');
+  }
+}
 const currentFiles = trustHelperFiles.filter(name => name !== 'dist/harness/trust-migration-policy.mjs')
   .map(name => ({ name, sha256: sha(readFileSync(join(root, name))) }));
 for (const item of currentFiles.filter(item => item.name.startsWith('dist/harness/'))) {
@@ -80,6 +91,9 @@ for (const cell of existingNative) {
   const bytes = readFileSync(join(root, cell.evidence.reference.replace(/^dist\//, 'src/')));
   assert.equal(sha(bytes), cell.evidence.sha256); const record = JSON.parse(bytes);
   assert.equal(record.schema, 'aih.trust.acceptance.v1'); assert.equal(record.subjectSha256, subject);
+  const { evidence, ...tested } = cell;
+  assert.equal(record.cellId, cell.id, 'native record ID must match');
+  assert.deepEqual(record.cell, tested, 'native record cell must match');
   assert.ok(!record.limitations.some(value => /synthetic|controlled-platform-selection|no-new-native-os-evidence/.test(value)));
   const required = trustProfiles[cell.probeProfile].requiredCases;
   assert.deepEqual(record.cases.map(item => [item.id,item.kind]).sort(), required.map(item => [item.id,item.kind]).sort());
