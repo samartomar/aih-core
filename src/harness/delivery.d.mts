@@ -45,6 +45,8 @@ export interface ItemCompatibility {
   item: ItemRef; support: BindingSupport; reason: string; observed: ObservedLevel;
   observedOn: { toolVersion: string; os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64'; observedAt: string } | null;
   boundAs?: { kind: BindingKind; item: ItemRef; viaFallback: true }; excluded?: true; permissionStep?: string;
+  /** Why renderDelivery would refuse this item for the binding although no static blocker applies. */
+  notRendered?: { reason: string; detail: string };
   deliveredSize: Size & { alwaysLoaded: Size };
   staticBlockers: { code: StaticBlockerCode; detail: string }[];
 }

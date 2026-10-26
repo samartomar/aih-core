@@ -29,7 +29,7 @@ test('a packed consumer renders Catalog items as ordinary recipes and checks sta
     copyFileSync(new URL('./fixtures/delivery-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 16);
+    assert.equal(receipt.checks.length, 17);
     writeFileSync(join(consumer, 'types.mts'), `
       import { checkCompatibility, deliveryMaterialRoot, renderDelivery, toolBindings } from '@aihq/core/harness';
       import type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, RenderedDelivery,

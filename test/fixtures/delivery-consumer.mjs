@@ -381,6 +381,44 @@ await check('set fit is computed over the supplied resolved members, and overlap
 });
 
 
+await check('review regressions: verified behaviour, escaped paths, explicit runners and compatibility that agrees with rendering', () => {
+  const binding = bindingWith('claude');
+  // The payload must be the one the behaviour file and behaviourSha256 name.
+  const swapped = { ...hook({ script: 'm0', interpreter: 'node' }), payload: { event: 'SessionStart', protocol: 'claude-code-hooks',
+    command: { script: 'm0', program: 'curl', args: [{ material: 'm0' }] } } };
+  const forgedBehaviour = renderDelivery({ tool: 'claude', item: swapped, binding, scope: 'project' });
+  assert.deepEqual([forgedBehaviour.status, forgedBehaviour.reason, forgedBehaviour.path], ['refused', 'item-identity-mismatch', '/item/payload']);
+  // Material paths are literal shell text: no command substitution, no placeholder expansion.
+  const odd = catalogItem({ id: 'odd', kind: 'hook', files: { 'run$(id)"{x}.mjs': 'x\n' },
+    payload: { event: 'SessionStart', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } });
+  assert.equal(renderDelivery({ tool: 'claude', item: odd, binding, scope: 'project' }).recipe.operations.find(op => op.kind === 'hook.group')
+    .selector.value, 'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/odd/run\\$(id)\\"{x}.mjs"');
+  const both = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', interpreter: 'node', program: 'uv' }), binding, scope: 'project' });
+  assert.deepEqual([both.status, both.reason], ['refused', 'hook-command-ambiguous']);
+  const dropped = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', program: 'uv', args: ['run'] }), binding, scope: 'project' });
+  assert.deepEqual([dropped.status, dropped.reason], ['refused', 'hook-command-ambiguous'], 'a program is always given the script');
+  assert.deepEqual(renderDelivery({ tool: 'claude', item: hook({ script: 'm0', program: 'uv', args: ['run', { material: 'm0' }] }), binding,
+    scope: 'project' }).recipe.prerequisites, [{ kind: 'executable', name: 'uv' }]);
+  const yaml = bindingWith('claude', { 'mcp-server': { register: { ...plain(toolBindings[0].layouts['mcp-server'].register), format: 'yaml' } } });
+  assert.deepEqual(renderDelivery({ tool: 'claude', item: github, binding: yaml, scope: 'project' }).reason, 'registration-not-bound');
+  // What rendering would refuse is reported, not claimed to work, and never refuses the whole check.
+  const shebang = hook({ script: 'm0' });
+  const entryBlock = catalogItem({ id: 'shared', kind: 'rule', files: { 'shared.md': 'Shared.\n' },
+    payload: { applyTo: ['**'], applyToBasis: 'authored', placement: 'entry-block' } });
+  const twoTexts = catalogItem({ id: 'pair', kind: 'rule', files: { 'a.md': 'A.\n', 'b.md': 'B.\n' }, payload: { applyTo: ['**'], applyToBasis: 'authored' } });
+  const claude = compat('claude', WINDOWS, [{ item: shebang }, { item: entryBlock }]);
+  assert.deepEqual(claude.items.map(entry => [entry.item.itemId, entry.notRendered?.reason, entry.deliveredSize.bytes]),
+    [['session-start', 'interpreter-required', 0], ['shared', 'scope-not-bound', 0]]);
+  const codex = compat('codex', WINDOWS, [{ item: twoTexts, sets: [{ framework: FRAMEWORK, setId: 'pair', setSha256: '3'.repeat(64) }] }]);
+  assert.deepEqual([codex.items[0].notRendered.reason, codex.sets[0].fit], ['rule-text-ambiguous', 'none']);
+  // A fallback that is also its own member writes the same place: no same-folder collision.
+  const kiro = compat('kiro', WINDOWS, [{ item: bootstrap, fallback: bootstrapRule }, { item: bootstrapRule }]);
+  assert.deepEqual(kiro.items.map(entry => [entry.item.itemId, entry.boundAs?.item.itemId, codes(entry)]),
+    [['bootstrap', 'bootstrap-rule', []], ['bootstrap-rule', undefined, []]]);
+  const forged = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [], binding: { ...binding, digest: 'f'.repeat(64) } });
+  assert.deepEqual([forged.status, forged.reason], ['refused', 'binding-digest-mismatch']);
+});
+
 /** A fake GitHub REST reader serving one organization document at a fixed commit. */
 function serveOrganization(document) {
   const bytes = Buffer.from(JSON.stringify(document)), commit = 'a'.repeat(40);

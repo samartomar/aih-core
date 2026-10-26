@@ -581,7 +581,8 @@ data functions. They read a checked Catalog release 1.6 item and a
 no host effects. Pass a binding from `toolBindings` (or one validated by
 `validateToolBinding`) for the tool you name; an unknown or unobserved tool is
 refused as by `selectTool`, and a binding for another tool or an invalid one is
-refused (`binding-tool-mismatch`, `binding-invalid`).
+refused (`binding-tool-mismatch`, `binding-invalid`). Both functions recompute
+the binding digest (`binding-digest-mismatch`).
 
 ### Render one item as an ordinary recipe
 
@@ -606,8 +607,9 @@ length.
 
 - **Only content is delivered.** The behaviour file (`aih-behaviour.json`) is
   Catalog metadata and is never written into a project. The item's
-  `contentSha256` and `behaviourSha256` must match its materials
-  (`item-identity-mismatch`).
+  `contentSha256` and `behaviourSha256` must match its materials, and its kind,
+  payload, requirements, dependencies and executable states must reproduce the
+  behaviour file, as Catalog's reader checks (`item-identity-mismatch`).
 - **Where items land.** `scope` selects the layout's `roots.project` or
   `roots.user` (`scope-not-bound` when the binding names none). A skill folder is
   `payload.dirName`. Rule and skill names follow the layout's `namespace` with the
@@ -630,21 +632,23 @@ length.
   to `<hooks root>/<itemId>/`, and one group is registered in `register.file` at
   `register.container` with its last segment replaced by the mapped event. The
   command comes from `payload.command`: the named interpreter (`node`, `bash`,
-  `python`, `pwsh`) and script, or the named program, then the arguments, each
-  double-quoted with literal text escaped. A hook that names neither is refused
-  with `interpreter-required`: a shebang never works on Windows, so it is never
+  `python`, `pwsh`) and script, or the named program given the script as a
+  material argument, then the arguments, each double-quoted with literal text
+  and material paths escaped. Naming both, or a program not given the script, is
+  `hook-command-ambiguous`. A hook that names neither is refused with
+  `interpreter-required`: a shebang never works on Windows, so it is never
   relied on. Only Catalog's four placeholders are accepted
   (`unknown-placeholder` otherwise). For `claude-code-hooks`, `{projectDir}` is
   `${CLAUDE_PROJECT_DIR}`, `{homeDir}` is `${HOME}`, and `{itemDir}` and
   `{pluginRoot}` are the item's delivered folder under the project or home (Core
   delivers outside any tool plugin). A layout `commandTemplate` wraps the command:
   it holds `{command}` once and otherwise only those placeholders
-  (`command-template-invalid`). The interpreter is a recipe `executable`
-  prerequisite.
+  (`command-template-invalid`). The interpreter, or a plain program name, is a
+  recipe `executable` prerequisite. A hook needs a JSON or JSONC registration and
+  an MCP server a JSON, JSONC or TOML one (`registration-not-bound`).
 - **Identity.** The recipe's description names both item identities and the
   binding digest, so the identity from `deriveRecipeIdentity` changes when either
-  item identity or the binding changes. `renderDelivery` recomputes the binding
-  digest (`binding-digest-mismatch`).
+  item identity or the binding changes.
 - **Not here.** Allowing an MCP server (`grantApproval`) and single array
   members (`config.member`) are not rendered by this Core; a non-empty
   `grantApproval` is refused with `grant-approval-unsupported`.
@@ -679,6 +683,7 @@ depend on order. Per item the result is:
 { item: { framework, itemId }, support, reason, observed,
   observedOn: { toolVersion, os, arch, observedAt } | null,
   boundAs?: { kind, item, viaFallback: true }, excluded?: true, permissionStep?,
+  notRendered?: { reason, detail },
   deliveredSize: { bytes, chars, alwaysLoaded: { bytes, chars } },
   staticBlockers: { code, detail }[] }
 ```
@@ -689,8 +694,14 @@ depend on order. Per item the result is:
 - **Static blockers.** `protocol-not-spoken` (hook protocol or event the binding
   does not map), `required-but-unsupported` (a `required` item whose cell is
   `none` on this platform), `native-only-kind` (an agent or command the tool does
-  not read) and `same-folder` (two items writing one skill or hook folder, or one
-  file).
+  not read on this platform or has no location for) and `same-folder` (two
+  different items writing one skill or hook folder, or one file; a fallback that
+  is also a member writes the same place).
+- **Agreement with rendering.** Where `renderDelivery` would refuse the bound
+  item for another reason (for example `scope-not-bound` for a document or an
+  entry block the binding has no place for, `interpreter-required`,
+  `rule-text-ambiguous`), `notRendered` names it and the item delivers nothing.
+  A malformed item still refuses the whole check.
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
@@ -704,8 +715,8 @@ depend on order. Per item the result is:
   always-included or entry-file rule, and nothing for hooks, MCP servers and
   documents.
 - **Sets.** Each referenced set reports `fit` (`full`, `partial` or `none`),
-  member counts `{ native, unconfirmed, none }` (a blocked member counts as
-  `none`) and the summed `deliveredSize`, over the supplied non-excluded members.
+  member counts `{ native, unconfirmed, none }` (a blocked or not-rendered
+  member counts as `none`) and the summed `deliveredSize`, over the supplied non-excluded members.
 
 These are static answers from Harness data. Host facts (installed version,
 executables, copies elsewhere) come from [`inspectToolHost`](#inspect-a-tool-host).
