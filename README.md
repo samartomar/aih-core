@@ -46,7 +46,8 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
 | `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
 | `@aihq/core/schemas/execution-policy/1.4.0.json` | Execution-policy 1.4.0 JSON Schema (descriptive Catalog selection metadata, `excludedItems`) |
-| `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding |
+| `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding and checking each touched member |
+| `@aihq/core/schemas/managed-inventory-result/1.1.0.json` | Managed inventory naming each installed selection, its origins, members and their states |
 | `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
@@ -1579,6 +1580,30 @@ evidence and Catalog index status are never part of a held review, so they never
 make it stale; Core does not read index status, and the consumer surfaces an index
 revocation when it next prepares.
 
+### Post-apply member checks
+
+After Apply, run result 1.4.0 lists in `members[]` every member a reviewed file
+operation touched, checked directly on disk: a file by digest or absence, a text
+block by its markers, a configuration entry by pointer and value digest, and an owned
+hook group by its selector. Each entry names the `operationId`, `selectionId` (`null`
+for generated cleanup), `managementId`, `scope`, member `kind`, its file `path` and,
+where it applies, the entry `pointer` (RFC 6901), `blockId` or hook `groupId`:
+
+| Field | Values |
+| --- | --- |
+| `intent` | What the reviewed plan meant: `write` the member, `remove` it (or restore the value it replaced), or `keep` it for another claim |
+| `outcome` | What the run did: `written`, `claim-removed`, `restored` (the person's earlier value written back) or `kept` (not changed by this run, including work it never attempted) |
+| `check` | What Core then found: `present-matching`, `present-different`, `absent` or `unchecked` (not attempted, or unreadable) |
+
+A member is compared with its state after the step when the step succeeded, or before
+it otherwise. No digest, earlier value or input value is reported; a private input value
+inside a path is shown as `[REDACTED]`, also in later cleanup runs, which use the
+redaction recorded at install. A run touching more members than the schema's
+65,536 omits `members` and reports `SOURCE_LIMIT` reason `member-check-limit`, so it
+supports no member claim. The portable
+`runMemberClaims(result)` from `@aihq/core/contracts` applies the
+[claim rules](#what-each-result-status-lets-you-claim): `confirmedOnDisk` and `removed`.
+
 ## Managed lifecycle
 
 `managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML/INI/YAML/properties entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
@@ -1601,6 +1626,25 @@ foreign content or retained managed members, and directories without creation
 evidence are preserved. Older file custody never implies directory ownership.
 Interrupted work keeps conservative custody; prepare again before further changes.
 
+Ownership roots that record what a person chose use **1.6.0**. This versioned
+migration adds, per claim, the item's name, kind, framework, both identities, tool and
+every qualified origin; typed members (`file { path, sha256, executable }`,
+`text-block { file, blockId, sha256 }`, `config-entry { file, pointer, sha256 }`,
+`config-member { file, pointer, value-sha256 }`, `hook-group-member { file, selector, sha256 }`
+and `approval-change { tool, file, pointer }`); and protected `preExisting` restoration
+data. Target-keyed claims, dependency edges, sets, hook-group selectors, markers, modes,
+created tables and directory records stay exactly as they were and remain
+authoritative: typed members are re-derived from them on every write, and a root
+whose typed members disagree with them is refused. Older roots are read through the
+migration (an undescribed claim has `name: null`) and are rewritten as 1.6.0 only when
+an Apply records item facts, for example by preparing the same selections under
+execution policy 1.4.0 with their metadata. When a reviewed `replace` overwrites a
+person's JSON or JSONC value, that value is kept in protected custody and written back
+when the last claim on the entry is removed, provided Core's value is still there
+unchanged; a value the person has since deleted stays deleted. Other replaced content
+(whole files, marker blocks, TOML, INI, YAML and properties entries) records no earlier
+value and is removed as before. Earlier Core versions refuse 1.6.0 roots.
+
 Ownership roots carrying directory evidence use **1.5.0**. Earlier Core versions
 refuse these roots rather than ignore the evidence, including user-scope cleanup
 when another project's receipt cannot be read. After the last directory record is
@@ -1608,6 +1652,28 @@ removed, the root returns to the format required by its remaining members. Exist
 Prepare/Apply, managed-removal and authored recipe formats are unchanged.
 
 `listManagedSelections({ target: { project }, scope: 'project' | 'user' | 'both' }, { signal?, budgetMs? })` reads the current user's protected custody without creating state or inspecting target bytes. Its `complete` result lists stable management IDs, scope, claim versus legacy reconciliation, and member and shared-member counts. Project scope uses the exact resolved project; user scope also covers Core-managed content roots. A corrupt or unverifiable relevant receipt makes the result `incomplete`, so a partial list must not be treated as all custody. The default budget is 30 seconds (1–120,000 ms); receipt count, bytes and output are bounded. `aih managed list [--project <path>] [--scope project|user|both] [--budget-ms <1..120000>] [--json]` defaults to the current directory and both scopes. The public result schema is `@aihq/core/schemas/managed-inventory-result/1.0.0.json`.
+
+Pass `format: 'urn:aihq:core:managed-inventory-result:1.1.0'` for inventory 1.1.0, a
+redacted projection of the same custody with the same scope, bounds and `incomplete`
+outcomes. It works from receipts alone, without the Catalog, including for an item
+whose framework is no longer offered. Each selection adds:
+
+- `name`, `kind`, `framework`, `item` (both identities) and `tool`, or `null` for a claim recorded without them;
+- `origins[]`, every qualified inclusion (`chosen`; `in-set` with framework, set id and set digest; `required-by`), so a restart can rebuild the exact selection;
+- `members[]`, each member's `kind`, `path` (with `pointer`, `blockId` or `groupId`) and `fileState`: `matches`, `changed`, `missing` or `unchecked`, and for marker blocks `block-changed` or `block-missing`;
+- `updateState` from the consumer's optional `index: { offered, revoked?, superseded? }`: `revoked`, `superseded`, then `current` or `update-available` against the offered identities, `no-longer-offered` when the index does not offer the item, and `unknown` without an index or recorded identity;
+- `policyState`, only when Enterprise passes `organization: { document }`: the obligation admitting the recorded recipe identity and scope (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here;
+- `approval`: `granted-by-aih` when Core recorded an approval change, `needed` when the tool's binding names a permission step, `not-needed`, or `null` without a recorded tool and kind;
+- `installState`: `interrupted` from an Apply's first write of the selection until all its reviewed operations succeed, otherwise `complete`. Finishing or removing an interrupted install uses a fresh review.
+
+Inventory 1.1.0 reads the target files of listed members (16 MiB per file, 64 MiB in
+total, reported in `limits.checkedBytes`); members beyond that budget are `unchecked`
+and the result is `incomplete`. It never exposes a member digest, a `preExisting` or
+approval value, or a private-input hash. When a private input value formed part of a
+member's path, Apply records the redacted path in protected custody and the inventory
+publishes only that (`[REDACTED]` in place of the value); custody written before this
+version carries no such record. The schema is
+`@aihq/core/schemas/managed-inventory-result/1.1.0.json`.
 
 `prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy 1.1 Prepare to the existing engine. `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.
 
@@ -1651,6 +1717,17 @@ Check install and removal wording against this table. Each status establishes on
 | `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`). It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
 | `completion` | `cancelled` | The run stopped on cancellation. Effects completed before it are kept. | "Cancelled", naming the operations that were applied. | "Nothing changed". |
 | `completion` | `rejected` | Apply refused the request before starting work, for example a stale review or missing approval. | "Not run". | Any change to the target. |
+| `members[].intent` | `write` | The reviewed plan writes this member. | Nothing on its own; read `outcome` and `check`. | That it was written. |
+| `members[].intent` | `remove` | The reviewed plan removes this member, or restores the person's value it replaced. | Nothing on its own; read `outcome` and `check`. | That it was removed. |
+| `members[].intent` | `keep` | The plan released this selection's claim, but another claim keeps the member. | "Kept for another selection". | "Removed". |
+| `members[].outcome` | `written` | The run wrote this member, or found it already in place. | "Written", with `check`. | "Confirmed on disk" without the run-level rule below. |
+| `members[].outcome` | `claim-removed` | The run removed Core's claim and the member's bytes Core owned. | "Removal applied" for this member. | "Removed" unless `check` is `absent`. |
+| `members[].outcome` | `restored` | The run wrote back the value the person had before Core replaced it. | "Restored" when `check` is `present-matching`. | "Removed" while `check` is anything else. |
+| `members[].outcome` | `kept` | The run left the member as it was: shared, preserved, failed or never attempted. | "Not changed by this run". | "Written", "removed" or "failed" from this value alone. |
+| `members[].check` | `present-matching` | After Apply the member is on disk exactly as this run left it. | "Present as expected" at that time. | That it persists later, or works. |
+| `members[].check` | `present-different` | The member is present but not as this run left it, or cannot be selected uniquely. | "Changed or ambiguous on disk". | "Written", "restored" or "absent". |
+| `members[].check` | `absent` | The member is not on disk (file missing, block markers or entry gone, no matching hook group). | "Absent" at that time. | "Present". |
+| `members[].check` | `unchecked` | Core did not check it: the run never attempted it, or the target was unreadable. | "Not checked". | Anything about the member. |
 
 An applied removal is not by itself "removed". `application: applied` means Core performed the reviewed removal; with verification `unverified` (reason `no-supplied-check`), nothing confirmed the result. To confirm such a removal:
 
@@ -1665,9 +1742,14 @@ Install wording follows the same rule. Say "installed" only for an operation tha
 
 - with verification `passed`, say "installed and verified by its supplied checks";
 - with verification `unverified`, say "installed, not verified";
-- say "working" or "confirmed on disk" only for what you have checked yourself, because no current status establishes either.
+- say "confirmed on disk" only under the run result 1.4 rule below, and "working" only for what you have checked yourself, because no status establishes it.
 
-This table will gain the run result 1.4 member values (`outcome` and `check`) when they are published ([samartomar/aih-core#99](https://github.com/samartomar/aih-core/issues/99)).
+Run result 1.4 member checks ([samartomar/aih-core#99](https://github.com/samartomar/aih-core/issues/99)) settle both claims directly, and `runMemberClaims(result)` applies them:
+
+- **"Confirmed on disk"** requires run `completion: complete`, every `intent: write` member `outcome: written`, and each of those `check: present-matching`. An `incomplete`, failed, `cancelled` or `rejected` run never qualifies, even when its written subset matches.
+- **"Removed"** means every `intent: remove` member is `claim-removed` and `absent`, or `restored` and `present-matching` (back to the person's pre-existing value). Members kept for another claim are not removed.
+
+These claims cover the members the run touched; use them instead of the confirmation steps above when the result carries `members`.
 
 ## Owned hook groups
 

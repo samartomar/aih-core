@@ -603,6 +603,108 @@
       "items": {
         "type": "string"
       }
+    },
+    "members": {
+      "description": "Every member a reviewed file operation touched, checked directly on disk after Apply. intent comes from the reviewed plan; outcome is what the run did; check is what Core found afterwards. Confirmed on disk requires completion complete and every write member written and present-matching. Removed requires every remove member claim-removed and absent, or restored and present-matching.",
+      "type": "array",
+      "maxItems": 65536,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "selectionId",
+          "managementId",
+          "scope",
+          "kind",
+          "path",
+          "intent",
+          "outcome",
+          "check"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "selectionId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "managementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "text-block",
+              "config-entry",
+              "config-member",
+              "hook-group-member"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "pointer": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "blockId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "intent": {
+            "enum": [
+              "write",
+              "remove",
+              "keep"
+            ]
+          },
+          "outcome": {
+            "enum": [
+              "written",
+              "claim-removed",
+              "restored",
+              "kept"
+            ]
+          },
+          "check": {
+            "enum": [
+              "present-matching",
+              "present-different",
+              "absent",
+              "unchecked"
+            ]
+          }
+        }
+      }
     }
   },
   "required": [
@@ -617,5 +719,5 @@
     "record",
     "followUp"
   ],
-  "title": "Core policy run result naming the changed review binding"
+  "title": "Core policy run result naming the changed review binding and checking each touched member"
 }

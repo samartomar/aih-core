@@ -1,0 +1,514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:managed-inventory-result:1.1.0",
+  "title": "Core managed inventory naming each installed selection, its origins, members and states",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "package",
+    "status",
+    "selections",
+    "diagnostics",
+    "limits"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:managed-inventory-result:1.1.0"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "@aihq/core"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "invalid",
+        "cancelled"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scope": {
+      "enum": [
+        "project",
+        "user",
+        "both"
+      ]
+    },
+    "selections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "managementId",
+          "scope",
+          "custody",
+          "memberCount",
+          "sharedMemberCount",
+          "name",
+          "kind",
+          "framework",
+          "item",
+          "tool",
+          "origins",
+          "members",
+          "updateState",
+          "approval",
+          "installState"
+        ],
+        "properties": {
+          "managementId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "custody": {
+            "enum": [
+              "claim",
+              "legacy-reconcile"
+            ]
+          },
+          "memberCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sharedMemberCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "enum": [
+                  "skill",
+                  "agent",
+                  "command",
+                  "rule",
+                  "hook",
+                  "mcp-server",
+                  "document"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "framework": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "item": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "framework",
+                  "itemId",
+                  "contentSha256",
+                  "behaviourSha256"
+                ],
+                "properties": {
+                  "framework": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "itemId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "contentSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "behaviourSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "origins": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "reasonIncluded"
+                  ],
+                  "properties": {
+                    "reasonIncluded": {
+                      "const": "chosen"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "reasonIncluded",
+                    "set"
+                  ],
+                  "properties": {
+                    "reasonIncluded": {
+                      "const": "in-set"
+                    },
+                    "set": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "framework",
+                        "setId",
+                        "setSha256"
+                      ],
+                      "properties": {
+                        "framework": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "setId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "setSha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "options": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "maxItems": 64,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "reasonIncluded",
+                    "requiredBy"
+                  ],
+                  "properties": {
+                    "reasonIncluded": {
+                      "const": "required-by"
+                    },
+                    "requiredBy": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "itemId"
+                      ],
+                      "properties": {
+                        "framework": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "itemId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "path",
+                "fileState"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "file",
+                    "text-block",
+                    "config-entry",
+                    "config-member",
+                    "hook-group-member"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192
+                },
+                "pointer": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "blockId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "groupId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "fileState": {
+                  "enum": [
+                    "matches",
+                    "changed",
+                    "missing",
+                    "unchecked",
+                    "block-changed",
+                    "block-missing"
+                  ]
+                }
+              }
+            }
+          },
+          "updateState": {
+            "enum": [
+              "current",
+              "update-available",
+              "no-longer-offered",
+              "superseded",
+              "revoked",
+              "unknown"
+            ]
+          },
+          "policyState": {
+            "enum": [
+              "required",
+              "recommended",
+              "permitted",
+              "prohibited",
+              "not-admitted",
+              "unknown"
+            ]
+          },
+          "approval": {
+            "oneOf": [
+              {
+                "enum": [
+                  "needed",
+                  "not-needed",
+                  "granted-by-aih"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installState": {
+            "enum": [
+              "complete",
+              "interrupted"
+            ]
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "encountered": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "block": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "assessedBlocks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "assessmentLimit": {
+            "type": "string"
+          },
+          "guidance": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptCount",
+        "receiptBytes",
+        "elapsedMs",
+        "budgetMs",
+        "checkedBytes",
+        "checkBudgetBytes"
+      ],
+      "properties": {
+        "receiptCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receiptBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "budgetMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120000
+        },
+        "checkedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checkBudgetBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "status": {
+        "not": {
+          "const": "invalid"
+        }
+      }
+    },
+    "required": [
+      "status"
+    ]
+  },
+  "then": {
+    "properties": {
+      "target": {},
+      "scope": {}
+    },
+    "required": [
+      "target",
+      "scope"
+    ]
+  }
+}

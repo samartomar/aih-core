@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Add the custody migration, managed inventory 1.1.0 and run result 1.4.0 member
+checks. Ownership 1.6.0 records, per claim, the item's name, kind, framework, both
+identities, tool and every qualified origin, typed members re-derived from the
+authoritative target-keyed custody, and protected `preExisting` restoration data;
+claims, dependency edges, sets, hook selectors, markers, modes, created tables and
+directory records are unchanged, and older roots read through the migration with
+`name: null`. A reviewed `replace` of a person's JSON or JSONC value keeps that value
+in protected custody and writes it back when the last claim on the entry is removed.
+`listManagedSelections` with `format: 'urn:aihq:core:managed-inventory-result:1.1.0'`
+returns a redacted projection from receipts alone: names, origins, members with
+their `fileState`, `updateState` from a consumer-supplied index, Enterprise-only
+`policyState`, `approval` and `installState`. After Apply, run result 1.4.0 lists every
+touched member with its planned `intent`, `outcome` and a direct on-disk `check`,
+and `runMemberClaims` in `@aihq/core/contracts` applies the published "confirmed on
+disk" and "removed" rules. No digest, earlier value, input value or private-input
+hash is published. Unpublished candidate for the sole 0.1.0 release effort.
+
 Add execution policy 1.4.0, prepared work 1.6.0 and run result 1.4.0. Policy 1.4.0
 keeps every 1.3.0 field and adds descriptive selection metadata (`item`, `tool`,
 `name`, `kind` and Catalog's qualified `origins`, all together or not at all) and

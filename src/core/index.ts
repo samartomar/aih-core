@@ -14,7 +14,7 @@ export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRe
 export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effective, RecordStatus, ReviewOperation,
   HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
   ResolutionInput, OperationSelection, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource,
-  PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic } from './host-types.js';
+  PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic, RunMember } from './host-types.js';
 export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
   AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
@@ -61,7 +61,8 @@ export type { FileStateRequest, FileStateControls, FileStateStatus, FileStateOut
   FileStateCheck, FileStateOmission, FileStateResult } from './file-state-types.js';
 export { listManagedSelections } from './managed-inventory.js';
 export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventoryResult,
-  ManagedInventorySelection } from './managed-inventory.js';
+  ManagedInventorySelection, ManagedInventoryIndex, ManagedInventoryMember, ManagedInventorySelection11,
+  ManagedInventoryResult11 } from './managed-inventory.js';
 export { prepareManagedRemoval } from './managed-removal.js';
 export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult } from './managed-removal.js';
 export { resolveStateLocation } from './resolve-state-location.js';
