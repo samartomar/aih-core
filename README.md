@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material or one exact GitHub commit. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material or one exact GitHub commit. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com or local organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -14,18 +14,19 @@ macOS session limits are internal to the package and not part of any entry.
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `prepareUpdate`, `writeSupportReport`, `resolveStateLocation`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, `stateLocation`, `runMemberClaims`, `removalClaims`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `previewOrganizationContent`, `contractSupport`, `stateLocation`, `runMemberClaims`, `removalClaims`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
 | `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `renderDelivery`, `checkCompatibility`, `deliveryMaterialRoot`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
-| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, and `inspectToolHost` host inspection for an observed tool |
+| `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` and offline `readLocalPolicy` organization-document readers, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, and `inspectToolHost` host inspection for an observed tool |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.0.0.json` | Organization-policy JSON Schema |
 | `@aihq/core/schemas/organization-policy/1.1.0.json` | Organization-policy 1.1.0 JSON Schema (obligations and target selectors) |
+| `@aihq/core/schemas/organization-policy/1.2.0.json` | Organization-policy 1.2.0 JSON Schema (adds content selectors) |
 | `@aihq/core/schemas/organization-target/1.0.0.json` | Caller-declared Enterprise client/repository target JSON Schema |
 | `@aihq/core/schemas/organization-target/1.1.0.json` | Caller-declared Enterprise target naming a registry tool and its surface |
 | `@aihq/core/schemas/prepared-work/1.0.0.json` | Serializable review JSON Schema |
@@ -218,7 +219,7 @@ verifies real material, binds inputs, checks targets and evaluates prerequisites
 
 Supported recipe IDs are `urn:aihq:core:recipe:1.0.0`, `1.1.0`, `1.2.0` and
 `1.3.0` (each version uses the same full prefix); organization preview accepts
-`urn:aihq:core:organization-policy:1.0.0` and `1.1.0` (same full prefix).
+`urn:aihq:core:organization-policy:1.0.0`, `1.1.0` and `1.2.0` (same full prefix).
 Every 1.0.0 entry means `permitted`, with no client or repository selector.
 Unsupported versions refuse without rewriting the original artifact. Package versions are separate from schema IDs.
 Existing strict JSON, one-million-byte document, 4,096-selection/lifecycle and
@@ -300,6 +301,94 @@ const obligations = previewOrganizationObligations({ organization: organization1
 // Without target.repository, fulfillment is 'unknown', never 'fulfilled'.
 ```
 
+### Organization policy 1.2.0: content selectors
+
+Organization-policy 1.2.0 keeps every 1.1.0 rule: exact recipe admission, input
+and lifecycle permissions, the `scopes`, `clients` and `repositories` selectors,
+contradiction rejection across overlapping targets, and runtime enforcement of
+prohibitions. It adds an optional content selector on an entry:
+
+```ts
+content: { kind?, item?: { framework, itemId }, framework?, set?: { framework, setId, setSha256 } }
+```
+
+`kind` is one of `skill`, `agent`, `command`, `rule`, `hook`, `mcp-server` or
+`document`. Every named field must match. An entry names a recipe
+(`recipeIdentity` with `inputs`), content, or both:
+
+- **Recipe entries** admit selections exactly as in 1.1.0. With `content`, they
+  admit only a selection whose declared content matches (`AUTHORITY_DENIED /
+  content` otherwise).
+- **Content-only entries** carry `required`, `recommended` or `prohibited` but no
+  recipe, inputs or lifecycle. They never admit a selection (naming one is
+  `recipe-identity`). Permitting content is a recipe entry narrowed by
+  `content`; a content-only `permitted` entry is invalid
+  (`content-permitted-without-recipe`).
+  `prohibited` denies any selection whose declared content matches; `required`
+  and `recommended` are taken by admitted selections whose content matches.
+
+A selection's content facts are its declared execution-policy 1.4.0 metadata
+(`kind` and `item`), or `kind` and `item` on a preview selection. They are
+declared, never inferred. As with an undeclared target fact, a selector needing
+an undeclared content fact does not match: a prohibition that might apply fails
+closed with `target-unknown`. No new precedence rule is added; prohibitions are
+enforced as in 1.1.0.
+
+**Set membership is supplied data.** Core never expands a set. Pass the
+Catalog-resolved members as `setMembers: { set, members: { framework, itemId,
+kind? }[] }[]` to `validateOrganizationPolicy(document, { setMembers })`,
+`parseOrganizationPolicy(text, { setMembers })`, the previews, Prepare
+(`organizationSetMembers`) and inventory (`organization.setMembers`). Without a
+set's members, its selector is `unavailable` and never matched:
+
+- validation stays valid and lists it in `unavailable: [{ reason:
+  'set-membership-unavailable', path, set }]`;
+- admission fails closed with `AUTHORITY_DENIED / set-membership-unavailable`
+  when the selector could deny or narrow the choice;
+- obligation results report `status: 'unavailable'`, never fulfilled or taken.
+
+Malformed or repeated membership is `INPUT_INVALID / set-members`.
+
+**Contradictions.** A document that both requires and prohibits overlapping
+content on overlapping targets is invalid (`obligation-contradiction`), including
+a set and one of its members. Overlap is reported only when the document and the
+supplied membership prove it. A kind against a specific item counts only when a
+supplied member gives that item's kind. A recipe-only entry is not compared with
+a content-only entry, because a recipe identity names no content; runtime
+prohibition enforcement still applies to the selections they meet.
+
+`previewOrganizationContent({ organization, target, items, setMembers? })`
+answers, per Catalog item `{ framework, itemId, kind }`, which content-only
+entries may govern it for a declared target. Each item reports `required`,
+`prohibited` and its `entries` (`selectionId`, `obligation`, `applicability`,
+`match`, `unknown`). `required` and `prohibited` are true only when an entry
+applies and matches. Pass `required` to Harness `checkCompatibility`: a required
+item whose binding cell is `none` on that platform is the named
+`required-but-unsupported` blocker.
+
+```js
+import { previewOrganizationContent } from '@aihq/core/contracts';
+import { checkCompatibility } from '@aihq/core/harness';
+
+// `github` is a checked Catalog item, `binding` its tool binding and `platform` the host OS and architecture.
+const organization = { schema: 'urn:aihq:core:organization-policy:1.2.0', id: 'team', selections: [
+  { selectionId: 'need-github', scopes: ['project'], obligation: 'required', content: { item: { framework: 'acme', itemId: 'github' } } },
+  { selectionId: 'no-hooks', scopes: ['project'], obligation: 'prohibited', content: { kind: 'hook' } }] };
+const { value } = previewOrganizationContent({ organization, target: { scope: 'project', client: 'claude' },
+  items: [{ framework: 'acme', itemId: 'github', kind: 'mcp-server' }] });
+const compatibility = checkCompatibility({ tool: 'claude', platform, binding, items: [{ item: github, required: value.items[0].required }] });
+// A 'none' cell for MCP servers reports staticBlockers: [{ code: 'required-but-unsupported', ... }]
+```
+
+**Content-source lists.** An organization's list of content sources is not part
+of its policy document; 1.2.0 has no field for one, so a document carrying a list
+is invalid. A host or consumer supplies the list through its own configuration,
+using Catalog's `urn:aihq:catalog:source-description:1.0.0` (read with
+`@aihq/catalog/source`). A source description is discovery data only. It never
+selects organization authority: Core accepts only a GitHub or local organization
+source (see [Enterprise policies](#enterprise-policies)) and refuses a source
+description in its place as `source-invalid`.
+
 All helpers return `{status:'ok',value,diagnostics:[]}` or
 `{status:'refused',diagnostics}`. `AuthoringDiagnostic` has `code`, JSON-pointer
 `path`, explanatory `message`, optional `reason`, `related` and `details`.
@@ -319,8 +408,12 @@ are the machine interface. Refusals contain no executable partial policy.
 | `AUTHORITY_DENIED` / `prohibited` | Referenced entry prohibits the choice, or another applicable entry prohibits the same recipe |
 | `AUTHORITY_DENIED` / `client` | Declared client is outside the entry's selector |
 | `AUTHORITY_DENIED` / `repository` | Declared repository is outside the entry's selector |
-| `AUTHORITY_DENIED` / `target-unknown` | Admission needs an undeclared client or repository; fails closed |
-| `INPUT_INVALID` / `obligation-contradiction` | Required and prohibited entries for the same recipe have overlapping scopes and selectors |
+| `AUTHORITY_DENIED` / `target-unknown` | Admission needs an undeclared client, repository or content fact; fails closed |
+| `AUTHORITY_DENIED` / `content` | Declared content is outside the referenced entry's content selector |
+| `AUTHORITY_DENIED` / `set-membership-unavailable` | A set selector that could deny or narrow the choice has no supplied members; fails closed |
+| `INPUT_INVALID` / `obligation-contradiction` | Required and prohibited entries for the same recipe, or for overlapping content, have overlapping scopes and selectors |
+| `INPUT_INVALID` / `set-members` | Supplied set membership is malformed or names a set twice |
+| `INPUT_INVALID` / `content-permitted-without-recipe` | A content-only entry says `permitted`; only a recipe entry can permit |
 | `INPUT_INVALID` / `unknown-client` | Organization selector names an unknown native client |
 | `INPUT_INVALID` / `repository-identity` | Organization selector contains a malformed repository identity |
 | `INPUT_INVALID` / `organization-input-spec` | Organization validation failed, or a permission value contradicts the recipe input spec |
@@ -1876,7 +1969,7 @@ whose framework is no longer offered. Each selection adds:
 - `origins[]`, every qualified inclusion (`chosen`; `in-set` with framework, set id and set digest; `required-by`), so a restart can rebuild the exact selection;
 - `members[]`, each member's `kind`, `path` (with `pointer` — for a `config-member`, the array's pointer —, `blockId` or `groupId`) and `fileState`: `matches`, `changed`, `missing` or `unchecked`, and for marker blocks `block-changed` or `block-missing`;
 - `updateState` from the consumer's optional `index: { offered, revoked?, superseded? }`: `revoked`, `superseded`, then `current` or `update-available` against the offered identities, `no-longer-offered` when the index does not offer the item, and `unknown` without an index or recorded identity;
-- `policyState`, only when Enterprise passes `organization: { document }`: the obligation admitting the recorded recipe identity and scope (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here;
+- `policyState`, only when Enterprise passes `organization: { document, setMembers? }`: the obligation admitting the recorded recipe identity and scope, together with any organization 1.2.0 content entry matching the recorded item (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here, the recorded item lacks a fact a content selector needs, or a set selector has no supplied members;
 - `approval`: `granted-by-aih` while Core holds an approval it wrote ("Allowed by AIH in the tool; removed with the server"), `needed` when the tool's binding names a permission step the person has not yet taken, `not-needed` when it names none or the person already allowed the server there, or `null` without a recorded tool and kind. An approval the person made themselves is never Core's;
 - `installState`: `interrupted` from just before an Apply's first effect for the selection until all its reviewed operations succeed, otherwise `complete`; `members` then lists only what was actually written. See [interrupted installs](#interrupted-installs).
 
@@ -2141,9 +2234,11 @@ A 1.1 policy accepts recipes 1.0 and 1.1, and emits prepared-work and run-result
 
 ## Enterprise policies
 
+Organization policy applies only in Enterprise. Vibe policies and standalone Harness repair never receive an organization document, its target or its set membership, and keep the same capabilities without an organization boundary.
+
 An Enterprise execution policy (`"mode": "enterprise"`, every selection carrying `organizationSelectionId`) is admitted only against an organization policy document that **you select separately** from the policy. Preparation reads that document from GitHub through the Harness reader, validates it, and compares every derived selection (recipe identity, scope, inputs, lifecycle requests) with it. Any finding blocks the whole request: no handle is returned and no subset runs.
 
-Organization documents may use 1.0.0 or 1.1.0. An optional request field
+Organization documents may use 1.0.0, 1.1.0 or 1.2.0. An optional request field
 `organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0',
 client: 'codex', repository: 'github.com/example-org/app' }` declares the target
 for Enterprise selector evaluation. `client` is required and must be a known
@@ -2196,11 +2291,37 @@ const prepared = await prepare({
 }, { authentication: { kind: 'bearer', token } });                          // omit for unauthenticated access
 ```
 
-- `organizationSource` is required for Enterprise and rejected for Vibe. `controls.authentication` is `{ kind: 'none' }` or `{ kind: 'bearer', token }`; omission is unauthenticated, and no environment or `gh` credential is ever discovered.
+- `organizationSource` is required for Enterprise and rejected for Vibe. It is either the GitHub source above or a local file, `{ provider: 'local', path: '/absolute/org-policy.json' }`. `controls.authentication` is `{ kind: 'none' }` or `{ kind: 'bearer', token }`; omission is unauthenticated, and no environment or `gh` credential is ever discovered.
 - The review reports `mode: "enterprise"` and `inputs.organization` (normalized source, `resolvedCommit`, `blobId`, `contentDigest`, `policyId`, reader identity). The credential is never serialized into reviews, results, history or diagnostics.
 - `apply` reads the organization again with **that call's** `controls.authentication`; a missing credential is not replaced by Prepare's success. A failed read rejects with `AUTHORITY_UNAVAILABLE`, `INPUT_INVALID` or `CANCELLED`; any change of source, resolved commit, blob or content digest (including a moved branch or tag) rejects with `REVIEW_STALE`. Nothing is cached and no history is used as fallback.
 - Unreachable or unauthorized sources prepare as `blocked` with `AUTHORITY_UNAVAILABLE` and the reader's reason (`authentication-required-or-denied`, `source-missing-or-inaccessible`, `rate-limited`, `network-failed`, …); permission refusals are `AUTHORITY_DENIED`. A private repository can answer 404 for a missing credential.
-- Harness repair (`useCase: 'repair'`, `aih repair`) never consults an organization source and rejects an `organizationSource` field. A recipe that merely calls itself Harness receives no exemption.
+- Harness repair (`useCase: 'repair'`, `aih repair`) never consults an organization source and rejects an `organizationSource` or `organizationSetMembers` field. A recipe that merely calls itself Harness receives no exemption.
+
+**Local organization source.** `{ provider: 'local', path }` names one regular
+file by absolute path. It is read offline (no network), bounded to 1,000,000
+bytes, and refused when it is a link or not a regular file
+(`source-not-regular-file`) or cannot be read (`source-missing-or-inaccessible`).
+The review names the file a person can read, never its folder:
+`inputs.organization: { source: { provider: 'local', fileName }, contentDigest,
+policyId, helper: { id: 'local-policy-reader', package } }`. Apply reads the file
+again; changed bytes or a different file are `REVIEW_STALE` with `changed:
+'policy'`, and nothing is written. Only execution policy 1.4.0 (prepared work
+1.6.0, run result 1.4.0) can name a local source; an older policy with one is
+`INPUT_INVALID / organization-source-local-review`. Grouped removal preparation
+1.2.0 accepts a local source too; the single-id removal form and `aih managed
+remove` name only GitHub. The source is caller-selected like the GitHub source;
+nothing chooses one from data.
+
+**Set membership in Prepare.** `organizationSetMembers` (Enterprise only;
+rejected for Vibe) supplies the Catalog-resolved members for the organization
+document's 1.2.0 set selectors. It takes part in validation, contradiction
+checks and admission, and is bound by the request digest, so a change before
+Apply is `REVIEW_STALE`. With a declared target, prepared work 1.6.0 (execution
+policy 1.4.0) lists fulfillment and advice for recipe and content-only entries,
+each with `recipeIdentity`, `content` or both, and reports a set without supplied
+members as `unavailable`. Prepared work 1.5.0 names recipe entries only; there a
+content-only entry is left out and an unavailable set reads `unknown` or
+`not-taken`.
 
 ```sh
 export ORG_TOKEN=...   # only the named variable is read
@@ -2209,7 +2330,7 @@ aih policy policy.json --project /absolute/project \
   --org-token-env ORG_TOKEN --apply --yes --json
 ```
 
-`--org-repository <owner/repo>`, `--org-path <path>` and `--org-ref <branch:name|tag:name|commit:sha>` are all required for an Enterprise policy and rejected for Vibe (malformed values exit 2). `--org-token-env <NAME>` names an environment variable holding the bearer token (missing or empty exits 2 without printing it); the token stays in memory and is used for both Prepare and Apply. Authority failures and denials exit 2, including previews.
+`--org-repository <owner/repo>`, `--org-path <path>` and `--org-ref <branch:name|tag:name|commit:sha>` are all required for an Enterprise policy and rejected for Vibe (malformed values exit 2). Alternatively, `--org-file <path>` selects a local organization document for an execution policy 1.4.0, read offline; it cannot be combined with the GitHub flags or `--org-token-env`. `--org-token-env <NAME>` names an environment variable holding the bearer token (missing or empty exits 2 without printing it); the token stays in memory and is used for both Prepare and Apply. Authority failures and denials exit 2, including previews.
 
 ## Optional Scan evidence
 

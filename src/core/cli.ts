@@ -47,7 +47,7 @@ const usage = {
     'aih report --output <new-directory> --snapshot <report.json> [--json]\n' +
     '  Writes report.json only; the consuming application renders it.\n',
   inspect: 'aih inspect [--target <id>] [--offline] [--probe-configured-mcp] [--project <path>] [--support-markdown <path>] [--json]\n',
-  policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
+  policy: 'aih policy <policy.json> [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>] | --org-file <path>] [--evidence] [--apply --yes] [--allow-partial] [--private-input <selection.input>=<env-name>] [--material-root <id>=<absolute-path>] [--resolutions <strict-json-file>] [--no-log] [--support-markdown <path>] [--json]\n',
   repair: 'aih repair <published-id> --target <published-target> --inputs-file <json> [--offline] [--resolutions <strict-json-file>] [--apply --yes] [--allow-partial] [--no-log] [--support-markdown <path>] [--json]\n',
   validate: 'aih validate <execution-policy|organization-policy|recipe> <file> [--json]\n',
   'check-files': 'aih check-files <policy.json> [--project <path>] [--material-root <id>=<absolute-path>] [--private-input <selection.input>=<env-name>] [--budget-ms <integer>] [--json]\n',
@@ -203,9 +203,10 @@ if (process.argv[2] === 'verify-macos-session') {
     'support-markdown': { type: 'string' },
     evidence: { type: 'boolean' },
     'org-repository': { type: 'string' }, 'org-path': { type: 'string' }, 'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' },
+    'org-file': { type: 'string' },
     'budget-ms': { type: 'string' }, scope: { type: 'string' }, mode: { type: 'string' }
   } });
-  const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env'] as const;
+  const organizationFlags = ['org-repository', 'org-path', 'org-ref', 'org-token-env', 'org-file'] as const;
   const hasOrganizationFlags = organizationFlags.some(name => values[name] !== undefined);
   const acceptsOnly = (allowed: readonly string[]) => Object.keys(values).every(name => allowed.includes(name));
   json = values.json ?? false;
@@ -558,7 +559,12 @@ if (process.argv[2] === 'verify-macos-session') {
     else {
       const sourceFlags = ['org-repository', 'org-path', 'org-ref'] as const;
       let organizationSource: PolicyRequest['organizationSource'];
-      if (parsed.document.mode === 'enterprise') {
+      if (parsed.document.mode === 'enterprise' && values['org-file'] !== undefined) {
+        // A local organization document, read offline; it takes no GitHub location or credential.
+        if (sourceFlags.some(name => values[name] !== undefined) || values['org-token-env'] !== undefined || !values['org-file'])
+          throw new Error('organization-flags');
+        organizationSource = { provider: 'local', path: resolve(values['org-file']) };
+      } else if (parsed.document.mode === 'enterprise') {
         if (sourceFlags.some(name => !values[name])) throw new Error('organization-flags');
         const repository = /^([^/\s]+)\/([^/\s]+)$/.exec(values['org-repository']!);
         const revision = /^(branch|tag|commit):(.+)$/s.exec(values['org-ref']!);

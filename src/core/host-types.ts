@@ -1,16 +1,24 @@
 import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, SelectionMetadata, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
   OrganizationTargetDeclaration } from './types.js';
-import type { GitHubPolicySource } from '../harness/runtime.mjs';
+import type { GitHubPolicySource, LocalPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
 import type { TrustInputs, TrustRunTrust } from './trust-contracts.js';
 import type { MacosSessionReview, MacosSessionRun } from './macos-session-contracts.js';
-export type { GitHubPolicySource } from '../harness/runtime.mjs';
+export type { GitHubPolicySource, LocalPolicySource } from '../harness/runtime.mjs';
 declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
 export interface PolicyRequest {
   useCase: 'policy'; policy: ExecutionPolicy; target: { project: string };
-  /** Required exactly when `policy.mode` is `enterprise`; selected independently of the policy document. */
-  organizationSource?: GitHubPolicySource;
+  /**
+   * Required exactly when `policy.mode` is `enterprise`; selected independently of the policy document. A local source
+   * is read offline and needs execution policy 1.4.0, whose review names the file.
+   */
+  organizationSource?: GitHubPolicySource | LocalPolicySource;
+  /**
+   * Enterprise only: Catalog-resolved members of the sets organization 1.2.0 selectors name, supplied as data. Without a
+   * set's members its selector is `unavailable` and admission fails closed; Core never expands a set.
+   */
+  organizationSetMembers?: import('./types.js').OrganizationSetMembers[];
   /**
    * Optional caller-declared client and repository for an Enterprise policy. It is reported as declared, never inferred
    * or verified, and is rejected for a Vibe policy.
@@ -86,10 +94,14 @@ export interface HookGroupReview {
 }
 export interface ReviewCheck { id: string; purpose: string; kind: 'file.sha256' | 'process.exit';
   details: ReviewOperation['details'] }
-export interface OrganizationBinding {
+export type OrganizationBinding = {
   source: GitHubPolicySource; resolvedCommit: string; blobId: string; contentDigest: string; policyId: string;
   helper: { id: 'github-policy-reader'; package: { name: string; version: string } };
-}
+} | {
+  /** A local source is named by its file name only. */
+  source: { provider: 'local'; fileName: string }; contentDigest: string; policyId: string;
+  helper: { id: 'local-policy-reader'; package: { name: string; version: string } };
+};
 /** Obligation results for the declared target; a not-fulfilled result never blocks preparation. */
 export interface OrganizationObligationsReview {
   target: { basis: 'declared'; client: import('./internal/native-clients.js').NativeClientId; repository?: string };

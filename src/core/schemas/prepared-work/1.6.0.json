@@ -38,7 +38,30 @@
       "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/target"
     },
     "inputs": {
-      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policySha256",
+        "package"
+      ],
+      "properties": {
+        "policySha256": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/policySha256"
+        },
+        "package": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+        },
+        "organization": {
+          "oneOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/organization"
+            },
+            {
+              "$ref": "#/$defs/localOrganization"
+            }
+          ]
+        }
+      }
     },
     "operations": {
       "type": "array",
@@ -392,7 +415,225 @@
       "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/reviewDigest"
     },
     "organizationObligations": {
-      "$ref": "urn:aihq:core:prepared-work:1.5.0#/properties/organizationObligations"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "fulfillment",
+        "advisory"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "basis",
+            "client"
+          ],
+          "properties": {
+            "basis": {
+              "const": "declared"
+            },
+            "client": {
+              "enum": [
+                "claude",
+                "codex",
+                "cursor",
+                "gemini",
+                "copilot",
+                "windsurf",
+                "opencode",
+                "kimi",
+                "kiro",
+                "antigravity",
+                "zed"
+              ]
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "fulfillment": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "fulfilled",
+                  "not-fulfilled",
+                  "unknown",
+                  "unavailable"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              },
+              "content": {
+                "$ref": "#/$defs/organizationContent"
+              }
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "recipeIdentity": {}
+                },
+                "required": [
+                  "recipeIdentity"
+                ]
+              },
+              {
+                "properties": {
+                  "content": {}
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            ]
+          }
+        },
+        "advisory": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "taken",
+                  "not-taken",
+                  "unavailable"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              },
+              "content": {
+                "$ref": "#/$defs/organizationContent"
+              }
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "recipeIdentity": {}
+                },
+                "required": [
+                  "recipeIdentity"
+                ]
+              },
+              {
+                "properties": {
+                  "content": {}
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            ]
+          }
+        }
+      }
     }
   },
   "allOf": [
@@ -830,6 +1071,132 @@
         "identity": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}@)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]@)[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
+        }
+      }
+    },
+    "localOrganization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "contentDigest",
+        "policyId",
+        "helper"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "fileName"
+          ],
+          "properties": {
+            "provider": {
+              "const": "local"
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "helper": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "package"
+          ],
+          "properties": {
+            "id": {
+              "const": "local-policy-reader"
+            },
+            "package": {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+            }
+          }
+        }
+      }
+    },
+    "organizationContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "kind": {
+          "enum": [
+            "skill",
+            "agent",
+            "command",
+            "rule",
+            "hook",
+            "mcp-server",
+            "document"
+          ]
+        },
+        "item": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "framework",
+            "itemId"
+          ],
+          "properties": {
+            "framework": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "itemId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            }
+          }
+        },
+        "framework": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "framework",
+            "setId",
+            "setSha256"
+          ],
+          "properties": {
+            "framework": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "setSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
         }
       }
     }

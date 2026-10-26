@@ -12,10 +12,11 @@ import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-cu
 import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { validateOrganizationPolicy } from './contracts.js';
+import { contentEntries, contentFactsOf, matchContent, SetMembership } from './internal/organization-content.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Owner } from './internal/state.js';
-import type { CatalogItemRef, GitMaterialProvenance, InclusionOrigin, OrganizationPolicy, SelectionMetadata } from './types.js';
+import type { CatalogItemRef, GitMaterialProvenance, InclusionOrigin, OrganizationPolicy, OrganizationSetMembers, SelectionMetadata } from './types.js';
 
 const SCHEMA = 'urn:aihq:core:managed-inventory-result:1.0.0' as const;
 const SCHEMA_11 = 'urn:aihq:core:managed-inventory-result:1.1.0' as const;
@@ -29,8 +30,11 @@ export interface ManagedInventoryRequest {
   format?: typeof SCHEMA_11;
   /** Inventory 1.1.0: the consumer's complete current index, from which `updateState` is derived. */
   index?: ManagedInventoryIndex;
-  /** Inventory 1.1.0, Enterprise only: the organization document whose admission `policyState` reports. */
-  organization?: { document: OrganizationPolicy };
+  /**
+   * Inventory 1.1.0, Enterprise only: the organization document whose admission `policyState` reports, with optional
+   * Catalog-resolved members for its 1.2.0 set selectors (without them a set selector reads `unknown`).
+   */
+  organization?: { document: OrganizationPolicy; setMembers?: OrganizationSetMembers[] };
 }
 /** Consumer-supplied index and supersession data; Core never reads a Catalog itself. */
 export interface ManagedInventoryIndex {
@@ -195,7 +199,11 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   }
   if (admitted && request.organization !== undefined) {
     let organized = false;
-    try { organized = plainWithKeys(request.organization, ['document']) && validateOrganizationPolicy(request.organization.document).valid; } catch { organized = false; }
+    try {
+      const keys = ['document', ...Object.hasOwn(request.organization, 'setMembers') ? ['setMembers'] : []];
+      organized = plainWithKeys(request.organization, keys) && validateOrganizationPolicy(request.organization.document,
+        keys.length > 1 ? { setMembers: request.organization.setMembers! } : {}).valid;
+    } catch { organized = false; }
     if (!organized) {
       result.status = 'invalid';
       result.diagnostics.push(diagnostic('INPUT_INVALID', 'organization-policy', 'The organization document is invalid.'));
@@ -343,14 +351,26 @@ function updateState(item: SelectionMetadata['item'] | null, index: ManagedInven
   return offered.some(entry => entry.contentSha256 === item.contentSha256 && entry.behaviourSha256 === item.behaviourSha256) ? 'current' : 'update-available';
 }
 const STRENGTH = ['required', 'recommended', 'permitted'] as const;
-/** Enterprise admission of the recorded recipe identity; a target selector Core cannot evaluate here reads unknown. */
-function policyState(document: OrganizationPolicy, scope: 'project' | 'user', identities: Set<string>): NonNullable<ManagedInventorySelection11['policyState']> {
+/**
+ * Enterprise admission of the recorded recipe identity, with any organization 1.2.0 content entry matching the recorded
+ * item; a target selector Core cannot evaluate here, an unrecorded fact or a set without supplied members reads unknown.
+ */
+function policyState(document: OrganizationPolicy, scope: 'project' | 'user', identities: Set<string>,
+    facts: { kind: SelectionMetadata['kind'] | null; item: CatalogItemRef | null }, membership: SetMembership): NonNullable<ManagedInventorySelection11['policyState']> {
   if (identities.size !== 1) return 'unknown';
   const [identity] = identities;
-  const entries = document.selections.filter(entry => entry.recipeIdentity === identity && entry.scopes.includes(scope));
+  const recorded = contentFactsOf(facts);
+  const entries = document.selections.filter(entry => entry.recipeIdentity === identity && entry.scopes.includes(scope) &&
+    !('content' in entry && entry.content && matchContent(entry.content, recorded, membership) === 'mismatch'));
   if (!entries.length) return 'not-admitted';
-  if (entries.some(entry => 'clients' in entry && entry.clients !== undefined || 'repositories' in entry && entry.repositories !== undefined)) return 'unknown';
-  const obligations = entries.map(entry => 'obligation' in entry ? entry.obligation : 'permitted');
+  // Content entries that could govern this row: content-only ones, and those narrowing this recipe identity.
+  const content = contentEntries(document).filter(entry => entry.content && entry.scopes.includes(scope) &&
+      (entry.recipeIdentity === undefined || entry.recipeIdentity === identity))
+    .map(entry => ({ entry, match: matchContent(entry.content!, recorded, membership) })).filter(({ match }) => match !== 'mismatch');
+  if (content.some(({ match }) => match !== 'matches')) return 'unknown';
+  const governing = [...entries, ...content.filter(({ entry }) => entry.recipeIdentity === undefined).map(({ entry }) => entry)];
+  if (governing.some(entry => 'clients' in entry && entry.clients !== undefined || 'repositories' in entry && entry.repositories !== undefined)) return 'unknown';
+  const obligations = governing.map(entry => 'obligation' in entry ? entry.obligation : 'permitted');
   if (obligations.includes('prohibited')) return 'prohibited';
   return STRENGTH.find(strength => obligations.includes(strength)) ?? 'permitted';
 }
@@ -404,7 +424,8 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
       origins: facts?.origins ?? [], ...(source ? { materialSource: { ...source } } : {}), members, updateState: updateState(facts?.item ?? null, request.index),
       ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
-        new Set(detail.members.map(member => member.owner.recipeIdentity))) } : {}),
+        new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ?? null },
+        new SetMembership(request.organization.setMembers)) } : {}),
       approval: granted ? 'granted-by-aih' : tool === null || kind === null ? null : bindingPermissionStep(tool, kind) === undefined || givenByPerson() ? 'not-needed' : 'needed',
       installState: detail.items.some(item => item.installState === 'interrupted') ? 'interrupted' : 'complete' };
   });

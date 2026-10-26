@@ -1,0 +1,7 @@
+{
+  "schema": "urn:aihq:core:organization-policy:1.2.0",
+  "id": "example",
+  "selections": [
+    { "selectionId": "nothing", "scopes": ["project"], "obligation": "required" }
+  ]
+}

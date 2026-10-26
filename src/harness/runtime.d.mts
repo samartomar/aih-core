@@ -120,6 +120,16 @@ export type ReadGitHubPolicyResult =
       message: string; source?: GitHubPolicySource; retryAfterSeconds?: number;
       helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting };
 export declare function readGitHubPolicy(source: unknown, controls?: GitHubPolicyReaderControls): Promise<ReadGitHubPolicyResult>;
+/** A caller-selected local organization document: an absolute path to a regular file, read offline. */
+export interface LocalPolicySource { provider: 'local'; path: string }
+export interface LocalPolicyReaderIdentity { id: 'local-policy-reader'; package: { name: string; version: string } }
+export type ReadLocalPolicyResult =
+  | { status: 'read'; source: LocalPolicySource; bytes: Uint8Array; contentDigest: string; helper: LocalPolicyReaderIdentity }
+  | { status: 'invalid' | 'unavailable' | 'cancelled'; code: 'INPUT_INVALID' | 'AUTHORITY_UNAVAILABLE' | 'CANCELLED';
+      reason: 'source-invalid' | 'source-missing-or-inaccessible' | 'source-not-regular-file' | 'response-bytes' | 'cancelled';
+      message: string; source?: LocalPolicySource; helper: LocalPolicyReaderIdentity };
+/** Reads one bounded local organization document without network access; links and non-regular files are refused. */
+export declare function readLocalPolicy(source: unknown, controls?: { signal?: AbortSignal }): Promise<ReadLocalPolicyResult>;
 export { inspectToolHost } from './tool-host.mjs';
 export type { ToolHostItemReference, ToolHostItem, ToolHostRequest, ToolHostControls, ToolHostCopy, ToolHostBlocker,
   ToolHostWarning, ToolHostUnchecked, ToolHostItemResult, ToolHostLimits, ToolHostResult } from './tool-host.mjs';

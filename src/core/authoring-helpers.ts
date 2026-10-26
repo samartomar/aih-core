@@ -1,15 +1,17 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import recipeSchema from './schemas/recipe/1.3.0.json' with { type: 'json' };
 import { validateRecipe, validatePolicy, validateOrganizationPolicy } from './contracts.js';
-import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle } from './internal/organization-admission.js';
+import { admitOrganizationSelections, evaluateOrganizationContent, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle,
+  type OrganizationContentEntryResult } from './internal/organization-admission.js';
 import { inputAccepts, inputDefinitionSemantics, isNativeClient, isRepositoryIdentity } from './internal/policy-validation.js';
+import { SetMembership } from './internal/organization-content.js';
 import { canonicalJson } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
 import { checkedReference, checkedInlineMaterials, MaterialCaptureError } from './internal/material-descriptors.js';
 import { sha256 } from './internal/sha256.js';
 import { cloneJsonValueStructureV1, assertStrictJsonValueV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import type { Diagnostic as CoreDiagnostic, MaterialIdentity, MaterialRecipeReference, Recipe, OrganizationPolicy,
-  OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationTarget } from './types.js';
+  OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationTarget, OrganizationSetMembers, CatalogItemRef, SelectionMetadata } from './types.js';
 
 /** Owning Core diagnostics retain their complete public shape. */
 export type PackageDetails = { owner: 'core'; diagnostics: CoreDiagnostic[] };
@@ -27,6 +29,8 @@ export interface PreviewOrganizationAdmissionRequest {
   organization: OrganizationPolicy;
   selections: OrganizationAdmissionSelection[];
   lifecycle: OrganizationAdmissionLifecycle[];
+  /** Catalog-resolved set membership for organization 1.2.0 set selectors; without it a set selector is `unavailable`. */
+  setMembers?: OrganizationSetMembers[];
 }
 export interface OrganizationAdmissionPreview { admitted: boolean; diagnostics: AuthoringDiagnostic[] }
 export interface PreviewOrganizationObligationsRequest extends PreviewOrganizationAdmissionRequest { target: OrganizationTarget }
@@ -36,6 +40,23 @@ export interface OrganizationObligationsPreview {
   advisory: OrganizationAdvisoryResult[];
   fulfillment: OrganizationFulfillmentResult[];
 }
+
+export type { OrganizationContentEntryResult };
+/** Catalog items to compare with an organization's content selectors for one declared target. */
+export interface PreviewOrganizationContentRequest {
+  organization: OrganizationPolicy;
+  target: OrganizationTarget;
+  items: (CatalogItemRef & { kind: SelectionMetadata['kind'] })[];
+  setMembers?: OrganizationSetMembers[];
+}
+export interface OrganizationContentItemResult {
+  item: CatalogItemRef; kind: SelectionMetadata['kind'];
+  /** An applicable 1.2.0 entry requires this item; pass it as `required` to Harness `checkCompatibility`. */
+  required: boolean;
+  prohibited: boolean;
+  entries: OrganizationContentEntryResult[];
+}
+export interface OrganizationContentPreview { target: OrganizationTarget; items: OrganizationContentItemResult[] }
 
 function refused(reason: string, path: string, diagnostics?: CoreDiagnostic[]): { status: 'refused'; diagnostics: AuthoringDiagnostic[] } {
   return { status: 'refused', diagnostics: [{ code: 'INPUT_INVALID', reason, path,
@@ -48,11 +69,15 @@ validator.addSchema(recipeSchema);
 const id = { $ref: `${recipeSchema.$id}#/$defs/id` };
 const scope = { enum: ['project', 'user'] };
 const identity = { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' };
+const catalogId = { type: 'string', minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' };
 const previewProperties = {
   organization: { type: 'object' },
+  setMembers: { type: 'array' },
   selections: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false,
     required: ['id', 'organizationSelectionId', 'scope', 'recipeIdentity', 'inputs', 'configuration', 'privateInputs'],
     properties: { id, organizationSelectionId: id, scope, recipeIdentity: identity,
+      kind: { enum: ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'] },
+      item: { type: 'object', additionalProperties: false, required: ['framework', 'itemId'], properties: { framework: catalogId, itemId: catalogId } },
       inputs: { type: 'object', propertyNames: id, additionalProperties: { $ref: `${recipeSchema.$id}#/$defs/input` } },
       configuration: { type: 'object', propertyNames: id },
       privateInputs: { type: 'array', uniqueItems: true, items: id } } } },
@@ -66,10 +91,29 @@ const checkObligationsPreview = validator.compile({ type: 'object', additionalPr
   required: ['organization', 'selections', 'lifecycle', 'target'], properties: { ...previewProperties,
     target: { type: 'object', additionalProperties: false, required: ['scope'], properties: {
       scope, client: { type: 'string', maxLength: 128 }, repository: { type: 'string', maxLength: 512 } } } } });
+const checkContentPreview = validator.compile({ type: 'object', additionalProperties: false,
+  required: ['organization', 'target', 'items'], properties: { organization: previewProperties.organization, setMembers: previewProperties.setMembers,
+    target: { type: 'object', additionalProperties: false, required: ['scope'], properties: {
+      scope, client: { type: 'string', maxLength: 128 }, repository: { type: 'string', maxLength: 512 } } },
+    items: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false, required: ['framework', 'itemId', 'kind'],
+      properties: { framework: catalogId, itemId: catalogId, kind: previewProperties.selections.items.properties.kind } } } } });
+
+/** The organization document, validated with any supplied set membership; set membership refusals name `/setMembers`. */
+function checkedAuthority(organization: OrganizationPolicy, setMembers: OrganizationSetMembers[] | undefined):
+    { membership: SetMembership } | { refusal: ReturnType<typeof refused> } {
+  const checked = validateOrganizationPolicy(organization, setMembers === undefined ? {} : { setMembers });
+  if (!checked.valid) return { refusal: checked.diagnostics.some(item => item.reason === 'set-members') ?
+    refused('input-value', '/setMembers', checked.diagnostics) : refused('organization-input-spec', '/organization', checked.diagnostics) };
+  return { membership: new SetMembership(setMembers) };
+}
+/** A declared client must be a known native client and a declared repository well formed; absent facts stay unknown. */
+const targetRefusal = (target: OrganizationTarget) =>
+  target.client !== undefined && !isNativeClient(target.client) ? refused('input-value', '/target/client') :
+  target.repository !== undefined && !isRepositoryIdentity(target.repository) ? refused('input-value', '/target/repository') : undefined;
 
 /** Shared request validation; admission is the only comparison and always runs on a validated copy. */
 function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: unknown, check: ValidateFunction):
-    { safe: T } | { refusal: ReturnType<typeof refused> } {
+    { safe: T; membership: SetMembership } | { refusal: ReturnType<typeof refused> } {
   let safe: T;
   try {
     const descriptor = request && typeof request === 'object' ? Object.getOwnPropertyDescriptor(request, 'organization') : undefined;
@@ -83,8 +127,9 @@ function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: 
   if (!check(safe)) return { refusal: refused('input-value', check.errors?.[0]?.instancePath ?? '',
     (check.errors ?? []).map(e => ({ code: 'INPUT_INVALID', reason: e.keyword, path: e.instancePath,
       message: 'The preview request does not satisfy its contract.' }))) };
-  const organization = validateOrganizationPolicy(safe.organization);
-  if (!organization.valid) return { refusal: refused('organization-input-spec', '/organization', organization.diagnostics) };
+  const authority = checkedAuthority(safe.organization, safe.setMembers);
+  if ('refusal' in authority) return authority;
+  const { membership } = authority;
   const seen = new Set<string>();
   for (const [index, selection] of safe.selections.entries()) {
     const path = `/selections/${index}`;
@@ -106,7 +151,7 @@ function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: 
     if (selection.privateInputs.some(name => !Object.hasOwn(selection.inputs, name) || !selection.inputs[name]!.sensitive))
       return { refusal: refused('input-value', `${path}/privateInputs`) };
   }
-  return { safe };
+  return { safe, membership };
 }
 
 const admissionInputs = (safe: PreviewOrganizationAdmissionRequest): { selections: AdmissionSelection[]; lifecycle: AdmissionLifecycle[] } => ({
@@ -122,9 +167,9 @@ const toAdmissionPreview = (diagnostics: { code: string; reason?: string; path?:
 export function previewOrganizationAdmission(request: PreviewOrganizationAdmissionRequest): AuthoringResult<OrganizationAdmissionPreview> {
   const checked = checkedPreview<PreviewOrganizationAdmissionRequest>(request, checkPreview);
   if ('refusal' in checked) return checked.refusal;
-  const { safe } = checked;
+  const { safe, membership } = checked;
   const { selections, lifecycle } = admissionInputs(safe);
-  return { status: 'ok', value: toAdmissionPreview(admitOrganizationSelections(safe.organization, selections, lifecycle)), diagnostics: [] };
+  return { status: 'ok', value: toAdmissionPreview(admitOrganizationSelections(safe.organization, selections, lifecycle, {}, membership)), diagnostics: [] };
 }
 
 /**
@@ -134,16 +179,16 @@ export function previewOrganizationAdmission(request: PreviewOrganizationAdmissi
 export function previewOrganizationObligations(request: PreviewOrganizationObligationsRequest): AuthoringResult<OrganizationObligationsPreview> {
   const checked = checkedPreview<PreviewOrganizationObligationsRequest>(request, checkObligationsPreview);
   if ('refusal' in checked) return checked.refusal;
-  const { safe } = checked;
+  const { safe, membership } = checked;
   const { target } = safe;
-  if (target.client !== undefined && !isNativeClient(target.client)) return refused('input-value', '/target/client');
-  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) return refused('input-value', '/target/repository');
+  const invalidTarget = targetRefusal(target);
+  if (invalidTarget) return invalidTarget;
   const { selections, lifecycle } = admissionInputs(safe);
   const facts = { ...(target.client === undefined ? {} : { client: target.client }),
     ...(target.repository === undefined ? {} : { repository: target.repository }) };
-  const findings = admitOrganizationSelections(safe.organization, selections, lifecycle, facts);
+  const findings = admitOrganizationSelections(safe.organization, selections, lifecycle, facts, membership);
   return { status: 'ok', value: { target, enforced: toAdmissionPreview(findings),
-    ...evaluateOrganizationObligations(safe.organization, selections, findings, target) }, diagnostics: [] };
+    ...evaluateOrganizationObligations(safe.organization, selections, findings, target, membership) }, diagnostics: [] };
 }
 function checkedJson(value: unknown): unknown {
   const copy = cloneJsonValueStructureV1(value, 'authoring request', 32);
@@ -204,4 +249,22 @@ export async function deriveRecipeIdentity(request: DeriveRecipeIdentityRequest)
     return { status: 'ok', value: { recipeIdentity: `sha256:${await digestJson(descriptor)}`,
       recipeSha256, materials: descriptor.materials }, diagnostics: [] };
   } catch { return refused('recipe-invalid', ''); }
+}
+
+/**
+ * Advisory, per Catalog item: the organization 1.2.0 content entries that may govern it for a declared target. It
+ * observes nothing and grants nothing; Prepare and Apply still admit exact recipes against current authority.
+ */
+export function previewOrganizationContent(request: PreviewOrganizationContentRequest): AuthoringResult<OrganizationContentPreview> {
+  let safe: PreviewOrganizationContentRequest;
+  try { safe = checkedJson(request) as PreviewOrganizationContentRequest; } catch { return refused('input-value', ''); }
+  if (!checkContentPreview(safe)) return refused('input-value', checkContentPreview.errors?.[0]?.instancePath ?? '');
+  const authority = checkedAuthority(safe.organization, safe.setMembers);
+  if ('refusal' in authority) return authority.refusal;
+  const { target } = safe;
+  const invalidTarget = targetRefusal(target);
+  if (invalidTarget) return invalidTarget;
+  const { membership } = authority;
+  return { status: 'ok', value: { target, items: safe.items.map(({ framework, itemId, kind }) => ({ item: { framework, itemId }, kind,
+    ...evaluateOrganizationContent(safe.organization, { kind, item: { framework, itemId } }, target, membership) })) }, diagnostics: [] };
 }

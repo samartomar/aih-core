@@ -3,7 +3,8 @@ import { canonicalJson } from './canonical.js';
 import { gitSourceProblem } from './material-descriptors.js';
 import { nativeClients } from './native-clients.js';
 import { findTool } from '../../harness/tool-registry.mjs';
-import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationSelection11, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
+import { entriesOverlap, SetMembership } from './organization-content.js';
+import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationPolicy12, OrganizationSelection12, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
   if (spec.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== spec.type) return false;
@@ -158,8 +159,9 @@ const repositoryPattern = new RegExp(`^${hostLabel}(?:\\.${hostLabel})+/[a-z0-9.
 /** `<host>/<owner>/<name>`, lowercase, compared by exact equality and never inferred from a checkout. */
 export const isRepositoryIdentity = (value: string): boolean =>
   repositoryPattern.test(value) && value.split('/').slice(1).every(part => part !== '.' && part !== '..');
-export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is OrganizationPolicy11 =>
-  policy.schema === 'urn:aihq:core:organization-policy:1.1.0';
+/** Organization 1.1.0 and 1.2.0 carry obligations and target selectors; 1.0.0 entries are all permitted. */
+export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is OrganizationPolicy11 | OrganizationPolicy12 =>
+  policy.schema === 'urn:aihq:core:organization-policy:1.1.0' || policy.schema === 'urn:aihq:core:organization-policy:1.2.0';
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
 
 /** Rechecks the client against Core's list and requires a well-formed declared repository identity. */
@@ -183,21 +185,26 @@ export function organizationTargetSemantics(target: { client?: string; tool?: { 
 
 const intersects = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean =>
   left === undefined || right === undefined || left.some(value => right.includes(value));
-const overlaps = (left: OrganizationSelection11, right: OrganizationSelection11): boolean =>
+const overlaps = (left: OrganizationSelection12, right: OrganizationSelection12): boolean =>
   left.scopes.some(scope => right.scopes.includes(scope)) && intersects(left.clients, right.clients) &&
   intersects(left.repositories, right.repositories);
 
-export function organizationSemantics(policy: OrganizationPolicy): Diagnostic[] {
+/**
+ * Duplicate identities, closed client and repository selectors, and required/prohibited contradictions over overlapping
+ * targets and content. A pair whose overlap depends on a set without supplied members is not matched; the set selector is
+ * reported `unavailable` by the caller instead.
+ */
+export function organizationSemantics(policy: OrganizationPolicy, membership: SetMembership = new SetMembership(undefined)): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const invalid = (reason: string, path: string, message: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path, message });
   const seen = new Set<string>();
   const current = isOrganizationPolicy11(policy) ? policy : undefined;
-  const groups = new Map<string, { entry: OrganizationSelection11; index: number }[]>();
+  const decided: { entry: OrganizationSelection12; index: number }[] = [];
   policy.selections.forEach((selection, index) => {
     if (seen.has(selection.selectionId)) invalid('duplicate-selection-id', `/selections/${index}/selectionId`,
       'The organization document has a duplicate selection identity.');
     seen.add(selection.selectionId);
-    const entry = current?.selections[index];
+    const entry: OrganizationSelection12 | undefined = current?.selections[index];
     if (entry === undefined) return;
     entry.clients?.forEach((client, position) => {
       if (!isNativeClient(client)) invalid('unknown-client', `/selections/${index}/clients/${position}`,
@@ -207,15 +214,17 @@ export function organizationSemantics(policy: OrganizationPolicy): Diagnostic[] 
       if (!isRepositoryIdentity(repository)) invalid('repository-identity', `/selections/${index}/repositories/${position}`,
         'The organization entry names a malformed repository identity.');
     });
-    const group = groups.get(entry.recipeIdentity) ?? [];
-    if (entry.obligation === 'required' || entry.obligation === 'prohibited') {
-      const opposite = entry.obligation === 'required' ? 'prohibited' : 'required';
-      if (group.some(other => other.entry.obligation === opposite && overlaps(other.entry, entry)))
-        invalid('obligation-contradiction', `/selections/${index}/obligation`,
-          'The organization document both requires and prohibits this recipe for an overlapping target.');
-    }
-    group.push({ entry, index });
-    groups.set(entry.recipeIdentity, group);
+    // Exact recipe admission: only an entry naming a recipe can permit, so a content-only permission would do nothing.
+    if (entry.recipeIdentity === undefined && entry.obligation === 'permitted') invalid('content-permitted-without-recipe',
+      `/selections/${index}/obligation`, 'A content-only entry cannot permit; name the recipe it admits and narrow it with content.');
+    if (entry.obligation !== 'required' && entry.obligation !== 'prohibited') return;
+    const opposite = entry.obligation === 'required' ? 'prohibited' : 'required';
+    if (decided.some(other => other.entry.obligation === opposite && overlaps(other.entry, entry) &&
+        entriesOverlap(other.entry, entry, membership) === 'yes'))
+      invalid('obligation-contradiction', `/selections/${index}/obligation`, entry.content ?
+        'The organization document both requires and prohibits overlapping content for an overlapping target.' :
+        'The organization document both requires and prohibits this recipe for an overlapping target.');
+    decided.push({ entry, index });
   });
   return diagnostics;
 }

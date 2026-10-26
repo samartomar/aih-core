@@ -5,7 +5,10 @@ import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './contracts.js';
-import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
+import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type ReadLocalPolicyResult, type GitHubPolicySource,
+  type LocalPolicySource } from '../harness/runtime.mjs';
+import { localPolicySourceLabel } from '../harness/local-policy.mjs';
+import { contentFactsOf, SetMembership } from './internal/organization-content.js';
 import { selectTool } from '../harness/tool-registry.mjs';
 import { bindingPermissionNotice, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
 import { isNativeClient } from './internal/policy-validation.js';
@@ -86,7 +89,8 @@ interface PreparedState {
    */
   itemUpdates: Map<string, Record<string, { item: NonNullable<PreparedStep['item']>; requires: string[]; action?: 'finish' | 'release' }>>;
   inventory?: Map<string, string>; bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
-  organization?: Pick<OrganizationBinding, 'source' | 'resolvedCommit' | 'blobId' | 'contentDigest'>;
+  /** The selected source and the identities Apply's fresh read must match; a local source has no commit or blob. */
+  organization?: { source: GitHubPolicySource | LocalPolicySource; resolvedCommit?: string; blobId?: string; contentDigest: string };
   /** Declared target bound with the organization; Apply rejects a request that no longer declares exactly this. */
   organizationTarget?: OrganizationTargetDeclaration;
   evidence?: EvidenceAssociation[];
@@ -95,21 +99,27 @@ interface PreparedState {
 class AuthorityFailure extends Error {
   constructor(readonly status: 'invalid' | 'blocked' | 'cancelled', readonly detail: Diagnostic) { super(detail.reason); }
 }
-function authorityFailure(read: Exclude<ReadGitHubPolicyResult, { status: 'read' }>): AuthorityFailure {
+type OrganizationRead = Extract<ReadGitHubPolicyResult, { status: 'read' }> | Extract<ReadLocalPolicyResult, { status: 'read' }>;
+function authorityFailure(read: Exclude<ReadGitHubPolicyResult | ReadLocalPolicyResult, { status: 'read' }>): AuthorityFailure {
   const detail: Diagnostic = { code: read.code, reason: read.reason, message: read.message,
-    ...(read.retryAfterSeconds === undefined ? {} : { guidance: `Retry after ${read.retryAfterSeconds} seconds.` }) };
+    ...('retryAfterSeconds' in read && read.retryAfterSeconds !== undefined ? { guidance: `Retry after ${read.retryAfterSeconds} seconds.` } : {}) };
   return new AuthorityFailure(read.status === 'invalid' ? 'invalid' : read.status === 'cancelled' ? 'cancelled' : 'blocked', detail);
 }
-async function readOrganization(source: unknown, controls: HostControls): Promise<Extract<ReadGitHubPolicyResult, { status: 'read' }>> {
-  const read = await readGitHubPolicy(source, {
-    ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }),
-    ...(controls.signal === undefined ? {} : { signal: controls.signal }) });
+const isLocalSource = (source: unknown): boolean => !!source && typeof source === 'object' && (source as { provider?: unknown }).provider === 'local';
+/** The caller-selected source: a local file, read offline, or a GitHub repository path. Nothing selects one from data. */
+async function readOrganization(source: unknown, controls: HostControls): Promise<OrganizationRead> {
+  const read = isLocalSource(source) ? await readLocalPolicy(source, controls.signal === undefined ? undefined : { signal: controls.signal }) :
+    await readGitHubPolicy(source, {
+      ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }),
+      ...(controls.signal === undefined ? {} : { signal: controls.signal }) });
   if (read.status !== 'read') throw authorityFailure(read);
   return read;
 }
 // Unavailable material has no computed identity: admission borrows the named entry's
 // identity (membership and scope still apply; the selection has no effects) or, with
 // no entry, uses this value, which no admitted recipe can hash to.
+/** A selection's declared organization 1.2.0 content facts (execution policy 1.4.0 metadata); never inferred. */
+const contentFacts = (selection: ExecutionPolicy['selections'][number]): Pick<AdmissionSelection, 'kind' | 'item'> => contentFactsOf(selection);
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
@@ -344,7 +354,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     }
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 15) throw new Error('node-runtime');
-    dataObject(request, ['useCase', 'policy', 'target', 'resolutions', 'organizationSource', 'organizationTarget']);
+    dataObject(request, ['useCase', 'policy', 'target', 'resolutions', 'organizationSource', 'organizationTarget', 'organizationSetMembers']);
     dataObject(request.target, ['project']);
     if (request.useCase !== 'policy') throw new Error('use-case-unsupported');
     const validation = validatePolicy(request.policy);
@@ -357,6 +367,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     }
     if (!enterprise && request.organizationSource !== undefined) {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-vibe', 'A Vibe policy does not accept an organization source.')];
+      return finish();
+    }
+    if (!enterprise && request.organizationSetMembers !== undefined) {
+      result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-set-members-vibe', 'A Vibe policy does not accept organization set membership.')];
+      return finish();
+    }
+    if (isLocalSource(request.organizationSource) && policy.schema !== POLICY_14) {
+      result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-local-review',
+        'A local organization source needs execution policy 1.4.0, whose review names the file.')];
       return finish();
     }
     let organizationTarget: OrganizationTargetDeclaration | undefined;
@@ -415,7 +434,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const privateValues = Object.values(privateInputs).flatMap(inputs => Object.values(inputs)).map(String);
     privateValues.push(...secrets);
     // Fresh authority read precedes any material capture; failure yields no handle.
-    let organization: { read: Awaited<ReturnType<typeof readOrganization>>; document: OrganizationPolicy } | undefined;
+    let organization: { read: OrganizationRead; document: OrganizationPolicy; membership: SetMembership } | undefined;
     if (enterprise) {
       const read = await readOrganization(clone(request.organizationSource), controls);
       let text: string;
@@ -424,9 +443,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-document-encoding', 'The organization document is not valid UTF-8.')];
         return finish();
       }
-      const parsed = parseOrganizationPolicy(text);
+      const setMembers = clone(request.organizationSetMembers);
+      const parsed = parseOrganizationPolicy(text, setMembers === undefined ? {} : { setMembers });
       if (!parsed.valid || !parsed.document) { result.diagnostics = parsed.diagnostics; return finish(); }
-      organization = { read, document: parsed.document };
+      organization = { read, document: parsed.document, membership: new SetMembership(setMembers) };
     }
     const admissions: AdmissionSelection[] = [];
     let obligations: OrganizationObligationsReview | undefined;
@@ -460,7 +480,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const entry = organization.document.selections.find(item => item.selectionId === selection.organizationSelectionId);
           admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
             recipeIdentity: entry?.recipeIdentity ?? UNMATCHED_RECIPE_IDENTITY, inputs: {}, configuration: selection.configuration,
-            privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
+            privateInputs: Object.keys(privateInputs[selection.id] ?? {}), ...contentFacts(selection),
+            path: `/selections/${policy.selections.indexOf(selection)}` });
         }
         continue;
       }
@@ -497,7 +518,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       selectionFacts.set(selection.id, facts);
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
-        privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
+        privateInputs: Object.keys(privateInputs[selection.id] ?? {}), ...contentFacts(selection),
+        path: `/selections/${policy.selections.indexOf(selection)}` });
       const priorSelections = selection.requires.flatMap(id => selectionOps.get(id) ?? []);
       const currentIds: string[] = [];
       const checkMap = new Map(recipe.checks.map(check => [check.id, check]));
@@ -1068,7 +1090,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         lifecycle.push({ action: 'remove', scope: step.review.scope, recipeIdentity: step.recipeIdentity,
           path: removal >= 0 ? `/removals/${removal}` : set >= 0 ? `/managedSelections/${set}` : '/selections' });
       }
-      const findings = admitOrganizationSelections(organization.document, admissions, lifecycle, targetFacts);
+      const findings = admitOrganizationSelections(organization.document, admissions, lifecycle, targetFacts, organization.membership);
       if (findings.length) {
         result.status = findings.some(finding => finding.code === 'INPUT_INVALID') ? 'invalid' : 'blocked';
         result.diagnostics = findings;
@@ -1078,12 +1100,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         // Unavailable material has no computed identity, so it is never counted as taking an entry.
         const taken = admissions.filter(item => !unavailableSelections.has(item.id));
         const scoped = (['project', 'user'] as const).map(scope => ({ scope,
-          ...evaluateOrganizationObligations(organization!.document, taken, [], { scope, ...targetFacts }) }));
+          ...evaluateOrganizationObligations(organization!.document, taken, [], { scope, ...targetFacts }, organization!.membership) }));
+        // Prepared work 1.6.0 reviews content entries and `unavailable` sets as they are. Prepared work 1.5.0 names only
+        // recipe entries, so there a content-only entry is left out and an unavailable set reads `unknown` or `not-taken`.
+        const recipes = <T extends { recipeIdentity?: string; content?: unknown }>(item: T): T[] => namesSelections ? [item] :
+          item.recipeIdentity === undefined ? [] : [(({ content: _content, ...rest }) => rest)(item) as T];
+        const legacy = <S extends string>(status: S | 'unavailable', replacement: S): S | 'unavailable' =>
+          status === 'unavailable' && !namesSelections ? replacement : status;
         obligations = { target: { basis: 'declared', client: targetClient!, ...targetFacts },
-          fulfillment: scoped.flatMap(({ scope, fulfillment }) => fulfillment.flatMap(item =>
-            item.status === 'not-applicable' ? [] : [{ scope, ...item, status: item.status }])),
-          advisory: scoped.flatMap(({ scope, advisory }) => advisory.filter(item => item.applicability !== 'not-applicable')
-            .map(item => ({ scope, ...item }))) };
+          fulfillment: scoped.flatMap(({ scope, fulfillment }) => fulfillment.flatMap(recipes).flatMap(item =>
+            item.status === 'not-applicable' ? [] : [{ scope, ...item, status: legacy(item.status, 'unknown') }])),
+          advisory: scoped.flatMap(({ scope, advisory }) => advisory.flatMap(recipes).filter(item => item.applicability !== 'not-applicable')
+            .map(item => ({ scope, ...item, status: legacy(item.status, 'not-taken') }))) };
       }
     }
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
@@ -1114,9 +1142,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     }) : undefined;
     const base = { schema: namesSelections ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
-        ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
-          blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
-          helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
+        ...(organization ? { organization: clone('resolvedCommit' in organization.read ? { source: organization.read.source,
+          resolvedCommit: organization.read.resolvedCommit, blobId: organization.read.blobId, contentDigest: organization.read.contentDigest,
+          policyId: organization.document.id, helper: organization.read.helper } : { source: localPolicySourceLabel(organization.read.source),
+          contentDigest: organization.read.contentDigest, policyId: organization.document.id, helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
       operations: steps.map(step => step.review), ...(selections ? { selections } : {}), observations, conflicts, omissions, evidence,
       effectiveOptions: { logging: loggingOption(controls), inputs },
       ...(obligations ? { organizationObligations: obligations } : {}) };
@@ -1151,8 +1180,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
         privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
-        ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
-          blobId: organization.read.blobId, contentDigest: organization.read.contentDigest }) } : {}),
+        ...(organization ? { organization: clone({ source: organization.read.source, contentDigest: organization.read.contentDigest,
+          ...('resolvedCommit' in organization.read ? { resolvedCommit: organization.read.resolvedCommit, blobId: organization.read.blobId } : {}) }) } : {}),
         ...(organizationTarget ? { organizationTarget } : {}) });
       result.prepared = prepared;
     }
@@ -1257,10 +1286,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       ...(reportsChangedBinding ? { reviewDigest: state.review.reviewDigest } : {}) };
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (state.organization) {
-      // Fresh online authority for this Apply call; Prepare's credential and result are never reused.
+      // Fresh authority for this Apply call (GitHub online, or the local file again); Prepare's credential and result are never reused.
       const read = await readOrganization(state.organization.source, controls);
-      if (canonicalJson(read.source) !== canonicalJson(state.organization.source) || read.resolvedCommit !== state.organization.resolvedCommit ||
-          read.blobId !== state.organization.blobId || read.contentDigest !== state.organization.contentDigest) throw stale('policy');
+      const identity = (value: { resolvedCommit?: string; blobId?: string }) => [value.resolvedCommit ?? null, value.blobId ?? null];
+      if (canonicalJson(read.source) !== canonicalJson(state.organization.source) ||
+          canonicalJson(identity(read as { resolvedCommit?: string })) !== canonicalJson(identity(state.organization)) ||
+          read.contentDigest !== state.organization.contentDigest) throw stale('policy');
       let declared: string;
       try { declared = canonicalJson(clone(state.request.organizationTarget ?? null)); } catch { throw stale('policy'); }
       if (declared !== canonicalJson(state.organizationTarget ?? null)) throw stale('policy');
