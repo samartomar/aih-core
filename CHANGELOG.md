@@ -16,6 +16,20 @@ this host is reclaimed; any other lock is kept. No published format changes; own
 1.6.0 gains internal pending records. Unpublished candidate for the sole 0.1.0 release
 effort.
 
+Add managed update preparation 1.0.0. `prepareUpdate({ target, scope, updates:
+{ managementId, replacement }[] })` previews updating installed selections to the exact
+replacement selections the consumer supplies; Core never chooses or applies an update by
+itself. Each replacement keeps its selection's `managementId` and scope, and all prepared
+updates share one policy preparation applied with the ordinary `apply`, its nonce-bound
+review digest and re-check, so a change between preview and Apply is `REVIEW_STALE`. Every
+update has its own disposition (`prepared`, `absent`, `reconcile-required`, `unavailable`,
+`invalid`) with the recorded and replacement facts, and lists each member's action (`add`,
+`replace`, `unchanged`, `remove`, `restore`, `unregister`, `keep-shared`, `conflict`). A
+member the person edited is a `conflict` that is never overwritten and offers no
+resolution. An updated claim keeps the dependency edges recorded at install, and a
+replacement for a described item must name the same item and tool. The schema and its fixture are published. Unpublished candidate for the sole
+0.1.0 release effort.
+
 Add removal preparation 1.2.0. `prepareManagedRemoval` also accepts
 `{ target, scope, removals: { managementId, origin? }[] }` and returns one review for
 several removals under one review digest, listing every member with its action

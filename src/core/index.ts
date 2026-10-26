@@ -66,5 +66,8 @@ export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventor
 export { prepareManagedRemoval } from './managed-removal.js';
 export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult, ManagedRemovalsRequest, ManagedRemovalPreparationResult12,
   RemovalSelector, RemovalEntry, RemovalMember, RemovalMemberAction } from './managed-removal.js';
+export { prepareUpdate } from './managed-update.js';
+export type { ManagedUpdateRequest, ManagedUpdatePreparationResult, UpdateSelector, UpdateEntry, UpdateMember, UpdateMemberAction,
+  UpdateItemFacts } from './managed-update.js';
 export { resolveStateLocation } from './resolve-state-location.js';
 export type { ResolvedStateLocation, ResolvedStateLocationMarker } from './resolve-state-location.js';

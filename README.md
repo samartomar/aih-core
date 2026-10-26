@@ -13,7 +13,7 @@ macOS session limits are internal to the package and not part of any entry.
 
 | Import | Exports |
 | --- | --- |
-| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, `resolveStateLocation`, and the types named by those operations' requests, controls, reviews and results |
+| `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `prepareUpdate`, `writeSupportReport`, `resolveStateLocation`, and the types named by those operations' requests, controls, reviews and results |
 | `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, `stateLocation`, `runMemberClaims`, `removalClaims`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
@@ -35,6 +35,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/managed-inventory-result/1.0.0.json` | Managed inventory result JSON Schema |
 | `@aihq/core/schemas/managed-removal-preparation/1.0.0.json` | Managed removal preparation JSON Schema |
 | `@aihq/core/schemas/managed-removal-preparation/1.2.0.json` | Removal preparation 1.2.0 JSON Schema: several removals, by origin, with named member actions (`$defs/request` describes the request) |
+| `@aihq/core/schemas/managed-update-preparation/1.0.0.json` | Managed update preparation 1.0.0 JSON Schema: explicit replacements with named member actions and local edits as conflicts (`$defs/request` describes the request) |
 | `@aihq/core/schemas/execution-policy/1.1.0.json` | Execution-policy 1.1.0 JSON Schema (adds owned hook groups) |
 | `@aihq/core/schemas/recipe/1.1.0.json` | Recipe 1.1.0 JSON Schema (adds `hook.group`) |
 | `@aihq/core/schemas/prepared-work/1.1.0.json` | Serializable review 1.1.0 JSON Schema |
@@ -1917,6 +1918,85 @@ Policy Prepare adds `resolutionInputs` outside the immutable prepared-work revie
 
 Byte custody is published after the corresponding successful mutation. Set/dependency metadata advances only after the selection's reviewed operations and checks succeed. Failed or interrupted work preserves completed effects and conservative custody; prepare and authorize a fresh review before further changes. Recovery manifests are inspection material and cannot replay work.
 
+### Update with an explicit replacement
+
+`prepareUpdate` previews updating installed selections to replacements the consumer
+chose. Core never looks for, chooses or applies an update by itself: the consumer
+supplies each exact replacement, an execution policy 1.4.0 selection such as one
+rendered by `renderDelivery` from a newer Catalog item, and applies the reviewed
+result with the ordinary `apply`.
+
+```ts
+prepareUpdate({ target: { project }, scope: 'project' | 'user',
+  updates: { managementId, replacement: <execution policy 1.4.0 selection> }[] }, controls?)
+```
+
+The result is `urn:aihq:core:managed-update-preparation:1.0.0`. Each replacement keeps
+the `managementId` and `scope` of the selection it updates (`management-id-changed`,
+`scope-changed`), and names each management id and selection id once (`update-conflict`);
+otherwise the whole request is `invalid` without reading custody. `controls` take
+`signal`, `logging`, `materialRoots` and `privateInputs` (keyed by the replacement's
+selection id) for the replacement's material and inputs; the request accepts no
+`resolutions`, organization source or evidence. Every requested update gets an entry, in
+request order:
+
+- `prepared`: Core holds a claim for that id in that scope. The entry names the
+  replacement's `selectionId`, `from` (the facts recorded at install, as inventory 1.1.0
+  reports them, or `null`) and `to` (the replacement's facts from the review, with its
+  own qualified origins, or `null` without metadata).
+- `absent` (`not-managed`): nothing to update; install it with an ordinary policy Prepare.
+- `reconcile-required`: claimless legacy custody (`legacy-reconcile`) or a repair-owned
+  configuration file (`repair-custody-reconcile`), as for removal.
+- `unavailable`: ambiguous legacy scope, or trust and session custody (`special-custody`),
+  which change only through their own repair and removal.
+- `invalid`: the replacement names another item or tool than the one recorded
+  (`replacement-item-changed`; a different item needs its own management id), or carries no
+  item metadata although an item was recorded at install (`replacement-unnamed`).
+
+All prepared updates share one policy preparation (execution policy 1.4.0, prepared
+work 1.6.0) and its `reviewDigest`, which the result repeats; nothing else is selected,
+so every other installed selection stays as it is. A replacement's `requires` can name only
+other replacements in the request; each updated claim also keeps the dependency edges
+recorded at install, so a dependency the replacement does not name is still retained. When
+no update is prepared the result is `not-prepared` without a preparation. When the
+replacements themselves are invalid (for example a `requires` naming a selection outside
+the request), the result is still `prepared` and so is each entry, but the preparation is
+`invalid` with no review, no `reviewDigest`, no members and nothing to Apply; each entry
+carries the preparation's diagnostics. As for removal, only a preparation whose `status` is
+`ready` or `partial` can be applied. Each prepared entry lists every member the review
+touches: `kind`, `path` (private path values stay redacted), `pointer`, `blockId` or
+`groupId`, `approval: { tool }` for an approval, the review `operationId` and one `action`:
+
+| `action` | Meaning | `reason` |
+| --- | --- | --- |
+| `add` | The replacement delivers a new member. | none |
+| `replace` | Core rewrites its own unchanged bytes with the replacement's. | none |
+| `unchanged` | The member already has the replacement's bytes. | none |
+| `remove` | The replacement no longer delivers a member Core owns; Core removes it. | none |
+| `restore` | Core writes back the person's earlier value it had replaced. | `pre-existing-value` |
+| `unregister` | A member the replacement drops is already gone; only Core's claim goes. | `already-absent` |
+| `keep-shared` | Another selection still owns a member the replacement drops. | `another-selection` |
+| `conflict` | Left exactly as it is. | `managed-content-changed` (the person edited a member Core installed), `existing-content`, `shared-member`, `overlapping-member`, `approval-denied`, a hook-group reason, an unavailable prerequisite, or `depends-on-conflict` |
+
+A local edit is always a conflict: the review never overwrites it and offers no `replace`
+resolution for it (the embedded preparation omits `resolutionInputs` and
+`operationSelections`). A preparation with a conflict is `partial` and Apply needs explicit
+`allowPartial`. Removal of members the replacement no longer delivers waits for every
+operation of the selection, so while any member conflicts those removals are `conflict`
+with `depends-on-conflict` and stay; such a run is `incomplete`. Its custody already
+records the replacement's identities with the members it wrote: inventory 1.1.0 then
+reports the edited member `changed` and still lists the held one. Resolve the edit, then
+prepare the update again. An update with no conflict that completes supports "confirmed on
+disk" from its run result 1.4.0 member checks, like any install.
+
+Apply keeps every guard and the nonce-bound review digest: a target file, custody,
+input or host binding that changes between preview and Apply refuses the whole run
+with `REVIEW_STALE` and its `changed` value, writing nothing; prepare the update again.
+One-server approval semantics are unchanged: an approval the person took back is a
+`conflict`, never granted again. Input values travel only in `controls.privateInputs` and
+never appear in the result, its review, run results, inventory or history. The JSON
+projection omits the live Apply handle in `preparation.prepared`.
+
 ## What each result status lets you claim
 
 Check install and removal wording against this table. Each status establishes only what its row says; the fields are independent, so read them together. Operation `application` and `verification` are per operation in a run result; `completion` is the whole run; `disposition` is the `prepareManagedRemoval` (`aih managed remove`) preflight before any Apply.
@@ -1947,6 +2027,10 @@ Check install and removal wording against this table. Each status establishes on
 | `removals[].members[].action` | `keep-shared` | Another selection or origin still owns this member. | "Kept for another selection" or "kept for another set". | "Removed". |
 | `removals[].members[].action` | `keep-changed` | The person changed this member; it stays, under Core's claim. | "Kept because you changed it". | "Removed" or "unchanged". |
 | `removals[].members[].action` | `keep-required` | A licence or notice file kept with an item that keeps a changed member. | "Kept: the item's licence or notice". | "Removed". |
+| `updates[].members[].action` | `add`, `replace`, `remove`, `restore`, `unregister` | The reviewed update plans this change to the member. | "Will be added", "will be updated", "will be removed" or "will be restored" before Apply. | "Updated" before a `complete` run's member checks confirm it. |
+| `updates[].members[].action` | `conflict` | The review leaves the member exactly as it is, for the named `reason`; a local edit is never overwritten. | "Kept as you changed it" for `managed-content-changed`; otherwise "not updated", with the reason. | "Updated", or that the whole item now matches the replacement. |
+| `disposition` (update) | `prepared` | Managed update preparation 1.0.0: at least one update had an eligible claim and the policy Prepare of its replacement ran; read `preparation.status`. | "Update ready for review" only when `ready`; "update partly ready for review" when `partial`; otherwise "update not prepared", with the preparation's diagnostics. | "Updated", or "ready" from `prepared` alone. |
+| `updateState` after an incomplete update | `current` | Custody records the replacement's identities with the members an `incomplete` update run wrote. | "Recorded as the replacement", reading each member's `fileState`. | That the item matches the replacement while any member reads `changed`, or while a member the replacement dropped is still listed. |
 | `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
 | `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`). It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
 | `completion` | `cancelled` | The run stopped on cancellation. Effects completed before it are kept. | "Cancelled", naming the operations that were applied. | "Nothing changed". |
