@@ -199,6 +199,18 @@ await check('an incomplete run is never confirmed on disk and inventory reports 
   assert.equal((await inventory(project)).selections[0].installState, 'interrupted');
 });
 
+const PATH_SECRET = 'tok-consumer-path-6e3b';
+await check('a private input value inside a member path is redacted in the run result and inventory', async () => {
+  const { project } = workspace('private-path');
+  const vault = { id: 'vault', managementId: 'vault', scope: 'project', configuration: {}, requires: [],
+    recipe: { inline: { ...recipe('vault', [op('file', 'file.write', { target: { root: 'project', segments: [{ literal: 'vault' }, { input: 'name' }] },
+      content: { literal: 'v\n' } })]), inputs: { name: { type: 'string', required: true, sensitive: true, maxLength: 64 } } } } };
+  const { result } = await run(project, policy('1.4.0', [vault]), { privateInputs: { vault: { name: PATH_SECRET } } });
+  assert.deepEqual(result.members.map(member => [member.path, member.check]), [[join(project, 'vault', '[REDACTED]'), 'present-matching']]);
+  const listed = await inventory(project);
+  assert.deepEqual(listed.selections[0].members.map(member => [member.path, member.fileState]), [[join(project, 'vault', '[REDACTED]'), 'matches']]);
+});
+
 await check('no input value, restoration value, member digest or private-input hash appears in any output, history or receipt', async () => {
   const { root } = resolveStateLocation();
   const recorded = ['runs', 'ownership'].flatMap(folder => existsSync(join(root, folder)) ?
@@ -206,8 +218,11 @@ await check('no input value, restoration value, member digest or private-input h
   assert.ok(recorded.length >= 8);
   const text = [...outputs.map(value => JSON.stringify(value)), ...recorded].join('\n');
   for (const forbidden of [SECRET, sha256(SECRET), USER_VALUE]) assert.equal(text.includes(forbidden), false);
-  const published = outputs.filter(value => value?.schema === INVENTORY_11 || value?.schema === 'urn:aihq:core:run-result:1.4.0').map(value => JSON.stringify(value)).join('\n');
-  assert.equal(published.includes(sha256(skill.files['SKILL.md'])), false, 'no member digest');
+  // Protected custody records the resolved path it manages; every published output and history record redacts it.
+  const history = existsSync(join(root, 'runs')) ? readdirSync(join(root, 'runs')).map(name => readFileSync(join(root, 'runs', name), 'utf8')) : [];
+  assert.equal([...outputs.map(value => JSON.stringify(value)), ...history].some(text => text.includes(PATH_SECRET)), false);
+  const memberOutputs = outputs.filter(value => value?.schema === INVENTORY_11 || value?.schema === 'urn:aihq:core:run-result:1.4.0').map(value => JSON.stringify(value)).join('\n');
+  assert.equal(memberOutputs.includes(sha256(skill.files['SKILL.md'])), false, 'no member digest');
   assert.equal(/"(sha256|preExisting|value-sha256)"/.test(JSON.stringify(outputs.filter(value => value?.schema === INVENTORY_11))), false, 'inventory carries no digest or restoration field');
 });
 

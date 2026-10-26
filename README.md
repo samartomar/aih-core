@@ -1596,7 +1596,10 @@ where it applies, the entry `pointer` (RFC 6901), `blockId` or hook `groupId`:
 | `check` | What Core then found: `present-matching`, `present-different`, `absent` or `unchecked` (not attempted, or unreadable) |
 
 A member is compared with its state after the step when the step succeeded, or before
-it otherwise. No digest, earlier value or input value is reported. The portable
+it otherwise. No digest, earlier value or input value is reported; a private input value
+inside a path is shown as `[REDACTED]`. A run touching more members than the schema's
+65,536 omits `members` and reports `SOURCE_LIMIT` reason `member-check-limit`, so it
+supports no member claim. The portable
 `runMemberClaims(result)` from `@aihq/core/contracts` applies the
 [claim rules](#what-each-result-status-lets-you-claim): `confirmedOnDisk` and `removed`.
 
@@ -1636,7 +1639,10 @@ migration (an undescribed claim has `name: null`) and are rewritten as 1.6.0 onl
 an Apply records item facts, for example by preparing the same selections under
 execution policy 1.4.0 with their metadata. When a reviewed `replace` overwrites a
 person's JSON or JSONC value, that value is kept in protected custody and written back
-when the last claim on the entry is removed. Earlier Core versions refuse 1.6.0 roots.
+when the last claim on the entry is removed, provided Core's value is still there
+unchanged; a value the person has since deleted stays deleted. Other replaced content
+(whole files, marker blocks, TOML, INI, YAML and properties entries) records no earlier
+value and is removed as before. Earlier Core versions refuse 1.6.0 roots.
 
 Ownership roots carrying directory evidence use **1.5.0**. Earlier Core versions
 refuse these roots rather than ignore the evidence, including user-scope cleanup
@@ -1662,7 +1668,10 @@ whose framework is no longer offered. Each selection adds:
 Inventory 1.1.0 reads the target files of listed members (16 MiB per file, 64 MiB in
 total, reported in `limits.checkedBytes`); members beyond that budget are `unchecked`
 and the result is `incomplete`. It never exposes a member digest, a `preExisting` or
-approval value, or a private-input hash. The schema is
+approval value, or a private-input hash. When a private input value formed part of a
+member's path, Apply records the redacted path in protected custody and the inventory
+publishes only that (`[REDACTED]` in place of the value); custody written before this
+version carries no such record. The schema is
 `@aihq/core/schemas/managed-inventory-result/1.1.0.json`.
 
 `prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy 1.1 Prepare to the existing engine. `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.

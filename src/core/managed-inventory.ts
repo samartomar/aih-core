@@ -9,7 +9,7 @@ import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
 import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
-import { checkMember, pointerOf, type CustodyItem } from './internal/custody-items.js';
+import { checkMember, pointerOf, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { validateOrganizationPolicy } from './contracts.js';
 import { bindingPermissionStep } from '../harness/delivery-review.mjs';
@@ -81,9 +81,11 @@ export interface ManagedInventoryResult {
 const diagnostic = (code: string, reason: string, message: string): Diagnostic => ({ code, reason, message });
 
 interface Collected { members: { root: string; key: string; owner: Owner }[]; items: CustodyItem[] }
+/** Per root and member key, the publishable path of a member whose path holds a private input value. */
+type RedactedPaths = Map<string, string>;
 function addClaims(rows: Map<string, ManagedInventorySelection>, ownership: Ownership,
   project: string, home: string, scope: ManagedInventoryRequest['scope'], ambiguous: () => void,
-  collected?: Map<string, Collected>): void {
+  collected?: Map<string, Collected>, redacted?: RedactedPaths): void {
   const collect = (key: string): Collected => { let entry = collected!.get(key); if (!entry) collected!.set(key, entry = { members: [], items: [] }); return entry; };
   const root = ownership.target;
   const contentRoot = /^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), root).replaceAll('\\', '/'));
@@ -113,6 +115,8 @@ function addClaims(rows: Map<string, ManagedInventorySelection>, ownership: Owne
       if (collected) collect(`${claim.scope}\0${claim.managementId}`).members.push({ root, key, owner });
     }
   }
+  for (const item of Object.values(ownership.items ?? {}))
+    for (const [key, path] of Object.entries(item.redactedPaths ?? {})) redacted?.set(`${root}\0${key}`, path);
   if (collected) for (const item of Object.values(ownership.items ?? {}))
     if (rows.has(`${item.scope}\0${item.managementId}`) && visible({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] }))
       collect(`${item.scope}\0${item.managementId}`).items.push(item);
@@ -138,7 +142,8 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   let wants11 = false;
   try { wants11 = !!request && typeof request === 'object' && Object.hasOwn(request, 'format') && request.format === SCHEMA_11; } catch { wants11 = false; }
   const collected = wants11 ? new Map<string, Collected>() : undefined;
-  let described: ManagedInventorySelection11[] = []; const checks = { bytes: 0 };
+  const redacted: RedactedPaths = new Map();
+  let described: ManagedInventorySelection11[] = []; const checks = { bytes: 0, skipped: false };
   let budgetMs = DEFAULT_BUDGET_MS;
   let identity: { name: string; version: string } = { name: '@aihq/core', version: 'unavailable' };
   let identityValid = true;
@@ -217,14 +222,14 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       const receipt = readOwnership(project);
       if (receipt.digest) { result.limits.receiptCount++; result.limits.receiptBytes += receipt.bytes; }
       check();
-      addClaims(rows, receipt.value, project, home, request.scope, () => { ambiguous = true; }, collected);
+      addClaims(rows, receipt.value, project, home, request.scope, () => { ambiguous = true; }, collected, redacted);
     } else {
       const inventory = readOwnershipReceipts(check);
       result.limits.receiptCount = inventory.count;
       result.limits.receiptBytes = inventory.bytes;
       for (const receipt of inventory.receipts) {
         check();
-        addClaims(rows, receipt, project, home, request.scope, () => { ambiguous = true; }, collected);
+        addClaims(rows, receipt, project, home, request.scope, () => { ambiguous = true; }, collected, redacted);
       }
     }
     if (request.scope !== 'project') {
@@ -261,8 +266,8 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
       a.scope === 'project' ? -1 : 1);
     check();
     if (collected) {
-      described = describe(result.selections, collected, request, check, checks);
-      if (checks.bytes > CHECK_BUDGET_BYTES) {
+      described = describe(result.selections, collected, redacted, request, check, checks);
+      if (checks.skipped) {
         result.status = 'incomplete';
         result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', 'check-budget', 'Some member file states exceeded the read budget and are unchecked.'));
       }
@@ -343,13 +348,13 @@ function policyState(document: OrganizationPolicy, scope: 'project' | 'user', id
   return STRENGTH.find(strength => obligations.includes(strength)) ?? 'permitted';
 }
 
-function describe(rows: ManagedInventorySelection[], collected: Map<string, Collected>, request: ManagedInventoryRequest,
-  check: () => void, checks: { bytes: number }): ManagedInventorySelection11[] {
+function describe(rows: ManagedInventorySelection[], collected: Map<string, Collected>, redacted: RedactedPaths, request: ManagedInventoryRequest,
+  check: () => void, checks: { bytes: number; skipped: boolean }): ManagedInventorySelection11[] {
   const lives = new Map<string, ReturnType<ReturnType<typeof transaction>['inspect']>>();
   const live = (root: string, path: string) => {
     const key = `${root}\0${path}`; let found = lives.get(key);
     if (found) return found;
-    if (checks.bytes > CHECK_BUDGET_BYTES) return { state: 'unreadable' as const, detail: 'check-budget' };
+    if (checks.bytes > CHECK_BUDGET_BYTES) { checks.skipped = true; return { state: 'unreadable' as const, detail: 'check-budget' }; }
     try { found = transaction(root).inspect(path); } catch { found = { state: 'unreadable' as const, detail: 'unreadable' }; }
     if (found.state === 'present') checks.bytes += found.bytes.length;
     lives.set(key, found); return found;
@@ -362,8 +367,7 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
       const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
       const state = checkMember(descriptor, live(root, descriptor.path), owner.sha256);
       const block = descriptor.kind === 'block';
-      return { kind: descriptor.kind === 'file' ? 'file' : block ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' : 'hook-group-member',
-        path: join(root, descriptor.path),
+      return { kind: publicKind(descriptor), path: join(root, redacted.get(`${root}\0${key}`) ?? descriptor.path),
         ...(descriptor.kind === 'entry' ? { pointer: pointerOf(descriptor.entry) } : {}),
         ...(block ? { blockId: descriptor.blockId } : {}), ...(descriptor.kind === 'hook' ? { groupId: descriptor.groupId } : {}),
         fileState: state === 'present-matching' ? 'matches' : state === 'present-different' ? block ? 'block-changed' : 'changed' :

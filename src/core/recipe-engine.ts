@@ -23,7 +23,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
   type MaterialCaptureBudget } from './internal/material.js';
 import { renderConfigEntries, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { checkMember, completeItem, locateMember, pointerOf, preExistingFor, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
+import { checkMember, completeItem, locateMember, pointerOf, preExistingFor, publicKind, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
@@ -62,6 +62,8 @@ interface PreparedStep {
   item?: { id: string; named: boolean; facts: ItemFacts };
   /** Protected restoration data: the person's value at each replaced, previously unowned JSON pointer. */
   preExisting?: Record<string, Json>;
+  /** Publishable paths of members whose path contains a private input value, keyed by member. */
+  redactedPaths?: Record<string, string>;
   /** A cleanup step that writes the recorded pre-existing value back instead of removing the member. */
   restores?: boolean;
 }
@@ -108,6 +110,8 @@ const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
 const PREPARED_15 = 'urn:aihq:core:prepared-work:1.5.0' as const;
 const PREPARED_16 = 'urn:aihq:core:prepared-work:1.6.0' as const;
 const RESULT_14 = 'urn:aihq:core:run-result:1.4.0' as const;
+/** The run result 1.4.0 schema's bound on `members`. */
+const MEMBER_REPORT_LIMIT = 65536;
 /** A reviewed binding that no longer holds at Apply; prepared work 1.6.0 reports which one. */
 class ReviewStale extends Error {
   constructor(readonly changed: StaleBinding) { super('review-stale'); }
@@ -736,11 +740,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
             effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details,
             ...(namesSelections ? { selectionId: selection.id } : {}) };
+          // A private input value inside a member path never leaves protected custody; inventory publishes the redacted path.
+          const redactedPaths = path && stepMembers && safeText(path, privateValues) !== path ?
+            Object.fromEntries(stepMembers.map(member => [memberKey(member), safeText(path!, privateValues)])) : undefined;
           steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
             recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly, inherited,
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
-            ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}),
-            ...(selection.item !== undefined || preExisting ? { item: selectionItem(selection, project!, privateValues) } : {}) });
+            ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
+            ...(selection.item !== undefined || preExisting || redactedPaths ? { item: selectionItem(selection, project!, privateValues) } : {}) });
         }
       }
       selectionOps.set(selection.id, currentIds);
@@ -889,7 +896,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
         if (!remaining.length && matching) {
           // A member that replaced the person's JSON value gives that value back instead of leaving the pointer empty.
-          const recorded = descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
+          // A member the person already deleted stays deleted: only Core's present, unchanged value is given back.
+          const recorded = bytes !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
           if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
           else ({ bytes: after, heir } = subtractMember(descriptor, before, owner.tomlTable));
         }
@@ -1427,7 +1435,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-  if (state && result.schema === RESULT_14) result.members = memberReports(state, result);
+  if (state && result.schema === RESULT_14) {
+    const members = memberReports(state, result);
+    // A truncated list could support a false claim, so an oversized one is withheld entirely.
+    if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
+    else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
+  }
   if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
   result.record = writeHistory(runId, historySafe(result, state?.project, bearerSecrets(controls)), result.effectiveOptions.logging.value);
   if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
@@ -1463,7 +1476,7 @@ function memberReports(state: PreparedState, result: RunResult): RunMember[] {
         check = checkMember(descriptor, live, expected);
       }
       reports.push({ operationId: step.review.id, selectionId: step.authored?.selectionId ?? null, managementId: step.managementId,
-        scope: step.review.scope, kind: descriptor.kind === 'file' ? 'file' : descriptor.kind === 'block' ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' : 'hook-group-member',
+        scope: step.review.scope, kind: publicKind(descriptor),
         path: safeText(join(step.root, descriptor.path), privateValues),
         ...(descriptor.kind === 'entry' ? { pointer: safeText(pointerOf(descriptor.entry), privateValues) } : {}),
         ...(descriptor.kind === 'block' ? { blockId: descriptor.blockId } : {}),
@@ -1560,7 +1573,7 @@ function updateCustody(next: Ownership, step: PreparedStep, deferMetadata = fals
     } else delete next.members[key];
   }
   // Item facts and restoration data travel with the custody of the selection that wrote them.
-  if (step.item && !step.lifecycle) upsertItem(next, step.item, step.preExisting, deferMetadata);
+  if (step.item && !step.lifecycle) upsertItem(next, step.item, { preExisting: step.preExisting, redactedPaths: step.redactedPaths, installing: deferMetadata });
 }
 /** Steps whose success changes target-keyed custody. */
 function writesCustody(step: PreparedStep): boolean {

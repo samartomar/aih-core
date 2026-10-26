@@ -269,3 +269,32 @@ test('restoration data survives while another claim still shares the entry, and 
   assert.deepEqual(lastRemoved.members.map(member => [member.intent, member.outcome, member.check]), [['remove', 'restored', 'present-matching']]);
   assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { kit: { enabled: USER_VALUE } });
 });
+
+test('inventory 1.1 never publishes a private input value bound into a member path', async () => {
+  const root = project('private-path');
+  const SECRET = 'tok-path-secret-4d2a';
+  const named = selection('vault', [op('file', 'file.write', { target: { root: 'project', segments: [{ literal: 'vault' }, { input: 'name' }] }, content: { literal: 'v\n' } })],
+    { inputs: { name: { type: 'string', required: true, sensitive: true, maxLength: 64 } } });
+  const { prepared, result } = await run(root, policy([named]), { privateInputs: { vault: { name: SECRET } } });
+  assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
+  const listed = await inventory(root);
+  assert.deepEqual(listed.selections[0].members.map(member => [member.path, member.fileState]), [[join(root, 'vault', '[REDACTED]'), 'matches']]);
+  for (const output of [prepared.review, result, listed]) assert.equal(JSON.stringify(output).includes(SECRET), false);
+});
+
+test('a value the person deleted after a replace is not brought back by removal', async () => {
+  for (const deleted of ['entry', 'file']) {
+    const root = project(`deleted-${deleted}`);
+    const settings = join(root, 'settings.json');
+    writeFileSync(settings, JSON.stringify({ kit: { enabled: 'mine' }, other: 2 }) + '\n');
+    const kit = selection('kit', [op('entry', 'config.entries', { target: { root: 'project', segments: [{ literal: 'settings.json' }] }, format: 'json',
+      entries: [{ path: ['kit', 'enabled'], action: 'set', value: { literal: true } }] })]);
+    const resolutions = [{ selectionId: 'kit', operationId: 'entry', choice: 'replace', observedSha256: sha(readFileSync(settings)) }];
+    assert.equal((await run(root, policy([kit]), {}, resolutions)).result.completion, 'complete');
+    if (deleted === 'entry') writeFileSync(settings, JSON.stringify({ other: 2 }) + '\n'); else rmSync(settings);
+    const { result } = await run(root, policy([], { removals: [{ managementId: 'kit-managed', scope: 'project' }] }));
+    assert.deepEqual(result.members.map(member => [member.intent, member.outcome, member.check]), [['remove', 'claim-removed', 'absent']], deleted);
+    assert.equal(runMemberClaims(result).removed, true);
+    if (deleted === 'entry') assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { other: 2 });
+  }
+});

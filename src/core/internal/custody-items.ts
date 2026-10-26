@@ -28,6 +28,8 @@ export interface CustodyItem extends ItemFacts {
   preExisting?: Record<string, { value: Json }>;
   /** Set when an Apply writes this selection's custody; cleared once all its reviewed operations succeed. */
   installState?: 'interrupted';
+  /** Publishable member paths, keyed by member, where a private input value formed part of the path. */
+  redactedPaths?: Record<string, string>;
 }
 interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[] }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
@@ -39,6 +41,10 @@ export const pointerOf = (segments: readonly string[]): string =>
 /** Approval and private-member kinds come from operations other tickets add; they are carried, not derived. */
 const carried = (member: TypedMember): boolean => member.kind === 'config-member' || member.kind === 'approval-change';
 
+/** The published kind of a target-keyed member. */
+export function publicKind(descriptor: MemberDescriptor): 'file' | 'text-block' | 'config-entry' | 'hook-group-member' {
+  return descriptor.kind === 'file' ? 'file' : descriptor.kind === 'block' ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' : 'hook-group-member';
+}
 export function typedMember(key: string, owner: Owned): TypedMember {
   const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
   if (descriptor.kind === 'file') return { kind: 'file', path: descriptor.path, sha256: owner.sha256, executable: (owner.mode & 0o111) !== 0 };
@@ -57,32 +63,37 @@ export function claimedMembers(value: Custody, scope: string, managementId: stri
 
 /**
  * Refresh items against the authoritative members: drop an item no claim in this root
- * still names, re-derive its typed members and keep restoration data with a claim that
- * still owns its member. When the recording claim goes while another claim keeps the
- * member, the data moves to that claim's item so the last removal can still restore it.
+ * still names, re-derive its typed members and keep member-keyed data (restoration values
+ * and redacted paths) with a claim that still owns the member. When the recording claim goes
+ * while another claim keeps the member, that data moves to the remaining claim's item, so the
+ * last removal can still restore the value and the path stays redacted.
  * Carried member kinds remain until their owning operation removes them.
  */
 export function refreshItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): Record<string, CustodyItem> | undefined {
   if (!value.items) return undefined;
   const items: Record<string, CustodyItem> = {};
-  const orphaned: Record<string, { value: Json }> = {};
+  const orphaned = { preExisting: {} as Record<string, { value: Json }>, redactedPaths: {} as Record<string, string> };
   for (const [id, item] of Object.entries(value.items)) {
     const owned = claimedMembers(value, item.scope, item.managementId);
     const keys = new Set(owned.map(([key]) => key));
-    for (const [key, entry] of Object.entries(item.preExisting ?? {})) if (!keys.has(key) && value.members[key]) orphaned[key] ??= entry;
+    for (const field of ['preExisting', 'redactedPaths'] as const)
+      for (const [key, entry] of Object.entries(item[field] ?? {})) if (!keys.has(key) && value.members[key]) (orphaned[field] as Record<string, unknown>)[key] ??= entry;
     if (!owned.length && !value.selections?.[id]) continue;
-    const preExisting = Object.fromEntries(Object.entries(item.preExisting ?? {}).filter(([key]) => keys.has(key)));
-    const { preExisting: _prior, ...facts } = item;
+    const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
+    const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
+    const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
     items[id] = { ...facts, members: [...owned.map(([key, owner]) => typedMember(key, owner)), ...item.members.filter(carried)],
-      ...(Object.keys(preExisting).length ? { preExisting } : {}) };
+      ...(Object.keys(preExisting).length ? { preExisting } : {}), ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}) };
   }
-  for (const [key, entry] of Object.entries(orphaned)) {
+  for (const field of ['preExisting', 'redactedPaths'] as const) for (const [key, entry] of Object.entries(orphaned[field])) {
     const claim = value.members[key]!.claims?.[0];
     if (!claim) continue;
     const id = identity(claim.scope, claim.managementId);
-    const heir = items[id] ?? { managementId: claim.managementId, scope: claim.scope, name: null, kind: null, framework: null, item: null,
+    const heir: CustodyItem = items[id] ?? { managementId: claim.managementId, scope: claim.scope, name: null, kind: null, framework: null, item: null,
       tool: null, origins: [], members: claimedMembers(value, claim.scope, claim.managementId).map(([member, owner]) => typedMember(member, owner)) };
-    items[id] = { ...heir, preExisting: { ...heir.preExisting, [key]: heir.preExisting?.[key] ?? entry } };
+    const record = { ...(heir[field] as Record<string, unknown> | undefined) };
+    record[key] ??= entry;
+    items[id] = { ...heir, [field]: record };
   }
   return Object.keys(items).length ? items : undefined;
 }
@@ -114,7 +125,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const items = value.items as unknown;
   if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
-    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState']) ||
+    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     if (!text(item.managementId, 128) || !['project', 'user'].includes(item.scope as string) || identity(item.scope as 'project' | 'user', item.managementId) !== id) return false;
     if (item.name !== null && !text(item.name, 512) || item.kind !== null && !KINDS.includes(item.kind as string) ||
@@ -132,6 +143,11 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format)).map(([key]) => key));
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
           !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
+    }
+    if (item.redactedPaths !== undefined) {
+      const keys = new Set(owned.map(([key]) => key));
+      if (!item.redactedPaths || typeof item.redactedPaths !== 'object' || Array.isArray(item.redactedPaths) || Object.keys(item.redactedPaths).length === 0 ||
+          !Object.entries(item.redactedPaths).every(([key, path]) => keys.has(key) && text(path, 4096))) return false;
     }
   }
   return true;
@@ -172,15 +188,19 @@ export function checkMember(descriptor: MemberDescriptor, live: { state: 'presen
 /**
  * Record a selection's facts in a root. Described facts replace earlier ones; a run without a description keeps them.
  * The first restoration value recorded for a member wins, so a later replacement never hides the person's original.
+ * `installing` marks the selection interrupted until `completeItem` runs for it.
  */
-export function upsertItem(value: Custody, item: { id: string; named: boolean; facts: ItemFacts }, preExisting?: Record<string, Json>, writing = false): void {
+export function upsertItem(value: Custody, item: { id: string; named: boolean; facts: ItemFacts },
+  record: { preExisting?: Record<string, Json>; redactedPaths?: Record<string, string>; installing?: boolean } = {}): void {
   const prior = value.items?.[item.id];
-  const restoration = { ...Object.fromEntries(Object.entries(preExisting ?? {}).map(([key, entry]) => [key, { value: entry }])), ...prior?.preExisting };
+  const restoration = { ...Object.fromEntries(Object.entries(record.preExisting ?? {}).map(([key, entry]) => [key, { value: entry }])), ...prior?.preExisting };
+  const redactedPaths = { ...prior?.redactedPaths, ...record.redactedPaths };
   const facts = item.named || !prior ? item.facts : prior;
   value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
     framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
-    ...(writing || prior?.installState ? { installState: 'interrupted' as const } : {}) } };
+    ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
+    ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}) } };
 }
 /** Mark a selection's install complete in this root; reports whether anything changed. */
 export function completeItem(value: Custody, id: string): boolean {
