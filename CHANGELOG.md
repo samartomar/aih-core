@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Add organization policy 1.2.0 with content selectors, a local organization source and
+supplied set membership. 1.2.0 keeps every 1.1.0 rule (exact recipe admission, input and
+lifecycle permissions, client, repository and scope selectors, contradiction rejection
+and runtime prohibition enforcement) and adds an optional `content: { kind?, item?,
+framework?, set? }` selector. A content-only entry requires, recommends or prohibits
+content and never admits a selection; a recipe entry with `content` admits only matching
+content. Set membership is Catalog-resolved data supplied to
+`validateOrganizationPolicy(document, { setMembers })`, the previews, Prepare
+(`organizationSetMembers`) and inventory; without it a set selector is reported
+`unavailable`, never matched, and admission fails closed. A document that requires and
+prohibits overlapping content on overlapping targets is invalid, including a set and one
+of its members. `previewOrganizationContent` names, per Catalog item, the entries that
+may govern it, and its `required` flag feeds Harness `checkCompatibility`, where a
+required item bound `none` is `required-but-unsupported`. Enterprise Prepare, grouped
+removal and `aih policy --org-file` accept `{ provider: 'local', path }`, read offline;
+the review names the file (`{ provider: 'local', fileName }`) and Apply re-reads it.
+Prepared work 1.6.0 and run result 1.4.0 accept that local source. No new precedence
+rule; Vibe and Harness repair never receive organization policy, and a content-source
+description never selects authority. Unpublished candidate for the sole 0.1.0 release
+effort.
+
 Find, finish and remove interrupted installs. Apply records a pending receipt in
 protected custody immediately before its first effect, and writes ahead the members
 each file effect is about to change, bound to the identity of the file it publishes. Inventory 1.1.0 then reports an install that did

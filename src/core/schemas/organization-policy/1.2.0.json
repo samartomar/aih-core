@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:organization-policy:1.2.0",
+  "title": "Core organization policy with obligations, target selectors and content selectors",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "selections"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:organization-policy:1.2.0" },
+    "id": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+    "metadata": { "type": "object" },
+    "selections": {
+      "type": "array", "maxItems": 4096,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["selectionId", "scopes", "obligation"],
+        "anyOf": [{ "properties": { "recipeIdentity": {} }, "required": ["recipeIdentity"] },
+          { "properties": { "content": {} }, "required": ["content"] }],
+        "dependentRequired": { "recipeIdentity": ["inputs"], "inputs": ["recipeIdentity"], "lifecycle": ["recipeIdentity"] },
+        "properties": {
+          "selectionId": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+          "recipeIdentity": { "$ref": "urn:aihq:core:organization-policy:1.1.0#/$defs/recipeIdentity" },
+          "obligation": { "enum": ["required", "recommended", "permitted", "prohibited"] },
+          "scopes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["project", "user"] } },
+          "clients": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+          "repositories": { "type": "array", "minItems": 1, "maxItems": 4096, "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+          "content": { "$ref": "#/$defs/content" },
+          "inputs": { "type": "object", "propertyNames": { "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/id" },
+            "additionalProperties": { "$ref": "urn:aihq:core:organization-policy:1.1.0#/$defs/inputPermission" } },
+          "lifecycle": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "replace": { "type": "boolean" }, "adopt": { "type": "boolean" }, "remove": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "catalogId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "content": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "kind": { "enum": ["skill", "agent", "command", "rule", "hook", "mcp-server", "document"] },
+        "item": { "type": "object", "additionalProperties": false, "required": ["framework", "itemId"], "properties": {
+          "framework": { "$ref": "#/$defs/catalogId" }, "itemId": { "$ref": "#/$defs/catalogId" } } },
+        "framework": { "$ref": "#/$defs/catalogId" },
+        "set": { "type": "object", "additionalProperties": false, "required": ["framework", "setId", "setSha256"], "properties": {
+          "framework": { "$ref": "#/$defs/catalogId" }, "setId": { "$ref": "#/$defs/catalogId" },
+          "setSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schema": "urn:aihq:core:organization-policy:1.2.0",
+  "id": "example",
+  "selections": [
+    { "selectionId": "no-hooks", "scopes": ["project"], "obligation": "prohibited", "content": { "kind": "hook" } }
+  ]
+}

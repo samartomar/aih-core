@@ -26,14 +26,17 @@ import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: '
 import resultSchema11 from './schemas/run-result/1.1.0.json' with { type: 'json' };
 import organizationSchema from './schemas/organization-policy/1.0.0.json' with { type: 'json' };
 import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with { type: 'json' };
+import organizationSchema12 from './schemas/organization-policy/1.2.0.json' with { type: 'json' };
 import fileStateSchema from './schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
 import managedInventorySchema11 from './schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
-import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { registerSchemas, schemaCheck, validateAcceptedDocument, validateExactDocument } from './internal/contract-validation.js';
-import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, ParseResult, ValidationResult } from './types.js';
+import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, OrganizationPolicyOptions, OrganizationValidationResult, ParseResult,
+  ValidationResult } from './types.js';
 import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
+import { contentEntries, SetMembership } from './internal/organization-content.js';
 import { trustContractSchemas } from './trust-contracts.js';
 import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
 import macosInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
@@ -62,13 +65,16 @@ export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, 
   OrganizationObligation, OrganizationTargetFact, OrganizationTargetFacts, OrganizationTarget,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase,
   OrganizationAdvisoryResult, OrganizationFulfillmentResult, OrganizationSelection11, OrganizationPolicy10,
-  OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult } from './types.js';
-export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations } from './authoring-helpers.js';
+  OrganizationPolicy11, OrganizationPolicy, OrganizationParseResult, OrganizationSelection12, OrganizationPolicy12,
+  OrganizationContentSelector, CatalogSetRef, OrganizationSetMembers, OrganizationPolicyOptions, OrganizationUnavailableSelector,
+  OrganizationValidationResult } from './types.js';
+export { deriveRecipeIdentity, previewOrganizationAdmission, previewOrganizationObligations, previewOrganizationContent } from './authoring-helpers.js';
 export { recipeOperationKinds } from './operation-kinds.js';
 export type { OperationEffectsVisibility, RecipeOperationKind, RecipeOperationKindRecord, RecipeSchemaId } from './operation-kinds.js';
 export type { PackageDetails, AuthoringDiagnostic, AuthoringResult, DeriveRecipeIdentityRequest, RecipeIdentity,
   OrganizationAdmissionSelection, OrganizationAdmissionLifecycle, PreviewOrganizationAdmissionRequest,
-  OrganizationAdmissionPreview, PreviewOrganizationObligationsRequest, OrganizationObligationsPreview } from './authoring-helpers.js';
+  OrganizationAdmissionPreview, PreviewOrganizationObligationsRequest, OrganizationObligationsPreview, PreviewOrganizationContentRequest,
+  OrganizationContentPreview, OrganizationContentItemResult, OrganizationContentEntryResult } from './authoring-helpers.js';
 export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwork, TrustSourceKind, TrustCompleteness,
   TrustSourceScope, TrustProjection, TrustOutputFormat, TrustOutputEffect, TrustCertificateDisposition,
   SuppliedTrustSource, TrustSources, TrustResolution, TrustRepairStep, TrustRepairRequest, TrustRepairInputs,
@@ -89,7 +95,7 @@ export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
 registerSchemas(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, recipeSchema14, policySchema, policySchema11, policySchema12, policySchema13, policySchema14,
-  organizationSchema, organizationSchema11, organizationTargetSchema, organizationTargetSchema11, fileStateSchema);
+  organizationSchema, organizationSchema11, organizationSchema12, organizationTargetSchema, organizationTargetSchema11, fileStateSchema);
 const checkFileStateResult = schemaCheck(fileStateSchema.$id);
 /** Validate a stored file-state 1.1.0 result without observing or changing the host. */
 export const validateFileStateResult = (value: unknown): ValidationResult =>
@@ -112,7 +118,7 @@ export const contractSupport = Object.freeze({
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11, recipeSchema14, managedRemovalSchema12, managedUpdateSchema10].map((schema): SupportedContract => ({
+      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11, recipeSchema14, managedRemovalSchema12, managedUpdateSchema10, organizationSchema12].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
         managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14, managedInventorySchema11, managedRemovalSchema12, managedUpdateSchema10].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
@@ -154,14 +160,33 @@ export const contractSupport = Object.freeze({
 const accepting = (...schemas: { $id: string }[]) => Object.freeze(Object.fromEntries(schemas.map(schema => [schema.$id, schemaCheck(schema.$id)])));
 const policies = accepting(policySchema, policySchema11, policySchema12, policySchema13, policySchema14);
 const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSchema13, recipeSchema14);
-const organizations = accepting(organizationSchema, organizationSchema11);
+const organizations = accepting(organizationSchema, organizationSchema11, organizationSchema12);
 const organizationTargets = accepting(organizationTargetSchema, organizationTargetSchema11);
 export const validatePolicy = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, policies, policySemantics as never);
 export const validateRecipe = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, recipes, recipeSemantics as never);
-export const validateOrganizationPolicy = (value: unknown): ValidationResult =>
-  validateAcceptedDocument(value, organizations, organizationSemantics as never);
+/**
+ * Organization documents 1.0.0–1.2.0. `setMembers` is Catalog-resolved set membership supplied as data; a 1.2.0 set
+ * selector without it is reported in `unavailable` and never matched, so contradictions it could hide are not guessed.
+ */
+export function validateOrganizationPolicy(value: unknown, options: OrganizationPolicyOptions = {}): OrganizationValidationResult {
+  let membership: SetMembership;
+  try {
+    if (options === null || typeof options !== 'object' || Object.keys(options).some(key => key !== 'setMembers')) throw new TypeError('options');
+    membership = new SetMembership(options.setMembers === undefined ? undefined : cloneJsonValueStructureV1(options.setMembers, 'set members', 8));
+  } catch {
+    return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'set-members', path: '/setMembers',
+      message: 'Supplied set membership must name each exact set once with its Catalog-resolved members.' }] };
+  }
+  const result: OrganizationValidationResult = validateAcceptedDocument(value, organizations,
+    (document: OrganizationPolicy) => organizationSemantics(document, membership));
+  if (!result.valid) return result;
+  const unavailable = contentEntries(value as OrganizationPolicy).flatMap((entry, index) =>
+    entry.content?.set && membership.members(entry.content.set) === undefined ?
+      [{ reason: 'set-membership-unavailable' as const, path: `/selections/${index}/content/set`, set: { ...entry.content.set } }] : []);
+  return unavailable.length ? { ...result, unavailable } : result;
+}
 /** Caller-declared client (1.0.0) or registry tool (1.1.0) and optional repository for Enterprise preparation; declared, never inferred. */
 export const validateOrganizationTarget = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, organizationTargets, organizationTargetSemantics as never);
@@ -175,11 +200,11 @@ export function parsePolicy(text: string): ParseResult {
     return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };
   }
 }
-export function parseOrganizationPolicy(text: string): OrganizationParseResult {
+export function parseOrganizationPolicy(text: string, options: OrganizationPolicyOptions = {}): OrganizationParseResult {
   try {
     if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');
     const document = parseStrictJsonObjectV1(text, 'organization policy');
-    const result = validateOrganizationPolicy(document);
+    const result = validateOrganizationPolicy(document, options);
     return result.valid ? { ...result, document: document as unknown as OrganizationPolicy } : result;
   } catch {
     return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] };

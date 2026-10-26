@@ -117,6 +117,8 @@ export type InclusionOrigin =
   | { reasonIncluded: 'required-by'; requiredBy: { framework?: string; itemId: string } };
 /** A Catalog item named by framework and item id; content identities never take part in matching. */
 export interface CatalogItemRef { framework: string; itemId: string }
+/** A Catalog set named by framework, set id and its exact digest. */
+export interface CatalogSetRef { framework: string; setId: string; setSha256: string }
 /**
  * Execution policy 1.4.0: descriptive selection metadata, given all together or not at all. It names the item a
  * recipe was rendered from and why it was included; it never adds operations, inputs or authority.
@@ -179,13 +181,15 @@ export interface OrganizationTargetDeclaration11 {
 }
 export type OrganizationTargetDeclaration = OrganizationTargetDeclaration10 | OrganizationTargetDeclaration11;
 export type OrganizationApplicability = 'applies' | 'not-applicable' | 'unknown';
+/** A recipe entry carries `recipeIdentity`; a 1.2.0 entry naming content also carries `content`. */
 export interface OrganizationObligationResultBase {
-  selectionId: string; recipeIdentity: string; applicability: OrganizationApplicability;
+  selectionId: string; recipeIdentity?: string; content?: OrganizationContentSelector; applicability: OrganizationApplicability;
   unknown: OrganizationTargetFact[]; selections: string[];
 }
-export interface OrganizationAdvisoryResult extends OrganizationObligationResultBase { status: 'taken' | 'not-taken' }
+/** `unavailable`: the entry selects a set whose members were not supplied, so it is never taken. */
+export interface OrganizationAdvisoryResult extends OrganizationObligationResultBase { status: 'taken' | 'not-taken' | 'unavailable' }
 export interface OrganizationFulfillmentResult extends OrganizationObligationResultBase {
-  status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown';
+  status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown' | 'unavailable';
 }
 export interface OrganizationSelection11 extends OrganizationSelection {
   obligation: OrganizationObligation;
@@ -204,5 +208,37 @@ export interface OrganizationPolicy11 {
   selections: OrganizationSelection11[];
   metadata?: Record<string, Json>;
 }
-export type OrganizationPolicy = OrganizationPolicy10 | OrganizationPolicy11;
-export interface OrganizationParseResult extends ValidationResult { document?: OrganizationPolicy }
+/** Catalog content an organization 1.2.0 entry selects; every named field must match. */
+export interface OrganizationContentSelector {
+  kind?: SelectionMetadata['kind'];
+  item?: CatalogItemRef;
+  framework?: string;
+  set?: CatalogSetRef;
+}
+/**
+ * Organization policy 1.2.0 entry: a 1.1.0 entry whose recipe identity and inputs become optional when it names content.
+ * Only an entry with a recipe identity admits a selection; a content-only entry requires, recommends or prohibits.
+ */
+export interface OrganizationSelection12 extends Omit<OrganizationSelection11, 'recipeIdentity' | 'inputs'> {
+  recipeIdentity?: string;
+  inputs?: Record<string, OrganizationInputPermission>;
+  content?: OrganizationContentSelector;
+}
+export interface OrganizationPolicy12 {
+  schema: 'urn:aihq:core:organization-policy:1.2.0';
+  id: string;
+  selections: OrganizationSelection12[];
+  metadata?: Record<string, Json>;
+}
+export type OrganizationPolicy = OrganizationPolicy10 | OrganizationPolicy11 | OrganizationPolicy12;
+/** Catalog-resolved members of one exact set, supplied as data; Core never expands a set itself. */
+export interface OrganizationSetMembers {
+  set: CatalogSetRef;
+  members: (CatalogItemRef & { kind?: SelectionMetadata['kind'] })[];
+}
+/** Options for organization validation and admission. Without a set's members, its selector is `unavailable`. */
+export interface OrganizationPolicyOptions { setMembers?: OrganizationSetMembers[] }
+/** A 1.2.0 set selector whose members were not supplied: never matched, reported rather than guessed. */
+export interface OrganizationUnavailableSelector { reason: 'set-membership-unavailable'; path: string; set: CatalogSetRef }
+export interface OrganizationValidationResult extends ValidationResult { unavailable?: OrganizationUnavailableSelector[] }
+export interface OrganizationParseResult extends OrganizationValidationResult { document?: OrganizationPolicy }

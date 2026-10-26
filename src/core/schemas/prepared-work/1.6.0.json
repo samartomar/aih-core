@@ -38,7 +38,30 @@
       "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/target"
     },
     "inputs": {
-      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policySha256",
+        "package"
+      ],
+      "properties": {
+        "policySha256": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/policySha256"
+        },
+        "package": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+        },
+        "organization": {
+          "oneOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/organization"
+            },
+            {
+              "$ref": "#/$defs/localOrganization"
+            }
+          ]
+        }
+      }
     },
     "operations": {
       "type": "array",
@@ -437,6 +460,59 @@
     }
   ],
   "$defs": {
+    "localOrganization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "contentDigest",
+        "policyId",
+        "helper"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "fileName"
+          ],
+          "properties": {
+            "provider": {
+              "const": "local"
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "helper": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "package"
+          ],
+          "properties": {
+            "id": {
+              "const": "local-policy-reader"
+            },
+            "package": {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+            }
+          }
+        }
+      }
+    },
     "catalogId": {
       "type": "string",
       "minLength": 1,

@@ -1,6 +1,7 @@
 import { prepare as preparePolicy, validateControls, dataObject } from './recipe-engine.js';
 import { claimRefusal, classify, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
+import { validLocalPolicySource } from '../harness/local-policy.mjs';
 import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { isContentRoot } from './internal/state.js';
@@ -17,7 +18,7 @@ import { canonicalJson } from './internal/canonical.js';
 import type { CleanupPlanRow } from './internal/removal-plan.js';
 import type { RemovalEntry, RemovalSelector } from './removal-types.js';
 import type { Diagnostic, ExecutionPolicy, InclusionOrigin } from './types.js';
-import type { GitHubPolicySource, HostControls, PreparationResult } from './host-types.js';
+import type { GitHubPolicySource, HostControls, LocalPolicySource, PreparationResult } from './host-types.js';
 
 export interface ManagedRemovalRequest {
   target: { project: string }; managementId: string; scope: 'project' | 'user'; mode: 'vibe' | 'enterprise';
@@ -39,7 +40,8 @@ export type { RemovalMemberAction, RemovalSelector, RemovalMember, RemovalEntry 
 /** Removal preparation 1.2.0: several removals in one reviewed step. `mode` defaults to `vibe`. */
 export interface ManagedRemovalsRequest {
   target: { project: string }; scope: 'project' | 'user'; removals: RemovalSelector[];
-  mode?: 'vibe' | 'enterprise'; organizationSource?: GitHubPolicySource;
+  /** Required exactly for Enterprise: a GitHub source, or a local file read offline. */
+  mode?: 'vibe' | 'enterprise'; organizationSource?: GitHubPolicySource | LocalPolicySource;
 }
 export interface ManagedRemovalPreparationResult12 {
   schema: 'urn:aihq:core:managed-removal-preparation:1.2.0';
@@ -66,11 +68,14 @@ const diagnostic = (code: string, reason: string, message: string, guidance?: st
 
 /** Removal never acquires material or accepts private inputs or evidence, even an empty map. */
 const forbiddenControls = (controls: HostControls): boolean => ['privateInputs', 'materialRoots', 'evidence'].some(name => Object.hasOwn(controls, name));
-/** Enterprise needs exactly one valid organization source; Vibe accepts none. */
-function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown): boolean {
+/**
+ * Enterprise needs exactly one valid organization source; Vibe accepts none. A local source needs a review that can name
+ * it, which only the grouped form (execution policy 1.4.0) produces.
+ */
+function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown, local: boolean): boolean {
   if ((mode === 'enterprise') !== (source !== undefined)) return false;
   if (mode === 'vibe') return true;
-  try { return validGitHubPolicySource(source); } catch { return false; }
+  try { return validGitHubPolicySource(source) || local && validLocalPolicySource(source); } catch { return false; }
 }
 /** Only cancellation, logging and organization authentication reach the inner cleanup Prepare. */
 const forwardedControls = (controls: HostControls): HostControls => ({ ...(controls.signal === undefined ? {} : { signal: controls.signal }),
@@ -108,7 +113,7 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   if (typeof request.managementId === 'string' && idPattern.test(request.managementId)) known.managementId = request.managementId;
   if (!project || !known.mode || !known.scope || !known.managementId || forbiddenControls(controls)) return invalid('request-shape');
   const { scope, mode, managementId } = known as Required<Pick<ManagedRemovalPreparationResult, 'scope' | 'mode' | 'managementId'>>;
-  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
+  if (!organizationSourceValid(mode, request.organizationSource, false)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', known, [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
     'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
@@ -249,7 +254,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
     if (forms.has(form) || forms.size && (form === 'whole' || forms.has('whole'))) return invalid('removal-conflict');
     seen.set(removal.managementId, forms.add(form));
   }
-  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
+  if (!organizationSourceValid(mode, request.organizationSource, true)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', [diagnostic(code, reason, message)]);
   if (!identityValid) return unavailable('core-distribution-identity', 'The installed Core distribution identity could not be verified.');
