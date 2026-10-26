@@ -2304,9 +2304,9 @@ or `{kind:'publisher',id:identity}`. Unknown downloaded envelope fields, includi
 root/source/organization/framework authority hints, are ignored.
 
 Returned snapshots are frozen. Accepted key and publisher records accumulate,
-starting with shipped trust; a previously recorded key ID or publisher identity
-cannot be rewritten. A changed publisher policy uses a new identity, retaining
-the old policy for historical authentication. `getVerificationTrust(snapshot)`
+starting with shipped trust; a previously recorded key ID cannot be rewritten. Distinct publisher policies
+may share an identity; rotation retains both the previous and the updated record
+for historical authentication, deduplicating equivalent records. `getVerificationTrust(snapshot)`
 selects this historical inventory and deliberately ignores revocations.
 `getCurrentTrustStatus(snapshot, {keyId?, publisherIdentity?})` reports `revoked`,
 `current` or `unknown` separately. A new revocation never edits an earlier snapshot

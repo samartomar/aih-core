@@ -27,10 +27,10 @@ const org = generateKeyPairSync('ed25519');
 const spki = org.publicKey.export({format:'der',type:'spki'});
 const record = {keyId:'ed25519:'+sha(spki),algorithm:'Ed25519',publicKeySpkiBase64:spki.toString('base64'),identity:'local-fixture-org',purposes:['scan-report']};
 let files = {};
-function publish(version, body) {
+function publish(version, body, metadata = {}, snapshotMetadata = {}) {
   const target = Buffer.from(JSON.stringify(body));
-  const targets = signed({_type:'targets',spec_version:'1.0.31',version,expires,targets:{'trust.json':{length:target.length,hashes:{sha256:sha(target)}}}});
-  const snapshot = signed({_type:'snapshot',spec_version:'1.0.31',version,expires,meta:{'targets.json':{version,length:targets.length,hashes:{sha256:sha(targets)}}}});
+  const targets = signed({_type:'targets',spec_version:'1.0.31',version,expires,...metadata,targets:{'trust.json':{length:target.length,hashes:{sha256:sha(target)}}}});
+  const snapshot = signed({_type:'snapshot',spec_version:'1.0.31',version,expires,...snapshotMetadata,meta:{'targets.json':{version,length:targets.length,hashes:{sha256:sha(targets)}}}});
   const timestamp = signed({_type:'timestamp',spec_version:'1.0.31',version,expires,meta:{'snapshot.json':{version,length:snapshot.length,hashes:{sha256:sha(snapshot)}}}});
   files = {'/metadata/timestamp.json':timestamp,'/metadata/snapshot.json':snapshot,'/metadata/targets.json':targets,'/targets/trust.json':target};
 }
@@ -92,6 +92,19 @@ try {
   files['/metadata/2.root.json']=Buffer.from(JSON.stringify(badRoot));
   await assert.rejects(createTufTrustClient(options).update());
   assert.throws(()=>createTufTrustClient({...options,root:Buffer.from('{}')}),/trust-source-mismatch/);
+  delete files['/metadata/2.root.json'];
+  // Advertised metadata lengths cannot override the client's absolute cap.
+  publish(6,body,{}, {padding:'x'.repeat(1048576)});
+  await assert.rejects(createTufTrustClient(options).update());
+  publish(7,body,{padding:'x'.repeat(1048576)});
+  await assert.rejects(createTufTrustClient(options).update());
+  // Publisher identity may retain several historical policy/root records.
+  const rotated = {...publisherTrust.publishers[0], policy:{...publisherTrust.publishers[0].policy,
+    subjectAlternativeName:'https://test.invalid/workflows/rotated@refs/heads/test'}};
+  publish(8,{...body,verificationPublishers:[rotated, publisherTrust.publishers[0],rotated]});
+  const rotatedSnapshot = await createTufTrustClient(options).update();
+  assert.equal(rotatedSnapshot.verificationPublishers.filter(p=>p.identity===rotated.identity).length,2);
+  assert.deepEqual(await authenticateEvidence({bytes:artifactBytes,expectedScanId,trust:await getVerificationTrust(rotatedSnapshot)}),historical);
   // No background refresh is scheduled, even after failed updates.
   const before=requests;await new Promise(resolve=>setTimeout(resolve,20));assert.equal(requests,before);
 } finally { await new Promise(resolve=>server.close(resolve)); }

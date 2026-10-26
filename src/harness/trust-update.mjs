@@ -21,6 +21,8 @@ export async function getVerificationTrust(snapshot = shipped) {
 }
 
 import { Updater } from 'tuf-js';
+// Pinned tuf-js 6.0.0 exposes the default transport from this shipped module.
+import { DefaultFetcher } from 'tuf-js/dist/fetcher.js';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync,
   lstatSync, readdirSync } from 'node:fs';
@@ -107,7 +109,15 @@ export function createTufTrustClient(options) {
     const lock = join(cacheDir, 'update.lock');
     const fd = openSync(lock, 'wx', 0o600);
     try {
-      const updater = new Updater({ metadataDir: cacheDir, metadataBaseUrl, targetBaseUrl,
+      const transport = new DefaultFetcher({ timeout: 10000, retry: false });
+      // Signed metadata can advertise lengths larger than the configured fallback.
+      // Bound every transfer independently, including those advertised lengths.
+      const boundedLength = length => Math.min(limit, length);
+      const fetcher = {
+        downloadBytes: (url, length) => transport.downloadBytes(url, boundedLength(length)),
+        downloadFile: (url, length, handler) => transport.downloadFile(url, boundedLength(length), handler)
+      };
+      const updater = new Updater({ metadataDir: cacheDir, metadataBaseUrl, targetBaseUrl, fetcher,
         config: { maxRootRotations: 32, maxDelegations: 32, rootMaxLength: limit,
           timestampMaxLength: limit, snapshotMaxLength: limit, targetsMaxLength: limit,
           fetchTimeout: 10000, fetchRetries: 0 } });
@@ -121,7 +131,7 @@ export function createTufTrustClient(options) {
       const previous = existsSync(historyFile) ? await admit({ ...readJson(historyFile), schema }) : shipped;
       const snapshot = { ...current,
         verificationKeys: retain(previous.verificationKeys, current.verificationKeys, r => r.keyId),
-        verificationPublishers: retain(previous.verificationPublishers, current.verificationPublishers, r => r.identity) };
+        verificationPublishers: retain(previous.verificationPublishers, current.verificationPublishers, canonical) };
       // Validate combined inventories against the same bounds as static selection.
       await getVerificationTrust(snapshot);
       writeFileSync(join(cacheDir, 'history.next'), JSON.stringify(snapshot), { mode: 0o600 });

@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The host inspection seam is the installed public package: @aihq/core/harness/runtime. Projects, homes and
-// PATH folders are disposable; nothing under them is run.
+// Trust selection, explicit updates and historical authentication use only installed public entries.
+// All cache, home and generated-key repository fixtures are disposable.
 test('packed public trust client preserves default and authenticates selected updates', () => {
   assert.ok(process.env.npm_execpath, 'Run with npm test.');
   const source = fileURLToPath(new URL('../', import.meta.url));
@@ -31,6 +31,22 @@ test('packed public trust client preserves default and authenticates selected up
       copyFileSync(new URL('./fixtures/evidence/' + name, import.meta.url), join(hosts, name));
     const receipt = JSON.parse(run(['check.mjs', hosts]).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
+    writeFileSync(join(consumer, 'types.mts'), `
+      import { createTufTrustClient, getTrustSnapshot, getVerificationTrust,
+        getCurrentTrustStatus, getCatalogIndexTrust } from '@aihq/core/harness/runtime';
+      import type { TrustSnapshot, TufTrustClientOptions } from '@aihq/core/harness/runtime';
+      declare const options: TufTrustClientOptions;
+      const snapshot: TrustSnapshot = await createTufTrustClient(options).update();
+      const defaults: TrustSnapshot = getTrustSnapshot();
+      const status: 'current' | 'revoked' | 'unknown' = getCurrentTrustStatus(snapshot, {keyId:'id'});
+      const trust = await getVerificationTrust(defaults);
+      trust.keys satisfies readonly {identity:string; keyId:string; publicKeySpkiBase64:string}[];
+      const indexTrust: 'none' | {readonly tufRoot:Uint8Array} = getCatalogIndexTrust(snapshot);
+    `);
+    const require = createRequire(import.meta.url);
+    const manifest = require.resolve('typescript/package.json');
+    const compiler = join(dirname(manifest), JSON.parse(readFileSync(manifest, 'utf8')).bin.tsc);
+    run([compiler, '--noEmit', '--skipLibCheck', '--strict', '--target', 'ES2023', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', 'types.mts']);
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });
