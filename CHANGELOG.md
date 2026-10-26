@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Publish where Core keeps its state. `@aihq/core/contracts` exports `stateLocation`,
+portable relative descriptors only: `{ root: { base: "userHome", segments: [".aih",
+"core"] }, projectMarkers: { path, meaning }[] }`, with markers `ownership`,
+`recovery` and `runs` relative to the root. `@aihq/core` exports Node
+`resolveStateLocation()`, which returns those paths as absolute paths for the
+running host and creates nothing. The location is information only, not
+permission to write there; Core's state ownership and protection are unchanged.
+No format or package version changes. Unpublished candidate for the sole 0.1.0
+release effort.
+
 Add `inspectToolHost({ tool, project, items }, controls?)` to
 `@aihq/core/harness/runtime`: a Node host inspection for one observed tool and a
 set of items that uses bounded reads and runs nothing. It reports the installed

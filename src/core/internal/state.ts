@@ -9,8 +9,9 @@ import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { RecordStatus } from '../host-types.js';
+import { stateLocation } from '../state-location.js';
 
-export const stateRoot = (): string => join(userHomeRoot(), '.aih', 'core');
+export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
 /** `sha256` digests the exact member bytes; a hook group also records its canonical JSON digest. */
 export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; canonicalSha256?: string; tomlTable?: TomlTableCustody }
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';

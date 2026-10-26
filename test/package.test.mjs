@@ -18,7 +18,7 @@ import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/
 const expectedRuntimeNames = {
   '@aihq/core': [
     'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'inspect', 'listManagedSelections',
-    'prepare', 'prepareManagedRemoval', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
+    'prepare', 'prepareManagedRemoval', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
   ],
   '@aihq/core/contracts': [
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
@@ -32,8 +32,8 @@ const expectedRuntimeNames = {
     'validateNativeVerificationRequest', 'validateNativeVerificationResult', 'validateOrganizationPolicy',
     'validateOrganizationTarget', 'validatePackageSupport', 'validatePolicy', 'validatePreparedWork12', 'validatePreparedWork13',
     'validatePreparedWork14', 'validateRecipe', 'validateRunResult12', 'validateRunResult13', 'validateTrustCustody',
-    'validateTrustRepairInputs', 'validateTrustRepairRequest'
-  ],
+    'validateTrustRepairInputs', 'validateTrustRepairRequest', 'stateLocation'
+  ].sort(),
   '@aihq/core/support': [
     'getGuidance', 'renderSupportMarkdown'
   ],
@@ -88,7 +88,7 @@ const expectedTypeNames = {
     'OrganizationObligationsReview', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'PersistedConfigurationValue', 'PolicyRequest', 'PreparationResult', 'PreparedHandle', 'PreparedReview',
     'Prerequisite', 'ProcessCheck', 'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecordStatus',
-    'RemoveOperation', 'RepairRequest', 'ReportFileResult', 'ReportFileStatus', 'ResolutionInput', 'ReviewCheck',
+    'RemoveOperation', 'RepairRequest', 'ReportFileResult', 'ResolvedStateLocation', 'ReportFileStatus', 'ResolutionInput', 'ReviewCheck',
     'ReviewOperation', 'RunResult', 'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'SupportReportResult',
     'TargetPath', 'TextBlockOperation', 'TrustCertificateDisposition', 'TrustCompleteness', 'TrustInputs',
     'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
@@ -122,7 +122,7 @@ const expectedTypeNames = {
     'PreviewOrganizationAdmissionRequest', 'PreviewOrganizationObligationsRequest', 'ProcessCheck',
     'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecipeIdentity', 'RecipeOperationKind',
     'RecipeOperationKindRecord', 'RecipeSchemaId', 'RemoveOperation',
-    'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'TargetPath', 'TextBlockOperation',
+    'Selection', 'Sha256', 'Slot', 'StateLocation', 'StateLocationMarker', 'StateLocationRoot', 'SuppliedTrustSource', 'TargetPath', 'TextBlockOperation',
     'TrustCertificateDisposition', 'TrustCompleteness', 'TrustCustody', 'TrustCustodyEntry', 'TrustCustodySource',
     'TrustInputs', 'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',
     'TrustRepairId', 'TrustRepairInputs', 'TrustRepairRequest', 'TrustRepairStep', 'TrustResolution', 'TrustRoute',
