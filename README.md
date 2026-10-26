@@ -1476,6 +1476,8 @@ if (preparation.status === 'ready' && userExplicitlyApproved) {
 }
 ```
 
+The handle belongs to the running module instance and is consumed on application. Restarting the host or losing the handle requires preparation and approval again. Saved policies/reviews/results remain readable JSON. A digest alone does not establish custody or consent. Editing a caller-owned policy or private input after preparation invalidates the work. Editing review JSON cannot alter the engine's frozen review or executable state.
+
 ### Install from an exact git commit
 
 Execution policy 1.4.0 also accepts a referenced recipe from one exact GitHub commit.
@@ -1539,8 +1541,6 @@ const { selections } = await listManagedSelections({ target: { project }, scope:
 // Hand the exact identity back to the caller, which owns any saved intent.
 return selections.map(({ managementId, materialSource }) => ({ managementId, source: materialSource?.identity }));
 ```
-
-The handle belongs to the running module instance and is consumed on application. Restarting the host or losing the handle requires preparation and approval again. Saved policies/reviews/results remain readable JSON. A digest alone does not establish custody or consent. Editing a caller-owned policy or private input after preparation invalidates the work. Editing review JSON cannot alter the engine's frozen review or executable state.
 
 ## Check file state
 
