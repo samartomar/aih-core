@@ -57,6 +57,14 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
     // Core writes no marker of its own into the project folder.
     assert.deepEqual(observed.projectEntries, ['TEAM.md']);
 
+    // A home that is not an existing directory is refused, as Core's operations refuse it; nothing is created.
+    const missingHome = join(root, 'missing-home');
+    const refusal = execFileSync(process.execPath, ['--input-type=module', '-e',
+      "import { resolveStateLocation } from '@aihq/core'; try { resolveStateLocation(); console.log('resolved'); } catch (error) { console.log('refused'); }"],
+      { cwd: consumer, env: { ...env, HOME: missingHome, USERPROFILE: missingHome }, encoding: 'utf8', windowsHide: true, timeout: 60_000 }).trim();
+    assert.equal(refusal, 'refused');
+    assert.throws(() => readFileSync(missingHome), { code: 'ENOENT' });
+
     // The portable value bundles for a browser without Node built-ins or host discovery.
     const browser = await build({ absWorkingDir: consumer, stdin: { resolveDir: consumer, contents: `
       import { stateLocation } from '@aihq/core/contracts';
@@ -72,14 +80,15 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
       import { stateLocation } from '@aihq/core/contracts';
       import type { StateLocation, StateLocationMarker } from '@aihq/core/contracts';
       import { resolveStateLocation } from '@aihq/core';
-      import type { ResolvedStateLocation } from '@aihq/core';
+      import type { ResolvedStateLocation, ResolvedStateLocationMarker } from '@aihq/core';
       const location: StateLocation = stateLocation;
       const base: 'userHome' = location.root.base;
       const segments: readonly string[] = location.root.segments;
       const marker: StateLocationMarker | undefined = location.projectMarkers[0];
       const resolved: ResolvedStateLocation = resolveStateLocation();
       const absolute: string = resolved.root;
-      const markerPath: string | undefined = resolved.projectMarkers[0]?.path;
+      const resolvedMarker: ResolvedStateLocationMarker | undefined = resolved.projectMarkers[0];
+      const markerPath: string | undefined = resolvedMarker?.path;
       // @ts-expect-error The portable descriptors are read-only.
       stateLocation.root.base = 'elsewhere';
       // @ts-expect-error Host resolution is not part of the portable contracts entry.

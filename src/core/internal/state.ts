@@ -1,5 +1,5 @@
 import { chmodSync, lstatSync, mkdirSync, rmdirSync, readdirSync } from 'node:fs';
-import { join, isAbsolute, relative } from 'node:path';
+import { dirname, join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
@@ -74,7 +74,7 @@ foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
 
 export function protectState(relativePaths: string[] = []): void {
   const root = stateRoot(); pathPins(root);
-  const base = join(userHomeRoot(), '.aih');
+  const base = dirname(root);
   try { mkdirSync(base, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
   let created = false;
   try { mkdirSync(root, { mode: 0o700 }); created = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }

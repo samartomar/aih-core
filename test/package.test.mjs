@@ -24,7 +24,7 @@ const expectedRuntimeNames = {
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds', 'stateLocation',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
@@ -32,8 +32,8 @@ const expectedRuntimeNames = {
     'validateNativeVerificationRequest', 'validateNativeVerificationResult', 'validateOrganizationPolicy',
     'validateOrganizationTarget', 'validatePackageSupport', 'validatePolicy', 'validatePreparedWork12', 'validatePreparedWork13',
     'validatePreparedWork14', 'validateRecipe', 'validateRunResult12', 'validateRunResult13', 'validateTrustCustody',
-    'validateTrustRepairInputs', 'validateTrustRepairRequest', 'stateLocation'
-  ].sort(),
+    'validateTrustRepairInputs', 'validateTrustRepairRequest'
+  ],
   '@aihq/core/support': [
     'getGuidance', 'renderSupportMarkdown'
   ],
@@ -88,7 +88,7 @@ const expectedTypeNames = {
     'OrganizationObligationsReview', 'OrganizationTargetDeclaration', 'OrganizationTargetFact',
     'PersistedConfigurationValue', 'PolicyRequest', 'PreparationResult', 'PreparedHandle', 'PreparedReview',
     'Prerequisite', 'ProcessCheck', 'ProcessInvocation', 'ProcessOperation', 'Recipe', 'RecipeCheck', 'RecordStatus',
-    'RemoveOperation', 'RepairRequest', 'ReportFileResult', 'ResolvedStateLocation', 'ReportFileStatus', 'ResolutionInput', 'ReviewCheck',
+    'RemoveOperation', 'RepairRequest', 'ReportFileResult', 'ReportFileStatus', 'ResolvedStateLocation', 'ResolvedStateLocationMarker', 'ResolutionInput', 'ReviewCheck',
     'ReviewOperation', 'RunResult', 'Selection', 'Sha256', 'Slot', 'SuppliedTrustSource', 'SupportReportResult',
     'TargetPath', 'TextBlockOperation', 'TrustCertificateDisposition', 'TrustCompleteness', 'TrustInputs',
     'TrustNetwork', 'TrustOutputEffect', 'TrustOutputFormat', 'TrustOutputReview', 'TrustProjection',

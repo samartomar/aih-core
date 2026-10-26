@@ -1,9 +1,11 @@
 import { join } from 'node:path';
-import { stateLocation, type StateLocationMarker } from './state-location.js';
+import { stateLocation } from './state-location.js';
 import { stateRoot } from './internal/state.js';
 
+/** A `stateLocation` marker resolved to an absolute path with the host's separators. */
+export interface ResolvedStateLocationMarker { readonly path: string; readonly meaning: string }
 /** `stateLocation` resolved to absolute paths for the running host. */
-export interface ResolvedStateLocation { readonly root: string; readonly projectMarkers: readonly StateLocationMarker[] }
+export interface ResolvedStateLocation { readonly root: string; readonly projectMarkers: readonly ResolvedStateLocationMarker[] }
 
 /**
  * Resolve Core's published state location for the current account on this host, without creating,

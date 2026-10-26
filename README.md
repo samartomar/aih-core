@@ -1683,8 +1683,8 @@ its operations refuse supplied targets inside it.
 `stateLocation` from `@aihq/core/contracts` is portable and holds relative
 descriptors only. It imports nothing from Node and does not discover host paths.
 `root` is relative to the current account's home folder; each `projectMarkers`
-path is relative to `root`, `/`-separated, and names a child Core keeps for the
-project folders (or home) it manages:
+path is relative to `root`, `/`-separated, and names a child holding Core's records
+of the changes it makes to project folders (or home):
 
 ```js
 import { stateLocation } from '@aihq/core/contracts';

@@ -2,7 +2,7 @@
 
 /** Where Core's state root sits, relative to the current account's home folder. */
 export interface StateLocationRoot { readonly base: 'userHome'; readonly segments: readonly string[] }
-/** A state-root child Core keeps for the projects (or home) it manages. `path` is relative to the state root, `/`-separated. */
+/** A state-root child holding Core's records of changes it makes to project folders (or home). `path` is relative to the state root, `/`-separated. */
 export interface StateLocationMarker { readonly path: string; readonly meaning: string }
 /**
  * Where Core keeps its state, as relative descriptors. Information only: knowing the location is not
