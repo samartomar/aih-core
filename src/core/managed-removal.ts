@@ -1,5 +1,5 @@
 import { prepare as preparePolicy, validateControls, dataObject, isManagedContentRoot } from './recipe-engine.js';
-import { classify, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
+import { claimRefusal, classify, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
@@ -282,21 +282,9 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   const wholeIds = new Set<string>();
   for (const [managementId] of seen) {
     const own = plans.filter(plan => plan.entry.managementId === managementId);
-    const custody = classify(image, project, home, scope, managementId);
-    const members = [...image.receipts.values()].flatMap(stored => Object.entries(stored.value.members)
-      .filter(([, owner]) => owner.claims?.some(claim => claim.managementId === managementId && claim.scope === scope))
-      .map(([path, owner]) => owner.descriptor ?? { kind: 'file' as const, path }));
     const all = (disposition: RemovalEntry['disposition'], detail?: Diagnostic) => own.forEach(plan => settle(plan, disposition, detail));
-    if (special.has(managementId)) { all('unavailable', diagnostic('PREREQUISITE_UNAVAILABLE', 'single-removal-required',
-      'Trust or session custody is removed through the single-id removal call.')); continue; }
-    if (custody.ambiguous) { all('unavailable', diagnostic('PREREQUISITE_UNAVAILABLE', 'ambiguous-scope', 'Legacy custody for this ID cannot be assigned to one scope.')); continue; }
-    if (custody.claimless) { all('reconcile-required', diagnostic('PREREQUISITE_UNAVAILABLE', 'legacy-reconcile', 'This ID has legacy custody without an explicit claim.',
-      'Reselect the original recipe under the same management ID to establish a claim, then request removal again; otherwise reconcile manually.')); continue; }
-    if (!custody.claimed) { all('absent'); continue; }
-    if (managedRepairRemovalNeedsReconciliation({ managementId, scope, members, platform: process.platform })) {
-      all('reconcile-required', diagnostic('STATE_CONFLICT', 'repair-custody-reconcile',
-        'An earlier repair owns a complete configuration file. Reconcile that receipt and its configuration manually before using bounded removal.')); continue;
-    }
+    const refusal = claimRefusal(image, project, home, scope, managementId, special, 'removal');
+    if (refusal) { all(refusal.disposition, refusal.diagnostic); continue; }
     const byOrigin = own.filter(plan => plan.entry.origin !== undefined);
     if (byOrigin.length) {
       const recordedRoot = itemRoot(managementId);

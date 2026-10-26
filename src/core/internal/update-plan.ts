@@ -10,3 +10,11 @@ export interface PlannedMember {
   root: string; descriptor: MemberDescriptor; redactedPath?: string; approval?: { tool: string };
   action: UpdateMemberAction; reason?: string;
 }
+/**
+ * Engine options used only by managed update preparation. A replacement's claim keeps the dependency edges recorded at
+ * install as well as its own, since a replacement can name only other replacements as `requires`.
+ */
+export interface UpdateOptions {
+  /** Receives every planned member once the review's steps are final. */
+  plan(rows: PlannedMember[]): void;
+}

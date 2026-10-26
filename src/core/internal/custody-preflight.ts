@@ -4,6 +4,8 @@ import { isManagedContentRoot } from '../recipe-engine.js';
 import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './state.js';
 import { installedDistribution } from './installed-distribution.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, type Claim } from './recipe-lifecycle.js';
+import { managedRepairRemovalNeedsReconciliation } from '../../harness/runtime.mjs';
+import type { Diagnostic } from '../types.js';
 
 export interface Image {
   receipts: Map<string, { value: Ownership; digest: string | null }>;
@@ -82,3 +84,29 @@ export function classify(image: Image, project: string, home: string, scope: 'pr
   return custody;
 }
 
+
+const diagnostic = (code: string, reason: string, message: string, guidance?: string): Diagnostic =>
+  ({ code, reason, message, ...(guidance === undefined ? {} : { guidance }) });
+/**
+ * Why removal preparation 1.2.0 or update preparation cannot change one selection's custody, or `undefined` when it holds
+ * an eligible claim. Both apply the same safeguards in the same order; only their wording differs.
+ */
+export function claimRefusal(image: Image, project: string, home: string, scope: 'project' | 'user', managementId: string,
+    special: ReadonlySet<string>, change: 'removal' | 'update'): { disposition: 'unavailable' | 'reconcile-required' | 'absent'; diagnostic?: Diagnostic } | undefined {
+  if (special.has(managementId)) return { disposition: 'unavailable', diagnostic: change === 'removal' ?
+    diagnostic('PREREQUISITE_UNAVAILABLE', 'single-removal-required', 'Trust or session custody is removed through the single-id removal call.') :
+    diagnostic('PREREQUISITE_UNAVAILABLE', 'special-custody', 'Trust or session custody is changed only through its own repair and removal.') };
+  const custody = classify(image, project, home, scope, managementId);
+  if (custody.ambiguous) return { disposition: 'unavailable', diagnostic: diagnostic('PREREQUISITE_UNAVAILABLE', 'ambiguous-scope', 'Legacy custody for this ID cannot be assigned to one scope.') };
+  if (custody.claimless) return { disposition: 'reconcile-required', diagnostic: diagnostic('PREREQUISITE_UNAVAILABLE', 'legacy-reconcile', 'This ID has legacy custody without an explicit claim.',
+    `Reselect the original recipe under the same management ID to establish a claim, then request ${change === 'removal' ? 'removal' : 'the update'} again; otherwise reconcile manually.`) };
+  if (!custody.claimed) return change === 'removal' ? { disposition: 'absent' } : { disposition: 'absent', diagnostic: diagnostic('PREREQUISITE_UNAVAILABLE', 'not-managed',
+    'No selection with this management ID is managed in this scope, so there is nothing to update.', 'Install the selection with an ordinary policy Prepare instead.') };
+  const members = [...image.receipts.values()].flatMap(stored => Object.entries(stored.value.members)
+    .filter(([, owner]) => owner.claims?.some(claim => claim.managementId === managementId && claim.scope === scope))
+    .map(([path, owner]) => owner.descriptor ?? { kind: 'file' as const, path }));
+  if (managedRepairRemovalNeedsReconciliation({ managementId, scope, members, platform: process.platform }))
+    return { disposition: 'reconcile-required', diagnostic: diagnostic('STATE_CONFLICT', 'repair-custody-reconcile',
+      `An earlier repair owns a complete configuration file. Reconcile that receipt and its configuration manually before ${change === 'removal' ? 'using bounded removal' : 'updating it'}.`) };
+  return undefined;
+}

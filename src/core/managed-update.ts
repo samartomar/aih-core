@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { prepare as preparePolicy, validateControls, dataObject, isManagedContentRoot, safeText } from './recipe-engine.js';
-import { classify, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
-import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
+import { claimRefusal, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
 import { claimIdentity } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries } from './internal/trust-custody.js';
@@ -65,7 +64,8 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
     if (!Array.isArray(request.updates) || request.updates.length === 0 || request.updates.length > 256) throw new Error('request-shape');
     for (const update of request.updates) {
       dataObject(update, ['managementId', 'replacement']);
-      if (typeof update.managementId !== 'string' || !idPattern.test(update.managementId) || !plainObject(update.replacement)) throw new Error('request-shape');
+      if (typeof update.managementId !== 'string' || !idPattern.test(update.managementId) || !plainObject(update.replacement) ||
+        typeof update.replacement.id !== 'string') throw new Error('request-shape');
     }
   } catch { return invalid('request-shape'); }
   if (!['project', 'user'].includes(request.scope) || forbiddenControls(controls)) return invalid('request-shape');
@@ -102,35 +102,26 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
     }
     return null;
   };
-  const entries: UpdateEntry[] = request.updates.map(update => ({ managementId: update.managementId, disposition: 'absent', diagnostics: [], members: [] }));
   const prepared: { entry: UpdateEntry; replacement: Selection; from: UpdateItemFacts | null }[] = [];
-  request.updates.forEach((update, index) => {
-    const entry = entries[index]!;
-    const settle = (disposition: UpdateEntry['disposition'], detail?: Diagnostic) => { entry.disposition = disposition; if (detail) entry.diagnostics = [detail]; };
-    const { managementId } = update;
-    if (special.has(managementId)) return settle('unavailable', diagnostic('PREREQUISITE_UNAVAILABLE', 'special-custody',
-      'Trust or session custody is changed only through its own repair and removal.'));
-    const custody = classify(image, project!, home, scope, managementId);
-    if (custody.ambiguous) return settle('unavailable', diagnostic('PREREQUISITE_UNAVAILABLE', 'ambiguous-scope', 'Legacy custody for this ID cannot be assigned to one scope.'));
-    if (custody.claimless) return settle('reconcile-required', diagnostic('PREREQUISITE_UNAVAILABLE', 'legacy-reconcile', 'This ID has legacy custody without an explicit claim.',
-      'Reselect the original recipe under the same management ID to establish a claim, then request the update again; otherwise reconcile manually.'));
-    if (!custody.claimed) return settle('absent', diagnostic('PREREQUISITE_UNAVAILABLE', 'not-managed',
-      'No selection with this management ID is managed in this scope, so there is nothing to update.', 'Install the selection with an ordinary policy Prepare instead.'));
-    const members = [...image.receipts.values()].flatMap(stored => Object.entries(stored.value.members)
-      .filter(([, owner]) => owner.claims?.some(claim => claim.managementId === managementId && claim.scope === scope))
-      .map(([path, owner]) => owner.descriptor ?? { kind: 'file' as const, path }));
-    if (managedRepairRemovalNeedsReconciliation({ managementId, scope, members, platform: process.platform }))
-      return settle('reconcile-required', diagnostic('STATE_CONFLICT', 'repair-custody-reconcile',
-        'An earlier repair owns a complete configuration file. Reconcile that receipt and its configuration manually before updating it.'));
-    // A management id belongs to one item and tool: a replacement names the same ones whenever both are known.
+  const entries = request.updates.map((update): UpdateEntry => {
+    const { managementId, replacement } = update;
+    const settled = (disposition: UpdateEntry['disposition'], detail?: Diagnostic): UpdateEntry =>
+      ({ managementId, disposition, diagnostics: detail ? [detail] : [], members: [] });
+    const refusal = claimRefusal(image, project!, home, scope, managementId, special, 'update');
+    if (refusal) return settled(refusal.disposition, refusal.diagnostic);
+    // A management id belongs to one item and tool: a replacement for a described item names the same ones.
     const from = recordedFacts(managementId);
-    const replacement = update.replacement;
-    const changed = from && plainObject(replacement.item) && (from.framework !== null && replacement.item.framework !== from.framework ||
-      from.item !== null && replacement.item.itemId !== from.item.itemId) || from?.tool != null && replacement.tool !== undefined && replacement.tool !== from.tool;
-    if (changed) return settle('invalid', diagnostic('INPUT_INVALID', 'replacement-item-changed',
+    const named = plainObject(replacement.item);
+    if (from?.item && !named) return settled('invalid', diagnostic('INPUT_INVALID', 'replacement-unnamed',
+      'A replacement for an item recorded at install names its item and tool.'));
+    const sameItem = !from || !named || (from.framework === null || replacement.item!.framework === from.framework) &&
+      (from.item === null || replacement.item!.itemId === from.item.itemId);
+    const sameTool = from?.tool == null || replacement.tool === undefined || replacement.tool === from.tool;
+    if (!sameItem || !sameTool) return settled('invalid', diagnostic('INPUT_INVALID', 'replacement-item-changed',
       'A replacement updates the same item for the same tool; another item needs its own management ID.'));
-    entry.disposition = 'prepared';
+    const entry = settled('prepared');
     prepared.push({ entry, replacement: clone(replacement), from });
+    return entry;
   });
   if (!prepared.length) return done('not-prepared', [], { updates: entries });
 
@@ -140,7 +131,7 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
   const policy: ExecutionPolicy = { schema: POLICY_14, mode: 'vibe', selections: prepared.map(item => item.replacement) };
   let rows: PlannedMember[] = [];
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls),
-    undefined, sameImage, undefined, undefined, planned => { rows = planned; });
+    undefined, sameImage, undefined, undefined, { plan: planned => { rows = planned; } });
   // No reviewed resolution is offered: a local edit stays a conflict instead of becoming a replace choice.
   // Review operations name their selections, so the embedded preparation omits the separate selection list too.
   const { resolutionInputs: _resolutions, operationSelections: _selections, ...embedded } = preparation; preparation = embedded;

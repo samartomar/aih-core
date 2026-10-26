@@ -71,6 +71,36 @@ test('an obsolete member another selection owns is keep-shared; one that replace
   assert.equal(readFileSync(join(s.project, 'TOOL.md'), 'utf8'), 'tool\n', 'the shared member stays for its other owner');
 });
 
+test('an update keeps the dependency edges recorded at install, so a dependency it does not name is still retained', async () => {
+  const s = open();
+  const top = fileSelection('top', 'TOP.md', 'top\n'); top.requires = ['base'];
+  const prepared = await prepare({ useCase: 'policy', target: { project: s.project }, policy: { ...document([top, fileSelection('base', 'BASE.md', 'base\n')]),
+    managedSelections: [{ id: 'team', scope: 'project', members: ['base'] }] } }, { logging: 'off' });
+  assert.equal((await apply(prepared.prepared, approve(prepared.review), { logging: 'off' })).completion, 'complete');
+  const result = await prepareUpdate(request(s, [{ managementId: 'top', replacement: fileSelection('top', 'TOP.md', 'top v2\n') }]), { logging: 'off' });
+  assert.equal(result.preparation.status, 'ready', JSON.stringify(result.preparation.diagnostics));
+  assert.equal((await apply(result.preparation.prepared, approve(result.preparation.review), { logging: 'off' })).completion, 'complete');
+  // Reconciling the set without "base" removes nothing while "top" still requires it.
+  const reconcile = await prepare({ useCase: 'policy', target: { project: s.project }, policy: { ...document([]),
+    managedSelections: [{ id: 'team', scope: 'project', members: [] }] } }, { logging: 'off' });
+  assert.deepEqual(reconcile.review.operations.map(op => op.effects), [], JSON.stringify(reconcile.review.operations));
+  assert.equal(readFileSync(join(s.project, 'BASE.md'), 'utf8'), 'base\n');
+});
+
+test('a replacement for an item recorded at install must name its item and tool', async () => {
+  const s = open();
+  const described = (text, itemId = 'guide') => ({ ...fileSelection('guide', 'GUIDE.md', text), item: { framework: 'fw', itemId,
+    contentSha256: sha(text), behaviourSha256: sha(`b${text}`) }, tool: 'claude', name: 'Guide', kind: 'document', origins: [{ reasonIncluded: 'chosen' }] });
+  await install(s, [described('v1\n')]);
+  const unnamed = await prepareUpdate(request(s, [{ managementId: 'guide', replacement: fileSelection('guide', 'GUIDE.md', 'v2\n') }]), { logging: 'off' });
+  assert.deepEqual(reasons(unnamed), [['guide', 'invalid', ['replacement-unnamed']]]);
+  const other = await prepareUpdate(request(s, [{ managementId: 'guide', replacement: described('v2\n', 'another') }]), { logging: 'off' });
+  assert.deepEqual(reasons(other), [['guide', 'invalid', ['replacement-item-changed']]]);
+  const same = await prepareUpdate(request(s, [{ managementId: 'guide', replacement: described('v2\n') }]), { logging: 'off' });
+  assert.deepEqual([reasons(same), same.updates[0].from.item.contentSha256, same.updates[0].to.item.contentSha256], [[['guide', 'prepared', []]], sha('v1\n'), sha('v2\n')]);
+  assert.equal(readFileSync(join(s.project, 'GUIDE.md'), 'utf8'), 'v1\n');
+});
+
 test('special dispositions and whole-request failures carry no preparation and write no history', async () => {
   const s = open();
   const replacement = fileSelection('team-guidance', 'TEAM.md', 'v2\n');
@@ -80,7 +110,8 @@ test('special dispositions and whole-request failures carry no preparation and w
     [request(s, [{ managementId: 'team-guidance', replacement: [] }]), {}, 'request-shape'],
     [request(s, [{ managementId: 'team-guidance', replacement }]), { evidence: {} }, 'request-shape'],
     [request(s, [{ managementId: 'team-guidance', replacement }]), { authentication: { kind: 'none' } }, 'request-shape'],
-    [{ ...request(s, [{ managementId: 'team-guidance', replacement }]), scope: 'both' }, {}, 'request-shape']
+    [{ ...request(s, [{ managementId: 'team-guidance', replacement }]), scope: 'both' }, {}, 'request-shape'],
+    [request(s, [{ managementId: 'team-guidance', replacement: (({ id: _id, ...rest }) => rest)(replacement) }]), {}, 'request-shape']
   ]) {
     const result = await prepareUpdate(body, controls);
     assert.equal(result.schema, 'urn:aihq:core:managed-update-preparation:1.0.0');

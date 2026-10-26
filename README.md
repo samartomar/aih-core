@@ -1900,13 +1900,21 @@ request order:
   configuration file (`repair-custody-reconcile`), as for removal.
 - `unavailable`: ambiguous legacy scope, or trust and session custody (`special-custody`),
   which change only through their own repair and removal.
-- `invalid` (`replacement-item-changed`): the replacement names another item or tool than
-  the one recorded; a different item needs its own management id.
+- `invalid`: the replacement names another item or tool than the one recorded
+  (`replacement-item-changed`; a different item needs its own management id), or carries no
+  item metadata although an item was recorded at install (`replacement-unnamed`).
 
 All prepared updates share one policy preparation (execution policy 1.4.0, prepared
 work 1.6.0) and its `reviewDigest`, which the result repeats; nothing else is selected,
-so every other installed selection stays as it is. When no update is prepared the result
-is `not-prepared` without a preparation. Each prepared entry lists every member the review
+so every other installed selection stays as it is. A replacement's `requires` can name only
+other replacements in the request; each updated claim also keeps the dependency edges
+recorded at install, so a dependency the replacement does not name is still retained. When
+no update is prepared the result is `not-prepared` without a preparation. When the
+replacements themselves are invalid (for example a `requires` naming a selection outside
+the request), the result is still `prepared` and so is each entry, but the preparation is
+`invalid` with no review, no `reviewDigest`, no members and nothing to Apply; each entry
+carries the preparation's diagnostics. As for removal, only a preparation whose `status` is
+`ready` or `partial` can be applied. Each prepared entry lists every member the review
 touches: `kind`, `path` (private path values stay redacted), `pointer`, `blockId` or
 `groupId`, `approval: { tool }` for an approval, the review `operationId` and one `action`:
 
@@ -1971,6 +1979,8 @@ Check install and removal wording against this table. Each status establishes on
 | `removals[].members[].action` | `keep-changed` | The person changed this member; it stays, under Core's claim. | "Kept because you changed it". | "Removed" or "unchanged". |
 | `removals[].members[].action` | `keep-required` | A licence or notice file kept with an item that keeps a changed member. | "Kept: the item's licence or notice". | "Removed". |
 | `updates[].members[].action` | `add`, `replace`, `remove`, `restore`, `unregister` | The reviewed update plans this change to the member. | "Will be added", "will be updated", "will be removed" or "will be restored" before Apply. | "Updated" before a `complete` run's member checks confirm it. |
+| `disposition` (update) | `prepared` | Managed update preparation 1.0.0: at least one update had an eligible claim and the policy Prepare of its replacement ran; read `preparation.status`. | "Update ready for review" only when `ready`; "update partly ready for review" when `partial`; otherwise "update not prepared", with the preparation's diagnostics. | "Updated", or "ready" from `prepared` alone. |
+| `updateState` after an incomplete update | `current` | Custody records the replacement's identities with the members an `incomplete` update run wrote. | "Recorded as the replacement", reading each member's `fileState`. | That the item matches the replacement while any member reads `changed`, or while a member the replacement dropped is still listed. |
 | `updates[].members[].action` | `conflict` | The review leaves the member exactly as it is, for the named `reason`; a local edit is never overwritten. | "Kept as you changed it" for `managed-content-changed`; otherwise "not updated", with the reason. | "Updated", or that the whole item now matches the replacement. |
 | `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
 | `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`). It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |

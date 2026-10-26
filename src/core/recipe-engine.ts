@@ -39,7 +39,7 @@ import type { Authorization, CheckResult, RunMember, Effective, HostControls, Op
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import { guardTrustMember } from './internal/trust-custody.js';
 import { isLegalFile, type CleanupOptions, type CleanupPlanRow } from './internal/removal-plan.js';
-import type { PlannedMember } from './internal/update-plan.js';
+import type { PlannedMember, UpdateOptions } from './internal/update-plan.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -328,7 +328,7 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
     unavailableInvocations?: CapturedUnavailableInvocations,
     custodyImageStillCurrent?: () => boolean,
-    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, plannedMembers?: (rows: PlannedMember[]) => void): Promise<PreparationResult> {
+    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, update?: UpdateOptions): Promise<PreparationResult> {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
@@ -819,9 +819,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         !!sets.length && sets.every(set => !!set && !set.members.includes(claim.managementId)));
     });
     const priorDependencies = new Map(dependencies);
+    // An update keeps the edges recorded at install, so a dependency it does not name is still retained.
+    const keptEdges = (id: string, edges: string[]) => update ? [...new Set([...(priorDependencies.get(id) ?? []), ...edges])] : edges;
     for (const selection of policy.selections) {
       const id = claimId(selection); retained.add(id); candidates.delete(id);
-      dependencies.set(id, selection.requires.map(required => { const dependency = policy.selections.find(item => item.id === required)!; return claimId(dependency); }));
+      dependencies.set(id, keptEdges(id, selection.requires.map(required => { const dependency = policy.selections.find(item => item.id === required)!; return claimId(dependency); })));
     }
     if (foreignUnverifiable) for (const id of candidates) if (id.startsWith('user:')) retained.add(id);
     retainClaimDependencies(retained, dependencies);
@@ -831,7 +833,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const claim: Claim = { managementId: selection.managementId, scope: selection.scope,
         sets: [...new Set([...(old?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === selection.scope)),
           ...(policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id)])],
-        requires: selection.requires.map(required => claimId(policy.selections.find(item => item.id === required)!)) };
+        requires: keptEdges(key, selection.requires.map(required => claimId(policy.selections.find(item => item.id === required)!))) };
       if ((old || claim.sets.length || claim.requires.length) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
         const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim, requires: selectionOps.get(selection.id) ?? [] }; selectionUpdates.set(root, updates);
       }
@@ -1114,7 +1116,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(step.redactedPaths?.[step.ownerKey!] ? { redactedPath: step.redactedPaths[step.ownerKey!] } : {}),
         action, ...(reason === undefined ? {} : { reason }) };
     }));
-    plannedMembers?.(steps.flatMap(step => step.root && step.members ? step.members.map(descriptor => planMember(step, descriptor,
+    update?.plan(steps.flatMap(step => step.root && step.members ? step.members.map(descriptor => planMember(step, descriptor,
       step.lifecycle ? releasedIds.get(step) ?? [] : [step.managementId], stepOwners.get(step)?.approval ?? step.review.details.approval)) : []));
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,

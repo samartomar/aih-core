@@ -12,7 +12,8 @@ update has its own disposition (`prepared`, `absent`, `reconcile-required`, `una
 `invalid`) with the recorded and replacement facts, and lists each member's action (`add`,
 `replace`, `unchanged`, `remove`, `restore`, `unregister`, `keep-shared`, `conflict`). A
 member the person edited is a `conflict` that is never overwritten and offers no
-resolution. The schema and its fixture are published. Unpublished candidate for the sole
+resolution. An updated claim keeps the dependency edges recorded at install, and a
+replacement for a described item must name the same item and tool. The schema and its fixture are published. Unpublished candidate for the sole
 0.1.0 release effort.
 
 Add removal preparation 1.2.0. `prepareManagedRemoval` also accepts
