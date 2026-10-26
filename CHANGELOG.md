@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Install from an exact git commit. Execution policy 1.4.0 accepts a referenced recipe
+whose source is Catalog's exact git identity (`repository`
+`https://github.com/<owner>/<repo>`, 40-hex `commit`, `reachable: true`) plus the pinned
+archive of that commit at `https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>`.
+Branches, tags, short or symbolic names, unchecked or unreachable commits and any other
+archive URL are refused with named reasons (`git-commit-not-exact`,
+`git-commit-not-reachable`, `git-repository-unsupported`, `git-archive-not-exact`)
+before anything is fetched; Core resolves no reference. The archive must match its
+pinned length and SHA-256 and name the same commit in its `git archive` global header
+(`git-archive-commit-mismatch`); the recipe and complete named material closure keep
+their path, byte length and SHA-256 pins and existing bounds, and nothing acquired is
+extracted or executed. Prepared work 1.6.0 review selections and inventory 1.1.0
+selections carry `materialSource: { kind: "git", repository, commit, identity }` with
+`identity` `owner/repo@<commit>`, recorded in protected custody and replaced by a later
+Apply from another source. `checkFileState` reports a git source
+`remote-material-not-admitted` without fetching, and `deriveRecipeIdentity` accepts git
+references. Execution policy 1.4.0 publishes `git-source-accept.json` and
+`git-source-refuse.json` fixtures. The changed schemas stay at their versions within this
+unreleased format batch. Unpublished candidate for the sole 0.1.0 release effort.
+
 Find, finish and remove interrupted installs. Apply records a pending receipt in
 protected custody immediately before its first effect, and writes ahead the members
 each file effect is about to change, bound to the identity of the file it publishes. Inventory 1.1.0 then reports an install that did

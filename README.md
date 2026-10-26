@@ -2,7 +2,7 @@
 
 Core exposes one headless execution path to CLIs and application hosts. An author supplies data, the host prepares a review, and the caller explicitly authorizes those effects before application.
 
-**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
+**Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material or one exact GitHub commit. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
 The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
 
@@ -1477,6 +1477,70 @@ if (preparation.status === 'ready' && userExplicitlyApproved) {
 ```
 
 The handle belongs to the running module instance and is consumed on application. Restarting the host or losing the handle requires preparation and approval again. Saved policies/reviews/results remain readable JSON. A digest alone does not establish custody or consent. Editing a caller-owned policy or private input after preparation invalidates the work. Editing review JSON cannot alter the engine's frozen review or executable state.
+
+### Install from an exact git commit
+
+Execution policy 1.4.0 also accepts a referenced recipe from one exact GitHub commit.
+Its `source` is Catalog's exact git source identity plus the pinned archive of that
+commit:
+
+```json
+{ "kind": "git", "repository": "https://github.com/<owner>/<repo>", "commit": "<40 lowercase hex>",
+  "reachable": true,
+  "archive": { "url": "https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>",
+    "sha256": "<64 lowercase hex>", "byteLength": 4096 } }
+```
+
+- **Exact identity only.** `commit` is a full 40-character lowercase commit and
+  `reachable` is `true`; the archive URL is that commit's own archive at the same
+  repository. These GitHub URL rules belong to Core's generic material acquisition:
+  they describe the source host's exact commit archive, not a tool vendor. Core resolves nothing: a branch, tag, short or symbolic name and an
+  unchecked or unreachable commit are refused. Catalog owns resolving a moving
+  reference to an exact commit.
+- **Named refusals.** `validatePolicy` and `prepare` report `INPUT_INVALID` at
+  `/selections/<n>/recipe/reference/source` with `git-commit-not-exact`,
+  `git-commit-not-reachable`, `git-repository-unsupported` (anything but
+  `https://github.com/<owner>/<repo>`, including `.git`, tree links, other hosts or
+  credentials) or `git-archive-not-exact`. The schema documents the shape; the
+  validator is authoritative for these rules. Nothing is fetched for a refused source.
+- **Acquisition.** The archive is downloaded once over HTTPS without redirects, within
+  the existing bounds (64 MiB compressed, 256 MiB expanded, 4,096 regular members,
+  16 MiB per member, 60 s), and must match its pinned length and SHA-256. It must open
+  with the pax global header `git archive` writes naming the same commit
+  (`git-archive-commit-mismatch` otherwise). The recipe and its complete named material
+  closure are then pinned by path, byte length and SHA-256 exactly as for any archive
+  (`member-identity-mismatch`, `material-closure-mismatch`, `archive-incomplete`). Bytes are read
+  in memory; nothing is extracted or executed, and an executable member the recipe does
+  not name is refused (`unreferenced-executable`).
+- **Provenance.** The review's `selections[]` (prepared work 1.6.0) and inventory 1.1.0
+  selections carry `materialSource: { kind: "git", repository, commit, identity }`,
+  where `identity` is `owner/repo@<commit>`. Protected custody records it with the
+  selection; a later Apply from another commit or another source replaces it. It is
+  absent for inline, local and plain archive sources.
+- **Saved intent stays with the caller.** Core returns the identity in the review and
+  inventory; it never stores or edits a consumer's saved intent.
+- **Other entries.** `aih check-files`/`checkFileState` never fetches a git source and
+  reports it `remote-material-not-admitted`. `deriveRecipeIdentity` accepts a git
+  reference; the identity depends only on the recipe bytes and material closure.
+  Inline recipe materials keep their archive and local sources.
+
+The published fixtures `@aihq/core/fixtures/core/execution-policy/1.4.0/git-source-accept.json`
+and `git-source-refuse.json` (a branch name, `INPUT_INVALID`) are declared for execution
+policy 1.4.0 in `contractSupport`.
+
+```js
+import { apply, listManagedSelections, prepare } from '@aihq/core';
+
+// policy: an execution policy 1.4.0 whose selection references a recipe from an exact commit.
+const prepared = await prepare({ useCase: 'policy', policy, target: { project } });
+if (prepared.status !== 'ready') throw new Error(JSON.stringify(prepared.diagnostics));
+// Show prepared.review, including selections[].materialSource, before Apply.
+await apply(prepared.prepared, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+const { selections } = await listManagedSelections({ target: { project }, scope: 'project',
+  format: 'urn:aihq:core:managed-inventory-result:1.1.0' });
+// Hand the exact identity back to the caller, which owns any saved intent.
+return selections.map(({ managementId, materialSource }) => ({ managementId, source: materialSource?.identity }));
+```
 
 ## Check file state
 

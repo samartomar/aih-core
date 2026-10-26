@@ -179,7 +179,7 @@ export async function deriveRecipeIdentity(request: DeriveRecipeIdentityRequest)
       if (!(request.recipeBytes instanceof Uint8Array) || request.recipeBytes.byteLength > 1_000_000)
         return refused('recipe-bytes-mismatch', '/recipeBytes');
       const bytes = new Uint8Array(request.recipeBytes);
-      const checked = validatePolicy({ schema: 'urn:aihq:core:execution-policy:1.3.0', mode: 'vibe', selections: [{
+      const checked = validatePolicy({ schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [{
         id: 'identity', managementId: 'identity', scope: 'project', configuration: {}, requires: [], recipe: { reference: request.reference }
       }] });
       if (!checked.valid) return refused('recipe-invalid', '/reference', checked.diagnostics);
