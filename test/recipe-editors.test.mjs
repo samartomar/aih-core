@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderConfigEntries, renderTextBlock, configMemberBytes } from '../dist/core/internal/recipe-editors.js';
+import { renderConfigEntries, renderConfigMember, renderTextBlock, configMemberBytes } from '../dist/core/internal/recipe-editors.js';
 
 test('INI owns one scalar option, retaining neighboring sections, comments, continuations and CRLF bytes', () => {
   const original = '# keep\r\n[global]\r\ntimeout=15\r\nfind-links=\r\n  https://one.example/\r\n  https://two.example/\r\n[install]\r\nupgrade=true\r\n';
@@ -113,4 +113,24 @@ test('text block preserves unrelated bytes and rejects duplicate or malformed ma
   assert.equal(removed.toString(), 'user text\n');
   assert.throws(() => renderTextBlock(Buffer.from(initial.toString() + initial.toString()), edit), /ambiguous-text-block/);
   assert.throws(() => renderTextBlock(Buffer.from('prefix <!-- START guidance -->\n'), edit), /ambiguous-text-block/);
+});
+
+test('a JSONC array member is added and removed alone, giving back the earlier bytes with comments kept', () => {
+  const original = '{\n  // approved servers\n  "enabledMcpjsonServers": [\n    "mine" // kept\n  ],\n  "theme": "dark"\n}\n';
+  const add = { container: ['enabledMcpjsonServers'], action: 'add', value: 'github' };
+  const added = renderConfigMember('jsonc', Buffer.from(original), add);
+  assert.match(added.toString(), /"mine", "github" \/\/ kept/);
+  assert.deepEqual(renderConfigMember('jsonc', added, add), added, 'adding a present member changes nothing');
+  assert.equal(renderConfigMember('jsonc', added, { ...add, action: 'remove' }).toString(), original);
+  assert.equal(renderConfigMember('json', Buffer.from('{"a":[]}'), { container: ['a'], action: 'add', value: 1 }).toString(), '{"a":[1]}');
+  assert.equal(renderConfigMember('json', Buffer.from('{"a":[1]}'), { container: ['a'], action: 'remove', value: 1 }, true).toString(), '{}');
+  assert.equal(renderConfigMember('json', Buffer.from('{"a":["x","y"]}'), { container: ['a'], action: 'remove', value: 'x' }).toString(), '{"a":["y"]}');
+});
+
+test('a member edit refuses an excluded value, a duplicate member and a container that is not an array', () => {
+  const add = { container: ['enabled'], action: 'add', value: 'github', exclusiveWith: [['denied']] };
+  for (const [text, reason] of [['{"denied":["github"]}', 'member-excluded'], ['{"enabled":["github","github"]}', 'member-ambiguous'],
+    ['{"enabled":{"github":true}}', 'member-container-invalid'], ['{"denied":"github"}', 'member-container-invalid'], ['[]', 'unsupported-json-syntax']])
+    assert.throws(() => renderConfigMember('json', Buffer.from(text), add), error => error.reason === reason, text);
+  assert.throws(() => renderConfigMember('json', null, { ...add, value: { all: true } }), error => error.reason === 'invalid-member');
 });

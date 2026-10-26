@@ -1,0 +1,25 @@
+{
+  "schema": "urn:aihq:core:recipe:1.4.0",
+  "id": "approve-everything",
+  "description": "A member edit cannot carry an object value such as an approve-all setting",
+  "inputs": {},
+  "materials": [],
+  "targets": ["project"],
+  "prerequisites": [],
+  "operations": [
+    {
+      "id": "approve-all",
+      "purpose": "Not a single member",
+      "kind": "config.member",
+      "scope": "project",
+      "target": { "root": "project", "segments": [{ "literal": "settings.json" }] },
+      "format": "json",
+      "container": ["enabledMcpjsonServers"],
+      "action": "add",
+      "value": { "literal": { "all": true } },
+      "requires": [],
+      "checks": []
+    }
+  ],
+  "checks": []
+}

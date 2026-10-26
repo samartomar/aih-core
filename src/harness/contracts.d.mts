@@ -16,7 +16,7 @@ import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
 export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface } from './tool-registry.mjs';
 export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
-export type { BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';
+export type { ApprovalLocation, BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';
 export { renderDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
 export type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, ItemRef, RenderedDelivery,
   SetCompatibility, SetRef, StaticBlockerCode } from './delivery.mjs';

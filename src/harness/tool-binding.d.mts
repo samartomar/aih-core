@@ -12,13 +12,22 @@ export interface BindingObservation {
   readonly registered: 'registered' | 'registered-pending-approval' | 'visible-to-model' | 'not-registered' | 'inconclusive' | 'not-checked';
   readonly recognised: 'recognised' | 'listed-only' | 'not-recognised' | 'contaminated' | 'not-run';
 }
+/** Approval stored per server key (`object-keyed`), as members of a list (`array`), or any other way (`other`). */
+export type ApprovalLocation =
+  | { readonly shape: 'object-keyed'; readonly file: string; readonly format: 'json' | 'jsonc'; readonly container: readonly string[];
+      readonly approved: string | boolean | number }
+  | { readonly shape: 'array'; readonly file: string; readonly format: 'json' | 'jsonc'; readonly container: readonly string[];
+      readonly denied?: readonly string[] }
+  | { readonly shape: 'other' };
 export interface ToolLayout {
   readonly support: BindingSupport; readonly reason: string; readonly observations: readonly BindingObservation[];
   readonly roots: { readonly project?: string; readonly user?: { readonly path: string; readonly resolvedBy: string } };
   readonly skillKey?: 'folder' | 'declared-name'; readonly convert?: { readonly to: string; readonly converter: string };
   readonly namespace?: 'folder' | 'prefix';
   readonly register?: { readonly file: string; readonly container: readonly string[]; readonly format: 'json' | 'jsonc' | 'toml' | 'yaml';
-    readonly approval: 'none' | 'per-user' | 'per-project'; readonly permissionStep?: string };
+    readonly approval: 'none' | 'per-user' | 'per-project'; readonly permissionStep?: string;
+    /** Where the tool records a person's OK for one server, and its shape; `other` cannot be written by Core. */
+    readonly approvalLocation?: ApprovalLocation };
   readonly formats?: readonly string[]; readonly hookEvents?: Readonly<Record<string, string>>;
   readonly hookProtocols?: readonly string[]; readonly commandTemplate?: string;
 }

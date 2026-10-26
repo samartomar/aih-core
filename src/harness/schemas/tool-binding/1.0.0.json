@@ -251,6 +251,116 @@
             },
             "permissionStep": {
               "$ref": "#/$defs/text"
+            },
+            "approvalLocation": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "shape",
+                    "file",
+                    "format",
+                    "container",
+                    "approved"
+                  ],
+                  "properties": {
+                    "shape": {
+                      "const": "object-keyed"
+                    },
+                    "file": {
+                      "$ref": "#/$defs/relativePath"
+                    },
+                    "format": {
+                      "enum": [
+                        "json",
+                        "jsonc"
+                      ]
+                    },
+                    "container": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "approved": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "shape",
+                    "file",
+                    "format",
+                    "container"
+                  ],
+                  "properties": {
+                    "shape": {
+                      "const": "array"
+                    },
+                    "file": {
+                      "$ref": "#/$defs/relativePath"
+                    },
+                    "format": {
+                      "enum": [
+                        "json",
+                        "jsonc"
+                      ]
+                    },
+                    "container": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "denied": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "shape"
+                  ],
+                  "properties": {
+                    "shape": {
+                      "const": "other"
+                    }
+                  }
+                }
+              ]
             }
           }
         },

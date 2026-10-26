@@ -2,6 +2,7 @@
 // Core engine import. Core's engine calls them with the bytes it actually prepared, so the review describes what will
 // be delivered rather than what a consumer claims.
 import { toolBindings } from './tool-binding-data.mjs';
+import { selectTool } from './tool-registry.mjs';
 
 const decoder = new TextDecoder('utf-8');
 /** Catalog's measure: UTF-8 bytes and UTF-16 code units of the lossily decoded text. */
@@ -62,4 +63,14 @@ export function hookGroupCommands(group) {
 export function bindingPermissionStep(tool, kind) {
   const step = toolBindings.find(binding => binding.tool === tool)?.layouts[kind]?.register?.permissionStep;
   return typeof step === 'string' ? step : undefined;
+}
+
+/** What a preview and compatibility say while the person's OK in the tool is still needed. */
+export function permissionNotice(label, step) {
+  return `Still needs your OK in ${label}. ${step}`;
+}
+/** The shipped binding's permission step for tool and kind, worded as still needing the person's OK in that tool. */
+export function bindingPermissionNotice(tool, kind) {
+  const step = bindingPermissionStep(tool, kind), selected = selectTool(tool);
+  return step === undefined || selected.status !== 'selected' ? undefined : permissionNotice(selected.tool.label, step);
 }

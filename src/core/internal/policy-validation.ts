@@ -108,6 +108,18 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
         paths.push(entry.path);
         if (entry.action === 'set') checkSlot(entry.value, `${path}/entries/${entryIndex}/value`, false);
       }
+      // An approval is exactly one literal JSON entry the person can recognise as their tool's own choice.
+      if (op.approval && (op.entries.length !== 1 || op.entries[0]!.action !== 'set' || !('literal' in op.entries[0]!.value) ||
+          (op.format !== 'json' && op.format !== 'jsonc'))) invalid('approval-entry', `${path}/approval`);
+    } else if (op.kind === 'config.member') {
+      const prefix = (a: string[], b: string[]) => a.slice(0, b.length).join('\u0000') === b.slice(0, a.length).join('\u0000');
+      if (op.container.some(part => /[\p{Cc}\p{Cf}]/u.test(part))) invalid('member-container', `${path}/container`);
+      (op.exclusiveWith ?? []).forEach((other, otherIndex) => {
+        if (other.some(part => /[\p{Cc}\p{Cf}]/u.test(part)) || prefix(other, op.container) ||
+            (op.exclusiveWith ?? []).some((another, anotherIndex) => anotherIndex !== otherIndex && prefix(another, other)))
+          invalid('member-exclusive', `${path}/exclusiveWith/${otherIndex}`);
+      });
+      if (op.approval && op.action !== 'add') invalid('approval-member', `${path}/approval`);
     } else if (op.kind === 'text.block') {
       if (op.startMarker === op.endMarker || /[\r\n]/.test(op.startMarker + op.endMarker)) invalid('block-marker', path);
       if (op.content) checkSlot(op.content, `${path}/content`, true);

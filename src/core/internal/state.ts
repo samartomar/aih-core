@@ -14,7 +14,11 @@ import { refreshItems, validItems, type CustodyItem } from './custody-items.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
 /** `sha256` digests the exact member bytes; a hook group also records its canonical JSON digest. */
-export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; canonicalSha256?: string; tomlTable?: TomlTableCustody }
+export interface Owner { managementId: string; recipeIdentity: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; canonicalSha256?: string; tomlTable?: TomlTableCustody;
+  /** Recipe 1.4.0: this member is the person's OK for one server in `tool`, written by Core. */
+  approval?: { tool: string };
+  /** Recipe 1.4.0: Core created the array holding this member; it goes with the last member Core added. */
+  createdContainer?: true }
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
 export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
 export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
@@ -31,10 +35,12 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
 /** A TOML entry owner can record a created table only when its path has a table segment. */
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
-/** Item custody requires 1.6; directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
+/** Array members and approvals are recorded from 1.6. */
+const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined;
+/** Item custody, array members and approvals require 1.6; directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
-  const schema = items ? OWNERSHIP_16 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
+  const schema = items || Object.values(value.members).some(needs16) ? OWNERSHIP_16 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
     Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
@@ -212,7 +218,11 @@ export function validateOwnership(input: unknown, target: string): asserts input
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
-    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable'].includes(key))) throw new Error('ownership-invalid');
+    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer'].includes(key))) throw new Error('ownership-invalid');
+    if (needs16(m) && !atLeast(value.schema, OWNERSHIP_16) ||
+        m.approval !== undefined && (!m.approval || typeof m.approval !== 'object' || Object.keys(m.approval).length !== 1 || typeof m.approval.tool !== 'string' ||
+          !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(m.approval.tool) || !(m.descriptor?.kind === 'member' || m.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(m.descriptor.format))) ||
+        Object.hasOwn(m, 'createdContainer') && (m.createdContainer !== true || m.descriptor?.kind !== 'member')) throw new Error('ownership-invalid');
     // Hook custody exists only in a 1.1 or newer root, and always carries its canonical digest.
     if ((m.descriptor?.kind === 'hook') !== (m.canonicalSha256 !== undefined) ||
         m.canonicalSha256 !== undefined && (typeof m.canonicalSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(m.canonicalSha256)) ||

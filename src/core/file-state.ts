@@ -9,7 +9,7 @@ import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } from './internal/host-files.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type InlineMaterialDescriptor, type MaterialRecipeReference } from './internal/material.js';
-import { renderConfigEntries, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
+import { renderConfigEntries, renderConfigMember, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
 import { bindHookGroup } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { foldHookGroup } from './internal/hook-prepare.js';
@@ -446,6 +446,9 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
               }
             }
             if (reason === undefined) fold = before => renderConfigEntries(op.format, before, entries);
+          } else if (op.kind === 'config.member') {
+            // The expected state: the one member present (or absent), every other member kept; a conflict is reported as drift.
+            fold = before => renderConfigMember(op.format, before, { container: op.container, action: op.action, value: op.value.literal });
           } else if (op.kind === 'text.block') {
             let content: string | undefined;
             if (op.content !== undefined) {

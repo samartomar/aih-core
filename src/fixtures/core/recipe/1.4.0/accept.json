@@ -1,0 +1,38 @@
+{
+  "schema": "urn:aihq:core:recipe:1.4.0",
+  "id": "claude.example-server",
+  "description": "Register one MCP server and allow that one server",
+  "inputs": {},
+  "materials": [],
+  "targets": ["project"],
+  "prerequisites": [],
+  "operations": [
+    {
+      "id": "register-server",
+      "purpose": "Register the example MCP server in .mcp.json",
+      "kind": "config.entries",
+      "scope": "project",
+      "target": { "root": "project", "segments": [{ "literal": ".mcp.json" }] },
+      "format": "json",
+      "entries": [{ "path": ["mcpServers", "example", "command"], "action": "set", "value": { "literal": "example-mcp" } }],
+      "requires": [],
+      "checks": []
+    },
+    {
+      "id": "approve-server",
+      "purpose": "Allow the example MCP server in Claude Code",
+      "kind": "config.member",
+      "scope": "project",
+      "target": { "root": "project", "segments": [{ "literal": ".claude" }, { "literal": "settings.local.json" }] },
+      "format": "json",
+      "container": ["enabledMcpjsonServers"],
+      "action": "add",
+      "value": { "literal": "example" },
+      "exclusiveWith": [["disabledMcpjsonServers"]],
+      "approval": { "tool": "claude" },
+      "requires": ["register-server"],
+      "checks": []
+    }
+  ],
+  "checks": []
+}

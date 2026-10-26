@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+Add the MCP permission step and one-server approval. A tool binding's MCP server
+layout names, in `register.approvalLocation`, where the tool records a person's OK
+for one server and its shape (`object-keyed`, `array` or `other`); the Claude Code
+binding names its project approvals list. Compatibility and the review say the
+server "still needs your OK" in the tool, and inventory 1.1.0 says
+`approval: 'needed'`. `renderDelivery` takes `grantApproval: { framework, itemId }`
+for the server being rendered and adds exactly one approval: one `config.entries`
+entry at the server's key, or one member through the new recipe 1.4.0 operation
+`config.member`, which adds or removes one array member and keeps every other one;
+any other shape is refused with `approval-shape-unsupported`. Core never replaces or
+adopts an existing choice: an approval already there stays unowned, a denial is a
+`STATE_CONFLICT` (`approval-denied`), and removal takes only the approval Core wrote
+(`granted-by-aih` in inventory), keeping a later edit by the person. A sensitive MCP
+input is written into the tool's configuration only as the reference
+`${<input name>}`; its value travels only in the live request. Recipe 1.4.0, its
+schema and fixtures are published, and execution policy 1.4.0 admits it. Core never
+writes an approve-all switch. Unpublished candidate for the sole 0.1.0 release effort.
+
 Add the custody migration, managed inventory 1.1.0 and run result 1.4.0 member
 checks. Ownership 1.6.0 records, per claim, the item's name, kind, framework, both
 identities, tool and every qualified origin, typed members re-derived from the

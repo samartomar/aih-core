@@ -727,8 +727,9 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       assert.equal(ajv.validate(finalInventory.schema,finalInventory),true,JSON.stringify(ajv.errors));
       assert.equal(repairIndex[0].id,'node-npm-ca');
       const {recipeOperationKinds}=await import('@aihq/core/contracts');
-      assert.deepEqual(Object.keys(recipeOperationKinds),['1.0.0','1.1.0','1.2.0','1.3.0'].map(version=>'urn:aihq:core:recipe:'+version));
+      assert.deepEqual(Object.keys(recipeOperationKinds),['1.0.0','1.1.0','1.2.0','1.3.0','1.4.0'].map(version=>'urn:aihq:core:recipe:'+version));
       assert.deepEqual(recipeOperationKinds['urn:aihq:core:recipe:1.3.0'].filter(item=>item.effects==='opaque').map(item=>item.kind),['process.run']);
+      assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.4.0'].find(item=>item.kind==='config.member').effects,'observable');
       assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.0.0'].some(item=>item.kind==='hook.group'),false);
       assert.equal(recipeOperationKinds['urn:aihq:core:recipe:1.1.0'].find(item=>item.kind==='hook.group').effects,'observable');
       const {targets:harnessTargets}=await import('@aihq/core/harness');

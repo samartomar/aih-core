@@ -190,7 +190,7 @@ await check('selections carry descriptive metadata with every qualified origin, 
   assert.deepEqual(hookEntry.deliveredSize, { bytes: Buffer.byteLength(HOOK_FILES['hooks/start.mjs']), chars: HOOK_FILES['hooks/start.mjs'].length,
     alwaysLoaded: { bytes: 0, chars: 0 } });
   const server = selections[2];
-  assert.equal(server.permissionStep, binding('claude').layouts['mcp-server'].register.permissionStep);
+  assert.equal(server.permissionStep, `Still needs your OK in Claude Code. ${binding('claude').layouts['mcp-server'].register.permissionStep}`);
   assert.deepEqual(server.inputs, ['githubToken'], 'inputs are named, never valued');
   assert.equal(selections[3].name, undefined, 'a selection without metadata names nothing it was not told');
   assert.deepEqual(selections[3].deliveredSize, { bytes: 6, chars: 6 });
@@ -199,8 +199,10 @@ await check('selections carry descriptive metadata with every qualified origin, 
   const run = await apply(prepared.prepared, approve(prepared), { ...controls, privateInputs: { github: { githubToken: SECRET } } });
   assert.equal(run.completion, 'complete', JSON.stringify(run.diagnostics));
   assert.equal(JSON.stringify(result14(run)).includes(SECRET), false, 'the run result holds no input value');
-  assert.equal(JSON.parse(readFileSync(join(project, '.mcp.json'), 'utf8')).mcpServers.github.env.GITHUB_TOKEN, SECRET,
-    'the value travels only in the live request to its target');
+  // The value travels only in the live request: the tool's configuration holds a reference by input name, never the value.
+  const written = readFileSync(join(project, '.mcp.json'), 'utf8');
+  assert.equal(JSON.parse(written).mcpServers.github.env.GITHUB_TOKEN, '${githubToken}');
+  assert.equal(written.includes(SECRET), false, 'no input value is written into the configuration');
 });
 
 await check('hook commands redact private input values, and rule sizes say only what the delivery shows', async () => {

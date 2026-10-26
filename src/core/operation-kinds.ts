@@ -2,6 +2,7 @@ import recipeSchema10 from './schemas/recipe/1.0.0.json' with { type: 'json' };
 import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
 import recipeSchema12 from './schemas/recipe/1.2.0.json' with { type: 'json' };
 import recipeSchema13 from './schemas/recipe/1.3.0.json' with { type: 'json' };
+import recipeSchema14 from './schemas/recipe/1.4.0.json' with { type: 'json' };
 import type { Operation, ProcessOperation, Recipe } from './types.js';
 
 /**
@@ -16,7 +17,7 @@ export interface RecipeOperationKindRecord { readonly kind: RecipeOperationKind;
 
 // Prepare's classification: only a process operation is reviewed as `opaque-process`; every other kind
 // resolves a target and compares its bytes. Typed against the engine's operation union.
-const visibility = { 'file.write': 'observable', 'config.entries': 'observable', 'text.block': 'observable',
+const visibility = { 'file.write': 'observable', 'config.entries': 'observable', 'config.member': 'observable', 'text.block': 'observable',
   'file.remove': 'observable', 'hook.group': 'observable', 'process.run': 'opaque' } as const satisfies
   Record<RecipeOperationKind, OperationEffectsVisibility>;
 type OpaqueKind = { [K in RecipeOperationKind]: (typeof visibility)[K] extends 'opaque' ? K : never }[RecipeOperationKind];
@@ -40,5 +41,5 @@ function kindsOf(schema: RecipeSchemaShape): readonly RecipeOperationKindRecord[
  * keyed by recipe schema ID. Portable data: importing it performs no host observation.
  */
 export const recipeOperationKinds: Readonly<Record<RecipeSchemaId, readonly RecipeOperationKindRecord[]>> = Object.freeze(
-  Object.fromEntries([recipeSchema10, recipeSchema11, recipeSchema12, recipeSchema13].map(schema =>
+  Object.fromEntries([recipeSchema10, recipeSchema11, recipeSchema12, recipeSchema13, recipeSchema14].map(schema =>
     [schema.$id, kindsOf(schema as unknown as RecipeSchemaShape)])) as Record<RecipeSchemaId, readonly RecipeOperationKindRecord[]>);

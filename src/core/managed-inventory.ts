@@ -9,7 +9,7 @@ import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
 import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
-import { checkMember, pointerOf, publicKind, type CustodyItem } from './internal/custody-items.js';
+import { checkMember, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { validateOrganizationPolicy } from './contracts.js';
 import { bindingPermissionStep } from '../harness/delivery-review.mjs';
@@ -368,15 +368,14 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
       const state = checkMember(descriptor, live(root, descriptor.path), owner.sha256);
       const block = descriptor.kind === 'block';
       return { kind: publicKind(descriptor), path: join(root, redacted.get(`${root}\0${key}`) ?? descriptor.path),
-        ...(descriptor.kind === 'entry' ? { pointer: pointerOf(descriptor.entry) } : {}),
+        ...(memberPointer(descriptor) !== undefined ? { pointer: memberPointer(descriptor)! } : {}),
         ...(block ? { blockId: descriptor.blockId } : {}), ...(descriptor.kind === 'hook' ? { groupId: descriptor.groupId } : {}),
         fileState: state === 'present-matching' ? 'matches' : state === 'present-different' ? block ? 'block-changed' : 'changed' :
           state === 'absent' ? block ? 'block-missing' : 'missing' : 'unchecked' };
     });
-    for (const item of detail.items) for (const member of item.members) if (member.kind === 'config-member')
-      members.push({ kind: 'config-member', path: member.file, pointer: member.pointer, fileState: 'unchecked' });
     members.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : (a.pointer ?? a.blockId ?? a.groupId ?? '') < (b.pointer ?? b.blockId ?? b.groupId ?? '') ? -1 : 1);
-    const granted = detail.items.some(item => item.members.some(member => member.kind === 'approval-change'));
+    // Granted only by an approval Core wrote and still holds; a person's own approval is never Core's.
+    const granted = detail.members.some(({ owner }) => owner.approval !== undefined);
     const tool = facts?.tool ?? null, kind = facts?.kind ?? null;
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
       origins: facts?.origins ?? [], members, updateState: updateState(facts?.item ?? null, request.index),

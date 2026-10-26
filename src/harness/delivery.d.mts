@@ -18,13 +18,15 @@ export interface ItemRef { framework: string; itemId: string }
 export interface SetRef { readonly framework: string; readonly setId: string; readonly setSha256: string }
 export interface DeliveryRefusal {
   status: 'refused'; code: 'INPUT_INVALID' | 'PREREQUISITE_UNAVAILABLE'; reason: string; path?: string; message?: string;
+  /** For `approval-shape-unsupported`: approve the server in the tool, as its permission step says. */
+  guidance?: string;
   tool?: RegistryTool; diagnostics?: { code: string; reason: string; path: string; message: string }[];
 }
 export interface RenderedDelivery {
   status: 'rendered'; tool: string; item: ItemRef; bindingDigest: string; materialRoot: 'catalog';
-  /** An ordinary Core recipe (urn:aihq:core:recipe:1.0.0, or 1.1.0 when it registers a hook group). */
+  /** An ordinary Core recipe (urn:aihq:core:recipe:1.0.0, 1.1.0 when it registers a hook group, 1.4.0 when it allows one MCP server). */
   recipe: {
-    schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0'; id: string; description: string;
+    schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0' | 'urn:aihq:core:recipe:1.4.0'; id: string; description: string;
     inputs: Record<string, unknown>;
     materials: { id: string; source: { kind: 'local'; input: 'catalog' }; path: string; sha256: string; byteLength: number }[];
     targets: ('project' | 'user')[]; prerequisites: { kind: 'executable'; name: string }[];
@@ -34,7 +36,8 @@ export interface RenderedDelivery {
 export declare const deliveryMaterialRoot: 'catalog';
 export declare function renderDelivery(request: {
   tool: string; item: CatalogItem; binding: ToolBinding; scope: 'project' | 'user'; projectFolder?: string;
-  grantApproval?: readonly ItemRef[];
+  /** The one MCP server item being rendered, ticked to have its approval written; never a list or approve-all. */
+  grantApproval?: ItemRef;
   /** Text of content materials keyed by material id, needed only for marker blocks; checked against each SHA-256. */
   contents?: Readonly<Record<string, string>>;
 }): RenderedDelivery | DeliveryRefusal;

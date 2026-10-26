@@ -50,6 +50,18 @@ export interface ConfigEntryRemove { path: string[]; action: 'remove' }
 export interface ConfigOperation extends OperationBase {
   kind: 'config.entries'; target: TargetPath; format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties';
   entries: (ConfigEntrySet | ConfigEntryRemove)[];
+  /** Recipe 1.4.0: this one-entry edit records a person's OK for one MCP server in `tool`. */
+  approval?: ApprovalMarker;
+}
+/** Recipe 1.4.0: the edit is a tool approval for one server. It is never replaced or adopted, and a different choice is a conflict. */
+export interface ApprovalMarker { tool: string }
+/** Recipe 1.4.0: add or remove one scalar member of a JSON/JSONC array, keeping every other member. */
+export interface ConfigMemberOperation extends OperationBase {
+  kind: 'config.member'; target: TargetPath; format: 'json' | 'jsonc'; container: string[]; action: 'add' | 'remove';
+  value: { literal: string | boolean | number };
+  /** Arrays that must not already hold the value; a value found there is a conflict, never overwritten. */
+  exclusiveWith?: string[][];
+  approval?: ApprovalMarker;
 }
 export interface TextBlockOperation extends OperationBase {
   kind: 'text.block'; target: TargetPath; blockId: string;
@@ -74,7 +86,7 @@ export interface HookGroupOperation extends OperationBase {
   /** Recipe 1.3.0: replace existing scalar leaves with declared input values. */
   groupBindings?: { path: (string | number)[]; value: Slot }[];
 }
-export type Operation = FileOperation | ConfigOperation | TextBlockOperation | RemoveOperation | ProcessOperation | HookGroupOperation;
+export type Operation = FileOperation | ConfigOperation | ConfigMemberOperation | TextBlockOperation | RemoveOperation | ProcessOperation | HookGroupOperation;
 export interface FileCheck { id: string; purpose: string; kind: 'file.sha256'; target: TargetPath; sha256: string }
 export interface ProcessCheck extends ProcessInvocation { id: string; purpose: string; kind: 'process.exit' }
 export type RecipeCheck = FileCheck | ProcessCheck;
@@ -87,7 +99,7 @@ export interface MaterialRecipeReference {
 }
 export type Prerequisite = { kind: 'platform'; os: string; architectures: string[] } | { kind: 'executable'; name: string };
 export interface Recipe {
-  schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0' | 'urn:aihq:core:recipe:1.2.0' | 'urn:aihq:core:recipe:1.3.0';
+  schema: 'urn:aihq:core:recipe:1.0.0' | 'urn:aihq:core:recipe:1.1.0' | 'urn:aihq:core:recipe:1.2.0' | 'urn:aihq:core:recipe:1.3.0' | 'urn:aihq:core:recipe:1.4.0';
   id: string;
   description: string;
   inputs: Record<string, InputSpec>;
