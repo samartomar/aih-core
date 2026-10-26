@@ -8,6 +8,7 @@ import { locateHookGroups } from './hook-group.js';
 import { sha256 } from './host-files.js';
 import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { InclusionOrigin, Json, SelectionMetadata } from '../types.js';
+import type { Owner } from './state.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -26,11 +27,27 @@ export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
   /** Protected restoration data: the person's value found at an owned pointer before Core wrote it. */
   preExisting?: Record<string, { value: Json }>;
-  /** Set when an Apply writes this selection's custody; cleared once all its reviewed operations succeed. */
+  /**
+   * Set before an Apply's first effect for this selection (the pending receipt); cleared once all its reviewed
+   * operations succeed. An interrupted item stays even before any member is written.
+   */
   installState?: 'interrupted';
+  /**
+   * Members of a file effect Apply is attempting: written ahead of the commit and cleared with the custody published
+   * after it. Only a crash between the two leaves an entry; `resolvePending` then reads the target to settle it.
+   */
+  pending?: PendingMember[];
   /** Publishable member paths, keyed by member, where a private input value formed part of the path. */
   redactedPaths?: Record<string, string>;
 }
+/**
+ * A member a step is about to change: its custody once written (`null` when the step removes it), and for a write the
+ * identity (device and inode) of the very file Apply publishes, so no later copy of the same bytes can stand in for it.
+ */
+export interface PendingMember { key: string; descriptor: MemberDescriptor; owner: Owner | null; identity?: string; redactedPath?: string; preExisting?: { value: Json } }
+/** An interrupted install counts as a claim of its selection, also before it wrote a member. */
+export const interruptedClaim = (item: Pick<CustodyItem, 'managementId' | 'scope'>): Claim =>
+  ({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] });
 interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
@@ -84,7 +101,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     const keys = new Set(owned.map(([key]) => key));
     for (const field of ['preExisting', 'redactedPaths'] as const)
       for (const [key, entry] of Object.entries(item[field] ?? {})) if (!keys.has(key) && value.members[key]) (orphaned[field] as Record<string, unknown>)[key] ??= entry;
-    if (!owned.length && !value.selections?.[id]) continue;
+    if (!owned.length && !value.selections?.[id] && !item.installState) continue;
     const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
     const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
     const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
@@ -125,8 +142,13 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const items = value.items as unknown;
   if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
-    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths']) ||
+    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths', 'pending']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
+    // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
+    if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
+        !item.pending.every(entry => exact(entry, ['key', 'descriptor', 'owner'], ['identity', 'redactedPath', 'preExisting']) && text(entry.key, 8192) &&
+          (entry.identity === undefined ? entry.owner === null : typeof entry.identity === 'string' && /^\d{1,40}:\d{1,40}$/.test(entry.identity)) &&
+          (entry.redactedPath === undefined || text(entry.redactedPath, 4096)) && (entry.preExisting === undefined || exact(entry.preExisting, ['value']))))) return false;
     if (!text(item.managementId, 128) || !['project', 'user'].includes(item.scope as string) || identity(item.scope as 'project' | 'user', item.managementId) !== id) return false;
     if (item.name !== null && !text(item.name, 512) || item.kind !== null && !KINDS.includes(item.kind as string) ||
         item.framework !== null && !text(item.framework, 128) || item.tool !== null && !text(item.tool, 128)) return false;
@@ -134,7 +156,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     const owned = claimedMembers(value, item.scope as string, item.managementId);
-    if (!owned.length && !value.selections?.[id]) return false;
+    if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {
@@ -204,13 +226,83 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
     framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
-    ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}) } };
+    ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),
+    ...(prior?.pending ? { pending: prior.pending } : {}) } };
 }
-/** Mark a selection's install complete in this root; reports whether anything changed. */
+/**
+ * Mark a selection's install complete in this root; reports whether anything changed. An item that only carried the
+ * interrupted state (no described facts or protected data) goes with it, so undescribed selections keep their format.
+ */
 export function completeItem(value: Custody, id: string): boolean {
   const item = value.items?.[id];
   if (!item?.installState) return false;
-  const { installState: _done, ...rest } = item;
-  value.items = { ...value.items, [id]: rest };
+  const { installState: _done, pending: _pending, ...rest } = item;
+  const items = { ...value.items, [id]: rest };
+  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.preExisting && !rest.redactedPaths)
+    delete items[id];
+  value.items = items;
   return true;
+}
+/** Record the members a file effect is about to change, before it commits. */
+export function attemptItem(value: Custody, id: string, entries: PendingMember[]): void {
+  const item = value.items?.[id];
+  if (!item || !entries.length) return;
+  const keys = new Set(entries.map(entry => entry.key));
+  value.items = { ...value.items, [id]: { ...item, installState: 'interrupted', pending: [...(item.pending ?? []).filter(entry => !keys.has(entry.key)), ...entries] } };
+}
+/** Clear pending members whose custody was just published. */
+export function settleItem(value: Custody, id: string, keys: readonly string[]): void {
+  const item = value.items?.[id];
+  if (!item?.pending) return;
+  const pending = item.pending.filter(entry => !keys.includes(entry.key));
+  const { pending: _prior, ...rest } = item;
+  value.items = { ...value.items, [id]: pending.length ? { ...rest, pending } : rest };
+}
+/**
+ * Removal releases an interrupted install: its pending members go, and the item goes once no claim or selection
+ * record keeps it. Kept members leave it listed and still interrupted.
+ */
+export function releaseItem(value: Custody, id: string): void {
+  const item = value.items?.[id];
+  if (!item) return;
+  settleItem(value, id, (item.pending ?? []).map(entry => entry.key));
+  if (claimedMembers(value, item.scope, item.managementId).length || value.selections?.[id]) return;
+  const items = { ...value.items }; delete items[id];
+  value.items = items;
+}
+/**
+ * Settle members a crash left pending between a file effect and its custody. A written member is the very file the
+ * effect published (same identity) holding exactly the bytes it wrote; a removed one is gone. Only then is its custody
+ * published here; anything else was not written by Core and is dropped, so a later copy of the same bytes never counts.
+ * A target that cannot be read keeps its entry for a later read. Returns whether anything changed.
+ */
+export function resolvePending(value: Custody,
+  inspect: (path: string) => { state: 'present' | 'absent' | 'unreadable'; bytes?: Buffer; identity?: string }): boolean {
+  // One read per file: a step's members share it.
+  const reads = new Map<string, ReturnType<typeof inspect>>();
+  const read = (path: string) => { let found = reads.get(path); if (!found) reads.set(path, found = inspect(path)); return found; };
+  let changed = false;
+  for (const [id, item] of Object.entries(value.items ?? {})) {
+    if (!item.pending) continue;
+    const kept: PendingMember[] = [];
+    let preExisting = item.preExisting, redactedPaths = item.redactedPaths;
+    for (const entry of item.pending) {
+      let found: Located, identity: string | undefined;
+      try {
+        const live = read(entry.descriptor.path);
+        if (live.state === 'unreadable') { kept.push(entry); continue; }
+        found = locateMember(entry.descriptor, live.state === 'present' ? live.bytes! : null); identity = live.identity;
+      } catch { kept.push(entry); continue; }
+      changed = true;
+      // A file system without inode numbers gives no identity to bind to, so nothing is promoted there.
+      if (entry.owner ? !entry.identity || entry.identity.endsWith(':0') || identity !== entry.identity || found !== entry.owner.sha256 : found !== null) continue;
+      if (entry.owner) value.members[entry.key] = entry.owner; else delete value.members[entry.key];
+      if (entry.preExisting && !preExisting?.[entry.key]) preExisting = { ...preExisting, [entry.key]: entry.preExisting };
+      if (entry.redactedPath) redactedPaths = { ...redactedPaths, [entry.key]: entry.redactedPath };
+    }
+    if (kept.length === item.pending.length) continue;
+    const { pending: _prior, preExisting: _values, redactedPaths: _paths, ...rest } = item;
+    value.items = { ...value.items, [id]: { ...rest, ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}), ...(kept.length ? { pending: kept } : {}) } };
+  }
+  return changed;
 }

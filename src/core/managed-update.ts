@@ -1,7 +1,8 @@
 import { join } from 'node:path';
-import { prepare as preparePolicy, validateControls, dataObject, isManagedContentRoot, safeText } from './recipe-engine.js';
+import { prepare as preparePolicy, validateControls, dataObject, safeText } from './recipe-engine.js';
 import { claimRefusal, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
+import { isContentRoot } from './internal/state.js';
 import { claimIdentity } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries } from './internal/trust-custody.js';
 import { readMacosCustody } from './internal/macos-session-custody.js';
@@ -94,7 +95,7 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
   }
 
   const identityOf = (managementId: string) => claimIdentity(scope, managementId, project!);
-  const effectRoot = (candidate: string) => candidate === project || candidate === home || isManagedContentRoot(candidate);
+  const effectRoot = (candidate: string) => candidate === project || candidate === home || isContentRoot(candidate);
   const recordedFacts = (managementId: string): UpdateItemFacts | null => {
     for (const [candidate, stored] of image.receipts) {
       const item = effectRoot(candidate) ? stored.value.items?.[identityOf(managementId)] : undefined;

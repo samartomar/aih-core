@@ -18,12 +18,12 @@ import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
+import { contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
+import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
@@ -60,7 +60,7 @@ interface PreparedStep {
   authored?: { selectionId: string; operationId: string; overlayKey?: string; choices: ('replace' | 'adopt')[] };
   /** The members this step writes, removes or restores, checked directly after Apply. */
   members?: MemberDescriptor[];
-  /** Item facts recorded with this selection's custody; `named` when the policy described the item. */
+  /** Item facts recorded with this selection's custody (every authored step); `named` when the policy described the item. */
   item?: { id: string; named: boolean; facts: ItemFacts };
   /** Protected restoration data: the person's value at each replaced, previously unowned JSON pointer. */
   preExisting?: Record<string, Json>;
@@ -79,8 +79,11 @@ interface PreparedState {
   review: PreparedReview; steps: PreparedStep[]; project: string; home: string;
   ownership: Map<string, { value: Ownership; digest: string | null }>;
   selectionUpdates: Map<string, Record<string, { claim: Claim | null; requires: string[] }>>;
-  /** Item facts to record for selections whose custody is otherwise unchanged, published once their operations succeed. */
-  itemUpdates: Map<string, Record<string, { item: NonNullable<PreparedStep['item']>; requires: string[] }>>;
+  /**
+   * Item facts to record for selections whose custody is otherwise unchanged, published once their operations succeed.
+   * `finish` completes an interrupted install; `release` lets a removed interrupted install go.
+   */
+  itemUpdates: Map<string, Record<string, { item: NonNullable<PreparedStep['item']>; requires: string[]; action?: 'finish' | 'release' }>>;
   inventory?: Map<string, string>; bindings: PathPin[]; captures: { recheck(): Promise<boolean> }[];
   organization?: Pick<OrganizationBinding, 'source' | 'resolvedCommit' | 'blobId' | 'contentDigest'>;
   /** Declared target bound with the organization; Apply rejects a request that no longer declares exactly this. */
@@ -275,16 +278,10 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   return { recipe, recipeSha256: digest(recipe), material: captured };
 }
 
-export function isManagedContentRoot(root: string): boolean {
-  return /^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), root).replaceAll('\\', '/'));
-}
 export function transaction(root: string, directoryCreated?: (path: string) => void) {
-  if (!isManagedContentRoot(root)) return fileTransaction(root, stateRoot(), directoryCreated);
+  if (!isContentRoot(root)) return fileTransaction(root, stateRoot(), directoryCreated);
   // userState is a Core-assigned content child, never the reserved state root.
-  const create = () => new OwnedFileTransaction(root, { label: 'Core managed content', maxFileBytes: 16 * 1024 * 1024,
-    contentDirectoryMode: 0o700, stateDirectoryMode: 0o700, statePaths: new Set<string>(),
-    assertOwnedPath(path: string) { if (path.split('/').some(part => !validSegment(part))) throw new Error('invalid-path'); },
-    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } }, directoryCreated);
+  const create = () => contentTransaction(root, directoryCreated);
   if (pathPins(root).at(-1)?.identity !== 'absent') return create();
   return {
     inspect(path: string): OwnedFileRead {
@@ -785,7 +782,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(effect === 'conflict' && conflictReason ? { conflictReason } : {}),
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
             ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
-            ...(selection.item !== undefined || preExisting || redactedPaths ? { item: selectionItem(selection, project!, privateValues) } : {}) });
+            // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
+            item: selectionItem(selection, project!, privateValues) });
         }
       }
       selectionOps.set(selection.id, currentIds);
@@ -812,7 +810,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
 
     const selectionUpdates = new Map<string, Record<string, { claim: Claim | null; requires: string[] }>>();
     const claimId = (claim: Pick<Claim, 'scope' | 'managementId'>, target = project!) => claimIdentity(claim.scope, claim.managementId, target);
-    const effectRoot = (root: string) => root === project || root === userHomeRoot() || isManagedContentRoot(root);
+    const effectRoot = (root: string) => root === project || root === userHomeRoot() || isContentRoot(root);
     const { candidates, retained, dependencies } = classifyStoredClaims(ownership, (claim, root, id) => {
       const sets = claim.sets.map(setId => policy.managedSelections?.find(set => set.id === setId && set.scope === claim.scope));
       return effectRoot(root) && (policy.removals?.some(removal => claimId(removal) === id) ||
@@ -850,6 +848,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const updates = itemUpdates.get(step.root) ?? Object.create(null);
       updates[step.item.id] = { item: step.item, requires: selectionOps.get(step.authored.selectionId) ?? [] }; itemUpdates.set(step.root, updates);
     }
+    // A fresh review of an interrupted install's selection finishes it: the install completes once all its operations
+    // succeed, also when every member is already in place.
+    for (const step of steps) {
+      if (!step.item || !step.root || !step.authored || ownership.get(step.root)!.value.items?.[step.item.id]?.installState !== 'interrupted') continue;
+      const updates = itemUpdates.get(step.root) ?? Object.create(null);
+      if (updates[step.item.id]?.action === 'finish') continue;
+      updates[step.item.id] = { item: step.item, requires: selectionOps.get(step.authored.selectionId) ?? [], action: 'finish' }; itemUpdates.set(step.root, updates);
+      observations.push({ id: `lifecycle/finish-${observations.length}`, reason: `finish-interrupted-install:${step.managementId}` });
+    }
     // A released inclusion rewrites only the kept selection's recorded origins; its members and claims stay.
     for (const release of cleanup?.originReleases ?? []) {
       const updates = itemUpdates.get(release.root) ?? Object.create(null);
@@ -860,6 +867,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!candidates.has(key) || retained.has(key)) continue;
       const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim: null, requires: [] }; selectionUpdates.set(root, updates);
       observations.push({ id: `lifecycle/root-${observations.length}`, reason: `remove-management-root:${claim.managementId}` });
+    }
+    // Removing an interrupted install lets its record go too, including one that never wrote a member.
+    for (const [root, stored] of ownership) if (effectRoot(root)) for (const [key, item] of Object.entries(stored.value.items ?? {})) {
+      if (item.installState !== 'interrupted' || !candidates.has(key) || retained.has(key)) continue;
+      const updates = itemUpdates.get(root) ?? Object.create(null);
+      updates[key] = { item: { id: key, named: false, facts: factsOf(item) }, requires: [], action: 'release' }; itemUpdates.set(root, updates);
+      observations.push({ id: `lifecycle/root-${observations.length}`, reason: `remove-interrupted-install:${item.managementId}` });
     }
     const ancestors = (id: string): Set<string> => {
       const result = new Set<string>(); const queue = [id];
@@ -1018,6 +1032,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const orderedSteps = dependencyOrder(steps.map(step => ({ id: step.review.id, requires: step.review.requires, step })));
     steps.splice(0, steps.length, ...orderedSteps.map(item => item.step));
     for (const [root, updates] of selectionUpdates) for (const [key, update] of Object.entries(updates)) if (update.claim === null) {
+      update.requires = [...removedIdentities].filter(([, identities]) => identities.includes(key)).map(([step]) => step.review.id);
+    }
+    for (const updates of itemUpdates.values()) for (const [key, update] of Object.entries(updates)) if (update.action === 'release') {
       update.requires = [...removedIdentities].filter(([, identities]) => identities.includes(key)).map(([step]) => step.review.id);
     }
     if (usedResolutions.size !== resolutions.length) throw new Error('resolution-unknown');
@@ -1261,7 +1278,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       catch (error) { if (reportsChangedBinding && error instanceof Error && TRUST_CLAIMS.has(error.message)) throw stale('trust'); throw error; }
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
-      if (!pinsOkay && isManagedContentRoot(step.root) &&
+      if (!pinsOkay && isContentRoot(step.root) &&
           step.before === null && live.state === 'absent' &&
           step.pins?.some(pin => pin.identity === 'absent' &&
             pathPins(stateRoot()).some(parent => parent.path === pin.path))) {
@@ -1273,13 +1290,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     };
     for (const step of state.steps) assertStep(step, true);
     for (const [root, ownership] of state.ownership)
-      if (readOwnership(root).digest !== ownership.digest) throw stale('ownership');
+      if (ownershipDigest(root) !== ownership.digest) throw stale('ownership');
     await preEffectCheck?.();
     if (preEffectCheck) {
       assertInputs();
       for (const step of state.steps) assertStep(step, true);
       for (const [root, ownership] of state.ownership)
-        if (readOwnership(root).digest !== ownership.digest) throw stale('ownership');
+        if (ownershipDigest(root) !== ownership.digest) throw stale('ownership');
     }
     const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
@@ -1292,7 +1309,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
-      if (readOwnership(root).digest !== state.ownership.get(root)?.digest) throw stale('ownership');
+      if (ownershipDigest(root) !== state.ownership.get(root)?.digest) throw stale('ownership');
       const current = state.ownership.get(root)!.value;
       // Reserve a conservative upper bound for every intermediate receipt,
       // including old members awaiting subtraction and selection intent.
@@ -1317,6 +1334,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         next.selections![key] = larger(next.selections![key], update.claim);
       }
       for (const update of Object.values(state.itemUpdates.get(root) ?? {})) upsertItem(next, update.item);
+      reservePending(next, state.steps.filter(item => item.root === root));
       // Reserve directory evidence too, before any target effect. These placeholders
       // establish capacity only; only successful mkdir callbacks publish evidence.
       reserveDirectoryCapacity(next, state.steps.filter(item => item.root === root));
@@ -1331,6 +1349,31 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const createdDirectories = new Map<string, CreatedDirectories>();
     const outcomes = new Map<string, boolean>(); let stop = false;
     const metadataState = state;
+    /** Seal and write one root's receipt, tracking the new digest for later stale checks. */
+    const persist = (root: string, next: Ownership) => {
+      protectState([ownershipPath(root)]);
+      const sealed = sealOwnership(next);
+      const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+      metadataState.ownership.set(root, { value: sealed, digest: sha256(receipt) });
+      metadataState.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+    };
+    // The pending receipt: immediately before the run's first effect, every selection it writes custody for is
+    // recorded as an interrupted install. Members are added only as each is written; completion clears the state.
+    let pendingWritten = false;
+    const writePending = () => {
+      if (pendingWritten) return;
+      pendingWritten = true;
+      for (const root of mutatingRoots) {
+        const installing = metadataState.steps.filter(step => step.root === root && step.item && !step.lifecycle && writesCustody(step));
+        if (!installing.length) continue;
+        const tracked = metadataState.ownership.get(root)!;
+        const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
+        for (const step of installing) upsertItem(next, step.item!, { installing: true });
+        if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
+        try { persist(root, next); } catch { throw new Error('state-unwritable'); }
+        started = true;
+      }
+    };
     const publishMetadata = () => {
       // Byte custody follows each successful mutation. Selection metadata advances
       // only when all its reviewed operations and required checks succeeded.
@@ -1358,17 +1401,15 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         }
         for (const [key, update] of Object.entries(metadataState.itemUpdates.get(root) ?? {})) {
           if (!update.requires.every(id => outcomes.get(id) === true)) continue;
-          upsertItem(next, update.item);
+          if (update.action === 'release') releaseItem(next, key);
+          else if (update.action === 'finish') { if (next.items?.[key]) upsertItem(next, update.item); completeItem(next, key); }
+          else upsertItem(next, update.item);
           delete metadataState.itemUpdates.get(root)![key];
           changed = true;
         }
         if (changed) {
-          if (readOwnership(root).digest !== tracked.digest) throw stale('ownership');
-          protectState([ownershipPath(root)]);
-          const sealed = sealOwnership(next);
-          const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
-          metadataState.ownership.set(root, { value: sealed, digest: sha256(receipt) });
-          metadataState.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+          if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
+          persist(root, next);
         }
       }
     };
@@ -1391,14 +1432,14 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       assertInputs();
       if (step.path) {
         assertStep(step);
-        if (readOwnership(step.root!).digest !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
+        if (ownershipDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
       if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
-        started = true;
+        writePending(); started = true;
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
         if (processResult.status !== 'passed') {
@@ -1411,8 +1452,21 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
         assertStep(step);
-        if (readOwnership(step.root).digest !== state.ownership.get(step.root)?.digest) throw stale('ownership');
-        started = true;
+        if (ownershipDigest(step.root) !== state.ownership.get(step.root)?.digest) throw stale('ownership');
+        writePending(); started = true;
+        // Write ahead the members this effect changes, so a crash before its custody is published can be settled later.
+        // A written file is recorded with the identity of the staged file that replaces the destination.
+        const attempting = step.item && !step.lifecycle ? pendingMembers(step, state.ownership.get(step.root)!.value) : [];
+        let pendingFailed = false;
+        const writeAhead = (identity?: string) => {
+          const tracked = metadataState.ownership.get(step.root!)!;
+          const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
+          attemptItem(next, step.item!.id, attempting.map(entry => identity ? { ...entry, identity } : entry));
+          try { persist(step.root!, next); } catch (error) { pendingFailed = true; throw error; }
+        };
+        if (attempting.length && step.after === null) {
+          try { writeAhead(); } catch { operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
+        }
         try {
           const tx = transaction(step.root, path => {
             const identity = directoryIdentity(step.root!, path);
@@ -1423,7 +1477,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           tx.commit([{ action: step.after === null ? 'remove' : 'write', path: step.path, mode: step.mode ?? 0o600,
             ...(step.after === null ? {} : { contents: step.after }),
             ...(step.before ? { prior: step.before, priorMode: step.mode } : {}),
-            expect: step.before === null ? { absent: true } : { sha256: sha256(step.before!) } }]);
+            expect: step.before === null ? { absent: true } : { sha256: sha256(step.before!) } }],
+            attempting.length && step.after !== null ? (_path, identity) => writeAhead(identity) : undefined);
           operation.application = 'applied';
           const createdParents = pathPins(join(step.root, ...step.path.split('/'))).slice(0, -1);
           for (const remaining of state.steps.slice(index + 1)) {
@@ -1435,23 +1490,21 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
                 invocation.cwdPins = pathPins(invocation.cwd);
           }
         } catch {
+          // A failed write-ahead leaves the destination untouched: nothing was attempted.
+          if (pendingFailed) { operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
           operation.application = 'failed'; operation.reason = 'file-effect'; operation.effectsUncertain = true;
         }
       }
       if (operation.application === 'applied' || operation.application === 'already-satisfied') {
         if (step.root && step.path && (operation.application === 'applied' || step.resolution === 'adopt' || step.custodyOnly)) {
           try {
-            started = true;
+            writePending();
             const tracked = state.ownership.get(step.root)!;
             const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
             updateCustody(next, step, true);
             const created = createdDirectories.get(step.root);
             if (created) next.directories = directoryRecords({ ...directoryMap(next.directories), ...created });
-            protectState([ownershipPath(step.root)]);
-            const sealed = sealOwnership(next);
-            const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(step.root), receipt, 0o600);
-            state.ownership.set(step.root, { value: sealed, digest: sha256(receipt) });
-            state.inventory?.set(basename(ownershipPath(step.root)), sha256(receipt));
+            persist(step.root, next);
           } catch { operation.effectsUncertain = true; operation.reason = 'custody-write'; throw new Error('state-unwritable'); }
         }
         // Dependent configuration never runs before the output's custody pair commits.
@@ -1495,14 +1548,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         outcomes.get(step.review.id) === true).map(step => step.directoryCleanup ?? {})) as CreatedDirectories;
       if (!Object.keys(reviewed).length) continue;
       const tracked = state.ownership.get(root)!;
-      if (readOwnership(root).digest !== tracked.digest) throw stale('ownership');
+      if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
       const directories = removeCreatedDirectories(root, directoryMap(tracked.value.directories), reviewed,
         Object.entries(tracked.value.members).map(([key, owner]) => owner.descriptor?.path ?? key));
-      const sealed = sealOwnership({ ...tracked.value, directories: directoryRecords(directories) });
-      const receipt = Buffer.from(JSON.stringify(sealed));
-      stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
-      state.ownership.set(root, { value: sealed, digest: sha256(receipt) });
-      state.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+      persist(root, { ...tracked.value, directories: directoryRecords(directories) });
     }
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
@@ -1668,6 +1717,7 @@ function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string
       }
     for (const [key, update] of Object.entries(updates.get(root) ?? {})) if (update.claim) current.selections![key] = update.claim;
     for (const update of Object.values(itemUpdates.get(root) ?? {})) upsertItem(current, update.item);
+    reservePending(current, steps.filter(step => step.root === root));
     check();
     for (const step of steps.filter(step => step.root === root)) { updateCustody(current, step, true); check(); }
   }
@@ -1683,7 +1733,43 @@ function updateCustody(next: Ownership, step: PreparedStep, deferMetadata = fals
     } else delete next.members[key];
   }
   // Item facts and restoration data travel with the custody of the selection that wrote them.
-  if (step.item && !step.lifecycle) upsertItem(next, step.item, { preExisting: step.preExisting, redactedPaths: step.redactedPaths, installing: deferMetadata });
+  if (step.item && !step.lifecycle) {
+    upsertItem(next, step.item, { preExisting: step.preExisting, redactedPaths: step.redactedPaths, installing: deferMetadata });
+    settleItem(next, step.item.id, Object.keys(step.custody ?? {}));
+  }
+}
+/**
+ * The members a file effect changes, with the custody each would publish. A member the effect leaves as it was is not
+ * pending: finding it in place after a crash would prove nothing about this run.
+ */
+function pendingMembers(step: PreparedStep, value: Ownership): PendingMember[] {
+  if (!step.item || !step.path || !['create-file', 'replace-file', 'remove-file'].includes(step.review.effects)) return [];
+  const projected: Ownership = { ...value, members: { ...value.members } };
+  updateCustody(projected, step, true);
+  const located = (descriptor: MemberDescriptor, bytes: Buffer | null | undefined) => { try { return locateMember(descriptor, bytes ?? null); } catch { return 'different'; } };
+  const entries: PendingMember[] = [];
+  for (const key of Object.keys(step.custody ?? {})) {
+    const owner = projected.members[key] ?? null;
+    const descriptor = owner?.descriptor ?? step.members?.find(member => memberKey(member) === key);
+    // Only custody this module can validate is written ahead; anything else keeps the earlier conservative behaviour.
+    if (!descriptor || owner && !owner.claims?.some(claim => claim.managementId === step.managementId && claim.scope === step.review.scope)) continue;
+    if (located(descriptor, step.before) === located(descriptor, step.after)) continue;
+    entries.push({ key, descriptor, owner, ...(step.redactedPaths?.[key] ? { redactedPath: step.redactedPaths[key] } : {}),
+      ...(step.preExisting && Object.hasOwn(step.preExisting, key) ? { preExisting: { value: step.preExisting[key]! } } : {}) });
+  }
+  return entries;
+}
+/** Reserve receipt capacity for the largest set of members one effect writes ahead. */
+function reservePending(value: Ownership, steps: PreparedStep[]): void {
+  let largest: { step: PreparedStep; entries: PendingMember[]; bytes: number } | undefined;
+  for (const step of steps) {
+    const entries = pendingMembers(step, value), bytes = Buffer.byteLength(JSON.stringify(entries));
+    if (entries.length && (!largest || bytes > largest.bytes)) largest = { step, entries, bytes };
+  }
+  if (!largest) return;
+  upsertItem(value, largest.step.item!, { installing: true });
+  // A placeholder of the largest identity a file system reports stands in for the staged file's.
+  attemptItem(value, largest.step.item!.id, largest.entries.map(entry => entry.owner ? { ...entry, identity: `${2n ** 64n - 1n}:${2n ** 64n - 1n}` } : entry));
 }
 /** Steps whose success changes target-keyed custody. */
 function writesCustody(step: PreparedStep): boolean {

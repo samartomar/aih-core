@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Find, finish and remove interrupted installs. Apply records a pending receipt in
+protected custody immediately before its first effect, and writes ahead the members
+each file effect is about to change, bound to the identity of the file it publishes. Inventory 1.1.0 then reports an install that did
+not complete, also after its process was killed, as `installState: 'interrupted'` with
+only the members actually written; a crash between an effect and its custody is settled
+from the target, never from what was intended. Preparing the same selection again
+finishes it (`finish-interrupted-install`), keeping local edits as conflicts;
+`prepareManagedRemoval` removes it, also when it wrote nothing
+(`remove-interrupted-install`), with the existing removal safeguards. An interrupted
+run is never confirmed on disk. A target lock left by a process that no longer runs on
+this host is reclaimed; any other lock is kept. No published format changes; ownership
+1.6.0 gains internal pending records. Unpublished candidate for the sole 0.1.0 release
+effort.
+
 Add managed update preparation 1.0.0. `prepareUpdate({ target, scope, updates:
 { managementId, replacement }[] })` previews updating installed selections to the exact
 replacement selections the consumer supplies; Core never chooses or applies an update by

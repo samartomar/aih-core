@@ -1,8 +1,9 @@
-import { prepare as preparePolicy, validateControls, dataObject, isManagedContentRoot } from './recipe-engine.js';
+import { prepare as preparePolicy, validateControls, dataObject } from './recipe-engine.js';
 import { claimRefusal, classify, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
+import { isContentRoot } from './internal/state.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner, custodyParticipant, type TrustPendingImage, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
 import { lstatSync } from 'node:fs';
@@ -267,7 +268,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   }
 
   const identityOf = (managementId: string) => claimIdentity(scope, managementId, project!);
-  const effectRoot = (candidate: string) => candidate === project || candidate === home || isManagedContentRoot(candidate);
+  const effectRoot = (candidate: string) => candidate === project || candidate === home || isContentRoot(candidate);
   // The receipt recording a selection's item facts; user custody can also live in Core-managed content roots.
   const itemRoot = (managementId: string) => [...image.receipts].find(([candidate, stored]) => effectRoot(candidate) &&
     stored.value.items?.[identityOf(managementId)] !== undefined)?.[0];

@@ -2,6 +2,7 @@ import { canonicalJson } from './canonical.js';
 import { sha256, validSegment, userHomeRoot } from './host-files.js';
 import { configArrayMemberBytes, configMemberBytes, blockMemberBytes, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { Ownership } from './state.js';
+import { interruptedClaim } from './custody-items.js';
 export interface Claim { managementId: string; scope: 'project' | 'user'; sets: string[]; requires: string[] }
 export interface HookSelector { path: (string | number)[]; valueSha256: string }
 export type HookDescriptor = { path: string; kind: 'hook'; format: 'json' | 'jsonc'; container: string[]; groupId: string; selector: HookSelector };
@@ -92,8 +93,10 @@ export function classifyStoredClaims(receipts: Iterable<[string, { value: Owners
   const candidates = new Set<string>(); const retained = new Set<string>();
   const dependencies = new Map<string, string[]>();
   for (const [root, stored] of receipts)
+    // An interrupted install is a claim even before it wrote a member: removal can name it and let it go.
     for (const claim of [...Object.values(stored.value.selections ?? {}),
-      ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
+      ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? []),
+      ...Object.values(stored.value.items ?? {}).filter(item => item.installState === 'interrupted').map(interruptedClaim)]) {
       const identity = claimIdentity(claim.scope, claim.managementId, root);
       dependencies.set(identity, [...new Set([...(dependencies.get(identity) ?? []), ...claim.requires])]);
       if (candidate(claim, root, identity)) candidates.add(identity);

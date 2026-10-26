@@ -1,16 +1,18 @@
-import { chmodSync, lstatSync, mkdirSync, rmdirSync, readdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, rmdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { dirname, join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { OwnedFileTransaction } from './owned-file-transaction.js';
+import { OwnedFileTransaction, fileIdentity, type OwnedFileRead } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { pathPins, pinsMatch, sha256, userHomeRoot } from './host-files.js';
+import { fileTransaction, pathPins, pinsMatch, sha256, userHomeRoot, validSegment } from './host-files.js';
 import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
 import { containedPath } from './contained-path.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import type { RecordStatus } from '../host-types.js';
 import { stateLocation } from '../state-location.js';
-import { refreshItems, validItems, type CustodyItem } from './custody-items.js';
+import { refreshItems, resolvePending, validItems, type CustodyItem } from './custody-items.js';
+import { canonicalJson } from './canonical.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
 /** `sha256` digests the exact member bytes; a hook group also records its canonical JSON digest. */
@@ -117,8 +119,45 @@ export function protectState(relativePaths: string[] = []): void {
   }
 }
 
+/** A Core-assigned managed-content child of the state root (user-scope `userState`). */
+export const isContentRoot = (root: string): boolean => /^content\/[a-f0-9]{64}$/.test(relative(stateRoot(), root).replaceAll('\\', '/'));
+/** The guarded transaction for a managed-content root; it is never the reserved state root itself. */
+export function contentTransaction(root: string, directoryCreated?: (path: string) => void): OwnedFileTransaction {
+  return new OwnedFileTransaction(root, { label: 'Core managed content', maxFileBytes: 16 * 1024 * 1024,
+    contentDirectoryMode: 0o700, stateDirectoryMode: 0o700, statePaths: new Set<string>(),
+    assertOwnedPath(path: string) { if (path.split('/').some(part => !validSegment(part))) throw new Error('invalid-path'); },
+    assertResolvedSegments(parts: readonly string[]) { if (parts.some(part => !validSegment(part))) throw new Error('invalid-path'); } }, directoryCreated);
+}
+/** Read one target member file of a custody root without changing anything. */
+export function inspectTarget(root: string, path: string): OwnedFileRead {
+  if (!isContentRoot(root)) return fileTransaction(root, stateRoot()).inspect(path);
+  if (path.split('/').some(part => !validSegment(part))) return { state: 'unreadable', detail: 'invalid-path' };
+  if (pathPins(root).at(-1)?.identity === 'absent') return { state: 'absent' };
+  return contentTransaction(root).inspect(path);
+}
+/**
+ * The custody a receipt establishes once members a crash left pending are settled against the target. Only read views
+ * change; the receipt bytes and digest stay, and the next Apply writing this root persists the settled custody.
+ */
+function settled(value: Ownership): Ownership {
+  if (!Object.values(value.items ?? {}).some(item => item.pending)) return value;
+  const view: Ownership = { ...value, members: { ...value.members }, ...(value.items ? { items: { ...value.items } } : {}) };
+  const inspect = (path: string) => {
+    try {
+      const live = inspectTarget(value.target, path);
+      return live.state === 'present' ? { ...live, identity: fileIdentity(join(value.target, ...path.split('/'))) } : live;
+    } catch { return { state: 'unreadable' as const }; }
+  };
+  if (!resolvePending(view, inspect)) return value;
+  const sealed = sealOwnership(view);
+  validateOwnership(sealed, value.target);
+  return sealed;
+}
+
 export function ownershipPath(target: string): string { return `ownership/${sha256(target)}.json`; }
-export function readOwnership(target: string): { value: Ownership; digest: string | null; bytes: number } {
+/** The digest of a root's stored receipt (`null` when there is none), without settling pending members. */
+export const ownershipDigest = (target: string): string | null => readOwnership(target, false).digest;
+export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
   const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
     if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return { value: empty, digest: null, bytes: 0 };
@@ -131,7 +170,7 @@ export function readOwnership(target: string): { value: Ownership; digest: strin
   if (!bytes) return { value: empty, digest: null, bytes: 0 };
   const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
   validateOwnership(value, target);
-  return { value, digest: sha256(bytes), bytes: bytes.length };
+  return { value: settle ? settled(value) : value, digest: sha256(bytes), bytes: bytes.length };
 }
 
 /** Protect a set of receipt paths once, then validate each value against its target. */
@@ -156,7 +195,7 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
     }
     const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
     validateOwnership(value, target);
-    result.set(target, { value, digest: sha256(bytes), bytes: bytes.length });
+    result.set(target, { value: settled(value), digest: sha256(bytes), bytes: bytes.length });
   }
   return result;
 }
@@ -201,7 +240,7 @@ export function readOwnershipReceipts(check: () => void): { receipts: Ownership[
     if (typeof value.target !== 'string' || !isAbsolute(value.target) ||
       ownershipPath(value.target) !== `ownership/${name}`) throw new Error('ownership-invalid');
     validateOwnership(value, value.target);
-    receipts.push(value);
+    receipts.push(settled(value));
   }
   return { receipts, count: names.length, bytes: total };
 }
@@ -247,6 +286,14 @@ export function validateOwnership(input: unknown, target: string): asserts input
   // Items describe claims already held here; the target-keyed members above stay authoritative.
   if (value.items !== undefined && (!atLeast(value.schema, OWNERSHIP_16) ||
     !validItems(value as unknown as Ownership, (scope, managementId) => claimIdentity(scope, managementId, target)))) throw new Error('ownership-invalid');
+  // A pending owner is exactly the custody its member would publish, held to the same rules.
+  for (const item of Object.values((value.items ?? {}) as Record<string, CustodyItem>)) for (const entry of item.pending ?? []) {
+    if (!validDescriptor(entry.descriptor) || memberKey(entry.descriptor) !== entry.key) throw new Error('ownership-invalid');
+    if (entry.owner === null) continue;
+    if (canonicalJson(entry.owner.descriptor ?? null) !== canonicalJson(entry.descriptor) ||
+        !entry.owner.claims?.some(claim => claim.managementId === item.managementId && claim.scope === item.scope)) throw new Error('ownership-invalid');
+    validateOwnership({ schema: value.schema, target, members: { [entry.key]: entry.owner } }, target);
+  }
 }
 
 export function writeHistory(runId: string, result: unknown, logging: 'on' | 'off'): RecordStatus {
@@ -261,13 +308,59 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
   } catch { return { status: 'failed', reason: 'record-write', diagnosticId: 'record-write' }; }
 }
 
+const LOCK_HOLDER = 'holder.json';
+/**
+ * Take a target's state lock. The lock names its holder (process and host), so a lock left by a process that no longer
+ * runs on this host can be reclaimed after a crash. A lock without a readable holder, from another host, or held by a
+ * running process is never taken over; leftovers need deliberate inspection. Reclaiming assumes one process namespace
+ * per host name.
+ */
 export function lockTarget(target: string): () => void {
   const root = stateRoot(); const lock = join(root, `lock-${sha256(target)}`);
-  mkdirSync(lock, { mode: 0o700 }); const pins = pathPins(lock);
+  try { mkdirSync(lock, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !reclaimLock(lock)) throw error;
+    mkdirSync(lock, { mode: 0o700 });
+  }
+  const pins = pathPins(lock);
+  const holder = join(lock, LOCK_HOLDER);
+  try { writeFileSync(holder, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: 'wx', mode: 0o600 }); } catch { /* An unnamed lock is only ever released by its own process. */ }
   return () => {
     // Never recursively delete locks; leftovers need deliberate inspection.
-    if (pathPins(lock).at(-1)?.identity === pins.at(-1)?.identity) rmdirSync(lock);
+    if (pathPins(lock).at(-1)?.identity !== pins.at(-1)?.identity) return;
+    try { unlinkSync(holder); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    rmdirSync(lock);
   };
+}
+/** The lock's recorded holder is on this host and no longer runs. */
+function holderGone(lock: string): boolean {
+  let holder: { pid: unknown; host: unknown };
+  try {
+    pathPins(lock);
+    if (!lstatSync(lock).isDirectory() || readdirSync(lock).some(name => name !== LOCK_HOLDER)) return false;
+    holder = JSON.parse(readFileSync(join(lock, LOCK_HOLDER), 'utf8')) as typeof holder;
+  } catch { return false; }
+  if (!Number.isSafeInteger(holder.pid) || (holder.pid as number) <= 0 || holder.host !== hostname() || holder.pid === process.pid) return false;
+  try { process.kill(holder.pid as number, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+}
+/**
+ * Remove a lock whose recorded holder is provably gone; reports whether the lock path may be taken again. Reclaimers
+ * are serialised by an exclusive guard and re-check the holder under it. A live process only ever takes the lock by
+ * creating it, which fails while the stale one exists, so the lock removed here can only be the stale one. The caller's
+ * own exclusive create still decides who holds the lock afterwards.
+ */
+function reclaimLock(lock: string): boolean {
+  if (!holderGone(lock)) return false;
+  const guard = `${lock}.reclaim`;
+  try { mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
+  try {
+    try { lstatSync(lock); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+    if (!holderGone(lock)) return false;
+    unlinkSync(join(lock, LOCK_HOLDER)); rmdirSync(lock);
+    return true;
+  } catch { return false; }
+  finally { rmdirSync(guard); }
 }
 
 export function stageOwnership(target: string, runId: string, update: Ownership): () => void {

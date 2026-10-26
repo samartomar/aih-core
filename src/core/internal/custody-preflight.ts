@@ -1,7 +1,6 @@
 // Custody preflight shared by managed removal and managed update preparation: one validated read of every protected
 // receipt, the installed distribution identity, and a selection's claim classification.
-import { isManagedContentRoot } from '../recipe-engine.js';
-import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './state.js';
+import { isContentRoot, ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './state.js';
 import { installedDistribution } from './installed-distribution.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, type Claim } from './recipe-lifecycle.js';
 import { managedRepairRemovalNeedsReconciliation } from '../../harness/runtime.mjs';
@@ -64,7 +63,7 @@ export function classify(image: Image, project: string, home: string, scope: 'pr
   const matches = (claim: Claim, root: string) => claim.scope === scope && claim.managementId === managementId &&
     claimIdentity(claim.scope, claim.managementId, root) === wanted;
   const custody: Custody = { claimed: false, claimless: false, ambiguous: false, members: 0, retained: false };
-  const effectRoot = (root: string) => root === project || root === home || isManagedContentRoot(root);
+  const effectRoot = (root: string) => root === project || root === home || isContentRoot(root);
   // The same candidate, retention and dependency-closure rule the policy engine applies to a cleanup-only policy.
   const { candidates, retained, dependencies } = classifyStoredClaims(image.receipts,
     (_claim, root, identity) => effectRoot(root) && identity === wanted);
