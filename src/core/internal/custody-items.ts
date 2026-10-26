@@ -1,0 +1,192 @@
+// Internal custody items (ownership 1.6.0): what a person chose, per claim, beside the
+// authoritative target-keyed members. Typed members are derived from those members on
+// every seal, so they can never diverge from the claims, markers, modes and selectors
+// that Core actually enforces. Restoration data stays inside protected custody.
+import { canonicalJson } from './canonical.js';
+import { RecipeEditError, configMemberBytes, blockMemberBytes } from './recipe-editors.js';
+import { locateHookGroups } from './hook-group.js';
+import { sha256 } from './host-files.js';
+import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
+import type { InclusionOrigin, Json, SelectionMetadata } from '../types.js';
+
+export type TypedMember =
+  | { kind: 'file'; path: string; sha256: string; executable: boolean }
+  | { kind: 'text-block'; file: string; blockId: string; sha256: string }
+  | { kind: 'config-entry'; file: string; pointer: string; sha256: string }
+  | { kind: 'config-member'; file: string; pointer: string; 'value-sha256': string }
+  | { kind: 'hook-group-member'; file: string; selector: { path: (string | number)[]; valueSha256: string }; sha256: string }
+  | { kind: 'approval-change'; tool: string; file: string; pointer: string };
+/** Descriptive facts about one claimed selection; never operations or authority. */
+export interface ItemFacts {
+  managementId: string; scope: 'project' | 'user';
+  name: string | null; kind: SelectionMetadata['kind'] | null; framework: string | null;
+  item: SelectionMetadata['item'] | null; tool: string | null; origins: InclusionOrigin[];
+}
+export interface CustodyItem extends ItemFacts {
+  members: TypedMember[];
+  /** Protected restoration data: the person's value found at an owned pointer before Core wrote it. */
+  preExisting?: Record<string, { value: Json }>;
+  /** Set when an Apply writes this selection's custody; cleared once all its reviewed operations succeed. */
+  installState?: 'interrupted';
+}
+interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[] }
+interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
+
+const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
+/** An RFC 6901 JSON Pointer naming a configuration entry path. */
+export const pointerOf = (segments: readonly string[]): string =>
+  segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
+/** Approval and private-member kinds come from operations other tickets add; they are carried, not derived. */
+const carried = (member: TypedMember): boolean => member.kind === 'config-member' || member.kind === 'approval-change';
+
+export function typedMember(key: string, owner: Owned): TypedMember {
+  const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
+  if (descriptor.kind === 'file') return { kind: 'file', path: descriptor.path, sha256: owner.sha256, executable: (owner.mode & 0o111) !== 0 };
+  if (descriptor.kind === 'block') return { kind: 'text-block', file: descriptor.path, blockId: descriptor.blockId, sha256: owner.sha256 };
+  if (descriptor.kind === 'entry') return { kind: 'config-entry', file: descriptor.path, pointer: pointerOf(descriptor.entry), sha256: owner.sha256 };
+  return { kind: 'hook-group-member', file: descriptor.path, selector: { path: [...descriptor.selector.path], valueSha256: descriptor.selector.valueSha256 }, sha256: owner.sha256 };
+}
+
+const claimed = (owner: Owned, scope: string, managementId: string): boolean =>
+  !!owner.claims?.some(claim => claim.scope === scope && claim.managementId === managementId);
+/** Target-keyed members a claim owns, in key order. */
+export function claimedMembers(value: Custody, scope: string, managementId: string): [string, Owned][] {
+  return Object.entries(value.members).filter(([, owner]) => claimed(owner, scope, managementId))
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+}
+
+/**
+ * Refresh items against the authoritative members: drop an item no claim in this root
+ * still names, re-derive its typed members and keep restoration data with a claim that
+ * still owns its member. When the recording claim goes while another claim keeps the
+ * member, the data moves to that claim's item so the last removal can still restore it.
+ * Carried member kinds remain until their owning operation removes them.
+ */
+export function refreshItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): Record<string, CustodyItem> | undefined {
+  if (!value.items) return undefined;
+  const items: Record<string, CustodyItem> = {};
+  const orphaned: Record<string, { value: Json }> = {};
+  for (const [id, item] of Object.entries(value.items)) {
+    const owned = claimedMembers(value, item.scope, item.managementId);
+    const keys = new Set(owned.map(([key]) => key));
+    for (const [key, entry] of Object.entries(item.preExisting ?? {})) if (!keys.has(key) && value.members[key]) orphaned[key] ??= entry;
+    if (!owned.length && !value.selections?.[id]) continue;
+    const preExisting = Object.fromEntries(Object.entries(item.preExisting ?? {}).filter(([key]) => keys.has(key)));
+    const { preExisting: _prior, ...facts } = item;
+    items[id] = { ...facts, members: [...owned.map(([key, owner]) => typedMember(key, owner)), ...item.members.filter(carried)],
+      ...(Object.keys(preExisting).length ? { preExisting } : {}) };
+  }
+  for (const [key, entry] of Object.entries(orphaned)) {
+    const claim = value.members[key]!.claims?.[0];
+    if (!claim) continue;
+    const id = identity(claim.scope, claim.managementId);
+    const heir = items[id] ?? { managementId: claim.managementId, scope: claim.scope, name: null, kind: null, framework: null, item: null,
+      tool: null, origins: [], members: claimedMembers(value, claim.scope, claim.managementId).map(([member, owner]) => typedMember(member, owner)) };
+    items[id] = { ...heir, preExisting: { ...heir.preExisting, [key]: heir.preExisting?.[key] ?? entry } };
+  }
+  return Object.keys(items).length ? items : undefined;
+}
+
+const text = (value: unknown, bound: number): value is string => typeof value === 'string' && value.length > 0 && [...value].length <= bound;
+const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const exact = (value: unknown, keys: string[], optional: string[] = []): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value) && keys.every(key => Object.hasOwn(value, key)) &&
+  Object.keys(value).every(key => keys.includes(key) || optional.includes(key));
+function validOrigin(value: unknown): boolean {
+  if (exact(value, ['reasonIncluded']) && value.reasonIncluded === 'chosen') return true;
+  if (exact(value, ['reasonIncluded', 'set'], ['options']) && value.reasonIncluded === 'in-set')
+    return exact(value.set, ['framework', 'setId', 'setSha256']) && text(value.set.framework, 128) && text(value.set.setId, 128) && hex(value.set.setSha256) &&
+      (value.options === undefined || exact(value.options, []) || !!value.options && typeof value.options === 'object' && !Array.isArray(value.options) &&
+        Object.values(value.options).every(choice => Array.isArray(choice) && choice.length <= 64 && choice.every(entry => text(entry, 128))));
+  return exact(value, ['reasonIncluded', 'requiredBy']) && value.reasonIncluded === 'required-by' &&
+    exact(value.requiredBy, ['itemId'], ['framework']) && text(value.requiredBy.itemId, 128) &&
+    (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));
+}
+function validCarried(value: unknown): boolean {
+  if (exact(value, ['kind', 'file', 'pointer', 'value-sha256']) && value.kind === 'config-member')
+    return text(value.file, 4096) && typeof value.pointer === 'string' && value.pointer.length <= 4096 && hex(value['value-sha256']);
+  return exact(value, ['kind', 'tool', 'file', 'pointer']) && value.kind === 'approval-change' && text(value.tool, 128) &&
+    text(value.file, 4096) && typeof value.pointer === 'string' && value.pointer.length <= 4096;
+}
+
+/** Strict item validation: facts are well formed and typed members equal the derived custody. */
+export function validItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): boolean {
+  const items = value.items as unknown;
+  if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
+  for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
+    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState']) ||
+        item.installState !== undefined && item.installState !== 'interrupted') return false;
+    if (!text(item.managementId, 128) || !['project', 'user'].includes(item.scope as string) || identity(item.scope as 'project' | 'user', item.managementId) !== id) return false;
+    if (item.name !== null && !text(item.name, 512) || item.kind !== null && !KINDS.includes(item.kind as string) ||
+        item.framework !== null && !text(item.framework, 128) || item.tool !== null && !text(item.tool, 128)) return false;
+    if (item.item !== null && !(exact(item.item, ['framework', 'itemId', 'contentSha256', 'behaviourSha256']) && text(item.item.framework, 128) &&
+        text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
+    if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
+    const owned = claimedMembers(value, item.scope as string, item.managementId);
+    if (!owned.length && !value.selections?.[id]) return false;
+    if (!Array.isArray(item.members) || item.members.length > 8192) return false;
+    const derived = owned.map(([key, owner]) => typedMember(key, owner));
+    const extra = item.members.slice(derived.length);
+    if (canonicalJson(item.members.slice(0, derived.length)) !== canonicalJson(derived) || !extra.every(validCarried)) return false;
+    if (item.preExisting !== undefined) {
+      const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format)).map(([key]) => key));
+      if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
+    }
+  }
+  return true;
+}
+
+/** Restoration data recorded for an owned member in this root, if any. */
+export function preExistingFor(value: Custody, key: string): { value: Json } | undefined {
+  for (const item of Object.values(value.items ?? {})) if (item.preExisting && Object.hasOwn(item.preExisting, key)) return item.preExisting[key];
+  return undefined;
+}
+
+export type MemberCheck = 'present-matching' | 'present-different' | 'absent' | 'unchecked';
+type Located = string | null | 'different';
+/** The selected member's digest in `bytes`: absent (`null`), its digest, or present but not uniquely selectable. */
+export function locateMember(descriptor: MemberDescriptor, bytes: Buffer | null): Located {
+  if (bytes === null) return null;
+  try {
+    if (descriptor.kind === 'file') return sha256(bytes);
+    if (descriptor.kind === 'entry') { const member = configMemberBytes(descriptor.format, bytes, descriptor.entry); return member === null ? null : sha256(member); }
+    if (descriptor.kind === 'block') { const member = blockMemberBytes(bytes, { ...descriptor, action: 'remove' }); return member === null ? null : sha256(member); }
+    const found = locateHookGroups(descriptor.format, bytes, descriptor.container, descriptor.selector);
+    return found.candidates.length === 0 ? null : found.candidates.length === 1 ? found.candidates[0]!.rawSha256 : 'different';
+  } catch (error) {
+    if (error instanceof RecipeEditError) return 'different';
+    throw error;
+  }
+}
+/** Compare the live member with its expected state; `expected === null` expects absence. */
+export function checkMember(descriptor: MemberDescriptor, live: { state: 'present' | 'absent' | 'unreadable'; bytes?: Buffer },
+  expected: string | null): MemberCheck {
+  if (live.state === 'unreadable') return 'unchecked';
+  let found: Located;
+  try { found = locateMember(descriptor, live.state === 'present' ? live.bytes! : null); } catch { return 'unchecked'; }
+  if (found === null) return 'absent';
+  return expected !== null && found === expected ? 'present-matching' : 'present-different';
+}
+
+/**
+ * Record a selection's facts in a root. Described facts replace earlier ones; a run without a description keeps them.
+ * The first restoration value recorded for a member wins, so a later replacement never hides the person's original.
+ */
+export function upsertItem(value: Custody, item: { id: string; named: boolean; facts: ItemFacts }, preExisting?: Record<string, Json>, writing = false): void {
+  const prior = value.items?.[item.id];
+  const restoration = { ...Object.fromEntries(Object.entries(preExisting ?? {}).map(([key, entry]) => [key, { value: entry }])), ...prior?.preExisting };
+  const facts = item.named || !prior ? item.facts : prior;
+  value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
+    framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, members: prior?.members ?? [],
+    ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
+    ...(writing || prior?.installState ? { installState: 'interrupted' as const } : {}) } };
+}
+/** Mark a selection's install complete in this root; reports whether anything changed. */
+export function completeItem(value: Custody, id: string): boolean {
+  const item = value.items?.[id];
+  if (!item?.installState) return false;
+  const { installState: _done, ...rest } = item;
+  value.items = { ...value.items, [id]: rest };
+  return true;
+}

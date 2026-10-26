@@ -24,7 +24,7 @@ const expectedRuntimeNames = {
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds', 'stateLocation',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds', 'runMemberClaims', 'stateLocation',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',

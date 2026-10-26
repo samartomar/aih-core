@@ -143,6 +143,25 @@ export interface OperationResult {
   reason?: string; effectsUncertain?: boolean;
 }
 /**
+ * Run result 1.4.0: one touched member, checked directly on disk after Apply. `outcome` is what the run did to the
+ * member; `check` is what Core found there afterwards. A member the run did not attempt is `kept` and `unchecked`.
+ * No digest, previous value or input value is reported.
+ */
+export interface RunMember {
+  operationId: string; selectionId: string | null; managementId: string; scope: 'project' | 'user';
+  kind: 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member';
+  /** The member's file. */
+  path: string;
+  /** JSON Pointer of a configuration entry or member. */
+  pointer?: string;
+  blockId?: string;
+  groupId?: string;
+  /** What the reviewed plan meant for the member: write it, remove (or restore) it, or keep it for another claim. */
+  intent: 'write' | 'remove' | 'keep';
+  outcome: 'written' | 'claim-removed' | 'restored' | 'kept';
+  check: 'present-matching' | 'present-different' | 'absent' | 'unchecked';
+}
+/**
  * Run result 1.4.0: a `REVIEW_STALE` diagnostic carries `changed` (with reason `binding-changed`) when a reviewed binding
  * changed, or reason `handle-unavailable` / `digest-mismatch`, which are not binding changes.
  */
@@ -160,4 +179,6 @@ export interface RunResult {
   evidence?: AssociationResult[];
   trust?: TrustRunTrust;
   macosSession?: MacosSessionRun;
+  /** Run result 1.4.0: every member a reviewed file operation touched, with its direct post-apply check. */
+  members?: RunMember[];
 }

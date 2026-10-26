@@ -25,6 +25,7 @@ import organizationSchema from './schemas/organization-policy/1.0.0.json' with {
 import organizationSchema11 from './schemas/organization-policy/1.1.0.json' with { type: 'json' };
 import fileStateSchema from './schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
+import managedInventorySchema11 from './schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
 import { registerSchemas, schemaCheck, validateAcceptedDocument, validateExactDocument } from './internal/contract-validation.js';
@@ -80,6 +81,7 @@ export {
 export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
   NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
   NativeVerificationResult } from './native-contracts.js';
+export { runMemberClaims, type RunMemberClaims } from './run-claims.js';
 export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
@@ -107,9 +109,9 @@ export const contractSupport = Object.freeze({
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14].map((schema): SupportedContract => ({
+      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
-        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14].includes(schema as never) ? 'produces' : 'accepts',
+        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14, managedInventorySchema11].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
     ...trustContractSchemas.map((schema): SupportedContract => ({

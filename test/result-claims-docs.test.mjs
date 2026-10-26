@@ -27,7 +27,10 @@ test('the result-claims table covers every published status value', () => {
       .map(value => ['verification.status', value])),
     ...removals.flatMap(removal => removal.properties.disposition.enum.map(value => ['disposition', value])),
     ...runs.flatMap(run => run.properties.completion.enum.map(value => ['completion', value])),
+    ...runs.flatMap(run => ['intent', 'outcome', 'check'].flatMap(field =>
+      (run.properties.members?.items.properties[field].enum ?? []).map(value => [`members[].${field}`, value]))),
   ];
+  assert.ok(expected.some(([field]) => field === 'members[].check'), 'run result 1.4 member values are published');
   assert.equal(runs.length > 0 && removals.length > 0, true);
   for (const [field, value] of expected) assert.ok(row(field, value), `missing ${field} ${value}`);
   assert.ok(rows.some(cells => cells[0] === '`verification.status`' && cells[1] === '`unverified`, reason `no-supplied-check`'),
@@ -43,12 +46,16 @@ test('each row states what it establishes and what may and may not be claimed', 
   }
 });
 
-test('the section explains confirming an unverified removal and the pending 1.4 member values', () => {
+test('the section explains confirming an unverified removal and the run result 1.4 member claims', () => {
   assert.match(section, /applied removal is not by itself "removed"/);
   assert.match(section, /listManagedSelections/);
   assert.match(section, /prepareManagedRemoval/);
-  assert.match(section, /run result 1\.4/);
   assert.match(section, /https:\/\/github\.com\/samartomar\/aih-core\/issues\/99/);
+  assert.match(section, /\*\*"Confirmed on disk"\*\* requires run `completion: complete`, every `intent: write` member `outcome: written`, and each of those `check: present-matching`/);
+  assert.match(section, /never qualifies, even when its written subset matches/);
+  assert.match(section, /\*\*"Removed"\*\* means every `intent: remove` member is `claim-removed` and `absent`, or `restored` and `present-matching`/);
+  assert.match(section, /runMemberClaims/);
+  assert.doesNotMatch(section, /will gain the run result 1\.4/);
 });
 
 test('a prepared removal is ready for review only when its inner preparation is ready', () => {
