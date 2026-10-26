@@ -101,6 +101,8 @@ class ReviewStale extends Error {
   constructor(readonly changed: StaleBinding) { super('review-stale'); }
 }
 const stale = (changed: StaleBinding): ReviewStale => new ReviewStale(changed);
+/** Custody guards that refuse because trust or session custody now claims a reviewed path; recovery and permission states pass through. */
+const TRUST_CLAIMS = new Set(['new-custody-legacy-request', 'trust-custody-conflict', 'session-ownership-conflict']);
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
 const RECIPE_10 = 'urn:aihq:core:recipe:1.0.0';
 const RECIPE_11 = 'urn:aihq:core:recipe:1.1.0';
@@ -269,7 +271,7 @@ export function transaction(root: string, directoryCreated?: (path: string) => v
       return create().inspect(path);
     },
     commit(steps: readonly OwnedFileStep[]): void {
-      if (pathPins(root).at(-1)?.identity !== 'absent') throw new Error('review-stale');
+      if (pathPins(root).at(-1)?.identity !== 'absent') throw stale('target-file');
       protectState(); mkdirSync(root, { recursive: true, mode: 0o700 });
       protectState([`content/${basename(root)}`]);
       create().commit(steps);
@@ -420,7 +422,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
     const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
-    const named = policy.schema === POLICY_14;
+    const namesSelections = policy.schema === POLICY_14;
     // Prepared work 1.6.0: what each selection delivers, measured from the bytes this preparation computed.
     const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[] }>();
     for (const selection of dependencyOrder(policy.selections)) {
@@ -711,7 +713,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
             effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details,
-            ...(named ? { selectionId: selection.id } : {}) };
+            ...(namesSelections ? { selectionId: selection.id } : {}) };
           steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
             recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly, inherited,
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices } });
@@ -870,7 +872,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: hookDecision?.reason ?? 'explicit-managed-removal',
           ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) },
-          ...(named ? { selectionId: null } : {}) },
+          ...(namesSelections ? { selectionId: null } : {}) },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true,
         custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
@@ -946,7 +948,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
-    const selections: PreparedSelection[] | undefined = named ? policy.selections.map(selection => {
+    const selections: PreparedSelection[] | undefined = namesSelections ? policy.selections.map(selection => {
       const facts = selectionFacts.get(selection.id);
       const step = selection.tool === undefined || selection.kind === undefined ? undefined : bindingPermissionStep(selection.tool, selection.kind);
       return { selectionId: selection.id, managementId: selection.managementId, scope: selection.scope,
@@ -958,7 +960,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         // Unavailable material delivers nothing this preparation could measure.
         ...(facts ? { deliveredSize: selectionDeliveredSize(selection.kind, facts.delivered) } : {}) };
     }) : undefined;
-    const base = { schema: named ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const base = { schema: namesSelections ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
@@ -1067,15 +1069,15 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
   const unlocks: (() => void)[] = []; const releases: (() => void)[] = [];
   // Prepared work 1.6.0 reviews name the changed binding; older reviews keep their original diagnostics.
-  let named = false;
+  let reportsChangedBinding = false;
   try {
     validateControls(controls); result.effectiveOptions.logging = loggingOption(controls);
     await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
-    named = state.review.schema === PREPARED_16;
-    result.schema = named ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
+    reportsChangedBinding = state.review.schema === PREPARED_16;
+    result.schema = reportsChangedBinding ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
     result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',
@@ -1085,7 +1087,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     dataObject(authorization, ['reviewDigest', 'origin', 'approved', 'allowPartial']);
     if (authorization.approved !== true || !['interactive', 'automation'].includes(authorization.origin) ||
         authorization.allowPartial !== undefined && typeof authorization.allowPartial !== 'boolean') throw new Error('approval-required');
-    if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error(named ? 'digest-mismatch' : 'review-stale');
+    if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error(reportsChangedBinding ? 'digest-mismatch' : 'review-stale');
     const allowPartial = authorization.allowPartial ?? false;
     result.authorization = { origin: authorization.origin,
       allowPartial: { value: allowPartial, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' } };
@@ -1101,9 +1103,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     }
     // Each reviewed binding in a fixed order; an unreadable binding counts as changed.
     const holds = (check: () => boolean): boolean => { try { return check(); } catch { return false; } };
+    const held = state;
     const assertInputs = () => {
-      if (!state) throw stale('policy');
-      const held = state;
       if (!holds(() => homedir() === held.home && pinsMatch(held.bindings))) throw stale('host');
       if (!holds(() => digest(clone(held.request)) === held.requestDigest)) throw stale('policy');
       if (!holds(() => digest(clone(held.privateInputs ?? {})) === held.privateDigest)) throw stale('input');
@@ -1115,7 +1116,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
       try { guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false, state?.trustParticipant?.macosSession === true); }
-      catch (error) { if (named) throw stale('trust'); throw error; }
+      catch (error) { if (reportsChangedBinding && error instanceof Error && TRUST_CLAIMS.has(error.message)) throw stale('trust'); throw error; }
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
       if (!pinsOkay && isManagedContentRoot(step.root) &&
@@ -1368,7 +1369,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       reason === 'approval-required' || reason === 'partial-approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
       reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
-    result.diagnostics.push(authority ? authority.detail : named && error instanceof ReviewStale ?
+    result.diagnostics.push(authority ? authority.detail : reportsChangedBinding && error instanceof ReviewStale ?
       { ...diagnostic(code, 'binding-changed', 'A reviewed binding changed after preparation.'), changed: error.changed } :
       diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');

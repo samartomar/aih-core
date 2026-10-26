@@ -35,12 +35,13 @@ function frontmatterSummary(text) {
 /**
  * Delivered and always-loaded size for one selection's delivered content: written files and marker-block text.
  * `alwaysLoaded` follows checkCompatibility's kind rules, measured from the delivered bytes: the frontmatter `name`
- * and `description` of skills, agents and commands; the whole text of a rule; nothing for hooks, MCP servers and
- * documents. Without a kind it is omitted, because nothing says what the tool loads.
+ * and `description` of skills, agents and commands; the whole text of a rule delivered as an entry-file block; nothing
+ * for hooks, MCP servers and documents. It is omitted where nothing delivered says what the tool loads: without a
+ * kind, and for a rule written as a file, whose inclusion the rendered recipe does not carry.
  */
 export function selectionDeliveredSize(kind, delivered) {
   const size = delivered.reduce((total, entry) => add(total, measure(entry.bytes)), zero);
-  if (kind === undefined) return size;
+  if (kind === undefined || kind === 'rule' && delivered.some(entry => !entry.block)) return size;
   let alwaysLoaded = zero;
   if (kind === 'rule') alwaysLoaded = size;
   else if (['skill', 'agent', 'command'].includes(kind)) for (const entry of delivered) {

@@ -203,6 +203,42 @@ await check('selections carry descriptive metadata with every qualified origin, 
     'the value travels only in the live request to its target');
 });
 
+await check('hook commands redact private input values, and rule sizes say only what the delivery shows', async () => {
+  const { project, controls } = workspace('hook-secret');
+  const secretHook = { schema: 'urn:aihq:core:recipe:1.3.0', id: 'secret-hook', description: 'A hook bound to a private input',
+    inputs: { token: { type: 'string', required: true, sensitive: true } }, materials: [], targets: ['project'], prerequisites: [], checks: [],
+    operations: [{ id: 'register', purpose: 'Register a hook', kind: 'hook.group', scope: 'project', requires: [], checks: [],
+      target: { root: 'project', segments: [{ literal: '.claude' }, { literal: 'settings.json' }] }, format: 'json', container: ['hooks', 'SessionStart'],
+      groupId: 'secret-hook', selector: { path: ['matcher'], value: 'startup' }, action: 'set',
+      group: { literal: { matcher: 'startup', hooks: [{ type: 'command', command: 'placeholder' }] } },
+      groupBindings: [{ path: ['hooks', 0, 'command'], value: { input: 'token' } }] }] };
+  const RULE = '# Style\nKeep it small.\n';
+  const fileRule = catalogItem({ id: 'style', kind: 'rule', files: { 'style.md': RULE }, payload: { applyTo: ['**'], applyToBasis: 'authored' } });
+  const blockRule = catalogItem({ id: 'guide', kind: 'rule', files: { 'guide.md': RULE }, payload: { applyTo: ['**'], applyToBasis: 'authored' } });
+  const block = renderDelivery({ tool: 'codex', item: blockRule, binding: binding('codex'), scope: 'project',
+    contents: { m0: RULE } });
+  assert.equal(block.status, 'rendered', JSON.stringify(block));
+  const written = render(fileRule);
+  const literal = { ...written, materials: [], operations: written.operations.map(op => ({ id: op.id, purpose: op.purpose, kind: op.kind, scope: op.scope,
+    target: op.target, content: { literal: RULE }, requires: [], checks: [] })), checks: [] };
+  const prepared = await ask(policy14([
+    selection('hook', secretHook, { ...describe(hook, 'Secret hook'), item: { ...itemRef(hook), itemId: 'secret-hook' } }),
+    selection('file-rule', literal, describe(fileRule, 'Style', [chosen], 'claude')),
+    selection('block-rule', block.recipe, describe(blockRule, 'Guide', [chosen], 'codex'))
+  ]), project, { ...controls, privateInputs: { hook: { token: SECRET } } });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  const [hookEntry, fileEntry, blockEntry] = review16(prepared).selections;
+  assert.deepEqual(hookEntry.hookCommands, ['[REDACTED]']);
+  assert.deepEqual(hookEntry.inputs, ['token']);
+  assert.equal(JSON.stringify(prepared).includes(SECRET), false, 'no private value in the review');
+  assert.deepEqual(fileEntry.deliveredSize, { bytes: RULE.length, chars: RULE.length }, 'a rule file does not say how the tool includes it');
+  assert.deepEqual(blockEntry.deliveredSize, { bytes: RULE.length, chars: RULE.length, alwaysLoaded: { bytes: RULE.length, chars: RULE.length } },
+    'an entry-file block is read every session');
+  const run = await apply(prepared.prepared, approve(prepared), { ...controls, privateInputs: { hook: { token: SECRET } } });
+  assert.equal(run.completion, 'complete', JSON.stringify(run.diagnostics));
+  assert.equal(JSON.stringify(result14(run)).includes(SECRET), false, 'no private value in the run result');
+});
+
 await check('metadata adds no operations and no authority', async () => {
   const { project, controls } = workspace('fence');
   const bare = await ask(policy14([selection('review', render(skill))]), project, controls);
@@ -354,6 +390,7 @@ await check('new scan evidence and index status never invalidate a held preparat
   const { project, controls, catalog } = workspace('fresh-evidence');
   const scan = join(project, 'scan.json');
   const evidence = [{ schema: 'urn:aihq:scan:evidence-association:1.0.0', scanId: `scan:sha256:${'b'.repeat(64)}`, location: { kind: 'file', path: scan } }];
+  // Core holds no index binding: a consumer-side index file changing beside the material root is not reviewed state.
   const index = join(catalog, 'release', 'index.json');
   writeFileSync(index, JSON.stringify({ status: 'current' }));
   const live = { ...controls, evidence: { acquire: true, trust: { keys: [], publishers: [] } } };

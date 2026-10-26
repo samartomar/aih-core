@@ -30,7 +30,7 @@ test('a packed consumer prepares execution policy 1.4.0 into prepared work 1.6.0
     copyFileSync(new URL('./fixtures/root-a.pem', import.meta.url), join(consumer, 'root-a.pem'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 12, JSON.stringify(receipt.checks));
+    assert.equal(receipt.checks.length, 13, JSON.stringify(receipt.checks));
     writeFileSync(join(consumer, 'types.mts'), `
       import type { ExecutionPolicy, InclusionOrigin, SelectionMetadata } from '@aihq/core/contracts';
       import type { PreparedReview, PreparedSelection, RunResult, StaleBinding } from '@aihq/core';

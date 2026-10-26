@@ -1546,11 +1546,13 @@ one entry per policy selection, in policy order:
 
 Sizes are measured from the bytes this preparation delivers (written files and
 marker-block text) in UTF-8 bytes and UTF-16 characters, as Catalog counts them.
-`alwaysLoaded` follows `checkCompatibility`'s kind rules over the delivered bytes:
-the frontmatter `name` and `description` of skills, agents and commands, the whole
-text of a rule, and nothing for hooks, MCP servers and documents. It is omitted
-without a `kind`, and `deliveredSize` is omitted when the selection's material was
-unavailable. Input values travel only in `controls.privateInputs` under the
+`alwaysLoaded` applies `checkCompatibility`'s kind rules to the delivered bytes: the
+frontmatter `name` and `description` of skills, agents and commands (read from the
+delivered Markdown, so it can differ from Catalog's measured parts), the whole text
+of a rule delivered as an entry-file block, and nothing for hooks, MCP servers and
+documents. It is omitted without a `kind` and for a rule written as a file, whose
+inclusion the rendered recipe does not carry; `deliveredSize` is omitted when the
+selection's material was unavailable. Input values travel only in `controls.privateInputs` under the
 existing private-input binding; reviews, run results and history name inputs only.
 
 The review digest stays nonce-bound and opaque: preparing the same policy twice
@@ -1568,7 +1570,7 @@ Apply guard still runs. A refusal because a reviewed binding changed is
 | `ownership` | Ownership inventory and per-root receipt digests |
 | `input` | The private-input digest |
 | `host` | Home directory and path identity |
-| `trust` | Trust participants and trust custody claiming a reviewed path |
+| `trust` | Trust participants, and trust or session custody now claiming a reviewed path |
 
 A lost or consumed handle is `REVIEW_STALE` with reason `handle-unavailable`, and
 an authorization naming another digest has reason `digest-mismatch`; neither is a

@@ -289,7 +289,7 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 4096
           },
           "kind": {
             "enum": [
@@ -312,10 +312,10 @@
           },
           "hookCommands": {
             "type": "array",
-            "maxItems": 256,
+            "maxItems": 8192,
             "items": {
               "type": "string",
-              "maxLength": 8192
+              "maxLength": 65536
             }
           },
           "permissionStep": {
