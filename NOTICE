@@ -29,3 +29,9 @@ locked JavaScript dependencies. Their original license and copyright files remai
 in their bundled node_modules directories. The runtime is Apache-2.0-licensed. The fixed
 Harness integration does not grant native-client admission or general sandbox
 configuration authority.
+
+## Bundled TUF client
+
+The package includes tuf-js 6.0.0 and its locked dependency tree. Original
+copyright notices and licenses remain in the bundled node_modules directories.
+tuf-js is MIT licensed, Copyright (c) 2022 GitHub and the TUF Contributors.

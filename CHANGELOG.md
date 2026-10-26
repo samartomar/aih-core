@@ -25,6 +25,14 @@ rule; Vibe and Harness repair never receive organization policy, and a content-s
 description never selects authority. Unpublished candidate for the sole 0.1.0 release
 effort.
 
+Add an optional, caller-selected TUF trust-update client through
+`@aihq/core/harness/runtime`. Static shipped trust remains the default with no
+automatic refresh. Explicit updates retain historical keys/publisher policies,
+expose current revocation separately, carry Scan policies, and provide the named
+Catalog `sources[].trust` handoff. Local generated-key packed consumer tests
+cover metadata/target refusal and unchanged historical authentication. No live
+root ceremony, signing, publication or end-to-end Catalog TUF acceptance is claimed.
+
 Install from an exact git commit. Execution policy 1.4.0 accepts a referenced recipe
 whose source is Catalog's exact git identity (`repository`
 `https://github.com/<owner>/<repo>`, 40-hex `commit`, `reachable: true`) plus the pinned

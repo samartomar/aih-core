@@ -232,7 +232,8 @@
     "@sigstore/verify",
     "pkijs",
     "asn1js",
-    "@anthropic-ai/sandbox-runtime"
+    "@anthropic-ai/sandbox-runtime",
+    "tuf-js"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -253,7 +254,8 @@
     "ajv": "8.20.0",
     "asn1js": "3.0.10",
     "jsonc-parser": "3.3.1",
-    "pkijs": "3.4.1"
+    "pkijs": "3.4.1",
+    "tuf-js": "6.0.0"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

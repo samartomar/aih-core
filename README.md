@@ -2411,7 +2411,8 @@ Harness exports inert frozen `verificationPublishers`, an empty default
 performs no crypto, IO or helper import. Publisher validation is structural;
 authentication remains a Core host operation. Callers may supply their own
 independently maintained records and explicitly remove distrusted records.
-Changing shipped trust requires a new Core release; associating another report
+Changing shipped trust requires a new Core release; the optional client below
+can separately supply caller-selected trust updates. Associating another report
 does not require a Core or Catalog update.
 
 Bounds include 96 MiB artifact JSON, 16 MiB report/individual annex, 64 MiB total
@@ -2419,6 +2420,96 @@ decoded report+annex bytes, 1 MiB attestation, 128 KiB signed statement, and 1 M
 selected trust with at most 128 keys and 32 publishers. Inputs exceeding bounds
 are refused rather than truncated. The verifier dependencies are pinned; Core
 imports neither the Scan engine nor Catalog.
+
+## Optional TUF trust updates
+
+Static shipped `verificationKeys` and `verificationPublishers` remain the default.
+Nothing refreshes them automatically. The Node-only `@aihq/core/harness/runtime`
+exports `getTrustSnapshot`, `createTufTrustClient`, `getVerificationTrust`,
+`getCurrentTrustStatus` and `getCatalogIndexTrust`, and the types `TrustSnapshot`
+and `TufTrustClientOptions`. Importing this entry schedules no update.
+
+```js
+import { createTufTrustClient, getTrustSnapshot, getVerificationTrust,
+  getCurrentTrustStatus, getCatalogIndexTrust } from '@aihq/core/harness/runtime';
+
+const staticTrust = await getVerificationTrust(); // shipped defaults, no IO
+const client = createTufTrustClient({
+  root: independentlySelectedRootBytes, // Uint8Array of bootstrap TUF root metadata
+  metadataBaseUrl: 'https://trust.example/metadata/',
+  targetBaseUrl: 'https://trust.example/targets/',
+  targetPath: 'trust.json',
+  cacheDir: '/absolute/dedicated/trust-cache'
+});
+const snapshot = await client.update(); // the only network operation
+const historicalTrust = await getVerificationTrust(snapshot);
+const current = getCurrentTrustStatus(snapshot, { keyId });
+// authenticateEvidence({ bytes, expectedScanId, trust: historicalTrust })
+```
+
+Construction creates or reuses a caller-owned dedicated cache and pins its
+bootstrap root digest, endpoints and target name. Use an initially empty directory;
+reuse that same directory across calls and process restarts to retain rollback
+protection. Do not erase or replace the cache to recover from a refused update.
+Only one update may hold its exclusive cache lock. A crashed updater can leave a
+lock: the host must establish that its process exited before removing that lock.
+Local cache integrity and lifecycle belong to the host. Ordinary HTTPS is accepted;
+literal loopback HTTP supports local fixture repositories. Credentials, query
+strings and fragments in base URLs are refused. No production roots or test
+signing keys ship in the trust inventories.
+
+The pinned, bundled `tuf-js` client checks the root signature chain, metadata
+signatures, expiry, versions, rollback and target hashes/length. Each fetch has
+a ten-second timeout and no retries, metadata and target bytes are capped at
+1 MiB, and root rotations/delegations are capped at 32 each. Update failures
+reject the promise; they never produce an authenticated snapshot or silently
+fall back to a new source. Keep the last returned snapshot when an update fails.
+No timer, automatic refresh or changes to Core's Prepare/Apply path are added.
+
+The selected TUF target is JSON with this envelope:
+
+```js
+{
+  schema: 'urn:aihq:harness:trust-update:1.0.0',
+  verificationKeys: [],          // existing Harness key records
+  verificationPublishers: [],    // existing Harness publisher records
+  scanEvidencePolicies: [],      // Scan evidence-policy 1.0.0 documents
+  revocations: [{ kind: 'key', id: 'ed25519:<key fingerprint>' }],
+  // optional: base64 of TUF root metadata for the explicitly selected Catalog source
+  catalogTufRootBase64: '...'
+}
+```
+
+Key/publisher inventories use their existing public validators and limits.
+At most 32 bounded Scan evidence-policy documents are transported opaquely;
+the host passes a selected document to Scan's public policy reader before use.
+Core checks their schema identifier, never evaluates their findings or applies
+them as execution authority. At most 160 revocations name `{kind:'key',id:keyId}`
+or `{kind:'publisher',id:identity}`. Unknown downloaded envelope fields, including
+root/source/organization/framework authority hints, are ignored.
+
+Returned snapshots are frozen. Accepted key and publisher records accumulate,
+starting with shipped trust; a previously recorded key ID cannot be rewritten. Distinct publisher policies
+may share an identity; rotation retains both the previous and the updated record
+for historical authentication, deduplicating equivalent records. `getVerificationTrust(snapshot)`
+selects this historical inventory and deliberately ignores revocations.
+`getCurrentTrustStatus(snapshot, {keyId?, publisherIdentity?})` reports `revoked`,
+`current` or `unknown` separately. A new revocation never edits an earlier snapshot
+or changes a historical authentication result. Revocations describe the latest
+accepted target; removing a revocation requires another explicit trusted update.
+
+**Catalog handoff:** `getCatalogIndexTrust(snapshot)` returns a fresh
+`{tufRoot: Uint8Array}` from the TUF-verified target's optional root field, or
+`'none'` when absent. The host explicitly assigns it to
+`readReleaseIndex({sources:[{sourceId, trust: getCatalogIndexTrust(snapshot),
+authorizedFrameworks, indexBytes}], state, evaluatedAt})` from
+`@aihq/catalog/release`. This is Catalog's named `sources[].trust` seam.
+The host independently selects `sourceId`, endpoints and `authorizedFrameworks`;
+none is discovered from downloaded index data. This handoff does not authorize
+frameworks, verify index bytes itself or turn `'none'` into verified trust.
+Catalog versions where TUF index verification is unavailable treat a selected
+root as offline and contribute no entries; keep that refusal visible. End-to-end
+index verification requires a Catalog version implementing that path.
 
 ## Guidance and support reports
 
