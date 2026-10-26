@@ -20,7 +20,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
 | `@aihq/core/report/schemas/claims/1.1.0.json` | Normalized claim-set 1.1.0 JSON Schema (adds recurrence) |
 | `@aihq/core/support` | Portable `getGuidance`, `renderSupportMarkdown` and the guidance/support types |
-| `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
+| `@aihq/core/harness` | Portable `contractSupport`, `toolRegistry`, `listTools`, `selectTool`, `validateToolRegistry`, `toolBindings`, `toolBindingKinds`, `deriveCellSupport`, `selectBindingCell`, `validateToolBinding`, `renderDelivery`, `checkCompatibility`, `deliveryMaterialRoot`, `nativeClientIds`, `targets`, `repairIndex`, `macosRepairIndex`, `macosSessionProfiles`, `validateRepairDefinition12`, `validateMacosSessionProfiles`, `helperMetadata`, `verificationKeys`, `verificationPublishers`, purpose selection/validation, and trust metadata (`trustRepairIndex`, `trustCapabilities`, `trustLimits`, `trustPlatformMatrix`, `consumerProfiles`, `exportDefaultNames`, `selectTrustCell`, `validateRepairDefinition11`, `validateTrustCapabilities`) |
 | `@aihq/core/harness/runtime` | Node-only bounded diagnostics, CA validation, candidate assessment, fixed repair helpers, `persistedConfigurationMembers`, the bounded `readGitHubPolicy` organization-document reader, trust source discovery, parsing, encoding, review and admission-evidence verification, read-only macOS session/app/key observations and LaunchAgent rendering, and `inspectToolHost` host inspection for an observed tool |
 | `@aihq/core/schemas/execution-policy/1.0.0.json` | Execution-policy JSON Schema |
 | `@aihq/core/schemas/recipe/1.0.0.json` | Recipe JSON Schema |
@@ -572,6 +572,143 @@ operation with its own maintainer approval; package tests never run one. The
 fixture `@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json` lists
 derived support for the shipped table, including a `stale` and an `unconfirmed`
 cell.
+
+## Render Catalog items and check compatibility
+
+`renderDelivery` and `checkCompatibility` from `@aihq/core/harness` are portable
+data functions. They read a checked Catalog release 1.6 item and a
+[tool binding](#observed-tool-bindings), never import the Core engine and have
+no host effects. Pass a binding from `toolBindings` (or one validated by
+`validateToolBinding`) for the tool you name; an unknown or unobserved tool is
+refused as by `selectTool`, and a binding for another tool or an invalid one is
+refused (`binding-tool-mismatch`, `binding-invalid`).
+
+### Render one item as an ordinary recipe
+
+```js
+import { renderDelivery } from '@aihq/core/harness';
+import { deriveRecipeIdentity } from '@aihq/core/contracts';
+
+const rendered = renderDelivery({ tool: 'claude', item, binding, scope: 'project' });
+// { status: 'rendered', tool, item: { framework, itemId }, bindingDigest, materialRoot: 'catalog', recipe }
+const identity = await deriveRecipeIdentity({ recipe: rendered.recipe });
+```
+
+The recipe uses Core's existing operations: `file.write` for content materials,
+`config.entries` for object-keyed registrations (MCP servers), `text.block` for
+marker blocks and `hook.group` for hooks. It is `urn:aihq:core:recipe:1.1.0` when
+it registers a hook group and `1.0.0` otherwise. Each written file has a
+`file.sha256` check. Materials are inline declarations with source
+`{ kind: 'local', input: 'catalog' }` and the item's `packagePath`, so Prepare
+reads them through `controls.materialRoots` (`--material-root catalog=<folder>`)
+mapped to the installed Catalog package folder and verifies each SHA-256 and
+length.
+
+- **Only content is delivered.** The behaviour file (`aih-behaviour.json`) is
+  Catalog metadata and is never written into a project. The item's
+  `contentSha256` and `behaviourSha256` must match its materials
+  (`item-identity-mismatch`).
+- **Where items land.** `scope` selects the layout's `roots.project` or
+  `roots.user` (`scope-not-bound` when the binding names none). A skill folder is
+  `payload.dirName`. Rule and skill names follow the layout's `namespace` with the
+  item's `payload.namespace`: `folder` nests `<namespace>/<name>`, `prefix` names
+  `<namespace>-<name>`, and no layout namespace keeps the plain name. A rule
+  delivers its Markdown materials; where the tool reads rules from an entry file
+  (`AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`), or for
+  `placement: 'entry-block'`, the rule is one marker block
+  (`<!-- BEGIN aih:<framework>.<itemId> -->` … `END`) whose text you pass as
+  `contents: { [materialId]: text }`; the text must match that material's
+  SHA-256 and length (`content-required`, `content-mismatch`). A
+  `placement: 'project-folder'` rule goes into `projectFolder` (default
+  `ai-coding`). Agents and commands deliver their `payload.files`; they are
+  refused with `native-only-kind` where the binding records the tool not reading
+  that kind or names no location for it. An MCP server delivers its registration
+  under `register.container` and `payload.key`; input-backed `env` and `headers`
+  values become recipe inputs, never literals.
+- **Hooks.** The binding must speak the hook's `protocol` (`hookProtocols`) and
+  map its `event` (`hookEvents`), else `protocol-not-spoken`. Scripts are written
+  to `<hooks root>/<itemId>/`, and one group is registered in `register.file` at
+  `register.container` with its last segment replaced by the mapped event. The
+  command comes from `payload.command`: the named interpreter (`node`, `bash`,
+  `python`, `pwsh`) and script, or the named program, then the arguments, each
+  double-quoted with literal text escaped. A hook that names neither is refused
+  with `interpreter-required`: a shebang never works on Windows, so it is never
+  relied on. Only Catalog's four placeholders are accepted
+  (`unknown-placeholder` otherwise). For `claude-code-hooks`, `{projectDir}` is
+  `${CLAUDE_PROJECT_DIR}`, `{homeDir}` is `${HOME}`, and `{itemDir}` and
+  `{pluginRoot}` are the item's delivered folder under the project or home (Core
+  delivers outside any tool plugin). A layout `commandTemplate` wraps the command:
+  it holds `{command}` once and otherwise only those placeholders
+  (`command-template-invalid`). The interpreter is a recipe `executable`
+  prerequisite.
+- **Identity.** The recipe's description names both item identities and the
+  binding digest, so the identity from `deriveRecipeIdentity` changes when either
+  item identity or the binding changes. `renderDelivery` recomputes the binding
+  digest (`binding-digest-mismatch`).
+- **Not here.** Allowing an MCP server (`grantApproval`) and single array
+  members (`config.member`) are not rendered by this Core; a non-empty
+  `grantApproval` is refused with `grant-approval-unsupported`.
+
+**Authority fence.** A rendered recipe is ordinary execution-policy content. Put
+it in a policy selection like any recipe: Vibe applies it after review, and in
+Enterprise the organization policy governs it in full, by recipe identity, scope,
+inputs, obligations and lifecycle permissions. Rendering through Harness grants
+nothing: only Harness's own published repair definitions keep the developer-only
+repair status, and a rendered recipe id is not a repair (`repair-unsupported`).
+
+### Check compatibility from the binding alone
+
+```js
+import { checkCompatibility } from '@aihq/core/harness';
+
+const result = checkCompatibility({ tool: 'codex', platform: { os: 'windows', arch: 'x64' }, binding, items: [
+  { item: bootstrapHook, fallback: bootstrapRule, sets: [setRef] },
+  { item: reviewSkill, required: true, sets: [setRef] }
+] });
+// { status: 'checked', tool, platform, bindingDigest, items: [...], sets: [...] }
+```
+
+`items` are the members Catalog resolved, after its set expansion and
+exclusions; Core does not expand sets. Each entry is `{ item, fallback?,
+excluded?, required?, sets? }`, with set references `{ framework, setId,
+setSha256 }`. An entry repeated across overlapping sets is merged, results are
+ordered by framework and item id, and sets by reference, so the answer does not
+depend on order. Per item the result is:
+
+```ts
+{ item: { framework, itemId }, support, reason, observed,
+  observedOn: { toolVersion, os, arch, observedAt } | null,
+  boundAs?: { kind, item, viaFallback: true }, excluded?: true, permissionStep?,
+  deliveredSize: { bytes, chars, alwaysLoaded: { bytes, chars } },
+  staticBlockers: { code, detail }[] }
+```
+
+- **Platform.** Only observations made on that OS and architecture count, so a
+  cell observed only on Windows is `unconfirmed` on Linux, with a reason saying
+  so and `observedOn: null`.
+- **Static blockers.** `protocol-not-spoken` (hook protocol or event the binding
+  does not map), `required-but-unsupported` (a `required` item whose cell is
+  `none` on this platform), `native-only-kind` (an agent or command the tool does
+  not read) and `same-folder` (two items writing one skill or hook folder, or one
+  file).
+- **Fallbacks.** Where the item's own cell is not native and its fallback's cell
+  is, the item binds as the fallback and `boundAs` reports it, with the
+  fallback's support, size and blockers. A fallback is never used for an
+  excluded item, never when the fallback is itself excluded, and never for or as
+  an agent or command. An excluded item is reported with `excluded: true`, its own
+  cell and no delivery.
+- **Sizes.** `bytes` are the delivered materials' byte lengths and `chars`
+  Catalog's measured characters (the byte length when unmeasured).
+  `alwaysLoaded` is what the tool reads every session: Catalog's measured `name`
+  and `description` parts for skills, agents and commands, the whole text of an
+  always-included or entry-file rule, and nothing for hooks, MCP servers and
+  documents.
+- **Sets.** Each referenced set reports `fit` (`full`, `partial` or `none`),
+  member counts `{ native, unconfirmed, none }` (a blocked member counts as
+  `none`) and the summed `deliveredSize`, over the supplied non-excluded members.
+
+These are static answers from Harness data. Host facts (installed version,
+executables, copies elsewhere) come from [`inspectToolHost`](#inspect-a-tool-host).
 
 ## Inspect a tool host
 
