@@ -1,4 +1,4 @@
-// Exact tested supplied-format/profile admission; OS/native repair remains unavailable.
+// Static admission data: excluded from helper/evidence subject hashing.
 export const trustCellRecords = Object.freeze([
   {
     "id": "export-pem-win32-declared",
@@ -17,9 +17,9 @@ export const trustCellRecords = Object.freeze([
     "probeProfile": "export-pem-parse-v1",
     "launchContext": "no-client",
     "evidence": {
-      "reference": "dist/harness/acceptance/export-pem-win32-declared.json",
-      "sha256": "19dfc3a9f571cd010fcdd9260696bb77a4a6d9723223f3cb27857d73a1d94617",
-      "subjectSha256": "f726cbdd21b762f248091745aeef80ca01ada16bd7f503bb8e4f096b5dd41bfa"
+      "reference": "dist/harness/acceptance/migration-export-pem-win32-declared.json",
+      "sha256": "f5a3d25212b21c717677d303ab714fb851cd055ab55761f7de6f73a8ed2fdcf7",
+      "subjectSha256": "5cead79af2874ec9956ca695339cb807e059cffa95fbb94506ae33af194151cf"
     }
   },
   {
@@ -39,9 +39,9 @@ export const trustCellRecords = Object.freeze([
     "probeProfile": "export-pem-parse-v1",
     "launchContext": "no-client",
     "evidence": {
-      "reference": "dist/harness/acceptance/export-pem-win32-off.json",
-      "sha256": "1df805b4d1e320e53137b2ccf5c9c3d8d6e71d622498d6e1df785aa912dcbdc5",
-      "subjectSha256": "d0516d20bc2e8c35b72552045afba6c1ab1ceb32752972e8f85d03be25a51060"
+      "reference": "dist/harness/acceptance/migration-export-pem-win32-off.json",
+      "sha256": "ad86c664d4b16b5642235c02ea7695be0d5b1265d871e7ce9b447a8aa352c010",
+      "subjectSha256": "e4be609e7770e9dffe3912f190b5d1f5dbe631e28195736aaae60c9381a37442"
     }
   },
   {
@@ -61,9 +61,9 @@ export const trustCellRecords = Object.freeze([
     "probeProfile": "export-p7b-parse-v1",
     "launchContext": "no-client",
     "evidence": {
-      "reference": "dist/harness/acceptance/export-p7b-win32-declared.json",
-      "sha256": "c10eb911dc35d2815a73a55fbec9c49350c5e41b1c989261808015fa2f759045",
-      "subjectSha256": "5d0a59c9714b1efedadb1a5b4aed3e7858b4279a0521e31dbc41d0e7dbe2aa36"
+      "reference": "dist/harness/acceptance/migration-export-p7b-win32-declared.json",
+      "sha256": "a87e411bfdc7b1dcbe8bdbfe31d221e876b2b73e89af1f91da52f2a96177331c",
+      "subjectSha256": "a9b2d08e43509877bdaabc5bbb12fc8d153d0ec8295626b909ef68b9986521be"
     }
   },
   {
@@ -83,9 +83,9 @@ export const trustCellRecords = Object.freeze([
     "probeProfile": "export-p7b-parse-v1",
     "launchContext": "no-client",
     "evidence": {
-      "reference": "dist/harness/acceptance/export-p7b-win32-off.json",
-      "sha256": "eaeffa86ab01bc7e8f05c27e281dfe2077f3fa72554e34cdf93ccb8f411c6bd6",
-      "subjectSha256": "b58349926f6bf1db01e0f1892d6706beeba6062869fc30b6f2dad8ad7f948c34"
+      "reference": "dist/harness/acceptance/migration-export-p7b-win32-off.json",
+      "sha256": "78d733214e926bd7739fdc04580bdf0c94755a1a84999178bc05bda9149ffe56",
+      "subjectSha256": "b659509452980a92946da6a209c3b8a0d7e1a0fbe9c83a531ecdb9fde22b09ec"
     }
   }
 ]);

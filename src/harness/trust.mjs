@@ -8,6 +8,7 @@ import { composeTrustSources, canonicalTrustJson, hashTrustSourceSet, reviewTrus
 import { observeOsTrust, detectTrustPlatform } from './trust-os.mjs';
 import { parsePemBundle, parsePkcs7, serializeCertificateSet, sha256Hex } from './trust-encoding.mjs';
 import { validateTrustCapabilities, trustProfiles } from './trust-definitions.mjs';
+import { checkTrustMigration } from './trust-migration.mjs';
 
 export { canonicalTrustJson, hashTrustSourceSet, reviewTrustDelta, detectTrustPlatform };
 export { getTrustFileIntegration } from './trust-definitions.mjs';
@@ -15,7 +16,9 @@ export { getTrustFileIntegration } from './trust-definitions.mjs';
 /** Dist-relative modules that the installed-helper byte binding must hash for trust requests. */
 export const trustHelperFiles = Object.freeze([
   'dist/harness/trust.mjs', 'dist/harness/trust-definitions.mjs', 'dist/harness/trust-encoding.mjs',
-  'dist/harness/trust-source.mjs', 'dist/harness/trust-os.mjs', 'dist/harness/ca.mjs', 'dist/harness/jvm-trust.mjs'
+  'dist/harness/trust-source.mjs', 'dist/harness/trust-os.mjs', 'dist/harness/ca.mjs', 'dist/harness/jvm-trust.mjs',
+  'dist/harness/trust-migration.mjs', 'dist/harness/trust-migration-rules.mjs', 'dist/harness/trust-migration-policy.mjs',
+  'dist/harness/trust-export-platform.mjs', 'dist/core/trust.js'
 ]);
 
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
@@ -235,7 +238,9 @@ export function verifyTrustAdmissionEvidence({ packageRoot, capabilities, defini
     if (subject !== cell.evidence.subjectSha256) return bad('evidence-subject');
     let record;
     try { record = parseStrictJson(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { return bad('record-invalid'); }
-    const reason = checkAcceptanceRecord(record, cell, subject, trustProfiles[cell.probeProfile]);
+    const reason = record?.schema === 'aih.trust.acceptance-migration.v1'
+      ? checkTrustMigration({ record, cell, subject, packageRoot: root, checkOriginal: checkAcceptanceRecord, parseOriginal: parseStrictJson, profile: trustProfiles[cell.probeProfile], librariesSha256: trustProfiles[cell.probeProfile].libraries ? hashTrustLibraries({ packageRoot: root }).sha256 : null })
+      : checkAcceptanceRecord(record, cell, subject, trustProfiles[cell.probeProfile]);
     if (reason) return bad(reason);
   });
   return { valid: diagnostics.length === 0, diagnostics };

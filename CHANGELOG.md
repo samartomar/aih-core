@@ -405,8 +405,11 @@ is unpublished. Removed public names:
 
 Contributor note: the internal `exportAdmissionTemplate`, `trustTransformIds` and the
 `buildCertificateExportRecipe` re-export in the trust helper are removed. Because the export-cell
-admission records pin those helper files' bytes, the four certificate-export cells' acceptance records
-are recaptured for the new bytes in the same change (samartomar/aih-core#81). The public interface and
+admission records pin those helper files' bytes, the four historical certificate-export cells now
+use explicit finite equivalence-migration envelopes that preserve their original records and
+limitations while binding the current implementation (samartomar/aih-core#81). This creates no new
+historical-platform execution. Exact Windows 11 26H2 build 26340.9767 export classification is prepared;
+its distinct native cells remain unavailable until fresh acceptance. The public interface and
 the certificate-export recipe are unchanged.
 
 Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.

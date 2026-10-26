@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { verifyTrustAdmissionEvidence, trustCellSubjectSha256, hashTrustLibraries, trustHelperFiles, serializeTrustSet, parseTrustOutput,
@@ -20,7 +20,7 @@ function installedRoot() {
   const parent = join(worktree, '.scratch'); mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'trust-admission-'));
   mkdirSync(join(root, 'dist', 'harness'), { recursive: true });
-  for (const name of trustHelperFiles) cpSync(join(worktree, 'src', 'harness', name.split('/').pop()), join(root, name));
+  for (const name of trustHelperFiles) { mkdirSync(dirname(join(root, name)), { recursive: true }); cpSync(join(worktree, name), join(root, name)); }
   return root;
 }
 // The specified Windows 11 25H2 export cell for each format, without evidence.
@@ -52,11 +52,17 @@ const verify = (root, capabilities) => verifyTrustAdmissionEvidence({ packageRoo
 const reason = (root, capabilities) => verify(root, capabilities).diagnostics[0]?.reason;
 const withRoot = fn => { const root = installedRoot(); try { return fn(root); } finally { rmSync(root, { recursive: true, force: true }); } };
 
-test('shipped cells have actual passed records and claim only certificate transport', () => {
+test('shipped evidence verifies historical transport claims without inventing new execution', () => {
   assert.ok(trustCellRecords.every(cell => cell.route === 'export' && cell.client === null));
   assert.equal(verifyTrustAdmissionEvidence({ packageRoot: worktree, capabilities: buildTrustCapabilities(pkg, trustCellRecords) }).valid, true);
   for (const cell of trustCellRecords) {
-    const record = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
+    const envelope = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
+    if (envelope.schema === 'aih.trust.acceptance-migration.v1') {
+      assert.equal(envelope.kind, 'equivalence-migration');
+      assert.ok(envelope.limitations.includes('equivalence-migration-no-new-old-os-execution'));
+    }
+    const record = envelope.schema === 'aih.trust.acceptance-migration.v1'
+      ? JSON.parse(Buffer.from(envelope.originalRecordBytes, 'base64')) : envelope;
     assert.ok(record.cases.every(item => item.outcome === 'passed' && !item.summary.includes('Synthetic fixture')));
     assert.ok(record.limitations.includes('no-os-fullset-claim') && record.limitations.includes('no-native-client-claim'));
     assert.equal(record.limitations.includes('synthetic-fixture-only'), false);
@@ -124,7 +130,7 @@ test('the subject binds profile files and serializer library bytes only where a 
   const lonely = mkdtempSync(join(tmpdir(), 'aih-trust-lonely-'));
   try {
     mkdirSync(join(lonely, 'dist', 'harness'), { recursive: true });
-    for (const name of trustHelperFiles) cpSync(join(worktree, 'src', 'harness', name.split('/').pop()), join(lonely, name));
+    for (const name of trustHelperFiles) { mkdirSync(dirname(join(lonely, name)), { recursive: true }); cpSync(join(worktree, name), join(lonely, name)); }
     writeFileSync(join(lonely, 'package.json'), '{}');
     assert.match(trustCellSubjectSha256(pem, lonely), /^[a-f0-9]{64}$/);
     assert.equal(trustCellSubjectSha256(p7b, lonely), null);

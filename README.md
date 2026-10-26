@@ -1275,6 +1275,18 @@ Node's user shell profile receives `NODE_EXTRA_CA_CERTS`. On Windows, a reviewed
 
 ## Export certificates
 
+Export admission distinguishes fresh execution records from historical evidence carried by
+`aih.trust.acceptance-migration.v1`. A migration preserves the original record bytes,
+cell and limitations, verifies a fixed finite transition, and binds the current installed
+helpers, serializer libraries and Core export glue. It does not establish a new execution
+on the historical platform or a stronger OS-discovery/native-client claim.
+`verifyTrustAdmissionEvidence` reports whether that provenance verifies; `valid` is not
+a claim that every cell was freshly executed. Original controlled-selection limitations
+remain applicable. The additional export classifier recognizes only Windows 11 Pro
+Insider Preview 26H2 build 26340.9767 x64; a format remains unavailable until its distinct
+native admission cell is supplied. Existing OS discovery and other repair classification
+retain their earlier behavior.
+
 `export-ca` reviews a standalone certificate export without a service URL or
 prior repair. It writes deterministic PEM or certificates-only DER P7B at the
 reviewed path inside the user home. Relative output paths resolve from the home;
