@@ -74,7 +74,8 @@ export function memberDescriptor(value: unknown): MaterialMemberDescriptor {
 }
 export type CheckedReference = Omit<MaterialRecipeReference, 'materials'> & { materials: MaterialMemberDescriptor[] };
 const githubRepository = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})$/u;
-function githubName(repository: unknown): { owner: string; repo: string } | undefined {
+/** The owner and repository of one canonical https://github.com/<owner>/<repo> URL; the single admission rule. */
+export function githubName(repository: unknown): { owner: string; repo: string } | undefined {
   const match = typeof repository === 'string' ? githubRepository.exec(repository) : null;
   if (!match || match[2] === '.' || match[2] === '..' || match[2]!.toLowerCase().endsWith('.git')) return undefined;
   return { owner: match[1]!, repo: match[2]! };

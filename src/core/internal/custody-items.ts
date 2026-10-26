@@ -9,6 +9,7 @@ import { sha256 } from './host-files.js';
 import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
+import { githubName } from './material-descriptors.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -140,12 +141,10 @@ function validOrigin(value: unknown): boolean {
 }
 
 function validProvenance(value: unknown): boolean {
-  return exact(value, ['kind', 'repository', 'commit', 'identity']) && value.kind === 'git' &&
-    typeof value.commit === 'string' && /^[a-f0-9]{40}$/.test(value.commit) && typeof value.repository === 'string' &&
-    typeof value.identity === 'string' && (() => {
-      const match = /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100})$/.exec(value.repository as string);
-      return !!match && value.identity === `${match[1]}@${value.commit}`;
-    })();
+  if (!exact(value, ['kind', 'repository', 'commit', 'identity']) || value.kind !== 'git' ||
+      typeof value.commit !== 'string' || !/^[a-f0-9]{40}$/.test(value.commit)) return false;
+  const name = githubName(value.repository);
+  return !!name && value.identity === `${name.owner}/${name.repo}@${value.commit}`;
 }
 
 /** Strict item validation: facts are well formed and typed members equal the derived custody. */

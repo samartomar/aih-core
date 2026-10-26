@@ -287,3 +287,37 @@ test('releasing one inclusion keeps the recorded git provenance of the selection
     assert.deepEqual([row.origins, row.materialSource], [[starter], PROVENANCE]);
   } finally { s.dispose(); }
 });
+
+test('a git-sourced run without a description keeps the recorded description and adds only its provenance', async () => {
+  const { prepare, apply, listManagedSelections } = await import('../dist/core/index.js');
+  const { sandbox } = await import('./hook-group-fixture.mjs');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const s = sandbox('aih-git-undescribed-');
+  const run = async (policy, controls = {}) => {
+    const prepared = await prepare({ useCase: 'policy', policy, target: { project: s.project } }, controls);
+    assert.ok(prepared.prepared, JSON.stringify(prepared.diagnostics));
+    assert.equal((await apply(prepared.prepared, { approved: true, origin: 'automation', reviewDigest: prepared.review.reviewDigest }, controls)).completion, 'complete');
+  };
+  const row = async () => (await listManagedSelections({ target: { project: s.project }, scope: 'project',
+    format: 'urn:aihq:core:managed-inventory-result:1.1.0' })).selections[0];
+  try {
+    const bytes = pinnedArchive();
+    const starter = { reasonIncluded: 'in-set', set: { framework: 'team-skills', setId: 'starter', setSha256: sha('starter') } };
+    const local = join(s.root, 'local');
+    mkdirSync(join(local, PREFIX, 'skills', 'pinned'), { recursive: true });
+    writeFileSync(join(local, PREFIX, 'recipe.json'), pinnedRecipe);
+    writeFileSync(join(local, PREFIX, 'skills', 'pinned', 'SKILL.md'), skillBytes);
+    const described = pinnedPolicy({ ...pinnedReference(bytes), source: { kind: 'local', input: 'checkout' } });
+    Object.assign(described.selections[0], { item: { framework: 'team-skills', itemId: 'pinned', contentSha256: sha('content'), behaviourSha256: sha('behaviour') },
+      tool: 'claude', name: 'Pinned skill', kind: 'skill', origins: [starter] });
+    await run(described, { materialRoots: { checkout: local } });
+    const before = await row();
+    assert.equal(before.materialSource, undefined);
+    // The same bytes again, now from an exact commit and without selection metadata.
+    await withTransport(bytes, () => run(pinnedPolicy(pinnedReference(bytes))));
+    const after = await row();
+    assert.deepEqual([after.name, after.kind, after.tool, after.item, after.origins], [before.name, before.kind, before.tool, before.item, [starter]]);
+    assert.deepEqual(after.materialSource, PROVENANCE);
+  } finally { s.dispose(); }
+});

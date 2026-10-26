@@ -210,7 +210,7 @@ function paxPath(bytes: Buffer): string {
 function globalCommit(bytes: Buffer): string {
   let commit: string | undefined;
   paxRecords(bytes, (key, value) => {
-    if (key !== 'comment' || commit !== undefined) fail('unsafe-pax-record');
+    if (key !== 'comment' || commit !== undefined) fail('git-archive-commit-mismatch');
     commit = value.toString('ascii');
   });
   if (commit === undefined) fail('invalid-pax-record');

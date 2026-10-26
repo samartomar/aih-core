@@ -1445,7 +1445,36 @@ convert that receipt to entry ownership. Reconcile the earlier receipt and its
 configuration manually before using the new recipe. Explicit authored whole-file
 operations retain their original whole-file behavior.
 
-Referenced recipes bind a strict recipe JSON member and its complete named material closure by byte length and SHA-256. A caller supplies selected local source handles with `controls.materialRoots` or `--material-root id=/absolute/path`; archive sources require an explicit HTTPS URL and pinned compressed bytes. The preparation-wide captured-material declaration limit is 512 MiB across selections and is checked before acquisition. Acquisition never runs package scripts or helpers.
+Referenced recipes bind a strict recipe JSON member and its complete named material closure by byte length and SHA-256. A caller supplies selected local source handles with `controls.materialRoots` or `--material-root id=/absolute/path`; archive sources require an explicit HTTPS URL and pinned compressed bytes. The preparation-wide captured-material declaration limit is 512 MiB across selections and is checked before acquisition. Acquisition never runs package scripts or helpers. The CLI also accepts `--resolutions file.json` for exact observed replacement/adoption choices, for example:
+
+```json
+{"resolutions":[{"selectionId":"guidance","operationId":"write","choice":"replace","observedSha256":"<64 lowercase hex characters>"}]}
+```
+
+The host rechecks those observations at Apply. `allowPartial` cannot override a conflict or a failed dependency; it permits only already reviewed independent work.
+
+A UI-owned backend can use the same policy and engine:
+
+```js
+import { parsePolicy } from '@aihq/core/contracts';
+import { prepare, apply } from '@aihq/core';
+
+const parsed = parsePolicy(policyText);
+if (!parsed.valid) throw new Error(JSON.stringify(parsed.diagnostics));
+const preparation = await prepare({
+  useCase: 'policy', policy: parsed.document,
+  target: { project: absoluteProjectPath }
+});
+// Show preparation.review and obtain the user's explicit approval in your UI.
+// Retain preparation.prepared on this host; do not send it as executable JSON.
+if (preparation.status === 'ready' && userExplicitlyApproved) {
+  const result = await apply(preparation.prepared, {
+    approved: true, origin: 'interactive',
+    reviewDigest: preparation.review.reviewDigest
+  });
+  display(result);
+}
+```
 
 ### Install from an exact git commit
 
@@ -1462,7 +1491,8 @@ commit:
 
 - **Exact identity only.** `commit` is a full 40-character lowercase commit and
   `reachable` is `true`; the archive URL is that commit's own archive at the same
-  repository. Core resolves nothing: a branch, tag, short or symbolic name and an
+  repository. These GitHub URL rules belong to Core's generic material acquisition:
+  they describe the source host's exact commit archive, not a tool vendor. Core resolves nothing: a branch, tag, short or symbolic name and an
   unchecked or unreachable commit are refused. Catalog owns resolving a moving
   reference to an exact commit.
 - **Named refusals.** `validatePolicy` and `prepare` report `INPUT_INVALID` at
@@ -1477,7 +1507,7 @@ commit:
   with the pax global header `git archive` writes naming the same commit
   (`git-archive-commit-mismatch` otherwise). The recipe and its complete named material
   closure are then pinned by path, byte length and SHA-256 exactly as for any archive
-  (`member-identity-mismatch`, `material-closure`, `archive-incomplete`). Bytes are read
+  (`member-identity-mismatch`, `material-closure-mismatch`, `archive-incomplete`). Bytes are read
   in memory; nothing is extracted or executed, and an executable member the recipe does
   not name is refused (`unreferenced-executable`).
 - **Provenance.** The review's `selections[]` (prepared work 1.6.0) and inventory 1.1.0
@@ -1508,35 +1538,6 @@ const { selections } = await listManagedSelections({ target: { project }, scope:
   format: 'urn:aihq:core:managed-inventory-result:1.1.0' });
 // Hand the exact identity back to the caller, which owns any saved intent.
 return selections.map(({ managementId, materialSource }) => ({ managementId, source: materialSource?.identity }));
-``` The CLI also accepts `--resolutions file.json` for exact observed replacement/adoption choices, for example:
-
-```json
-{"resolutions":[{"selectionId":"guidance","operationId":"write","choice":"replace","observedSha256":"<64 lowercase hex characters>"}]}
-```
-
-The host rechecks those observations at Apply. `allowPartial` cannot override a conflict or a failed dependency; it permits only already reviewed independent work.
-
-A UI-owned backend can use the same policy and engine:
-
-```js
-import { parsePolicy } from '@aihq/core/contracts';
-import { prepare, apply } from '@aihq/core';
-
-const parsed = parsePolicy(policyText);
-if (!parsed.valid) throw new Error(JSON.stringify(parsed.diagnostics));
-const preparation = await prepare({
-  useCase: 'policy', policy: parsed.document,
-  target: { project: absoluteProjectPath }
-});
-// Show preparation.review and obtain the user's explicit approval in your UI.
-// Retain preparation.prepared on this host; do not send it as executable JSON.
-if (preparation.status === 'ready' && userExplicitlyApproved) {
-  const result = await apply(preparation.prepared, {
-    approved: true, origin: 'interactive',
-    reviewDigest: preparation.review.reviewDigest
-  });
-  display(result);
-}
 ```
 
 The handle belongs to the running module instance and is consumed on application. Restarting the host or losing the handle requires preparation and approval again. Saved policies/reviews/results remain readable JSON. A digest alone does not establish custody or consent. Editing a caller-owned policy or private input after preparation invalidates the work. Editing review JSON cannot alter the engine's frozen review or executable state.

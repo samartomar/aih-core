@@ -186,7 +186,8 @@ await check('archive and material mismatches are refused and nothing is written'
   served.set(archiveUrl(COMMIT), archive);
   const incomplete = await installFromExactCommit(project, pinnedSelection(archive, { materials: [
     { id: 'license', path: `${PREFIX}skills/review-checklist/LICENSE`, sha256: sha256(license), byteLength: license.length }] }));
-  assert.equal(incomplete.status, 'invalid', 'the named closure must match the recipe');
+  assert.deepEqual([incomplete.status, incomplete.diagnostics.map(item => item.reason)], ['invalid', ['material-closure-mismatch']],
+    'the named closure must match the recipe');
   assert.equal(existsSync(join(project, '.claude')), false);
 });
 

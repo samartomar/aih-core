@@ -531,7 +531,7 @@
         },
         "repository": {
           "type": "string",
-          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}$)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]$)[A-Za-z0-9._-]{1,100}$"
         },
         "commit": {
           "type": "string",
@@ -539,7 +539,7 @@
         },
         "identity": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}@)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]@)[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
         }
       }
     }

@@ -845,8 +845,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const stored = ownership.get(step.root)!.value;
       if (!Object.values(stored.members).some(owner => owner.claims?.some(claim => claim.scope === step.review.scope && claim.managementId === step.managementId))) continue;
       const prior = stored.items?.[step.item.id];
-      // An undescribed run still retires provenance recorded from an earlier git source.
-      if (!step.item.named && !prior?.materialSource) continue;
+      // An undescribed run keeps the recorded description but still records or retires git provenance.
+      if (!step.item.named && canonicalJson(prior?.materialSource ?? null) === canonicalJson(step.item.facts.materialSource ?? null)) continue;
       if (prior && canonicalJson(factsOf(prior)) === canonicalJson(step.item.facts)) continue;
       const updates = itemUpdates.get(step.root) ?? Object.create(null);
       updates[step.item.id] = { item: step.item, requires: selectionOps.get(step.authored.selectionId) ?? [] }; itemUpdates.set(step.root, updates);
@@ -1782,7 +1782,7 @@ function writesCustody(step: PreparedStep): boolean {
 }
 function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[]): NonNullable<PreparedStep['item']> {
   const source = selectionSource(selection);
-  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined || source !== undefined,
+  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined,
     facts: { managementId: selection.managementId, scope: selection.scope,
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
