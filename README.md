@@ -701,7 +701,9 @@ depend on order. Per item the result is:
   item for another reason (for example `scope-not-bound` for a document or an
   entry block the binding has no place for, `interpreter-required`,
   `rule-text-ambiguous`), `notRendered` names it and the item delivers nothing.
-  A malformed item still refuses the whole check.
+  `support` stays the cell's observed support; `notRendered` and any static
+  blocker override it, so read all three before showing an item as working. A
+  malformed item still refuses the whole check.
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
