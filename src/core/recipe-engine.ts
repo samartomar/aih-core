@@ -21,6 +21,7 @@ import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256
 import { contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
+import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
@@ -34,7 +35,7 @@ import { readRegularFile } from './internal/fsxn.js';
 import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
 import type { NativeClientId } from './internal/native-clients.js';
-import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
+import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
 import type { Authorization, CheckResult, RunMember, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, PreparedSelection, ResolutionInput, ReviewCheck, ReviewOperation, RunResult, StaleBinding } from './host-types.js';
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import { guardTrustMember } from './internal/trust-custody.js';
@@ -840,10 +841,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     // under an older policy. Custody-writing steps record their facts with the members they write.
     const itemUpdates: PreparedState['itemUpdates'] = new Map();
     for (const step of steps) {
-      if (!step.item?.named || !step.root || !step.authored || writesCustody(step)) continue;
+      if (!step.item || !step.root || !step.authored || writesCustody(step)) continue;
       const stored = ownership.get(step.root)!.value;
       if (!Object.values(stored.members).some(owner => owner.claims?.some(claim => claim.scope === step.review.scope && claim.managementId === step.managementId))) continue;
       const prior = stored.items?.[step.item.id];
+      // An undescribed run still retires provenance recorded from an earlier git source.
+      if (!step.item.named && !prior?.materialSource) continue;
       if (prior && canonicalJson(factsOf(prior)) === canonicalJson(step.item.facts)) continue;
       const updates = itemUpdates.get(step.root) ?? Object.create(null);
       updates[step.item.id] = { item: step.item, requires: selectionOps.get(step.authored.selectionId) ?? [] }; itemUpdates.set(step.root, updates);
@@ -1098,7 +1101,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const approved = steps.some(step => step.authored?.selectionId === selection.id && step.review.details.approval !== undefined &&
         step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
       const step = selection.tool === undefined || selection.kind === undefined || approved ? undefined : bindingPermissionNotice(selection.tool, selection.kind);
+      const source = selectionSource(selection);
       return { selectionId: selection.id, managementId: selection.managementId, scope: selection.scope,
+        ...(source === undefined ? {} : { materialSource: source }),
         ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
           kind: selection.kind!, origins: clone(selection.origins!) }),
         ...(facts?.hookCommands.length ? { hookCommands: facts.hookCommands } : {}),
@@ -1776,13 +1781,20 @@ function writesCustody(step: PreparedStep): boolean {
   return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly;
 }
 function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[]): NonNullable<PreparedStep['item']> {
-  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined,
+  const source = selectionSource(selection);
+  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined || source !== undefined,
     facts: { managementId: selection.managementId, scope: selection.scope,
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
-      tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins) } };
+      tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins),
+      ...(source === undefined ? {} : { materialSource: source }) } };
+}
+/** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */
+function selectionSource(selection: ExecutionPolicy['selections'][number]): GitMaterialProvenance | undefined {
+  return 'reference' in selection.recipe && selection.recipe.reference.source.kind === 'git' ?
+    gitProvenance(selection.recipe.reference.source) : undefined;
 }
 function factsOf(item: ItemFacts): ItemFacts {
   return { managementId: item.managementId, scope: item.scope, name: item.name, kind: item.kind, framework: item.framework,
-    item: item.item, tool: item.tool, origins: item.origins };
+    item: item.item, tool: item.tool, origins: item.origins, ...(item.materialSource ? { materialSource: item.materialSource } : {}) };
 }

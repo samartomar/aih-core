@@ -7,7 +7,7 @@ import { RecipeEditError, configArrayMemberBytes, configMemberBytes, blockMember
 import { locateHookGroups } from './hook-group.js';
 import { sha256 } from './host-files.js';
 import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
-import type { InclusionOrigin, Json, SelectionMetadata } from '../types.js';
+import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 
 export type TypedMember =
@@ -22,6 +22,8 @@ export interface ItemFacts {
   managementId: string; scope: 'project' | 'user';
   name: string | null; kind: SelectionMetadata['kind'] | null; framework: string | null;
   item: SelectionMetadata['item'] | null; tool: string | null; origins: InclusionOrigin[];
+  /** The exact git commit the selection's referenced recipe was last applied from; absent for every other source. */
+  materialSource?: GitMaterialProvenance;
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -137,12 +139,21 @@ function validOrigin(value: unknown): boolean {
     (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));
 }
 
+function validProvenance(value: unknown): boolean {
+  return exact(value, ['kind', 'repository', 'commit', 'identity']) && value.kind === 'git' &&
+    typeof value.commit === 'string' && /^[a-f0-9]{40}$/.test(value.commit) && typeof value.repository === 'string' &&
+    typeof value.identity === 'string' && (() => {
+      const match = /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100})$/.exec(value.repository as string);
+      return !!match && value.identity === `${match[1]}@${value.commit}`;
+    })();
+}
+
 /** Strict item validation: facts are well formed and typed members equal the derived custody. */
 export function validItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): boolean {
   const items = value.items as unknown;
   if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
-    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths', 'pending']) ||
+    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
@@ -155,6 +166,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (item.item !== null && !(exact(item.item, ['framework', 'itemId', 'contentSha256', 'behaviourSha256']) && text(item.item.framework, 128) &&
         text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
+    if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
     const owned = claimedMembers(value, item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
@@ -222,8 +234,10 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
   const restoration = { ...Object.fromEntries(Object.entries(record.preExisting ?? {}).map(([key, entry]) => [key, { value: entry }])), ...prior?.preExisting };
   const redactedPaths = { ...prior?.redactedPaths, ...record.redactedPaths };
   const facts = item.named || !prior ? item.facts : prior;
+  // Provenance always follows the recipe source of the latest run, described or not.
+  const source = item.facts.materialSource;
   value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
-    framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, members: prior?.members ?? [],
+    framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, ...(source ? { materialSource: source } : {}), members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
     ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),
@@ -238,7 +252,7 @@ export function completeItem(value: Custody, id: string): boolean {
   if (!item?.installState) return false;
   const { installState: _done, pending: _pending, ...rest } = item;
   const items = { ...value.items, [id]: rest };
-  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.preExisting && !rest.redactedPaths)
+  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.preExisting && !rest.redactedPaths)
     delete items[id];
   value.items = items;
   return true;

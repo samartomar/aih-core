@@ -57,7 +57,7 @@ export { validateMacosRepairRequest, validateMacosRepairInputs, validateMacosSes
 export type { Json, Diagnostic, ValidationResult, ParseResult, Slot, InputSpec, TargetPath, OperationBase, FileOperation,
   ConfigEntrySet, ConfigEntryRemove, ConfigOperation, TextBlockOperation, RemoveOperation, Executable,
   ProcessInvocation, ProcessOperation, JsonObject, HookGroupOperation, Operation, FileCheck, ProcessCheck,
-  RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember, InlineMaterial, MaterialRecipeReference,
+  RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember, InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance,
   Prerequisite, Recipe, Selection, SelectionMetadata, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationInputPermission, OrganizationSelection,
   OrganizationObligation, OrganizationTargetFact, OrganizationTargetFacts, OrganizationTarget,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase,

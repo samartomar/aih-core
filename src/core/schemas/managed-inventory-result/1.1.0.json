@@ -392,6 +392,9 @@
               "complete",
               "interrupted"
             ]
+          },
+          "materialSource": {
+            "$ref": "#/$defs/gitProvenance"
           }
         }
       }
@@ -510,5 +513,35 @@
       "target",
       "scope"
     ]
+  },
+  "$defs": {
+    "gitProvenance": {
+      "description": "Where a git-sourced selection came from: the exact GitHub repository and 40-hex commit, and identity owner/repo@commit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "commit",
+        "identity"
+      ],
+      "properties": {
+        "kind": {
+          "const": "git"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
+        }
+      }
+    }
   }
 }

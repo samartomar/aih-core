@@ -48,5 +48,9 @@ export function describeContract(contract) {
   if (contract.id.startsWith('urn:aihq:core:execution-policy:')) fixtures.push({
     export: '@aihq/core/fixtures/core/execution-policy/2.0.0/refuse.json', expect: 'refuse', code: 'SCHEMA_UNSUPPORTED'
   });
+  // Execution policy 1.4.0 also publishes the exact git material source and a moving reference it refuses.
+  if (contract.id === 'urn:aihq:core:execution-policy:1.4.0') fixtures.push(
+    { export: prefix + '/git-source-accept.json', expect: 'accept' },
+    { export: prefix + '/git-source-refuse.json', expect: 'refuse', code: 'INPUT_INVALID' });
   return Object.freeze({ ...contract, versions: Object.freeze([contract.id.split(':').at(-1)]), fixtures: Object.freeze(fixtures.map(Object.freeze)) });
 }

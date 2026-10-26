@@ -292,7 +292,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       };
       if ('reference' in selection.recipe) {
         const reference = selection.recipe.reference;
-        if (reference.source.kind === 'archive') { unread('remote-material-not-admitted'); continue; }
+        if (reference.source.kind !== 'local') { unread('remote-material-not-admitted'); continue; }
         if (!fitsTotal(referenceDeclaredBytes(reference))) { unread('limit-exceeded'); continue; }
         let captured: Awaited<ReturnType<typeof captureRecipeReference>>;
         try { captured = await captureRecipeReference(reference, materialRoots, captureOptions); }
