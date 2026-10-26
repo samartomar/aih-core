@@ -377,9 +377,10 @@ is unpublished. Removed public names:
 `validateNativeTestIdentity`), and `NativeVerificationBundle` now uses the exported `JsonObject`.
 
 Contributor note: the internal `exportAdmissionTemplate`, `trustTransformIds` and the
-`buildCertificateExportRecipe` re-export in the trust helper remain in source, unexported, because the
-shipped export-cell admission records pin those helper files' bytes. Their removal waits for the next
-admission recapture and is tracked in samartomar/aih-core#81.
+`buildCertificateExportRecipe` re-export in the trust helper are removed. Because the export-cell
+admission records pin those helper files' bytes, the four certificate-export cells' acceptance records
+are recaptured for the new bytes in the same change (samartomar/aih-core#81). The public interface and
+the certificate-export recipe are unchanged.
 
 Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.
 `assessRepairCandidate` is the one public repair-candidate operation, and its behavior is unchanged;

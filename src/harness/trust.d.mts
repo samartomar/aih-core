@@ -56,8 +56,6 @@ export declare function canonicalTrustJson(value: unknown): string;
 export declare function detectTrustPlatform(): { os: string; architecture: string; release: string | null; projection: string | null };
 export declare function verifyTrustAdmissionEvidence(request: { packageRoot: string; capabilities: unknown; definitions?: readonly unknown[] }):
   { valid: boolean; diagnostics: { code: string; reason: string; message: string; path?: string }[] };
-export declare function buildCertificateExportRecipe(request: { materialId: string; materialPath: string;
-  outputSegments: readonly string[]; sha256: string; byteLength: number }): Record<string, unknown>;
 export declare function trustCellSubjectSha256(cell: Record<string, unknown>, packageRoot: string): string | null;
 export declare const trustLibraryPackages: readonly string[];
 export declare function hashTrustLibraries(request: { packageRoot: string }):
