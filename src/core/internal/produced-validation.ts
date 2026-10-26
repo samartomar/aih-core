@@ -9,6 +9,8 @@ import preparedWork10Schema from '../schemas/prepared-work/1.0.0.json' with { ty
 import preparedWork11Schema from '../schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import preparedWork14Schema from '../schemas/prepared-work/1.4.0.json' with { type: 'json' };
 import preparedWork15Schema from '../schemas/prepared-work/1.5.0.json' with { type: 'json' };
+import preparedWork16Schema from '../schemas/prepared-work/1.6.0.json' with { type: 'json' };
+import runResult14Schema from '../schemas/run-result/1.4.0.json' with { type: 'json' };
 import runResult10Schema from '../schemas/run-result/1.0.0.json' with { type: 'json' };
 import runResult11Schema from '../schemas/run-result/1.1.0.json' with { type: 'json' };
 import { PREPARED_WORK_1_2_0, RUN_RESULT_1_2_0, validatePreparedWork12, validatePreparedWork14, validateRunResult12 } from '../trust-contracts.js';
@@ -17,8 +19,8 @@ import { registerSchemas, schemaCheck, validateExactDocument } from './contract-
 import type { ValidationResult } from '../types.js';
 
 type Validator = (value: unknown) => ValidationResult;
-// prepared-work 1.5.0 resolves the 1.4.0 policy definitions in the shared registry.
-registerSchemas(preparedWork10Schema, preparedWork11Schema, preparedWork14Schema, preparedWork15Schema, runResult10Schema, runResult11Schema);
+// prepared-work 1.5.0 and 1.6.0 resolve the 1.4.0 policy definitions in the shared registry.
+registerSchemas(preparedWork10Schema, preparedWork11Schema, preparedWork14Schema, preparedWork15Schema, preparedWork16Schema, runResult10Schema, runResult11Schema, runResult14Schema);
 const schemaOnly = (id: string): Validator => {
   const check = schemaCheck(id);
   return value => validateExactDocument(value, id, check, () => []);
@@ -31,14 +33,16 @@ export const preparedWorkValidators: Readonly<Record<string, Validator>> = Objec
   [PREPARED_WORK_1_2_0]: validatePreparedWork12,
   [MACOS_PREPARED_WORK_SCHEMA]: validatePreparedWork13,
   [preparedWork14Schema.$id]: validatePreparedWork14,
-  [preparedWork15Schema.$id]: schemaOnly(preparedWork15Schema.$id)
+  [preparedWork15Schema.$id]: schemaOnly(preparedWork15Schema.$id),
+  [preparedWork16Schema.$id]: schemaOnly(preparedWork16Schema.$id)
 });
 /** Owning validator per produced run-result ID. */
 export const runResultValidators: Readonly<Record<string, Validator>> = Object.freeze({
   [runResult10Schema.$id]: schemaOnly(runResult10Schema.$id),
   [runResult11Schema.$id]: schemaOnly(runResult11Schema.$id),
   [RUN_RESULT_1_2_0]: validateRunResult12,
-  [MACOS_RUN_RESULT_SCHEMA]: validateRunResult13
+  [MACOS_RUN_RESULT_SCHEMA]: validateRunResult13,
+  [runResult14Schema.$id]: schemaOnly(runResult14Schema.$id)
 });
 
 function dispatch(validators: Readonly<Record<string, Validator>>, value: unknown): ValidationResult {

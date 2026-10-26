@@ -45,6 +45,8 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/repair-request/1.1.0.json`, `repair-inputs/1.1.0.json`, `prepared-work/1.3.0.json`, `run-result/1.3.0.json` | macOS session selection, review and result schemas |
 | `@aihq/core/schemas/macos-session-custody/1.0.0.json`, `macos-session-verification-request/1.0.0.json`, `macos-session-verification-result/1.0.0.json` | Protected session custody and observation schemas |
 | `@aihq/core/schemas/prepared-work/1.5.0.json` | Serializable review with declared-target organization obligations JSON Schema |
+| `@aihq/core/schemas/execution-policy/1.4.0.json` | Execution-policy 1.4.0 JSON Schema (descriptive Catalog selection metadata, `excludedItems`) |
+| `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding |
 | `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
 | `@aihq/core/harness/schemas/repair/1.1.0.json`, `trust-capabilities/1.0.0.json` | Fixed trust definitions and admitted platform/profile metadata |
@@ -1494,6 +1496,86 @@ Reported operation and input IDs use `selectionId/localId`; `/` cannot occur in 
 `apply` requires `approved: true`, `origin` and the review's `reviewDigest`. `allowPartial` defaults to false and its default/explicit origin is recorded. Cancellation is supplied as `controls.signal` or SIGINT. Results distinguish `applied`, `already-satisfied`, `failed`, and `not-attempted`; verification independently records passed, failed, unavailable or unverified checks.
 
 Target paths are explicitly scoped and reject traversal, links, unsafe host filenames and Core's reserved state paths. Existing matching unowned bytes remain unowned. This is guarded local file handling, not a sandbox against arbitrary concurrently privileged software.
+
+## Name Catalog items in a policy and its review
+
+Execution policy `urn:aihq:core:execution-policy:1.4.0` keeps every 1.3.0 field:
+`selections[].recipe` (inline, or a reference to a recipe such as one rendered by
+[`renderDelivery`](#render-catalog-items-and-check-compatibility)), `managementId`,
+selection-id `requires`, `managedSelections` (omitted keeps earlier members; a set
+with `members: []` reconciles them), scoped `removals` and `evidence`, and admits
+the same recipe formats. It adds:
+
+- **Descriptive selection metadata,** given all together or not at all:
+
+  ```ts
+  { item: { framework, itemId, contentSha256, behaviourSha256 }, tool, name, kind,
+    origins: ( { reasonIncluded: 'chosen' }
+             | { reasonIncluded: 'in-set', set: { framework, setId, setSha256 }, options? }
+             | { reasonIncluded: 'required-by', requiredBy: { framework?, itemId } } )[] }
+  ```
+
+  `origins` is Catalog's qualified inclusion identity, carried unchanged: one entry
+  per simultaneous inclusion, so overlapping sets keep every origin (`duplicate-origin`
+  for a repeated entry). `tool` is a [registry](#ai-tool-registry) id (`unknown-tool`)
+  and `kind` a binding kind. Metadata never adds operations, inputs or authority:
+  Enterprise admission still governs the recipe by identity, scope, inputs and lifecycle.
+- **`excludedItems: { framework, itemId }[]`** at the policy level. A selection whose
+  `item` has an excluded framework and item id is invalid (`excluded-item-selected`),
+  whatever its content identities and origin, so a set, dependency or fallback never
+  adds it again.
+- **One selection per management id.** Two selections with the same `managementId`
+  are invalid (`duplicate-management-id`) even in different scopes. Older policies
+  keep their per-scope rule and remain valid, with their earlier review formats.
+
+`grantApproval` is a `renderDelivery` input, not metadata: an approval is reviewed
+only through the operations it adds to the rendered recipe.
+
+A 1.4.0 policy prepares `urn:aihq:core:prepared-work:1.6.0`. Every operation carries
+its `selectionId` (`null` for generated lifecycle cleanup), and `selections[]` holds
+one entry per policy selection, in policy order:
+
+```ts
+{ selectionId, managementId, scope,
+  item?, tool?, name?, kind?, origins?,          // the selection's metadata, unchanged
+  hookCommands?: string[],                       // each hook group's hooks[].command, verbatim
+  permissionStep?: string,                       // from the shipped binding for tool and kind
+  inputs: string[],                              // bound input names; never values
+  deliveredSize?: { bytes, chars, alwaysLoaded?: { bytes, chars } } }
+```
+
+Sizes are measured from the bytes this preparation delivers (written files and
+marker-block text) in UTF-8 bytes and UTF-16 characters, as Catalog counts them.
+`alwaysLoaded` follows `checkCompatibility`'s kind rules over the delivered bytes:
+the frontmatter `name` and `description` of skills, agents and commands, the whole
+text of a rule, and nothing for hooks, MCP servers and documents. It is omitted
+without a `kind`, and `deliveredSize` is omitted when the selection's material was
+unavailable. Input values travel only in `controls.privateInputs` under the
+existing private-input binding; reviews, run results and history name inputs only.
+
+The review digest stays nonce-bound and opaque: preparing the same policy twice
+gives identical reviews with different `reviewDigest` values. Do not recompute it.
+
+`apply` for a 1.6.0 review returns `urn:aihq:core:run-result:1.4.0`. Every existing
+Apply guard still runs. A refusal because a reviewed binding changed is
+`REVIEW_STALE` with reason `binding-changed` and `changed`:
+
+| `changed` | The existing Apply checks it covers |
+| --- | --- |
+| `policy` | The request or policy digest; for Enterprise, the organization revision, blob, content and declared target |
+| `recipe` | Recipe identity, binding digest and material captures |
+| `target-file` | Per-step live bytes against their `before` state, and path pins |
+| `ownership` | Ownership inventory and per-root receipt digests |
+| `input` | The private-input digest |
+| `host` | Home directory and path identity |
+| `trust` | Trust participants and trust custody claiming a reviewed path |
+
+A lost or consumed handle is `REVIEW_STALE` with reason `handle-unavailable`, and
+an authorization naming another digest has reason `digest-mismatch`; neither is a
+binding change. Prepare again and approve the new review. New or changed scan
+evidence and Catalog index status are never part of a held review, so they never
+make it stale; Core does not read index status, and the consumer surfaces an index
+revocation when it next prepares.
 
 ## Managed lifecycle
 

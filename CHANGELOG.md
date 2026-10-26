@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Add execution policy 1.4.0, prepared work 1.6.0 and run result 1.4.0. Policy 1.4.0
+keeps every 1.3.0 field and adds descriptive selection metadata (`item`, `tool`,
+`name`, `kind` and Catalog's qualified `origins`, all together or not at all) and
+policy-level `excludedItems`; a selection naming an excluded framework and item id,
+or two selections sharing a `managementId` in any scope, make the policy invalid.
+Metadata adds no operations or authority, and older policies are unchanged. Its
+review, prepared work 1.6.0, adds `selectionId` to every operation and one
+`selections[]` entry per selection with the metadata, verbatim hook commands, the
+binding's permission step, input names only and the delivered and always-loaded
+size. The review digest stays nonce-bound. Its run result, 1.4.0, reports a
+`REVIEW_STALE` binding change as reason `binding-changed` with `changed` (`policy`,
+`recipe`, `target-file`, `ownership`, `input`, `host` or `trust`), or reason
+`handle-unavailable` or `digest-mismatch`; every existing Apply guard is kept, and
+scan evidence and index status never make a held review stale. Unpublished
+candidate for the sole 0.1.0 release effort.
+
 Add `renderDelivery` and `checkCompatibility` to `@aihq/core/harness`, portable
 data functions that never import the Core engine. `renderDelivery({ tool, item,
 binding, scope, projectFolder?, grantApproval?, contents? })` renders a checked
