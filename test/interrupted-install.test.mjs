@@ -202,3 +202,24 @@ test('the identity a write announces before publishing is the published file\'s'
   assert.equal(readFileSync(join(root, 'file.txt'), 'utf8'), 'two');
   assert.deepEqual(readdirSync(root), ['file.txt']);
 });
+
+test('a run whose process ran is incomplete, not rejected, when a later step stops it', async () => {
+  const target = project('process-then-stale');
+  writeFileSync(join(target, 'kept.txt'), 'same\n');
+  // The process changes a file the next, already-satisfied step reviewed, so that step finds its review stale.
+  const document = { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [{ id: 'run', managementId: 'run-managed', scope: 'project',
+    configuration: {}, requires: [], recipe: { inline: { schema: 'urn:aihq:core:recipe:1.0.0', id: 'run', description: 'Run', inputs: {}, materials: [],
+      targets: ['project'], prerequisites: [], checks: [], operations: [
+        { id: 'touch', purpose: 'Change a file', kind: 'process.run', scope: 'project', requires: [], checks: [], executable: { name: process.execPath },
+          args: [literal('-e'), literal("require('node:fs').writeFileSync('kept.txt', 'changed\\n')")], cwd: { root: 'project', segments: [] }, env: {},
+          timeoutMs: 20000, maxOutputBytes: 1024, acceptedExitCodes: [0], effects: ['Changes kept.txt'] },
+        { id: 'kept', purpose: 'Keep a file', kind: 'file.write', scope: 'project', requires: ['touch'], checks: [],
+          target: { root: 'project', segments: [literal('kept.txt')] }, content: literal('same\n') }] } } }] };
+  const prepared = await prepare({ useCase: 'policy', policy: document, target: { project: target } }, { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.review.operations.find(operation => operation.id === 'run/kept').effects, 'already-satisfied');
+  const result = await apply(prepared.prepared, approve(prepared.review), { logging: 'off' });
+  assert.equal(result.operations[0].application, 'applied');
+  assert.equal(result.completion, 'incomplete', JSON.stringify(result.diagnostics));
+  assert.equal(readFileSync(join(target, 'kept.txt'), 'utf8'), 'changed\n');
+});

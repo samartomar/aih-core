@@ -1426,7 +1426,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
-        writePending();
+        writePending(); started = true;
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
         if (processResult.status !== 'passed') {

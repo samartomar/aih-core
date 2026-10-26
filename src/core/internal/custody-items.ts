@@ -294,7 +294,8 @@ export function resolvePending(value: Custody,
         found = locateMember(entry.descriptor, live.state === 'present' ? live.bytes! : null); identity = live.identity;
       } catch { kept.push(entry); continue; }
       changed = true;
-      if (entry.owner ? !entry.identity || identity !== entry.identity || found !== entry.owner.sha256 : found !== null) continue;
+      // A file system without inode numbers gives no identity to bind to, so nothing is promoted there.
+      if (entry.owner ? !entry.identity || entry.identity.endsWith(':0') || identity !== entry.identity || found !== entry.owner.sha256 : found !== null) continue;
       if (entry.owner) value.members[entry.key] = entry.owner; else delete value.members[entry.key];
       if (entry.preExisting && !preExisting?.[entry.key]) preExisting = { ...preExisting, [entry.key]: entry.preExisting };
       if (entry.redactedPath) redactedPaths = { ...redactedPaths, [entry.key]: entry.redactedPath };
