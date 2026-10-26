@@ -92,8 +92,11 @@ export function classifyStoredClaims(receipts: Iterable<[string, { value: Owners
   const candidates = new Set<string>(); const retained = new Set<string>();
   const dependencies = new Map<string, string[]>();
   for (const [root, stored] of receipts)
+    // An interrupted install is a claim even before it wrote a member: removal can name it and let it go.
     for (const claim of [...Object.values(stored.value.selections ?? {}),
-      ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? [])]) {
+      ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? []),
+      ...Object.values(stored.value.items ?? {}).filter(item => item.installState === 'interrupted')
+        .map(item => ({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] }))]) {
       const identity = claimIdentity(claim.scope, claim.managementId, root);
       dependencies.set(identity, [...new Set([...(dependencies.get(identity) ?? []), ...claim.requires])]);
       if (candidate(claim, root, identity)) candidates.add(identity);

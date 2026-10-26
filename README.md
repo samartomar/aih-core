@@ -1726,6 +1726,50 @@ foreign content or retained managed members, and directories without creation
 evidence are preserved. Older file custody never implies directory ownership.
 Interrupted work keeps conservative custody; prepare again before further changes.
 
+### Interrupted installs
+
+Apply writes a pending receipt into protected custody immediately before its first
+effect (a file or a process): every selection the run writes custody for is recorded
+as an interrupted install, with no member yet. Each member is added to custody only once
+it is written. Before each file effect Apply also writes ahead, in protected custody,
+the members that effect is about to change; the custody published after the effect
+replaces that record. An Apply refused before any effect writes no receipt.
+
+If the run stops, fails or its process is killed, the install stays interrupted, also
+after a restart. Inventory 1.1.0 lists it with `installState: 'interrupted'` and the
+members written so far, even when that is none; members the run only intended to write
+are never listed. When a process was killed between a file effect and its custody,
+the next read settles that one effect from the target itself: a member found exactly as
+the effect wrote it (or gone, for a removal) was written; anything else was not, and is
+never claimed. An interrupted install is never "confirmed on disk": its run is not
+`complete`, so `runMemberClaims` reports `confirmedOnDisk: false` even when every written
+member matches.
+
+Finish or remove it through the ordinary reviewed path, with a fresh review:
+
+- **Finish.** Prepare the same selection again (same management ID and scope). Members
+  already written are owned and `already-satisfied`, the rest are reviewed as usual, and
+  the review notes `finish-interrupted-install:<managementId>`. A member the person
+  changed since is an `existing-content` conflict and is never overwritten. When the run
+  completes, inventory reports `installState: 'complete'`.
+- **Remove.** `prepareManagedRemoval` (either form) treats an interrupted install as a
+  claim, also one that wrote nothing, and its review notes
+  `remove-interrupted-install:<managementId>`. Written members are removed as usual;
+  changed ones are kept (`keep-changed`, with licence and notice files `keep-required` in
+  removal preparation 1.2.0), and the install then stays listed as interrupted with what
+  is kept. Every existing safeguard, including Enterprise's refusal of a custody-only
+  removal, still applies.
+
+An earlier review is never reused: a consumed or lost handle is `REVIEW_STALE`
+(`handle-unavailable`). A selection described without item facts records its pending
+receipt in ownership 1.6.0 while interrupted and returns to its earlier receipt format
+once complete.
+
+A killed process also leaves its target lock behind. Each lock names its holder's
+process and host; the next Apply reclaims a lock only when that holder is on this host
+and no longer running. A lock without a readable holder, from another host, or held by a
+running process is kept for deliberate inspection.
+
 Ownership roots that record what a person chose use **1.6.0**. This versioned
 migration adds, per claim, the item's name, kind, framework, both identities, tool and
 every qualified origin; typed members (`file { path, sha256, executable }`,
@@ -1764,7 +1808,7 @@ whose framework is no longer offered. Each selection adds:
 - `updateState` from the consumer's optional `index: { offered, revoked?, superseded? }`: `revoked`, `superseded`, then `current` or `update-available` against the offered identities, `no-longer-offered` when the index does not offer the item, and `unknown` without an index or recorded identity;
 - `policyState`, only when Enterprise passes `organization: { document }`: the obligation admitting the recorded recipe identity and scope (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here;
 - `approval`: `granted-by-aih` while Core holds an approval it wrote ("Allowed by AIH in the tool; removed with the server"), `needed` when the tool's binding names a permission step the person has not yet taken, `not-needed` when it names none or the person already allowed the server there, or `null` without a recorded tool and kind. An approval the person made themselves is never Core's;
-- `installState`: `interrupted` from an Apply's first write of the selection until all its reviewed operations succeed, otherwise `complete`. Finishing or removing an interrupted install uses a fresh review.
+- `installState`: `interrupted` from just before an Apply's first effect for the selection until all its reviewed operations succeed, otherwise `complete`; `members` then lists only what was actually written. See [interrupted installs](#interrupted-installs).
 
 Inventory 1.1.0 reads the target files of listed members (16 MiB per file, 64 MiB in
 total, reported in `limits.checkedBytes`); members beyond that budget are `unchecked`
