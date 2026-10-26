@@ -1,4 +1,4 @@
-import type { Diagnostic, ExecutionPolicy, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
+import type { Diagnostic, ExecutionPolicy, SelectionMetadata, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
   OrganizationTargetDeclaration } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
@@ -51,7 +51,28 @@ export interface ReviewOperation {
     blockId?: string; startMarker?: string; endMarker?: string; blockAction?: 'set' | 'remove';
     /** Present exactly for `hook.group` operations (prepared-work 1.1.0). */
     hookGroup?: HookGroupReview };
+  /** Prepared work 1.6.0: the selection behind this operation; `null` for generated lifecycle cleanup. */
+  selectionId?: string | null;
 }
+/** UTF-8 bytes and UTF-16 characters, as Catalog measures them. */
+export interface ReviewSize { bytes: number; chars: number }
+/**
+ * Prepared work 1.6.0: one entry per policy selection, in policy order. The item, tool, name, kind and origins repeat
+ * the selection's descriptive metadata; the rest is measured from what this preparation will deliver.
+ */
+export interface PreparedSelection extends Partial<SelectionMetadata> {
+  selectionId: string; managementId: string; scope: 'project' | 'user';
+  /** Each hook command the selection registers, verbatim; private input values are redacted. */
+  hookCommands?: string[];
+  /** The step the user still takes in the tool, from the shipped binding for the named tool and kind. */
+  permissionStep?: string;
+  /** Bound recipe inputs by name only; values never appear in a review. */
+  inputs: string[];
+  /** Delivered files and marker-block text; `alwaysLoaded` needs a kind. Absent when the selection's material was unavailable. */
+  deliveredSize?: ReviewSize & { alwaysLoaded?: ReviewSize };
+}
+/** The reviewed binding a `REVIEW_STALE` diagnostic names in run result 1.4.0. */
+export type StaleBinding = 'policy' | 'recipe' | 'target-file' | 'ownership' | 'input' | 'host' | 'trust';
 export interface HookGroupReview {
   container: string[]; groupId: string; selector: { path: (string | number)[]; valueSha256: string }; action: 'set' | 'remove';
   matchedIndex: number | null; memberBeforeSha256: string | null; memberAfterSha256: string | null;
@@ -71,12 +92,14 @@ export interface OrganizationObligationsReview {
   advisory: (OrganizationAdvisoryResult & { scope: 'project' | 'user' })[];
 }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0' | 'urn:aihq:core:prepared-work:1.5.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0' | 'urn:aihq:core:prepared-work:1.5.0' | 'urn:aihq:core:prepared-work:1.6.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
       helperSha256: string; package: { name: string; version: string } } | TrustInputs | MacosPreparedInputs;
   operations: ReviewOperation[];
+  /** Prepared work 1.6.0 only. */
+  selections?: PreparedSelection[];
   observations: { id: string; reason: string }[];
   conflicts: Diagnostic[]; omissions: Diagnostic[];
   effectiveOptions: { logging: Effective<'on' | 'off'>; inputs: Record<string, { origin: 'default' | 'explicit' | 'private' }> };
@@ -119,15 +142,20 @@ export interface OperationResult {
   verification: { status: 'unverified' | 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string };
   reason?: string; effectsUncertain?: boolean;
 }
+/**
+ * Run result 1.4.0: a `REVIEW_STALE` diagnostic carries `changed` (with reason `binding-changed`) when a reviewed binding
+ * changed, or reason `handle-unavailable` / `digest-mismatch`, which are not binding changes.
+ */
+export interface RunDiagnostic extends Diagnostic { changed?: StaleBinding }
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
-  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0' | 'urn:aihq:core:run-result:1.3.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
+  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0' | 'urn:aihq:core:run-result:1.3.0' | 'urn:aihq:core:run-result:1.4.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };
   effectiveOptions: { logging: Effective<'on' | 'off'> };
-  operations: OperationResult[]; checks: CheckResult[]; diagnostics: Diagnostic[];
+  operations: OperationResult[]; checks: CheckResult[]; diagnostics: RunDiagnostic[];
   record: RecordStatus; recovery?: string; followUp: string[];
   evidence?: AssociationResult[];
   trust?: TrustRunTrust;

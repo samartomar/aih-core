@@ -7,6 +7,7 @@ import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './contracts.js';
 import { readGitHubPolicy, type ReadGitHubPolicyResult } from '../harness/runtime.mjs';
 import { selectTool } from '../harness/tool-registry.mjs';
+import { bindingPermissionStep, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
 import { isNativeClient } from './internal/policy-validation.js';
 import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
@@ -32,7 +33,7 @@ import { readPolicyEvidence } from './internal/policy-evidence.js';
 import type { EvidenceAssociation } from './evidence/types.js';
 import type { NativeClientId } from './internal/native-clients.js';
 import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
-import type { Authorization, CheckResult, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, ResolutionInput, ReviewCheck, ReviewOperation, RunResult } from './host-types.js';
+import type { Authorization, CheckResult, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, PreparedSelection, ResolutionInput, ReviewCheck, ReviewOperation, RunResult, StaleBinding } from './host-types.js';
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import { guardTrustMember } from './internal/trust-custody.js';
 
@@ -88,10 +89,20 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
+const POLICY_14 = 'urn:aihq:core:execution-policy:1.4.0';
 const POLICY_13 = 'urn:aihq:core:execution-policy:1.3.0';
 const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0';
 const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
 const PREPARED_15 = 'urn:aihq:core:prepared-work:1.5.0' as const;
+const PREPARED_16 = 'urn:aihq:core:prepared-work:1.6.0' as const;
+const RESULT_14 = 'urn:aihq:core:run-result:1.4.0' as const;
+/** A reviewed binding that no longer holds at Apply; prepared work 1.6.0 reports which one. */
+class ReviewStale extends Error {
+  constructor(readonly changed: StaleBinding) { super('review-stale'); }
+}
+const stale = (changed: StaleBinding): ReviewStale => new ReviewStale(changed);
+/** Custody guards that refuse because trust or session custody now claims a reviewed path; recovery and permission states pass through. */
+const TRUST_CLAIMS = new Set(['new-custody-legacy-request', 'trust-custody-conflict', 'session-ownership-conflict']);
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
 const RECIPE_10 = 'urn:aihq:core:recipe:1.0.0';
 const RECIPE_11 = 'urn:aihq:core:recipe:1.1.0';
@@ -260,7 +271,7 @@ export function transaction(root: string, directoryCreated?: (path: string) => v
       return create().inspect(path);
     },
     commit(steps: readonly OwnedFileStep[]): void {
-      if (pathPins(root).at(-1)?.identity !== 'absent') throw new Error('review-stale');
+      if (pathPins(root).at(-1)?.identity !== 'absent') throw stale('target-file');
       protectState(); mkdirSync(root, { recursive: true, mode: 0o700 });
       protectState([`content/${basename(root)}`]);
       create().commit(steps);
@@ -411,6 +422,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
     const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
+    const namesSelections = policy.schema === POLICY_14;
+    // Prepared work 1.6.0: what each selection delivers, measured from the bytes this preparation computed.
+    const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[] }>();
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
       let captured: Awaited<ReturnType<typeof captureSelection>>;
@@ -459,6 +473,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
       const recipeIdentity = `sha256:${digest(recipeIdentityDescriptor(recipeSha256, recipe.materials))}`;
+      const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[] };
+      selectionFacts.set(selection.id, facts);
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
         privateInputs: Object.keys(privateInputs[selection.id] ?? {}), path: `/selections/${policy.selections.indexOf(selection)}` });
@@ -514,6 +530,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly))) updateCustody(projected, prior);
           if (op.kind === 'hook.group') {
             const authored = bindHookGroup(op, bound);
+            if (authored.group) facts.hookCommands.push(...hookGroupCommands(redactJson(redactHookBindings(authored.group, op, recipe.inputs), privateValues))
+              .map(command => redactExact(command, privateValues)));
             const selectorSha = sha256(authored.selector.value);
             const descriptor: HookDescriptor = { path, kind: 'hook', format: op.format, container: op.container, groupId: op.groupId,
               selector: { path: authored.selector.path, valueSha256: selectorSha } };
@@ -568,6 +586,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           if (op.kind === 'file.write') {
             after = op.material ? material.readMaterial(op.material) : Buffer.from(resolveString(op.content!, bound));
             if (!after) throw new Error('material-missing');
+            facts.delivered.push({ path, bytes: after, block: false });
           } else if (op.kind === 'config.entries') {
             const entries = op.entries.map(entry => entry.action === 'set' ? { ...entry, value: resolveSlot(entry.value, bound) } : entry);
             details = { format: op.format, entries: entries.map((entry, index) => {
@@ -597,6 +616,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else if (op.kind === 'text.block') {
+            if (op.action === 'set' && op.content) facts.delivered.push({ path, bytes: Buffer.from(resolveString(op.content, bound)), block: true });
             details = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker,
               blockAction: op.action, ...(op.content ? { content: redactExact(resolveString(op.content, bound), privateValues) } : {}) };
             try { after = renderTextBlock(before, { blockId: op.blockId, startMarker: op.startMarker,
@@ -692,7 +712,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
           if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
-            effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details };
+            effects: effect, ownership: ownerState, requires: [...new Set(requires)], checks: preparedChecks.map(item => item.review), details,
+            ...(namesSelections ? { selectionId: selection.id } : {}) };
           steps.push({ review, root, path, ownerKey, initialBefore, before, after, mode, pins, managementId: selection.managementId,
             recipeIdentity, checks, process: preparedProcess, unavailable, resolution, custody, custodyOnly, inherited,
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices } });
@@ -797,7 +818,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
-      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13) {
+      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
           message: 'Bounded configuration custody requires execution-policy 1.2.0 for cleanup.', encountered: policy.schema, supported: [POLICY_12] }];
         return finish();
@@ -814,7 +835,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined;
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
-        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13) {
+        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14) {
           result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
             encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
           return finish();
@@ -850,7 +871,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
         scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, descriptor.path), reason: hookDecision?.reason ?? 'explicit-managed-removal',
           ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
-          ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) } },
+          ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [{ path: descriptor.entry, action: 'remove' as const }] } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) },
+          ...(namesSelections ? { selectionId: null } : {}) },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true,
         custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
@@ -926,12 +948,24 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
-    const base = { schema: obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const selections: PreparedSelection[] | undefined = namesSelections ? policy.selections.map(selection => {
+      const facts = selectionFacts.get(selection.id);
+      const step = selection.tool === undefined || selection.kind === undefined ? undefined : bindingPermissionStep(selection.tool, selection.kind);
+      return { selectionId: selection.id, managementId: selection.managementId, scope: selection.scope,
+        ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
+          kind: selection.kind!, origins: clone(selection.origins!) }),
+        ...(facts?.hookCommands.length ? { hookCommands: facts.hookCommands } : {}),
+        ...(step === undefined ? {} : { permissionStep: step }),
+        inputs: facts?.inputs ?? [],
+        // Unavailable material delivers nothing this preparation could measure.
+        ...(facts ? { deliveredSize: selectionDeliveredSize(selection.kind, facts.delivered) } : {}) };
+    }) : undefined;
+    const base = { schema: namesSelections ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone({ source: organization.read.source, resolvedCommit: organization.read.resolvedCommit,
           blobId: organization.read.blobId, contentDigest: organization.read.contentDigest, policyId: organization.document.id,
           helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
-      operations: steps.map(step => step.review), observations, conflicts, omissions, evidence,
+      operations: steps.map(step => step.review), ...(selections ? { selections } : {}), observations, conflicts, omissions, evidence,
       effectiveOptions: { logging: loggingOption(controls), inputs },
       ...(obligations ? { organizationObligations: obligations } : {}) };
     for (const step of steps) if (step.root && step.path && step.review.effects === 'remove-file') {
@@ -1034,13 +1068,16 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
   const unlocks: (() => void)[] = []; const releases: (() => void)[] = [];
+  // Prepared work 1.6.0 reviews name the changed binding; older reviews keep their original diagnostics.
+  let reportsChangedBinding = false;
   try {
     validateControls(controls); result.effectiveOptions.logging = loggingOption(controls);
     await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
-    result.schema = [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
+    reportsChangedBinding = state.review.schema === PREPARED_16;
+    result.schema = reportsChangedBinding ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
     result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',
@@ -1050,7 +1087,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     dataObject(authorization, ['reviewDigest', 'origin', 'approved', 'allowPartial']);
     if (authorization.approved !== true || !['interactive', 'automation'].includes(authorization.origin) ||
         authorization.allowPartial !== undefined && typeof authorization.allowPartial !== 'boolean') throw new Error('approval-required');
-    if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error('review-stale');
+    if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error(reportsChangedBinding ? 'digest-mismatch' : 'review-stale');
     const allowPartial = authorization.allowPartial ?? false;
     result.authorization = { origin: authorization.origin,
       allowPartial: { value: allowPartial, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' } };
@@ -1059,24 +1096,27 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       // Fresh online authority for this Apply call; Prepare's credential and result are never reused.
       const read = await readOrganization(state.organization.source, controls);
       if (canonicalJson(read.source) !== canonicalJson(state.organization.source) || read.resolvedCommit !== state.organization.resolvedCommit ||
-          read.blobId !== state.organization.blobId || read.contentDigest !== state.organization.contentDigest) throw new Error('review-stale');
+          read.blobId !== state.organization.blobId || read.contentDigest !== state.organization.contentDigest) throw stale('policy');
       let declared: string;
-      try { declared = canonicalJson(clone(state.request.organizationTarget ?? null)); } catch { throw new Error('review-stale'); }
-      if (declared !== canonicalJson(state.organizationTarget ?? null)) throw new Error('review-stale');
+      try { declared = canonicalJson(clone(state.request.organizationTarget ?? null)); } catch { throw stale('policy'); }
+      if (declared !== canonicalJson(state.organizationTarget ?? null)) throw stale('policy');
     }
+    // Each reviewed binding in a fixed order; an unreadable binding counts as changed.
+    const holds = (check: () => boolean): boolean => { try { return check(); } catch { return false; } };
+    const held = state;
     const assertInputs = () => {
-      try {
-        if (!state || homedir() !== state.home || digest(clone(state.request)) !== state.requestDigest ||
-            digest(clone(state.privateInputs ?? {})) !== state.privateDigest || !pinsMatch(state.bindings) ||
-            state.inventory && canonicalJson([...state.inventory].sort()) !== canonicalJson(ownershipInventory().entries.sort())) throw new Error('changed');
-      } catch { throw new Error('review-stale'); }
+      if (!holds(() => homedir() === held.home && pinsMatch(held.bindings))) throw stale('host');
+      if (!holds(() => digest(clone(held.request)) === held.requestDigest)) throw stale('policy');
+      if (!holds(() => digest(clone(held.privateInputs ?? {})) === held.privateDigest)) throw stale('input');
+      if (held.inventory && !holds(() => canonicalJson([...held.inventory!].sort()) === canonicalJson(ownershipInventory().entries.sort()))) throw stale('ownership');
     };
     assertInputs();
     await state.trustParticipant?.recheck();
-    for (const capture of state.captures) if (!await capture.recheck()) throw new Error('review-stale');
+    for (const capture of state.captures) if (!await capture.recheck()) throw stale('recipe');
     const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
-      guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false, state?.trustParticipant?.macosSession === true);
+      try { guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false, state?.trustParticipant?.macosSession === true); }
+      catch (error) { if (reportsChangedBinding && error instanceof Error && TRUST_CLAIMS.has(error.message)) throw stale('trust'); throw error; }
       const live = transaction(step.root).inspect(step.path);
       let pinsOkay = pinsMatch(step.pins ?? []);
       if (!pinsOkay && isManagedContentRoot(step.root) &&
@@ -1087,17 +1127,17 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       if (!pinsOkay || live.state === 'unreadable' ||
           (live.state === 'absent' ? null : sha256(live.bytes)) !== ((initial ? step.initialBefore : step.before) ? sha256((initial ? step.initialBefore : step.before)!) : null))
-        throw new Error('review-stale');
+        throw stale('target-file');
     };
     for (const step of state.steps) assertStep(step, true);
     for (const [root, ownership] of state.ownership)
-      if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
+      if (readOwnership(root).digest !== ownership.digest) throw stale('ownership');
     await preEffectCheck?.();
     if (preEffectCheck) {
       assertInputs();
       for (const step of state.steps) assertStep(step, true);
       for (const [root, ownership] of state.ownership)
-        if (readOwnership(root).digest !== ownership.digest) throw new Error('review-stale');
+        if (readOwnership(root).digest !== ownership.digest) throw stale('ownership');
     }
     const unresolved = state.review.omissions.length > 0 || state.steps.some(step =>
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
@@ -1110,7 +1150,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
-      if (readOwnership(root).digest !== state.ownership.get(root)?.digest) throw new Error('review-stale');
+      if (readOwnership(root).digest !== state.ownership.get(root)?.digest) throw stale('ownership');
       const current = state.ownership.get(root)!.value;
       // Reserve a conservative upper bound for every intermediate receipt,
       // including old members awaiting subtraction and selection intent.
@@ -1173,7 +1213,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           changed = true;
         }
         if (changed) {
-          if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
+          if (readOwnership(root).digest !== tracked.digest) throw stale('ownership');
           protectState([ownershipPath(root)]);
           const sealed = sealOwnership(next);
           const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
@@ -1201,7 +1241,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       assertInputs();
       if (step.path) {
         assertStep(step);
-        if (readOwnership(step.root!).digest !== state.ownership.get(step.root!)?.digest) throw new Error('review-stale');
+        if (readOwnership(step.root!).digest !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
       if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
@@ -1221,7 +1261,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
         assertStep(step);
-        if (readOwnership(step.root).digest !== state.ownership.get(step.root)?.digest) throw new Error('review-stale');
+        if (readOwnership(step.root).digest !== state.ownership.get(step.root)?.digest) throw stale('ownership');
         started = true;
         try {
           const tx = transaction(step.root, path => {
@@ -1305,7 +1345,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         outcomes.get(step.review.id) === true).map(step => step.directoryCleanup ?? {})) as CreatedDirectories;
       if (!Object.keys(reviewed).length) continue;
       const tracked = state.ownership.get(root)!;
-      if (readOwnership(root).digest !== tracked.digest) throw new Error('review-stale');
+      if (readOwnership(root).digest !== tracked.digest) throw stale('ownership');
       const directories = removeCreatedDirectories(root, directoryMap(tracked.value.directories), reviewed,
         Object.entries(tracked.value.members).map(([key, owner]) => owner.descriptor?.path ?? key));
       const sealed = sealOwnership({ ...tracked.value, directories: directoryRecords(directories) });
@@ -1324,12 +1364,14 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     result.completion = reason === 'cancelled' ? 'cancelled' : started ? 'incomplete' : 'rejected';
     if (reason === 'cancelled') for (const check of result.checks)
       if (check.status === 'skipped' && check.reason === 'not-attempted') check.reason = 'cancelled';
-    const code = reason === 'cancelled' ? 'CANCELLED' : reason === 'review-stale' || reason === 'handle-unavailable' ? 'REVIEW_STALE' :
+    const code = reason === 'cancelled' ? 'CANCELLED' : ['review-stale', 'handle-unavailable', 'digest-mismatch'].includes(reason) ? 'REVIEW_STALE' :
       reason === 'certificate-invalid' ? 'INPUT_INVALID' :
       reason === 'approval-required' || reason === 'partial-approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
       reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
-    result.diagnostics.push(authority ? authority.detail : diagnostic(code, safeReason, 'The run could not complete the requested work.'));
+    result.diagnostics.push(authority ? authority.detail : reportsChangedBinding && error instanceof ReviewStale ?
+      { ...diagnostic(code, 'binding-changed', 'A reviewed binding changed after preparation.'), changed: error.changed } :
+      diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');
     try { state?.trustParticipant?.finish(result); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED','trust-custody-pending','Protected trust recovery remains pending.')); }
   } finally {

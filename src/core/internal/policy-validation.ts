@@ -204,11 +204,26 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     message: 'The policy has an invalid dependency, scope or input value.' });
   try { dependencyOrder(policy.selections); } catch (error) { invalid((error as Error).message, '/selections'); }
   const managers = new Set<string>();
+  const current = policy.schema === 'urn:aihq:core:execution-policy:1.4.0';
+  // Execution policy 1.4.0 names one selection per management id; older policies keep per-scope ids.
+  const managementIds = new Set<string>();
+  const excluded = new Set<string>();
+  for (const [index, item] of (policy.excludedItems ?? []).entries()) {
+    const key = canonicalJson([item.framework, item.itemId]);
+    if (excluded.has(key)) invalid('duplicate-excluded-item', `/excludedItems/${index}`);
+    excluded.add(key);
+  }
   policy.selections.forEach((selection, index) => {
     const base = `/selections/${index}`;
     const manager = `${selection.scope}:${selection.managementId}`;
-    if (managers.has(manager)) invalid('duplicate-management-id', base);
-    managers.add(manager);
+    if (managers.has(manager) || current && managementIds.has(selection.managementId)) invalid('duplicate-management-id', base);
+    managers.add(manager); managementIds.add(selection.managementId);
+    if (selection.item !== undefined) {
+      // Descriptive only: an excluded item is never selected again, whatever its content identities or origin.
+      if (excluded.has(canonicalJson([selection.item.framework, selection.item.itemId]))) invalid('excluded-item-selected', `${base}/item`);
+      if (findTool(selection.tool!)?.via !== 'id') invalid('unknown-tool', `${base}/tool`);
+      if (new Set(selection.origins!.map(origin => canonicalJson(origin))).size !== selection.origins!.length) invalid('duplicate-origin', `${base}/origins`);
+    }
     if (policy.mode === 'enterprise') {
       if (selection.organizationSelectionId === undefined) invalid('organization-selection-required', `${base}/organizationSelectionId`);
     } else if (selection.organizationSelectionId !== undefined) {

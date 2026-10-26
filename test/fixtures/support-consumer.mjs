@@ -45,6 +45,6 @@ const targeted = present({ kind: 'prepare', result: organization });
 assert.match(targeted.markdown, /Status: ready/);
 assert.doesNotMatch(targeted.markdown, /Example-Org|project-guidance/);
 
-const future = getGuidance({ kind: 'run', result: { ...read('run-result-1.2-partial'), schema: 'urn:aihq:core:run-result:1.4.0' } }, options);
+const future = getGuidance({ kind: 'run', result: { ...read('run-result-1.2-partial'), schema: 'urn:aihq:core:run-result:1.9.0' } }, options);
 assert.equal(future.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
 console.log('packed support families passed');

@@ -1,0 +1,538 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.6.0",
+  "title": "Core prepared work naming each selection's item, hook commands, permission step, inputs and delivered size",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "useCase",
+    "mode",
+    "target",
+    "inputs",
+    "operations",
+    "selections",
+    "observations",
+    "conflicts",
+    "omissions",
+    "effectiveOptions",
+    "reviewDigest"
+  ],
+  "properties": {
+    "evidence": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/evidence"
+    },
+    "schema": {
+      "const": "urn:aihq:core:prepared-work:1.6.0"
+    },
+    "useCase": {
+      "const": "policy"
+    },
+    "mode": {
+      "enum": [
+        "vibe",
+        "enterprise"
+      ]
+    },
+    "target": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/target"
+    },
+    "inputs": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs"
+    },
+    "operations": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "file.write",
+              "config.entries",
+              "text.block",
+              "file.remove",
+              "process.run",
+              "hook.group"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "effects": {
+            "enum": [
+              "create-file",
+              "replace-file",
+              "remove-file",
+              "already-satisfied",
+              "conflict",
+              "opaque-process",
+              "unavailable"
+            ]
+          },
+          "ownership": {
+            "enum": [
+              "managed",
+              "unowned"
+            ]
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "details": {
+                  "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/reviewDetails"
+                },
+                "kind": {
+                  "enum": [
+                    "file.sha256",
+                    "process.exit"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "purpose",
+                "kind",
+                "details"
+              ]
+            }
+          },
+          "details": {
+            "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/reviewDetails"
+          },
+          "selectionId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "purpose",
+          "kind",
+          "scope",
+          "effects",
+          "ownership",
+          "requires",
+          "checks",
+          "details",
+          "selectionId"
+        ],
+        "if": {
+          "properties": {
+            "kind": {
+              "const": "hook.group"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "then": {
+          "properties": {
+            "details": {
+              "type": "object",
+              "properties": {
+                "hookGroup": {}
+              },
+              "required": [
+                "hookGroup"
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "details": {
+              "not": {
+                "type": "object",
+                "properties": {
+                  "hookGroup": {}
+                },
+                "required": [
+                  "hookGroup"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "selections": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selectionId",
+          "managementId",
+          "scope",
+          "inputs"
+        ],
+        "dependentRequired": {
+          "item": [
+            "tool",
+            "name",
+            "kind",
+            "origins"
+          ],
+          "tool": [
+            "item",
+            "name",
+            "kind",
+            "origins"
+          ],
+          "name": [
+            "item",
+            "tool",
+            "kind",
+            "origins"
+          ],
+          "kind": [
+            "item",
+            "tool",
+            "name",
+            "origins"
+          ],
+          "origins": [
+            "item",
+            "tool",
+            "name",
+            "kind"
+          ]
+        },
+        "properties": {
+          "selectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "managementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "framework",
+              "itemId",
+              "contentSha256",
+              "behaviourSha256"
+            ],
+            "properties": {
+              "framework": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "itemId": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "contentSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "behaviourSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "kind": {
+            "enum": [
+              "skill",
+              "agent",
+              "command",
+              "rule",
+              "hook",
+              "mcp-server",
+              "document"
+            ]
+          },
+          "origins": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/$defs/origin"
+            }
+          },
+          "hookCommands": {
+            "type": "array",
+            "maxItems": 8192,
+            "items": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "permissionStep": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "inputs": {
+            "type": "array",
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "deliveredSize": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bytes",
+              "chars"
+            ],
+            "properties": {
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "alwaysLoaded": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "bytes",
+                  "chars"
+                ],
+                "properties": {
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "chars": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "observations": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/observations"
+    },
+    "conflicts": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/conflicts"
+    },
+    "omissions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/omissions"
+    },
+    "effectiveOptions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/effectiveOptions"
+    },
+    "reviewDigest": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/reviewDigest"
+    },
+    "organizationObligations": {
+      "$ref": "urn:aihq:core:prepared-work:1.5.0#/properties/organizationObligations"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "enterprise"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "policySha256": {},
+              "organization": {}
+            },
+            "required": [
+              "policySha256",
+              "organization"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "not": {
+              "properties": {
+                "organization": {}
+              },
+              "required": [
+                "organization"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "catalogId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "chosen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded",
+            "set"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "in-set"
+            },
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "framework",
+                "setId",
+                "setSha256"
+              ],
+              "properties": {
+                "framework": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "setId": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "setSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "options": {
+              "type": "object",
+              "maxProperties": 64,
+              "propertyNames": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "$ref": "#/$defs/catalogId"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded",
+            "requiredBy"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "required-by"
+            },
+            "requiredBy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "itemId"
+              ],
+              "properties": {
+                "framework": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "itemId": {
+                  "$ref": "#/$defs/catalogId"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

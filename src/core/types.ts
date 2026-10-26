@@ -97,7 +97,28 @@ export interface Recipe {
   operations: Operation[];
   checks: RecipeCheck[];
 }
-export interface Selection {
+/** Catalog's qualified inclusion identity: one reason a resolved item is selected, carried unchanged. */
+export type InclusionOrigin =
+  | { reasonIncluded: 'chosen' }
+  | { reasonIncluded: 'in-set'; set: { framework: string; setId: string; setSha256: string }; options?: Record<string, string[]> }
+  /** `framework` is absent only when the requiring Catalog release publishes no framework identity. */
+  | { reasonIncluded: 'required-by'; requiredBy: { framework?: string; itemId: string } };
+/** A Catalog item named by framework and item id; content identities never take part in matching. */
+export interface CatalogItemRef { framework: string; itemId: string }
+/**
+ * Execution policy 1.4.0: descriptive selection metadata, given all together or not at all. It names the item a
+ * recipe was rendered from and why it was included; it never adds operations, inputs or authority.
+ */
+export interface SelectionMetadata {
+  item: CatalogItemRef & { contentSha256: string; behaviourSha256: string };
+  /** A tool registry id. */
+  tool: string;
+  name: string;
+  kind: 'skill' | 'agent' | 'command' | 'rule' | 'hook' | 'mcp-server' | 'document';
+  /** One entry per simultaneous inclusion, so overlapping sets keep every origin. */
+  origins: InclusionOrigin[];
+}
+export interface Selection extends Partial<SelectionMetadata> {
   id: string;
   managementId: string;
   scope: 'project' | 'user';
@@ -107,9 +128,12 @@ export interface Selection {
   recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
 }
 export interface ExecutionPolicy {
-  schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0' | 'urn:aihq:core:execution-policy:1.2.0' | 'urn:aihq:core:execution-policy:1.3.0';
+  schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0' | 'urn:aihq:core:execution-policy:1.2.0' |
+    'urn:aihq:core:execution-policy:1.3.0' | 'urn:aihq:core:execution-policy:1.4.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
+  /** Execution policy 1.4.0: items left out by framework and item id; a selection naming one makes the policy invalid. */
+  excludedItems?: CatalogItemRef[];
   /** Optional assessment references; never execution authority or a findings gate. */
   evidence?: import('./evidence/types.js').EvidenceAssociation[];
   managedSelections?: { id: string; scope: 'project' | 'user'; members: string[] }[];
