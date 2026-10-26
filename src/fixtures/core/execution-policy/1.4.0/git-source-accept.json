@@ -1,0 +1,39 @@
+{
+  "schema": "urn:aihq:core:execution-policy:1.4.0",
+  "mode": "vibe",
+  "selections": [
+    {
+      "id": "review-checklist",
+      "managementId": "review-checklist",
+      "scope": "project",
+      "configuration": {},
+      "requires": [],
+      "recipe": {
+        "reference": {
+          "source": {
+            "kind": "git",
+            "repository": "https://github.com/example-org/team-skills",
+            "commit": "4f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+            "reachable": true,
+            "archive": {
+              "url": "https://codeload.github.com/example-org/team-skills/tar.gz/4f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c",
+              "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+              "byteLength": 4096
+            }
+          },
+          "path": "example-org-team-skills-4f1e2d3/recipe.json",
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "byteLength": 1024,
+          "materials": [
+            {
+              "id": "skill",
+              "path": "example-org-team-skills-4f1e2d3/skills/review-checklist/SKILL.md",
+              "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+              "byteLength": 96
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

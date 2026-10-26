@@ -3,7 +3,7 @@
 export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, OperationBase, FileOperation, ConfigEntrySet,
   ConfigEntryRemove, ConfigOperation, ConfigMemberOperation, ApprovalMarker, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
   HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
-  InlineMaterial, MaterialRecipeReference, Prerequisite, Recipe, Selection, SelectionMetadata, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationTargetFact,
+  InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance, Prerequisite, Recipe, Selection, SelectionMetadata, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationTargetFact,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
   OrganizationFulfillmentResult } from './types.js';
 export { verifyNativeClient } from './native-verification.js';

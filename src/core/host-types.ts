@@ -1,4 +1,4 @@
-import type { Diagnostic, ExecutionPolicy, SelectionMetadata, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
+import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, SelectionMetadata, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
   OrganizationTargetDeclaration } from './types.js';
 import type { GitHubPolicySource } from '../harness/runtime.mjs';
 import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
@@ -66,6 +66,8 @@ export interface ReviewSize { bytes: number; chars: number }
  */
 export interface PreparedSelection extends Partial<SelectionMetadata> {
   selectionId: string; managementId: string; scope: 'project' | 'user';
+  /** Where a referenced recipe from an exact git commit came from; absent for every other source. */
+  materialSource?: GitMaterialProvenance;
   /** Each hook command the selection registers, verbatim; private input values are redacted. */
   hookCommands?: string[];
   /** The step the user still takes in the tool, from the shipped binding for the named tool and kind. */

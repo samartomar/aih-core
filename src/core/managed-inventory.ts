@@ -15,7 +15,7 @@ import { validateOrganizationPolicy } from './contracts.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Owner } from './internal/state.js';
-import type { CatalogItemRef, InclusionOrigin, OrganizationPolicy, SelectionMetadata } from './types.js';
+import type { CatalogItemRef, GitMaterialProvenance, InclusionOrigin, OrganizationPolicy, SelectionMetadata } from './types.js';
 
 const SCHEMA = 'urn:aihq:core:managed-inventory-result:1.0.0' as const;
 const SCHEMA_11 = 'urn:aihq:core:managed-inventory-result:1.1.0' as const;
@@ -57,6 +57,8 @@ export interface ManagedInventoryMember {
 export interface ManagedInventorySelection11 extends ManagedInventorySelection {
   name: string | null; kind: SelectionMetadata['kind'] | null; framework: string | null;
   item: SelectionMetadata['item'] | null; tool: string | null; origins: InclusionOrigin[];
+  /** The exact git commit the selection was last applied from (`identity` is `owner/repo@<commit>`); absent otherwise. */
+  materialSource?: GitMaterialProvenance;
   members: ManagedInventoryMember[];
   updateState: 'current' | 'update-available' | 'no-longer-offered' | 'superseded' | 'revoked' | 'unknown';
   policyState?: 'required' | 'recommended' | 'permitted' | 'prohibited' | 'not-admitted' | 'unknown';
@@ -368,6 +370,7 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
     check();
     const detail = collected.get(`${row.scope}\0${row.managementId}`) ?? { members: [], items: [] };
     const facts = detail.items.find(item => item.name !== null || item.item !== null) ?? detail.items[0];
+    const source = detail.items.find(item => item.materialSource)?.materialSource;
     const members: ManagedInventoryMember[] = detail.members.map(({ root, key, owner }) => {
       const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
       const state = checkMember(descriptor, live(root, descriptor.path), owner.sha256);
@@ -399,7 +402,7 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
       });
     };
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
-      origins: facts?.origins ?? [], members, updateState: updateState(facts?.item ?? null, request.index),
+      origins: facts?.origins ?? [], ...(source ? { materialSource: { ...source } } : {}), members, updateState: updateState(facts?.item ?? null, request.index),
       ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
         new Set(detail.members.map(member => member.owner.recipeIdentity))) } : {}),
       approval: granted ? 'granted-by-aih' : tool === null || kind === null ? null : bindingPermissionStep(tool, kind) === undefined || givenByPerson() ? 'not-needed' : 'needed',

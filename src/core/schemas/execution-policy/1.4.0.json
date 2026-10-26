@@ -221,7 +221,14 @@
                     ],
                     "properties": {
                       "source": {
-                        "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/source"
+                        "oneOf": [
+                          {
+                            "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/source"
+                          },
+                          {
+                            "$ref": "#/$defs/gitSource"
+                          }
+                        ]
                       },
                       "path": {
                         "type": "string",
@@ -481,6 +488,64 @@
           }
         }
       ]
+    },
+    "gitSource": {
+      "description": "An exact GitHub commit in Catalog's exact git source identity form, with the pinned archive of that commit. The repository is https://github.com/<owner>/<repo>, the commit 40 lowercase hex, reachable true, and the archive URL https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>; Core's validator names each refusal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "commit",
+        "reachable",
+        "archive"
+      ],
+      "properties": {
+        "kind": {
+          "const": "git"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reachable": {
+          "enum": [
+            true,
+            false,
+            "unchecked"
+          ]
+        },
+        "archive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url",
+            "sha256",
+            "byteLength"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "$ref": "urn:aihq:core:recipe:1.0.0#/$defs/sha256"
+            },
+            "byteLength": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 67108864
+            }
+          }
+        }
+      }
     }
   }
 }

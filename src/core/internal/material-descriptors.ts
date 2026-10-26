@@ -11,11 +11,23 @@ export const MATERIAL_LIMITS = Object.freeze({
 });
 
 export interface MaterialMemberDescriptor { id: string; path: string; sha256: string; byteLength: number }
+export type ArchiveSourceDescriptor = { kind: 'archive'; url: string; sha256: string; byteLength: number };
+export type MaterialSourceDescriptor = ArchiveSourceDescriptor | { kind: 'local'; input: string };
+/**
+ * One exact GitHub commit in Catalog's exact git source identity form, acquired only through the pinned archive of that
+ * commit. Core resolves nothing: a branch, tag, short or symbolic name, or an unproven commit is refused.
+ */
+export interface GitSourceDescriptor {
+  kind: 'git'; repository: string; commit: string; reachable: true;
+  archive: { url: string; sha256: string; byteLength: number };
+}
+/** The exact provenance a git source carries into review and custody. */
+export interface GitProvenance { kind: 'git'; repository: string; commit: string; identity: string }
 export interface InlineMaterialDescriptor extends MaterialMemberDescriptor {
-  source: MaterialRecipeReference['source'];
+  source: MaterialSourceDescriptor;
 }
 export interface MaterialRecipeReference {
-  source: { kind: 'archive'; url: string; sha256: string; byteLength: number } | { kind: 'local'; input: string };
+  source: MaterialSourceDescriptor | GitSourceDescriptor;
   path: string;
   sha256: string;
   byteLength: number;
@@ -61,7 +73,40 @@ export function memberDescriptor(value: unknown): MaterialMemberDescriptor {
   return { id: value.id, path: memberPath(value.path), sha256: value.sha256, byteLength: value.byteLength };
 }
 export type CheckedReference = Omit<MaterialRecipeReference, 'materials'> & { materials: MaterialMemberDescriptor[] };
-export function checkedSource(source: unknown): MaterialRecipeReference['source'] {
+const githubRepository = /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})$/u;
+/** The owner and repository of one canonical https://github.com/<owner>/<repo> URL; the single admission rule. */
+export function githubName(repository: unknown): { owner: string; repo: string } | undefined {
+  const match = typeof repository === 'string' ? githubRepository.exec(repository) : null;
+  if (!match || match[2] === '.' || match[2] === '..' || match[2]!.toLowerCase().endsWith('.git')) return undefined;
+  return { owner: match[1]!, repo: match[2]! };
+}
+/**
+ * The named refusal for a git source, or undefined when it is one exact, reachable GitHub commit whose archive URL is
+ * that commit's own archive. Only exact identity is accepted; Catalog owns resolving any moving reference.
+ */
+export function gitSourceProblem(source: unknown): string | undefined {
+  if (!exact(source, ['kind', 'repository', 'commit', 'reachable', 'archive']) || source.kind !== 'git') return 'invalid-git-source';
+  if (typeof source.commit !== 'string' || !/^[a-f0-9]{40}$/u.test(source.commit)) return 'git-commit-not-exact';
+  if (source.reachable !== true) return 'git-commit-not-reachable';
+  const name = githubName(source.repository);
+  if (!name) return 'git-repository-unsupported';
+  const archive = source.archive;
+  if (!exact(archive, ['url', 'sha256', 'byteLength']) || !digest(archive.sha256) ||
+      !byteLength(archive.byteLength, MATERIAL_LIMITS.compressedBytes) || archive.byteLength < 1) return 'invalid-archive-source';
+  if (archive.url !== `https://codeload.github.com/${name.owner}/${name.repo}/tar.gz/${source.commit}`) return 'git-archive-not-exact';
+  return undefined;
+}
+/** `owner/repo@<commit>` with the repository URL and commit, for a source `gitSourceProblem` accepted. */
+export function gitProvenance(source: GitSourceDescriptor): GitProvenance {
+  const name = githubName(source.repository)!;
+  return { kind: 'git', repository: source.repository, commit: source.commit, identity: `${name.owner}/${name.repo}@${source.commit}` };
+}
+export function checkedSource(source: unknown, admitGit = false): MaterialRecipeReference['source'] {
+  if (admitGit && plain(source) && source.kind === 'git') {
+    const problem = gitSourceProblem(source);
+    if (problem) fail(problem);
+    return source as unknown as GitSourceDescriptor;
+  }
   if (!plain(source) || (source.kind !== 'local' && source.kind !== 'archive')) fail('invalid-source');
   if (source.kind === 'local') {
     if (!exact(source, ['kind', 'input']) || typeof source.input !== 'string' ||
@@ -81,7 +126,7 @@ export function checkedReference(value: unknown): CheckedReference {
       !digest(value.sha256) || !byteLength(value.byteLength, MATERIAL_LIMITS.recipeBytes) ||
       !Array.isArray(value.materials) || value.materials.length > MATERIAL_LIMITS.regularMembers) fail('invalid-reference');
   const path = memberPath(value.path);
-  const source = checkedSource(value.source);
+  const source = checkedSource(value.source, true);
   const materials = value.materials.map(memberDescriptor);
   const ids = new Set<string>();
   const paths = new Map<string, string>();
@@ -110,7 +155,7 @@ export function checkedInlineMaterials(value: unknown): { materials: CheckedInli
     if (!exact(item, ['id', 'path', 'sha256', 'byteLength', 'source'])) fail('invalid-inline-material');
     const member = memberDescriptor({ id: item.id, path: item.path, sha256: item.sha256,
       byteLength: item.byteLength });
-    return { ...member, source: checkedSource(item.source) };
+    return { ...member, source: checkedSource(item.source) as MaterialSourceDescriptor };
   });
   const ids = new Set<string>();
   const paths = new Map<string, string>();
