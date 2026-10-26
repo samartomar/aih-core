@@ -84,7 +84,6 @@ export function classify(image: Image, project: string, home: string, scope: 'pr
   return custody;
 }
 
-
 const diagnostic = (code: string, reason: string, message: string, guidance?: string): Diagnostic =>
   ({ code, reason, message, ...(guidance === undefined ? {} : { guidance }) });
 /**
