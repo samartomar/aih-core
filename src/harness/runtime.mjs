@@ -1071,3 +1071,5 @@ export async function diagnose(request, controls = {}) {
     status: cancelled ? 'cancelled' : 'completed', tools, observations, checks, diagnostics, repairChoices,
     limits: { budgetMs, elapsedMs: Math.ceil(performance.now() - started), maxActiveProbes: profile.maxActiveProbes } };
 }
+
+export { getTrustSnapshot, getVerificationTrust, createTufTrustClient, getCurrentTrustStatus, getCatalogIndexTrust } from './trust-update.mjs';

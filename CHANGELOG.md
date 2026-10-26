@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Add an optional, caller-selected TUF trust-update client through
+`@aihq/core/harness/runtime`. Static shipped trust remains the default with no
+automatic refresh. Explicit updates retain historical keys/publisher policies,
+expose current revocation separately, carry Scan policies, and provide the named
+Catalog `sources[].trust` handoff. Local generated-key packed consumer tests
+cover metadata/target refusal and unchanged historical authentication. No live
+root ceremony, signing, publication or end-to-end Catalog TUF acceptance is claimed.
+
+
 Find, finish and remove interrupted installs. Apply records a pending receipt in
 protected custody immediately before its first effect, and writes ahead the members
 each file effect is about to change, bound to the identity of the file it publishes. Inventory 1.1.0 then reports an install that did
