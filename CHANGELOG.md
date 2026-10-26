@@ -7,8 +7,10 @@ supplied set membership. 1.2.0 keeps every 1.1.0 rule (exact recipe admission, i
 lifecycle permissions, client, repository and scope selectors, contradiction rejection
 and runtime prohibition enforcement) and adds an optional `content: { kind?, item?,
 framework?, set? }` selector. A content-only entry requires, recommends or prohibits
-content and never admits a selection; a recipe entry with `content` admits only matching
-content. Set membership is Catalog-resolved data supplied to
+content and never admits a selection; a content-only `permitted` entry is invalid
+(`content-permitted-without-recipe`), and a recipe entry with `content` admits only
+matching content. Prepared work 1.6.0 `organizationObligations` also reviews content-only
+entries (with `content`, and `recipeIdentity` optional) and reports `unavailable` sets. Set membership is Catalog-resolved data supplied to
 `validateOrganizationPolicy(document, { setMembers })`, the previews, Prepare
 (`organizationSetMembers`) and inventory; without it a set selector is reported
 `unavailable`, never matched, and admission fails closed. A document that requires and
