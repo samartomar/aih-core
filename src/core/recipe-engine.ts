@@ -21,7 +21,7 @@ import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256
 import { ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
-import { configMemberBytes, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
+import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, upsertItem, type ItemFacts, type MemberCheck } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
@@ -440,7 +440,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
     const namesSelections = policy.schema === POLICY_14;
     // Prepared work 1.6.0: what each selection delivers, measured from the bytes this preparation computed.
-    const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[]; approves: boolean }>();
+    const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[] }>();
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
       let captured: Awaited<ReturnType<typeof captureSelection>>;
@@ -489,8 +489,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
       const recipeIdentity = `sha256:${digest(recipeIdentityDescriptor(recipeSha256, recipe.materials))}`;
-      const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[],
-        approves: recipe.operations.some(op => (op.kind === 'config.entries' || op.kind === 'config.member') && op.approval !== undefined) };
+      const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[] };
       selectionFacts.set(selection.id, facts);
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
@@ -654,7 +653,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // A tool approval: the person's own choice there is never replaced, adopted or owned by Core.
           const approval = (op.kind === 'config.entries' || op.kind === 'config.member') ? op.approval : undefined;
           const descriptors: ByteMember[] = op.kind === 'config.entries' ? op.entries.map(entry => ({ path: path!, kind: 'entry', format: op.format, entry: entry.path })) :
-            op.kind === 'config.member' ? [{ path, kind: 'member', format: op.format, container: op.container, valueSha256: sha256(canonicalJson(op.value.literal)) }] :
+            op.kind === 'config.member' ? [{ path, kind: 'member', format: op.format, container: op.container, valueSha256: memberDigest(op.value.literal) }] :
             op.kind === 'text.block' ? [{ path, kind: 'block', blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker }] : [{ path, kind: 'file' }];
           stepMembers = descriptors;
           try {
@@ -929,7 +928,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // A member the person already deleted stays deleted: only Core's present, unchanged value is given back.
           const recorded = bytes !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
           if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
-          else ({ bytes: after, heir } = subtractMember(descriptor, before, owner.tomlTable, owner.createdContainer === true));
+          else ({ bytes: after, heir } = subtractMember(descriptor, before, owner));
         }
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
@@ -1038,8 +1037,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
     const selections: PreparedSelection[] | undefined = namesSelections ? policy.selections.map(selection => {
       const facts = selectionFacts.get(selection.id);
-      // A selection whose recipe writes the tool's approval for its server no longer waits for the person's OK there.
-      const step = selection.tool === undefined || selection.kind === undefined || facts?.approves ? undefined : bindingPermissionNotice(selection.tool, selection.kind);
+      // The server no longer waits for the person's OK when this review writes its approval or finds it already given;
+      // a denied or unavailable approval still does.
+      const approved = steps.some(step => step.authored?.selectionId === selection.id && step.review.details.approval !== undefined &&
+        step.review.effects !== 'conflict' && step.review.effects !== 'unavailable');
+      const step = selection.tool === undefined || selection.kind === undefined || approved ? undefined : bindingPermissionNotice(selection.tool, selection.kind);
       return { selectionId: selection.id, managementId: selection.managementId, scope: selection.scope,
         ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
           kind: selection.kind!, origins: clone(selection.origins!) }),

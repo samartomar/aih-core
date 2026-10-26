@@ -14,9 +14,10 @@ entry at the server's key, or one member through the new recipe 1.4.0 operation
 any other shape is refused with `approval-shape-unsupported`. Core never replaces or
 adopts an existing choice: an approval already there stays unowned, a denial is a
 `STATE_CONFLICT` (`approval-denied`), and removal takes only the approval Core wrote
-(`granted-by-aih` in inventory), keeping a later edit by the person. A sensitive MCP
-input is written into the tool's configuration only as the reference
-`${<input name>}`; its value travels only in the live request. Recipe 1.4.0, its
+(`granted-by-aih` in inventory), keeping a later edit by the person; a recipe holds
+at most one approval, for a server it registers. An MCP input is written into the
+tool's configuration only as the reference `${<input name>}`; its value travels
+only in the live request. Recipe 1.4.0, its
 schema and fixtures are published, and execution policy 1.4.0 admits it. Core never
 writes an approve-all switch. Unpublished candidate for the sole 0.1.0 release effort.
 

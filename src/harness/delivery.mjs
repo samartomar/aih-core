@@ -12,6 +12,9 @@ const PLACEHOLDER = /\{([^{}]*)\}/g;
 const CATALOG_PLACEHOLDERS = new Set(['projectDir', 'homeDir', 'itemDir', 'pluginRoot']);
 const INTERPRETERS = new Set(['node', 'bash', 'python', 'pwsh']);
 const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** The MCP registration operation id; the one approval a recipe grants depends on it. */
+const REGISTER_SERVER = 'register-server';
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 // Kinds a tool must read natively: there are no reference files, so these are never delivered where unread.
 const NATIVE_ONLY = new Set(['agent', 'command']);
 // How each hook protocol's runtime names the project and home folders inside a hook command.
@@ -248,7 +251,7 @@ function approvalOperation(binding, register, plan, scope, key) {
       { guidance: register.permissionStep ? permissionNotice(label, register.permissionStep) : `Approve the server in ${label}.` });
   const base = { id: 'approve-server', purpose: `Allow the ${key} MCP server in ${label}`, scope,
     target: target(plan.base, segmentsOf(location.file)), format: location.format };
-  const tail = { approval: { tool: binding.tool }, requires: ['register-server'], checks: [] };
+  const tail = { approval: { tool: binding.tool }, requires: [REGISTER_SERVER], checks: [] };
   if (location.shape === 'object-keyed') return { ...base, kind: 'config.entries',
     entries: [{ path: [...location.container, key], action: 'set', value: { literal: location.approved } }], ...tail };
   return { ...base, kind: 'config.member', container: [...location.container], action: 'add', value: { literal: key },
@@ -325,14 +328,16 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
       } else invalid('item-invalid', `${at}/transport`, 'Expected stdio, http or sse.');
       for (const field of ['env', 'headers']) for (const [name, value] of Object.entries(isRecord(payload[field]) ? payload[field] : {})) {
         if (isRecord(value) && typeof value.input === 'string' && Object.hasOwn(info.inputs, value.input)) {
+          // An input value is never written into a tool's configuration: the entry holds a reference by input name,
+          // which the tool resolves from its environment, and the value itself travels only in the live request.
+          if (!ENV_NAME.test(value.input)) unavailable('input-reference-invalid', `${at}/${field}/${name}`,
+            'An MCP input is written as a ${NAME} reference, so its name must be a valid environment variable name.');
           inputs[value.input] = info.inputs[value.input];
-          // A sensitive value is never written into a tool's configuration: the entry holds a reference by input
-          // name, and the value itself travels only in the live request.
-          entries.push(entry([field, name], info.inputs[value.input]?.sensitive === true ? { literal: `\${${value.input}}` } : { input: value.input }));
+          entries.push(entry([field, name], { literal: `\${${value.input}}` }));
         } else if (isRecord(value) && Object.hasOwn(value, 'value')) entries.push(entry([field, name], { literal: value.value }));
         else invalid('item-invalid', `${at}/${field}/${name}`, 'Expected an input reference or a value.');
       }
-      operations.push({ id: 'register-server', purpose: `Register the ${payload.key} MCP server in ${register.file}`, kind: 'config.entries',
+      operations.push({ id: REGISTER_SERVER, purpose: `Register the ${payload.key} MCP server in ${register.file}`, kind: 'config.entries',
         scope, target: target(plan.base, segmentsOf(register.file)), format: register.format, entries, requires: [], checks: [] });
       if (grantApproval) operations.push(approvalOperation(binding, register, plan, scope, payload.key));
     }

@@ -159,7 +159,8 @@ export function blockMemberBytes(before: Buffer | null, edit: TextBlockEdit): Bu
 
 /** Recipe 1.4.0 `config.member`: one scalar member of a JSON/JSONC array, identified by its canonical value. */
 export interface MemberEdit { container: string[]; action: 'add' | 'remove'; value: string | boolean | number; exclusiveWith?: string[][] }
-const memberDigest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
+/** The identity of an array member: the SHA-256 of its canonical JSON value. */
+export const memberDigest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 /** The array at `container`, or undefined when absent; every parent is an object and the node is an array. */
 function memberArray(root: Node, container: string[]): Node | undefined {
   for (let length = 1; length < container.length; length += 1) {
@@ -185,10 +186,10 @@ export function configArrayMemberBytes(format: 'json' | 'jsonc', before: Buffer 
 }
 /**
  * Adds or removes one array member, keeping every other member and all text outside that member. Adding a value
- * already present changes nothing; a value found in an `exclusiveWith` array is `member-excluded`. `dropEmpty`
- * removes the array itself once removing the member leaves it empty (Core created it).
+ * already present changes nothing; a value found in an `exclusiveWith` array is `member-excluded`. With `dropEmpty`,
+ * removing the last member also removes the array itself (Core created it).
  */
-export function renderConfigMember(format: 'json' | 'jsonc', before: Buffer | null, edit: MemberEdit, dropEmpty = false): Buffer {
+export function renderConfigMember(format: 'json' | 'jsonc', before: Buffer | null, edit: MemberEdit, { dropEmpty = false }: { dropEmpty?: boolean } = {}): Buffer {
   if (!edit || !Array.isArray(edit.container) || !edit.container.length || edit.container.length > 32 ||
       edit.container.some(segment => typeof segment !== 'string' || !segment || segment.length > 256 || /[\u0000-\u001f\u007f]/u.test(segment)) ||
       !['add', 'remove'].includes(edit.action) || !['string', 'boolean', 'number'].includes(typeof edit.value) ||

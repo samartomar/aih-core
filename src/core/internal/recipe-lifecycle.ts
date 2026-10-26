@@ -31,19 +31,19 @@ export function memberBytes(member: ByteMember, bytes: Buffer | null): Buffer | 
  * A recorded created TOML table also loses its header once the last managed key is gone; `heir` is the table that then
  * inherits the added line break. An array Core created (`createdContainer`) goes with its last member.
  */
-export function subtractMember(member: ByteMember, bytes: Buffer | null, tomlTable?: TomlTableCustody, createdContainer = false): { bytes: Buffer | null; heir?: string } {
+export function subtractMember(member: ByteMember, bytes: Buffer | null, custody: { tomlTable?: TomlTableCustody; createdContainer?: true } = {}): { bytes: Buffer | null; heir?: string } {
   if (member.kind === 'file') return { bytes: null };
   if (member.kind === 'member') {
     const found = memberBytes(member, bytes);
     if (bytes === null || found === null) return { bytes };
     return { bytes: renderConfigMember(member.format, bytes, { container: member.container, action: 'remove',
-      value: JSON.parse(found.toString('utf8')) as string | boolean | number }, createdContainer) };
+      value: JSON.parse(found.toString('utf8')) as string | boolean | number }, { dropEmpty: custody.createdContainer === true }) };
   }
   if (member.kind === 'entry') {
     if (bytes === null) return { bytes: null };
     const removed = renderConfigEntries(member.format, bytes, [{ path: member.entry, action: 'remove' }]);
     const table = member.format === 'toml' ? tomlTableOf(member.entry) : undefined;
-    return table && tomlTable ? removeCreatedTomlTable(removed, table.segments, tomlTable) : { bytes: removed };
+    return table && custody.tomlTable ? removeCreatedTomlTable(removed, table.segments, custody.tomlTable) : { bytes: removed };
   }
   return { bytes: renderTextBlock(bytes, { ...member, action: 'remove' }) };
 }

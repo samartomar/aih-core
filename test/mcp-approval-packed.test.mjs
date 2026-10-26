@@ -29,7 +29,7 @@ test('a packed consumer allows one MCP server, never overwrites a choice and nev
     copyFileSync(new URL('./fixtures/mcp-approval-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 13, JSON.stringify(receipt.checks));
+    assert.equal(receipt.checks.length, 16, JSON.stringify(receipt.checks));
     writeFileSync(join(consumer, 'types.mts'), `
       import { renderDelivery, toolBindings } from '@aihq/core/harness';
       import type { ApprovalLocation, CatalogItem, DeliveryRefusal, ItemRef, RenderedDelivery } from '@aihq/core/harness';

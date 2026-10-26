@@ -125,11 +125,34 @@ await check('compatibility says the server still needs your OK in the tool', asy
   assert.equal(result.items[0].permissionStep, 'Still needs your OK in Claude Code. Approve the project MCP server in Claude Code.');
 });
 
-await check('a sensitive MCP input is written only as a reference by name, never as a value', async () => {
-  const { recipe } = renderDelivery({ tool: 'claude', item: github, binding: toolBindings[0], scope: 'project' });
+const ORG = 'acme-visible-org';
+const configured = catalogItem({ id: 'issues', kind: 'mcp-server', files: { LICENSE: 'MIT\n' },
+  requirements: { inputs: { githubToken: { type: 'string', required: true, sensitive: true }, org: { type: 'string', required: true } } },
+  payload: { key: 'issues', transport: 'stdio', command: 'npx', env: { GITHUB_TOKEN: { input: 'githubToken' }, GITHUB_ORG: { input: 'org' } } } });
+
+await check('an MCP input is written only as a reference by name, never as a value, sensitive or not', async () => {
+  const { recipe } = renderDelivery({ tool: 'claude', item: configured, binding: toolBindings[0], scope: 'project' });
   const register = recipe.operations.find(op => op.id === 'register-server');
-  assert.deepEqual(register.entries.find(entry => entry.path.at(-1) === 'GITHUB_TOKEN').value, { literal: '${githubToken}' });
-  assert.deepEqual(recipe.inputs, { githubToken: { type: 'string', required: true, sensitive: true } });
+  assert.deepEqual(register.entries.filter(entry => entry.path[3]?.startsWith('GITHUB_')).map(entry => [entry.path.at(-1), entry.value]),
+    [['GITHUB_TOKEN', { literal: '${githubToken}' }], ['GITHUB_ORG', { literal: '${org}' }]]);
+  assert.deepEqual(recipe.inputs, { githubToken: { type: 'string', required: true, sensitive: true }, org: { type: 'string', required: true } });
+  const dotted = catalogItem({ id: 'dotted', kind: 'mcp-server', files: { LICENSE: 'MIT\n' },
+    requirements: { inputs: { 'api.key': { type: 'string', required: true, sensitive: true } } },
+    payload: { key: 'dotted', transport: 'stdio', command: 'npx', env: { KEY: { input: 'api.key' } } } });
+  const refused = renderDelivery({ tool: 'claude', item: dotted, binding: toolBindings[0], scope: 'project' });
+  assert.deepEqual([refused.code, refused.reason], ['PREREQUISITE_UNAVAILABLE', 'input-reference-invalid']);
+});
+
+await check('Core accepts an approval only for one server its recipe registers: never several, never a switch', async () => {
+  const { recipe } = renderDelivery({ tool: 'claude', item: github, binding: toolBindings[0], scope: 'project', grantApproval: ref(github) });
+  const approve = recipe.operations.find(op => op.id === 'approve-server');
+  const reasons = operations => validateRecipe({ ...recipe, operations }).diagnostics.map(item => item.reason);
+  const allSwitch = { ...approve, id: 'approve-all', kind: 'config.entries', entries: [{ path: ['enableAllProjectMcpServers'], action: 'set', value: { literal: true } }] };
+  delete allSwitch.container; delete allSwitch.action; delete allSwitch.value; delete allSwitch.exclusiveWith;
+  assert.deepEqual(reasons([recipe.operations[0], allSwitch]), ['approval-server-unregistered']);
+  assert.deepEqual(reasons([...recipe.operations, { ...approve, id: 'approve-other', value: { literal: 'other' } }]), ['approval-one-server']);
+  assert.deepEqual(reasons([recipe.operations[0], { ...approve, requires: [] }]), ['approval-server-unregistered']);
+  assert.deepEqual(reasons(recipe.operations), []);
 });
 
 // Engine flow in a disposable project and home.
@@ -219,6 +242,15 @@ await check('an array Core created goes with the last approval Core added, resto
   assert.deepEqual(JSON.parse(read(settings(root))), { theme: 'dark' });
 });
 
+await check('without an approvals file, grant then remove leaves no approval location behind', async () => {
+  const root = project('grant-no-file');
+  await applied(await prepared(root, policy([selection(github)]), secrets(github)), secrets(github));
+  assert.deepEqual(JSON.parse(read(settings(root))), { enabledMcpjsonServers: ['github'] });
+  assert.equal((await applied(await remove(root, github))).completion, 'complete');
+  // The file Core created to hold the location stays as an empty object.
+  assert.deepEqual(JSON.parse(read(settings(root))), {});
+});
+
 await check('a server the person already approved is left as it is: not rewritten, not owned, kept on removal', async () => {
   const root = project('preapproved');
   const earlier = '{ "enabledMcpjsonServers": ["github"] }\n';
@@ -227,9 +259,11 @@ await check('a server the person already approved is left as it is: not rewritte
   assert.equal(ready.status, 'ready', JSON.stringify(ready.diagnostics));
   const approve = ready.review.operations.find(op => op.id === 'github/approve-server');
   assert.deepEqual([approve.effects, approve.ownership], ['already-satisfied', 'unowned']);
+  assert.equal(ready.review.selections[0].permissionStep, undefined, 'already allowed: no OK still needed');
   await applied(ready, secrets(github));
   assert.equal(read(settings(root)), earlier);
-  assert.notEqual((await inventory(root)).selections.find(item => item.managementId === 'github-managed').approval, 'granted-by-aih');
+  assert.equal((await inventory(root)).selections.find(item => item.managementId === 'github-managed').approval, 'not-needed',
+    "the person's own approval is seen, never claimed by Core");
   assert.equal((await applied(await remove(root, github))).completion, 'complete');
   assert.equal(read(settings(root)), earlier, "the person's approval stays after removal");
 });
@@ -242,6 +276,7 @@ await check('a server the person denied is a STATE_CONFLICT and is never overwri
   assert.equal(blocked.status, 'partial');
   assert.deepEqual(blocked.diagnostics.filter(item => item.code === 'STATE_CONFLICT').map(item => item.reason), ['approval-denied']);
   assert.equal(blocked.review.operations.find(op => op.id === 'github/approve-server').effects, 'conflict');
+  assert.equal(blocked.review.selections[0].permissionStep, 'Still needs your OK in Claude Code. Approve the project MCP server in Claude Code.');
   const replace = await prepare({ useCase: 'policy', policy: policy([selection(github)]), target: { project: root },
     resolutions: [{ selectionId: 'github', operationId: 'approve-server', choice: 'replace', observedSha256: sha256(earlier) }] }, { logging: 'off', ...secrets(github) });
   assert.deepEqual([replace.status, replace.diagnostics[0].reason], ['invalid', 'resolution-invalid']);
@@ -295,9 +330,20 @@ await check('a server not ticked still needs the OK in the tool: preview and inv
   assert.equal(JSON.parse(read(join(root, '.mcp.json'))).mcpServers.github.env.GITHUB_TOKEN, '${githubToken}');
 });
 
+await check('a configured input value is never reviewed or written either', async () => {
+  const root = project('configured');
+  const chosen = { ...selection(configured, toolBindings[0], false), configuration: { org: ORG } };
+  const ready = await prepared(root, policy([chosen]), secrets(configured));
+  assert.deepEqual(ready.review.selections[0].inputs, ['githubToken', 'org']);
+  await applied(ready, secrets(configured));
+  assert.equal(read(join(root, '.mcp.json')).includes(ORG), false);
+  assert.equal(JSON.parse(read(join(root, '.mcp.json'))).mcpServers.issues.env.GITHUB_ORG, '${org}');
+});
+
 await check('MCP input values appear in no preview, receipt, run result, inventory, history or written file: only the name', async () => {
   const published = JSON.stringify(outputs);
   assert.equal(published.includes(SECRET), false);
+  assert.equal(published.includes(ORG), false);
   assert.equal(published.includes(sha256(SECRET)), false);
   assert.equal(published.includes('githubToken'), true);
   const files = [];

@@ -647,11 +647,14 @@ length.
   refused with `native-only-kind` where the binding records the tool not reading
   that kind or names no location for it. An MCP server delivers its registration
   under `register.container` and `payload.key`. An input-backed `env` or `headers`
-  value becomes a recipe input: a non-sensitive one is bound at Prepare, and a
-  sensitive one is written only as the reference `${<input name>}`, never as its
-  value. Input values travel only in the live request (`controls.privateInputs`);
-  where the tool reads only literal values in its configuration, the reference
-  is still what Core writes, with no literal fallback.
+  value stays a declared recipe input, so the review names it, but the
+  configuration holds only the reference `${<input name>}`, never a value, for
+  sensitive and ordinary inputs alike. Set that environment variable where the
+  tool runs. The input name must be a valid environment variable name
+  (`input-reference-invalid` otherwise). Input values travel only in the live
+  request (`controls.privateInputs` and configuration) and are written nowhere;
+  where a tool reads only literal values in its configuration, the reference is
+  still what Core writes, with no literal fallback.
 - **Hooks.** The binding must speak the hook's `protocol` (`hookProtocols`) and
   map its `event` (`hookEvents`), else `protocol-not-spoken`. Scripts are written
   to `<hooks root>/<itemId>/`, and one group is registered in `register.file` at
@@ -1665,7 +1668,11 @@ admitted by execution policy 1.4.0. Each recipe 1.4.0 operation kind is in
   refused by the schema, and so is anything other than one member.
 - **`approval: { tool }`** on a one-entry JSON or JSONC `config.entries` set, or on a
   `config.member` add, marks the edit as the person's OK for one MCP server in that
-  tool (`approval-entry`, `approval-member` otherwise).
+  tool (`approval-entry`, `approval-member` otherwise). A recipe holds at most one
+  approval (`approval-one-server`), and it must require a `config.entries`
+  operation of the same recipe that registers that server, the entry's last key or
+  the member's value naming it (`approval-server-unregistered`). So a recipe can
+  never mark a global switch, such as an approve-all setting, as an approval.
 
 Core applies an approval only where no choice was made yet:
 
@@ -1680,13 +1687,15 @@ Core applies an approval only where no choice was made yet:
   Custody records a `config-entry` or `config-member` member and an
   `approval-change { tool, file, pointer }`, and inventory 1.1.0 reports
   `approval: 'granted-by-aih'`. The selection's review entry no longer says the
-  server still needs your OK.
+  server still needs your OK; neither does it for an already approved server,
+  while a denied one still does.
 - **Removed.** Removing the server removes only the approval Core wrote, which
   restores the location's earlier state (Core never replaces an earlier value, so
   there is none to write back). When the person has since changed that approval,
   removal keeps their edit: the review reports the member as a `STATE_CONFLICT`
   (`managed-content-changed`) and the run result as `kept`. Removal preparation
-  1.2.0's named `keep-changed` action is not part of this Core.
+  1.2.0's named `keep-changed` action is not part of this Core. A file Core created
+  only to hold the location stays behind as an empty object.
 
 Only the approval file Core writes is read: an approval or denial the tool records
 elsewhere (for example in the user's own state) is not seen.
@@ -1750,13 +1759,15 @@ whose framework is no longer offered. Each selection adds:
 - `members[]`, each member's `kind`, `path` (with `pointer` — for a `config-member`, the array's pointer —, `blockId` or `groupId`) and `fileState`: `matches`, `changed`, `missing` or `unchecked`, and for marker blocks `block-changed` or `block-missing`;
 - `updateState` from the consumer's optional `index: { offered, revoked?, superseded? }`: `revoked`, `superseded`, then `current` or `update-available` against the offered identities, `no-longer-offered` when the index does not offer the item, and `unknown` without an index or recorded identity;
 - `policyState`, only when Enterprise passes `organization: { document }`: the obligation admitting the recorded recipe identity and scope (`required`, `recommended`, `permitted` or `prohibited`), `not-admitted`, or `unknown` when an entry's client or repository selector cannot be evaluated here;
-- `approval`: `granted-by-aih` while Core holds an approval it wrote ("Allowed by AIH in the tool; removed with the server"), `needed` when the tool's binding names a permission step, `not-needed`, or `null` without a recorded tool and kind. An approval the person made themselves is never Core's, so it reads `needed`;
+- `approval`: `granted-by-aih` while Core holds an approval it wrote ("Allowed by AIH in the tool; removed with the server"), `needed` when the tool's binding names a permission step the person has not yet taken, `not-needed` when it names none or the person already allowed the server there, or `null` without a recorded tool and kind. An approval the person made themselves is never Core's;
 - `installState`: `interrupted` from an Apply's first write of the selection until all its reviewed operations succeed, otherwise `complete`. Finishing or removing an interrupted install uses a fresh review.
 
 Inventory 1.1.0 reads the target files of listed members (16 MiB per file, 64 MiB in
 total, reported in `limits.checkedBytes`); members beyond that budget are `unchecked`
 and the result is `incomplete`. It never exposes a member digest, a `preExisting` or
-approval value, or a private-input hash. When a private input value formed part of a
+approval value, or a private-input hash. A server the person already allowed at the
+binding's approval location reads `approval: 'not-needed'`; the location is read
+within the same check budget, and an unreadable one leaves it `needed`. When a private input value formed part of a
 member's path, Apply records the redacted path in protected custody and the inventory
 publishes only that (`[REDACTED]` in place of the value); custody written before this
 version carries no such record. The schema is

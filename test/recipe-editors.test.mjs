@@ -123,7 +123,7 @@ test('a JSONC array member is added and removed alone, giving back the earlier b
   assert.deepEqual(renderConfigMember('jsonc', added, add), added, 'adding a present member changes nothing');
   assert.equal(renderConfigMember('jsonc', added, { ...add, action: 'remove' }).toString(), original);
   assert.equal(renderConfigMember('json', Buffer.from('{"a":[]}'), { container: ['a'], action: 'add', value: 1 }).toString(), '{"a":[1]}');
-  assert.equal(renderConfigMember('json', Buffer.from('{"a":[1]}'), { container: ['a'], action: 'remove', value: 1 }, true).toString(), '{}');
+  assert.equal(renderConfigMember('json', Buffer.from('{"a":[1]}'), { container: ['a'], action: 'remove', value: 1 }, { dropEmpty: true }).toString(), '{}');
   assert.equal(renderConfigMember('json', Buffer.from('{"a":["x","y"]}'), { container: ['a'], action: 'remove', value: 'x' }).toString(), '{"a":["y"]}');
 });
 

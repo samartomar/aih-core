@@ -89,6 +89,15 @@ export function recipeSemantics(recipe: Recipe): Diagnostic[] {
     if (invocation.stdin) checkSlot(invocation.stdin, `${path}/stdin`, true);
   };
   const hookIdentities = new Set<string>();
+  // Recipe 1.4.0: an approval is one person's OK for one server this recipe registers, never a switch for all of them.
+  const approvals = recipe.operations.flatMap((op, index) => (op.kind === 'config.entries' || op.kind === 'config.member') && op.approval ? [{ op, index }] : []);
+  for (const [position, { op, index }] of approvals.entries()) {
+    if (position > 0) { invalid('approval-one-server', `/operations/${index}/approval`); continue; }
+    const server = op.kind === 'config.member' ? op.value.literal : op.entries[0]?.path.at(-1);
+    const registered = typeof server === 'string' && recipe.operations.some(other => other.kind === 'config.entries' && !other.approval &&
+      op.requires.includes(other.id) && other.entries.some(entry => entry.action === 'set' && entry.path.includes(server)));
+    if (!registered) invalid('approval-server-unregistered', `/operations/${index}/approval`);
+  }
   recipe.operations.forEach((op, index) => {
     const path = `/operations/${index}`;
     if (!recipe.targets.includes(op.scope)) invalid('scope-mismatch', `${path}/scope`);
