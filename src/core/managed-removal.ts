@@ -342,7 +342,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
     const root = itemRoot(managementId)!;
     const item = image.receipts.get(root)!.value.items![identityOf(managementId)]!;
     const facts: ItemFacts = { managementId: item.managementId, scope: item.scope, name: item.name, kind: item.kind, framework: item.framework,
-      item: item.item, tool: item.tool, origins: clone(origins) };
+      item: item.item, tool: item.tool, origins: clone(origins), ...(item.materialSource ? { materialSource: clone(item.materialSource) } : {}) };
     return { root, id: identityOf(managementId), facts };
   });
   const policy: ExecutionPolicy = { schema: POLICY_14, mode, selections: [],

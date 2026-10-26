@@ -94,8 +94,19 @@ export type MaterialSource = { kind: 'archive'; url: string; sha256: string; byt
 export interface MaterialIdentity { id: string; sha256: string; byteLength: number }
 export interface MaterialMember extends MaterialIdentity { path: string }
 export interface InlineMaterial extends MaterialMember { source: MaterialSource }
+/**
+ * Execution policy 1.4.0, referenced recipes only: one exact GitHub commit in Catalog's exact git source identity form
+ * (`repository` https://github.com/<owner>/<repo>, 40-hex `commit`, `reachable: true`), acquired only as the pinned
+ * archive https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>. Moving references are refused, never resolved.
+ */
+export interface GitMaterialSource {
+  kind: 'git'; repository: string; commit: string; reachable: true;
+  archive: { url: string; sha256: string; byteLength: number };
+}
+/** Where a git-sourced selection came from, as recorded in review and custody: `identity` is `owner/repo@<commit>`. */
+export interface GitMaterialProvenance { kind: 'git'; repository: string; commit: string; identity: string }
 export interface MaterialRecipeReference {
-  source: MaterialSource; path: string; sha256: string; byteLength: number; materials: MaterialMember[];
+  source: MaterialSource | GitMaterialSource; path: string; sha256: string; byteLength: number; materials: MaterialMember[];
 }
 export type Prerequisite = { kind: 'platform'; os: string; architectures: string[] } | { kind: 'executable'; name: string };
 export interface Recipe {

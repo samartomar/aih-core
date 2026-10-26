@@ -41,7 +41,8 @@ function referenceDeclaration(reference: CheckedReference): string {
     reference.byteLength, reference.materials.map(item => [item.id, item.path, item.sha256, item.byteLength])]);
 }
 function sourceDeclaration(source: MaterialRecipeReference['source']): unknown {
-  return source.kind === 'local' ? ['local', source.input] :
+  return source.kind === 'local' ? ['local', source.input] : source.kind === 'git' ?
+    ['git', source.repository, source.commit, source.archive.url, source.archive.sha256, source.archive.byteLength] :
     ['archive', source.url, source.sha256, source.byteLength];
 }
 function inlineDeclaration(materials: CheckedInline): string {
@@ -174,9 +175,8 @@ function tarHeader(header: Buffer): { path: string; type: string; size: number; 
   return { path: prefix ? `${prefix}/${name}` : name,
     type: utf8Field(header, 156, 1) || '0', size: octal(header, 124, 12), mode: octal(header, 100, 8) };
 }
-function paxPath(bytes: Buffer): string {
+function paxRecords(bytes: Buffer, accept: (key: string, value: Buffer) => void): void {
   let offset = 0;
-  let path: string | undefined;
   while (offset < bytes.length) {
     const space = bytes.indexOf(0x20, offset);
     if (space <= offset) fail('invalid-pax-record');
@@ -189,22 +189,37 @@ function paxPath(bytes: Buffer): string {
     if (record.at(-1) !== 10) fail('invalid-pax-record');
     const equals = record.indexOf(61);
     if (equals < 1) fail('invalid-pax-record');
-    const key = record.subarray(0, equals).toString('ascii');
+    accept(record.subarray(0, equals).toString('ascii'), record.subarray(equals + 1, -1));
+    offset += length;
+  }
+}
+function paxPath(bytes: Buffer): string {
+  let path: string | undefined;
+  paxRecords(bytes, (key, value) => {
     if (key === 'path') {
       if (path !== undefined) fail('duplicate-pax-path');
-      try { path = fatalUtf8.decode(record.subarray(equals + 1, -1)); }
+      try { path = fatalUtf8.decode(value); }
       catch { fail('invalid-pax-record'); }
     } else if (!['mtime', 'atime', 'ctime', 'uid', 'gid', 'uname', 'gname', 'comment'].includes(key))
       fail('unsafe-pax-record');
-    offset += length;
-  }
+  });
   if (path === undefined) fail('missing-pax-path');
   return path;
+}
+/** `git archive` names its commit in one leading pax global header; any other global record is refused. */
+function globalCommit(bytes: Buffer): string {
+  let commit: string | undefined;
+  paxRecords(bytes, (key, value) => {
+    if (key !== 'comment' || commit !== undefined) fail('git-archive-commit-mismatch');
+    commit = value.toString('ascii');
+  });
+  if (commit === undefined) fail('invalid-pax-record');
+  return commit;
 }
 function archivePath(value: string, directory: boolean): string {
   return memberPath(directory && value.endsWith('/') ? value.slice(0, -1) : value);
 }
-async function download(source: Extract<MaterialRecipeReference['source'], { kind: 'archive' }>,
+async function download(source: { url: string; sha256: string; byteLength: number },
   deadline: number, signal?: AbortSignal): Promise<Buffer> {
   const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now())));
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
@@ -241,7 +256,7 @@ async function download(source: Extract<MaterialRecipeReference['source'], { kin
   return Buffer.concat(parts, length);
 }
 async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256: string; byteLength: number }>,
-  deadline: number, signal?: AbortSignal): Promise<Map<string, Buffer>> {
+  deadline: number, signal?: AbortSignal, commit?: string): Promise<Map<string, Buffer>> {
   const gunzip = createGunzip();
   const input = Readable.from([bytes]);
   input.pipe(gunzip);
@@ -260,6 +275,8 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
   let regular = 0;
   let expanded = 0;
   let zeroHeaders = 0;
+  // A git source's archive must open with its commit's global header; any other archive admits none.
+  let commitNamed = commit === undefined;
   try {
     for await (const part of gunzip) {
       if (signal?.aborted) fail('cancelled');
@@ -289,9 +306,14 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
           if (headers > MATERIAL_LIMITS.regularMembers * 2) fail('tar-entry-limit');
           current = tarHeader(header);
           if (current.size > MATERIAL_LIMITS.memberBytes) fail('member-byte-limit');
-          if (!['0', '5', 'x'].includes(current.type)) fail('unsafe-tar-entry');
+          if (current.type === 'g') {
+            if (commitNamed || headers !== 1 || current.size > 512) fail(commit === undefined ? 'unsafe-tar-entry' : 'git-archive-commit-mismatch');
+          } else if (!commitNamed) fail('git-archive-commit-mismatch');
+          if (!['0', '5', 'x', 'g'].includes(current.type)) fail('unsafe-tar-entry');
           if (current.type === '5' && current.size !== 0) fail('invalid-directory-entry');
-          if (current.type === 'x') {
+          if (current.type === 'g') {
+            // Read below as a whole record; it names no member.
+          } else if (current.type === 'x') {
             if (pendingPax !== undefined) fail('duplicate-pax-path');
           } else {
             current.path = archivePath(pendingPax ?? current.path, current.type === '5');
@@ -325,18 +347,22 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
           state = remaining ? 'body' : padding ? 'padding' : 'header';
           if (remaining === 0) {
             if (current.type === 'x') fail('missing-pax-path');
+            if (current.type === 'g') fail('git-archive-commit-mismatch');
             if (current.type === '0' && selected.has(current.path)) found.set(current.path, Buffer.alloc(0));
           }
           continue;
         }
         if (state === 'body') {
           const take = Math.min(remaining, queue.length);
-          if (current!.type === 'x' || selected.has(current!.path)) bodyParts.push(Buffer.from(queue.subarray(0, take)));
+          if (current!.type === 'x' || current!.type === 'g' || selected.has(current!.path)) bodyParts.push(Buffer.from(queue.subarray(0, take)));
           queue = queue.subarray(take);
           remaining -= take;
           if (remaining) break;
           const body = Buffer.concat(bodyParts, current!.size);
-          if (current!.type === 'x') pendingPax = paxPath(body);
+          if (current!.type === 'g') {
+            if (globalCommit(body) !== commit) fail('git-archive-commit-mismatch');
+            commitNamed = true;
+          } else if (current!.type === 'x') pendingPax = paxPath(body);
           else if (selected.has(current!.path)) found.set(current!.path, body);
           state = padding ? 'padding' : 'header';
           continue;
@@ -352,6 +378,7 @@ async function readArchive(bytes: Buffer, selected: ReadonlyMap<string, { sha256
     if (error instanceof MaterialCaptureError) throw error;
     fail('archive-decompression-failed');
   } finally { input.destroy(); gunzip.destroy(); }
+  if (!commitNamed) fail('git-archive-commit-mismatch');
   if (state !== 'end' || pendingPax !== undefined || found.size !== selected.size) fail('archive-incomplete');
   for (const [path, pin] of selected) checkBytes(found.get(path), pin.sha256, pin.byteLength, 'member-identity-mismatch');
   return found;
@@ -373,6 +400,10 @@ export async function captureRecipeReference(referenceInput: MaterialRecipeRefer
   if (reference.source.kind === 'archive') {
     const archive = await download(reference.source, deadline, options.signal);
     captured = await readArchive(archive, pins, deadline, options.signal);
+  } else if (reference.source.kind === 'git') {
+    // The commit's pinned archive is the only acquisition; its bytes are hashed and read, never run or extracted.
+    const archive = await download(reference.source.archive, deadline, options.signal);
+    captured = await readArchive(archive, pins, deadline, options.signal, reference.source.commit);
   } else {
     if (!plain(materialRoots) || !Object.hasOwn(materialRoots, reference.source.input)) fail('local-root-unavailable');
     root = localRoot(materialRoots[reference.source.input]);

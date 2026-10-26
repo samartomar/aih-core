@@ -1,5 +1,6 @@
 import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
+import { gitSourceProblem } from './material-descriptors.js';
 import { nativeClients } from './native-clients.js';
 import { findTool } from '../../harness/tool-registry.mjs';
 import { entriesOverlap, SetMembership } from './organization-content.js';
@@ -259,7 +260,13 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     } else if (selection.organizationSelectionId !== undefined) {
       invalid('organization-selection-vibe', `${base}/organizationSelectionId`);
     }
-    if (!('inline' in selection.recipe)) return; // Bounded acquisition precedes resolved validation.
+    if (!('inline' in selection.recipe)) {
+      // Only exact git identity is admitted; the named reason says which part moves or is unproven.
+      const source = selection.recipe.reference.source;
+      const problem = source.kind === 'git' ? gitSourceProblem(source) : undefined;
+      if (problem) invalid(problem, `${base}/recipe/reference/source`);
+      return; // Bounded acquisition precedes resolved validation.
+    }
     const recipe = selection.recipe.inline;
     diagnostics.push(...recipeSemantics(recipe).map(d => ({ ...d, path: `${base}/recipe/inline${d.path}` })));
     if (!recipe.targets.includes(selection.scope) || recipe.operations.some(op => op.scope !== selection.scope)) invalid('scope-mismatch', base);

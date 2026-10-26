@@ -392,6 +392,9 @@
                 }
               }
             }
+          },
+          "materialSource": {
+            "$ref": "#/$defs/gitProvenance"
           }
         }
       }
@@ -678,59 +681,6 @@
     }
   ],
   "$defs": {
-    "localOrganization": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "contentDigest",
-        "policyId",
-        "helper"
-      ],
-      "properties": {
-        "source": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "provider",
-            "fileName"
-          ],
-          "properties": {
-            "provider": {
-              "const": "local"
-            },
-            "fileName": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            }
-          }
-        },
-        "contentDigest": {
-          "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
-        },
-        "policyId": {
-          "type": "string"
-        },
-        "helper": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "package"
-          ],
-          "properties": {
-            "id": {
-              "const": "local-policy-reader"
-            },
-            "package": {
-              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
-            }
-          }
-        }
-      }
-    },
     "catalogId": {
       "type": "string",
       "minLength": 1,
@@ -1095,6 +1045,87 @@
         }
       },
       "required": []
+    },
+    "gitProvenance": {
+      "description": "Where a git-sourced selection came from: the exact GitHub repository and 40-hex commit, and identity owner/repo@commit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "commit",
+        "identity"
+      ],
+      "properties": {
+        "kind": {
+          "const": "git"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}$)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]$)[A-Za-z0-9._-]{1,100}$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}@)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]@)[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
+        }
+      }
+    },
+    "localOrganization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "contentDigest",
+        "policyId",
+        "helper"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "fileName"
+          ],
+          "properties": {
+            "provider": {
+              "const": "local"
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "helper": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "package"
+          ],
+          "properties": {
+            "id": {
+              "const": "local-policy-reader"
+            },
+            "package": {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+            }
+          }
+        }
+      }
     },
     "organizationContent": {
       "type": "object",
