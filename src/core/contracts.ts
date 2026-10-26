@@ -172,8 +172,10 @@ export const validateRecipe = (value: unknown): ValidationResult =>
  */
 export function validateOrganizationPolicy(value: unknown, options: OrganizationPolicyOptions = {}): OrganizationValidationResult {
   let membership: SetMembership;
+  // Only a plain options object is read, so `documents.map(validateOrganizationPolicy)` still validates each document.
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) options = {};
   try {
-    if (options === null || typeof options !== 'object' || Object.keys(options).some(key => key !== 'setMembers')) throw new TypeError('options');
+    if (Object.keys(options).some(key => key !== 'setMembers')) throw new TypeError('options');
     membership = new SetMembership(options.setMembers === undefined ? undefined : cloneJsonValueStructureV1(options.setMembers, 'set members', 8));
   } catch {
     return { valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'set-members', path: '/setMembers',

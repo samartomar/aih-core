@@ -2,7 +2,7 @@
 // Pure data comparison: no host, Harness, network or filesystem effects.
 import { canonicalJson } from './canonical.js';
 import { inputAccepts, isOrganizationPolicy11 } from './policy-validation.js';
-import { matchContent, SetMembership, type ContentFacts, type ContentMatch } from './organization-content.js';
+import { contentFactsOf, matchContent, SetMembership, type ContentFacts, type ContentMatch } from './organization-content.js';
 import type { CatalogItemRef, Diagnostic, InputSpec, Json, OrganizationAdvisoryResult, OrganizationApplicability, OrganizationFulfillmentResult,
   OrganizationInputPermission, OrganizationPolicy, OrganizationSelection12, OrganizationTarget,
   OrganizationTargetFact, OrganizationTargetFacts, SelectionMetadata } from '../types.js';
@@ -35,10 +35,10 @@ const MESSAGES = {
   'selection-not-admitted': 'The organization document does not admit this selection identity.',
   'recipe-identity': 'The organization entry admits a different recipe identity.',
   'scope': 'The organization entry does not admit this scope.',
-  'prohibited': 'The organization prohibits this recipe.',
+  'prohibited': 'The organization prohibits this recipe or its content.',
   'client': 'The organization entry does not apply to this client.',
   'repository': 'The organization entry does not apply to this repository.',
-  'target-unknown': 'The organization entry depends on a target fact that was not declared.',
+  'target-unknown': 'The organization entry depends on a target or content fact that was not declared.',
   'input-not-permitted': 'The organization entry does not permit this input.',
   'input-value': 'The configured input value is not permitted by the organization entry.',
   'organization-permission-incomplete': 'The organization entry does not name this input and the recipe has no default.',
@@ -51,8 +51,7 @@ const MESSAGES = {
 } as const;
 /** Every entry shape: 1.0.0 and 1.1.0 entries always name a recipe; a 1.2.0 entry may name only content. */
 type Entry = Omit<OrganizationSelection12, 'obligation'>;
-const factsOf = (selection: Pick<AdmissionSelection, 'kind' | 'item'>): ContentFacts =>
-  ({ ...(selection.kind === undefined ? {} : { kind: selection.kind }), ...(selection.item === undefined ? {} : { item: selection.item }) });
+const factsOf = (selection: Pick<AdmissionSelection, 'kind' | 'item'>): ContentFacts => contentFactsOf(selection);
 
 function admitIdentity(entry: Entry, item: Pick<AdmissionSelection, 'recipeIdentity' | 'scope' | 'path'>,
     finding: Finding): void {

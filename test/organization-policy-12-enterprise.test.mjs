@@ -122,14 +122,22 @@ test('content prohibitions and supplied set membership govern Enterprise Prepare
   assert.deepEqual([malformed.status, reasons(malformed)], ['invalid', ['set-members']]);
 });
 
-test('a declared target reviews recipe obligations; content-only obligations stay with the portable preview', async () => {
+test('a declared target reviews recipe and content obligations in prepared work 1.6.0', async () => {
   offline();
   const target = project();
   const prepared = await prepare(request(target, localSource(org12(recipeEntry({ obligation: 'required' }),
-    { selectionId: 'need-hooks', scopes: ['project'], obligation: 'required', content: { kind: 'hook' } })),
+    { selectionId: 'need-hooks', scopes: ['project'], obligation: 'required', content: { kind: 'hook' } },
+    { selectionId: 'need-starter', scopes: ['project'], obligation: 'required', content: { set: SET } },
+    { selectionId: 'try-skills', scopes: ['project'], obligation: 'recommended', content: { kind: 'skill' } })),
   { organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'claude' } }), { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
-  assert.deepEqual(prepared.review.organizationObligations.fulfillment.map(item => [item.selectionId, item.status]), [[SELECTION_ID, 'fulfilled']]);
+  const { fulfillment, advisory } = prepared.review.organizationObligations;
+  assert.deepEqual(fulfillment.map(item => [item.selectionId, item.status]),
+    [[SELECTION_ID, 'fulfilled'], ['need-hooks', 'not-fulfilled'], ['need-starter', 'unavailable']]);
+  assert.deepEqual(fulfillment[1].content, { kind: 'hook' });
+  assert.equal(fulfillment[1].recipeIdentity, undefined);
+  assert.deepEqual(advisory.map(item => [item.selectionId, item.status, item.selections]), [['try-skills', 'taken', ['guidance']]]);
+  conforms(prepared.review, 'urn:aihq:core:prepared-work:1.6.0');
 });
 
 test('Vibe and Harness repair never receive organization policy or its set membership', async () => {
@@ -147,7 +155,7 @@ test('Vibe and Harness repair never receive organization policy or its set membe
   assert.equal(ok.review.inputs.organization, undefined);
   for (const extras of [{ organizationSource: local }, { organizationSetMembers: [] }]) {
     const repair = await prepare({ useCase: 'repair', ...extras }, { logging: 'off' });
-    assert.equal(repair.status, 'invalid', JSON.stringify(repair.diagnostics));
+    assert.deepEqual([repair.status, repair.diagnostics[0].reason], ['invalid', 'request-field'], 'refused for the organization field');
   }
 });
 
@@ -224,4 +232,7 @@ test('inventory policyState accounts for organization 1.2 content entries', asyn
   assert.equal(await state(org12(recipeEntry(), content({ set: SET }))), 'unknown', 'a set without members is unavailable');
   assert.equal(await state(org12(recipeEntry(), content({ set: SET })), { setMembers: [{ set: SET, members: [{ framework: 'acme', itemId: 'lint' }] }] }), 'prohibited');
   assert.equal(await state(org12(recipeEntry(), content({ kind: 'skill' }, { clients: ['claude'] }))), 'unknown');
+  // A content entry narrowing another recipe never governs this row.
+  assert.equal(await state(org12(recipeEntry(), { ...recipeEntry({ selectionId: 'other', recipeIdentity: `sha256:${'f'.repeat(64)}` }),
+    content: { set: SET } })), 'permitted');
 });

@@ -8,7 +8,7 @@ import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, v
 import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type ReadLocalPolicyResult, type GitHubPolicySource,
   type LocalPolicySource } from '../harness/runtime.mjs';
 import { localPolicySourceLabel } from '../harness/local-policy.mjs';
-import { SetMembership } from './internal/organization-content.js';
+import { contentFactsOf, SetMembership } from './internal/organization-content.js';
 import { selectTool } from '../harness/tool-registry.mjs';
 import { bindingPermissionNotice, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
 import { isNativeClient } from './internal/policy-validation.js';
@@ -118,9 +118,7 @@ async function readOrganization(source: unknown, controls: HostControls): Promis
 // identity (membership and scope still apply; the selection has no effects) or, with
 // no entry, uses this value, which no admitted recipe can hash to.
 /** A selection's declared organization 1.2.0 content facts (execution policy 1.4.0 metadata); never inferred. */
-const contentFacts = (selection: ExecutionPolicy['selections'][number]): Pick<AdmissionSelection, 'kind' | 'item'> =>
-  ({ ...(selection.kind === undefined ? {} : { kind: selection.kind }),
-    ...(selection.item === undefined ? {} : { item: { framework: selection.item.framework, itemId: selection.item.itemId } }) });
+const contentFacts = (selection: ExecutionPolicy['selections'][number]): Pick<AdmissionSelection, 'kind' | 'item'> => contentFactsOf(selection);
 const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
@@ -1100,15 +1098,17 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         const taken = admissions.filter(item => !unavailableSelections.has(item.id));
         const scoped = (['project', 'user'] as const).map(scope => ({ scope,
           ...evaluateOrganizationObligations(organization!.document, taken, [], { scope, ...targetFacts }, organization!.membership) }));
-        // The review names recipe entries; content-only 1.2.0 entries are evaluated by the portable previews. A recipe
-        // entry narrowed to a set without supplied members is never fulfilled or taken, so it reads `unknown`/`not-taken`.
-        const recipes = <T extends { recipeIdentity?: string; content?: unknown }>(item: T) => item.recipeIdentity === undefined ? [] :
-          [(({ content: _content, ...rest }) => rest)(item) as Omit<T, 'content'> & { recipeIdentity: string }];
+        // Prepared work 1.6.0 reviews content entries and `unavailable` sets as they are. Prepared work 1.5.0 names only
+        // recipe entries, so there a content-only entry is left out and an unavailable set reads `unknown` or `not-taken`.
+        const recipes = <T extends { recipeIdentity?: string; content?: unknown }>(item: T): T[] => namesSelections ? [item] :
+          item.recipeIdentity === undefined ? [] : [(({ content: _content, ...rest }) => rest)(item) as T];
+        const legacy = <S extends string>(status: S | 'unavailable', replacement: S): S | 'unavailable' =>
+          status === 'unavailable' && !namesSelections ? replacement : status;
         obligations = { target: { basis: 'declared', client: targetClient!, ...targetFacts },
           fulfillment: scoped.flatMap(({ scope, fulfillment }) => fulfillment.flatMap(recipes).flatMap(item =>
-            item.status === 'not-applicable' ? [] : [{ scope, ...item, status: item.status === 'unavailable' ? 'unknown' as const : item.status }])),
+            item.status === 'not-applicable' ? [] : [{ scope, ...item, status: legacy(item.status, 'unknown') }])),
           advisory: scoped.flatMap(({ scope, advisory }) => advisory.flatMap(recipes).filter(item => item.applicability !== 'not-applicable')
-            .map(item => ({ scope, ...item, status: item.status === 'unavailable' ? 'not-taken' as const : item.status }))) };
+            .map(item => ({ scope, ...item, status: legacy(item.status, 'not-taken') }))) };
       }
     }
     if (Object.keys(capturedUnavailable.operations).some(id => !knownProcesses.has(id)) ||
@@ -1281,7 +1281,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       ...(reportsChangedBinding ? { reviewDigest: state.review.reviewDigest } : {}) };
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (state.organization) {
-      // Fresh online authority for this Apply call; Prepare's credential and result are never reused.
+      // Fresh authority for this Apply call (GitHub online, or the local file again); Prepare's credential and result are never reused.
       const read = await readOrganization(state.organization.source, controls);
       const identity = (value: { resolvedCommit?: string; blobId?: string }) => [value.resolvedCommit ?? null, value.blobId ?? null];
       if (canonicalJson(read.source) !== canonicalJson(state.organization.source) ||

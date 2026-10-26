@@ -12,7 +12,7 @@ import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-cu
 import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { validateOrganizationPolicy } from './contracts.js';
-import { contentEntries, matchContent, SetMembership } from './internal/organization-content.js';
+import { contentEntries, contentFactsOf, matchContent, SetMembership } from './internal/organization-content.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Owner } from './internal/state.js';
@@ -357,11 +357,13 @@ function policyState(document: OrganizationPolicy, scope: 'project' | 'user', id
     facts: { kind: SelectionMetadata['kind'] | null; item: CatalogItemRef | null }, membership: SetMembership): NonNullable<ManagedInventorySelection11['policyState']> {
   if (identities.size !== 1) return 'unknown';
   const [identity] = identities;
-  const recorded = { ...(facts.kind === null ? {} : { kind: facts.kind }), ...(facts.item === null ? {} : { item: facts.item }) };
+  const recorded = contentFactsOf(facts);
   const entries = document.selections.filter(entry => entry.recipeIdentity === identity && entry.scopes.includes(scope) &&
     !('content' in entry && entry.content && matchContent(entry.content, recorded, membership) === 'mismatch'));
   if (!entries.length) return 'not-admitted';
-  const content = contentEntries(document).filter(entry => entry.content && entry.scopes.includes(scope))
+  // Content entries that could govern this row: content-only ones, and those narrowing this recipe identity.
+  const content = contentEntries(document).filter(entry => entry.content && entry.scopes.includes(scope) &&
+      (entry.recipeIdentity === undefined || entry.recipeIdentity === identity))
     .map(entry => ({ entry, match: matchContent(entry.content!, recorded, membership) })).filter(({ match }) => match !== 'mismatch');
   if (content.some(({ match }) => match !== 'matches')) return 'unknown';
   const governing = [...entries, ...content.filter(({ entry }) => entry.recipeIdentity === undefined).map(({ entry }) => entry)];
@@ -419,8 +421,8 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
       origins: facts?.origins ?? [], members, updateState: updateState(facts?.item ?? null, request.index),
       ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
-        new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ? { framework: facts.item.framework,
-          itemId: facts.item.itemId } : null }, new SetMembership(request.organization.setMembers)) } : {}),
+        new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ?? null },
+        new SetMembership(request.organization.setMembers)) } : {}),
       approval: granted ? 'granted-by-aih' : tool === null || kind === null ? null : bindingPermissionStep(tool, kind) === undefined || givenByPerson() ? 'not-needed' : 'needed',
       installState: detail.items.some(item => item.installState === 'interrupted') ? 'interrupted' : 'complete' };
   });

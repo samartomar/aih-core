@@ -30,7 +30,7 @@ test('1.2.0 is an accepted, exported contract that adds an optional content sele
   assert.equal(manifest.exports['./schemas/organization-policy/1.2.0.json'], './dist/core/schemas/organization-policy/1.2.0.json');
   const document = org(recipeEntry({ obligation: 'required', clients: ['claude'], repositories: [REPO] }),
     contentEntry({ kind: 'hook' }), contentEntry({ item: { framework: 'acme', itemId: 'lint' } }, { selectionId: 'item', obligation: 'recommended' }),
-    contentEntry({ framework: 'acme' }, { selectionId: 'framework', obligation: 'permitted' }),
+    contentEntry({ framework: 'acme' }, { selectionId: 'framework', obligation: 'recommended' }),
     contentEntry({ set: SET }, { selectionId: 'set', obligation: 'required', scopes: ['user'] }),
     recipeEntry({ selectionId: 'narrowed', recipeIdentity: ID2, content: { kind: 'skill', framework: 'acme' } }));
   const result = validateOrganizationPolicy(document);
@@ -50,6 +50,12 @@ test('1.2.0 structure: an entry names a recipe, content or both, and content sel
     contentEntry({ kind: 'skill' }, { sources: [] })
   ].map(entry => JSON.parse(JSON.stringify(entry)));
   for (const entry of invalid) assert.equal(validateOrganizationPolicy(org(entry)).valid, false, JSON.stringify(entry));
+  // Only a recipe entry can permit; permitting content narrows a recipe entry.
+  assert.deepEqual(validateOrganizationPolicy(org(contentEntry({ kind: 'skill' }, { obligation: 'permitted' }))).diagnostics
+    .map(item => [item.reason, item.path]), [['content-permitted-without-recipe', '/selections/0/obligation']]);
+  assert.equal(validateOrganizationPolicy(org(recipeEntry({ content: { kind: 'skill' } }))).valid, true);
+  // Only a plain options object is read: mapping documents through the validator still validates each one.
+  assert.deepEqual([org(recipeEntry()), org(recipeEntry())].map(validateOrganizationPolicy).map(result => result.valid), [true, true]);
 });
 
 test('a document that requires and prohibits overlapping content on overlapping targets is invalid', () => {
@@ -123,7 +129,7 @@ test('admission keeps exact recipe admission and enforces content prohibitions o
   assert.deepEqual(reasons(admit(org(recipeEntry(), contentEntry({ kind: 'skill' })), omit(dev(), 'kind', 'item'))),
     ['target-unknown']);
   // A content-only entry admits nothing: exact recipe admission is kept.
-  assert.deepEqual(reasons(admit(org(contentEntry({ kind: 'skill' }, { selectionId: 'guidance', obligation: 'permitted' })))),
+  assert.deepEqual(reasons(admit(org(contentEntry({ kind: 'skill' }, { selectionId: 'guidance', obligation: 'recommended' })))),
     ['recipe-identity']);
   // A recipe entry narrowed by content admits only matching content.
   assert.deepEqual(reasons(admit(org(recipeEntry({ content: { kind: 'skill' } })))), []);

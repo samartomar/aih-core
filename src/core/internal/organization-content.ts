@@ -8,6 +8,10 @@ type Kind = SelectionMetadata['kind'];
 type Member = CatalogItemRef & { kind?: Kind };
 /** A selection's declared content facts; an absent fact is unknown, never inferred. */
 export interface ContentFacts { kind?: Kind; item?: CatalogItemRef }
+/** Declared facts from a selection or record: only `kind` and the item's framework and id, never its identities. */
+export const contentFactsOf = (source: { kind?: Kind | null; item?: CatalogItemRef | null }): ContentFacts =>
+  ({ ...(source.kind == null ? {} : { kind: source.kind }),
+    ...(source.item == null ? {} : { item: { framework: source.item.framework, itemId: source.item.itemId } }) });
 export type ContentMatch = 'matches' | 'mismatch' | 'unknown' | 'unavailable';
 /** `yes` only when supplied facts prove shared content; `unknown` when an item's kind is not known; never guessed. */
 export type ContentOverlap = 'yes' | 'no' | 'unknown' | 'unavailable';

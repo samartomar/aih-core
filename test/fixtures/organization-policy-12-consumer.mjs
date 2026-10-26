@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { apply, prepare } from '@aihq/core';
@@ -92,7 +92,7 @@ await check('content selectors by kind, item, framework and set carry the existi
   assert.deepEqual(admit(org(ORG12, entry(), content({ set: SET }))), ['set-membership-unavailable']);
   assert.deepEqual(admit(org(ORG12, entry(), content({ set: SET })), [choice()], { setMembers: members('lint') }), ['prohibited']);
   assert.deepEqual(admit(org(ORG12, entry({ content: { kind: 'hook' } }))), ['content'], 'a recipe entry narrowed to other content admits nothing');
-  assert.deepEqual(admit(org(ORG12, content({ kind: 'skill' }, { selectionId: 'team-note', obligation: 'permitted' }))), ['recipe-identity'],
+  assert.deepEqual(admit(org(ORG12, content({ kind: 'skill' }, { selectionId: 'team-note', obligation: 'recommended' }))), ['recipe-identity'],
     'exact recipe admission: a content-only entry admits no selection');
   // An undeclared content fact does not match; prohibition fails closed as an undeclared target fact does.
   const { kind: _kind, item: _item, ...bare } = choice();
@@ -227,7 +227,7 @@ await check('Vibe and standalone Harness repair never receive organization polic
     const refused = await prepare({ useCase: 'policy', policy: executionPolicy('vibe'), target: { project: target }, ...extra }, { logging: 'off' });
     assert.equal(refused.status, 'invalid', JSON.stringify(extra));
     const repair = await prepare({ useCase: 'repair', ...extra }, { logging: 'off' });
-    assert.equal(repair.status, 'invalid', JSON.stringify(extra));
+    assert.deepEqual([repair.status, repair.diagnostics[0].reason], ['invalid', 'request-field'], JSON.stringify(extra));
   }
   const vibe = await prepare({ useCase: 'policy', policy: executionPolicy('vibe'), target: { project: target } }, { logging: 'off' });
   assert.equal(vibe.status, 'ready', 'the same skill a prohibition would deny in Enterprise prepares in Vibe');
@@ -242,4 +242,5 @@ await check('a Catalog source description never selects organization authority',
   assert.deepEqual([result.status, result.diagnostics[0].reason], ['invalid', 'source-invalid']);
 });
 
+rmSync(root, { recursive: true, force: true });
 console.log(JSON.stringify({ status: 'passed', checks }));

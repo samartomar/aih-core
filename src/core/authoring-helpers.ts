@@ -98,6 +98,19 @@ const checkContentPreview = validator.compile({ type: 'object', additionalProper
     items: { type: 'array', maxItems: 4096, items: { type: 'object', additionalProperties: false, required: ['framework', 'itemId', 'kind'],
       properties: { framework: catalogId, itemId: catalogId, kind: previewProperties.selections.items.properties.kind } } } } });
 
+/** The organization document, validated with any supplied set membership; set membership refusals name `/setMembers`. */
+function checkedAuthority(organization: OrganizationPolicy, setMembers: OrganizationSetMembers[] | undefined):
+    { membership: SetMembership } | { refusal: ReturnType<typeof refused> } {
+  const checked = validateOrganizationPolicy(organization, setMembers === undefined ? {} : { setMembers });
+  if (!checked.valid) return { refusal: checked.diagnostics.some(item => item.reason === 'set-members') ?
+    refused('input-value', '/setMembers', checked.diagnostics) : refused('organization-input-spec', '/organization', checked.diagnostics) };
+  return { membership: new SetMembership(setMembers) };
+}
+/** A declared client must be a known native client and a declared repository well formed; absent facts stay unknown. */
+const targetRefusal = (target: OrganizationTarget) =>
+  target.client !== undefined && !isNativeClient(target.client) ? refused('input-value', '/target/client') :
+  target.repository !== undefined && !isRepositoryIdentity(target.repository) ? refused('input-value', '/target/repository') : undefined;
+
 /** Shared request validation; admission is the only comparison and always runs on a validated copy. */
 function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: unknown, check: ValidateFunction):
     { safe: T; membership: SetMembership } | { refusal: ReturnType<typeof refused> } {
@@ -114,10 +127,9 @@ function checkedPreview<T extends PreviewOrganizationAdmissionRequest>(request: 
   if (!check(safe)) return { refusal: refused('input-value', check.errors?.[0]?.instancePath ?? '',
     (check.errors ?? []).map(e => ({ code: 'INPUT_INVALID', reason: e.keyword, path: e.instancePath,
       message: 'The preview request does not satisfy its contract.' }))) };
-  const organization = validateOrganizationPolicy(safe.organization, safe.setMembers === undefined ? {} : { setMembers: safe.setMembers });
-  if (!organization.valid) return { refusal: organization.diagnostics.some(item => item.reason === 'set-members') ?
-    refused('input-value', '/setMembers', organization.diagnostics) : refused('organization-input-spec', '/organization', organization.diagnostics) };
-  const membership = new SetMembership(safe.setMembers);
+  const authority = checkedAuthority(safe.organization, safe.setMembers);
+  if ('refusal' in authority) return authority;
+  const { membership } = authority;
   const seen = new Set<string>();
   for (const [index, selection] of safe.selections.entries()) {
     const path = `/selections/${index}`;
@@ -169,8 +181,8 @@ export function previewOrganizationObligations(request: PreviewOrganizationOblig
   if ('refusal' in checked) return checked.refusal;
   const { safe, membership } = checked;
   const { target } = safe;
-  if (target.client !== undefined && !isNativeClient(target.client)) return refused('input-value', '/target/client');
-  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) return refused('input-value', '/target/repository');
+  const invalidTarget = targetRefusal(target);
+  if (invalidTarget) return invalidTarget;
   const { selections, lifecycle } = admissionInputs(safe);
   const facts = { ...(target.client === undefined ? {} : { client: target.client }),
     ...(target.repository === undefined ? {} : { repository: target.repository }) };
@@ -247,13 +259,12 @@ export function previewOrganizationContent(request: PreviewOrganizationContentRe
   let safe: PreviewOrganizationContentRequest;
   try { safe = checkedJson(request) as PreviewOrganizationContentRequest; } catch { return refused('input-value', ''); }
   if (!checkContentPreview(safe)) return refused('input-value', checkContentPreview.errors?.[0]?.instancePath ?? '');
-  const organization = validateOrganizationPolicy(safe.organization, safe.setMembers === undefined ? {} : { setMembers: safe.setMembers });
-  if (!organization.valid) return organization.diagnostics.some(item => item.reason === 'set-members') ?
-    refused('input-value', '/setMembers', organization.diagnostics) : refused('organization-input-spec', '/organization', organization.diagnostics);
+  const authority = checkedAuthority(safe.organization, safe.setMembers);
+  if ('refusal' in authority) return authority.refusal;
   const { target } = safe;
-  if (target.client !== undefined && !isNativeClient(target.client)) return refused('input-value', '/target/client');
-  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) return refused('input-value', '/target/repository');
-  const membership = new SetMembership(safe.setMembers);
+  const invalidTarget = targetRefusal(target);
+  if (invalidTarget) return invalidTarget;
+  const { membership } = authority;
   return { status: 'ok', value: { target, items: safe.items.map(({ framework, itemId, kind }) => ({ item: { framework, itemId }, kind,
     ...evaluateOrganizationContent(safe.organization, { kind, item: { framework, itemId } }, target, membership) })) }, diagnostics: [] };
 }

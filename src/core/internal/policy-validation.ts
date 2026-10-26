@@ -213,6 +213,9 @@ export function organizationSemantics(policy: OrganizationPolicy, membership: Se
       if (!isRepositoryIdentity(repository)) invalid('repository-identity', `/selections/${index}/repositories/${position}`,
         'The organization entry names a malformed repository identity.');
     });
+    // Exact recipe admission: only an entry naming a recipe can permit, so a content-only permission would do nothing.
+    if (entry.recipeIdentity === undefined && entry.obligation === 'permitted') invalid('content-permitted-without-recipe',
+      `/selections/${index}/obligation`, 'A content-only entry cannot permit; name the recipe it admits and narrow it with content.');
     if (entry.obligation !== 'required' && entry.obligation !== 'prohibited') return;
     const opposite = entry.obligation === 'required' ? 'prohibited' : 'required';
     if (decided.some(other => other.entry.obligation === opposite && overlaps(other.entry, entry) &&

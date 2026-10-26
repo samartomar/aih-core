@@ -319,8 +319,11 @@ content: { kind?, item?: { framework, itemId }, framework?, set?: { framework, s
 - **Recipe entries** admit selections exactly as in 1.1.0. With `content`, they
   admit only a selection whose declared content matches (`AUTHORITY_DENIED /
   content` otherwise).
-- **Content-only entries** carry an obligation but no recipe, inputs or
-  lifecycle. They never admit a selection (naming one is `recipe-identity`).
+- **Content-only entries** carry `required`, `recommended` or `prohibited` but no
+  recipe, inputs or lifecycle. They never admit a selection (naming one is
+  `recipe-identity`). Permitting content is a recipe entry narrowed by
+  `content`; a content-only `permitted` entry is invalid
+  (`content-permitted-without-recipe`).
   `prohibited` denies any selection whose declared content matches; `required`
   and `recommended` are taken by admitted selections whose content matches.
 
@@ -405,11 +408,12 @@ are the machine interface. Refusals contain no executable partial policy.
 | `AUTHORITY_DENIED` / `prohibited` | Referenced entry prohibits the choice, or another applicable entry prohibits the same recipe |
 | `AUTHORITY_DENIED` / `client` | Declared client is outside the entry's selector |
 | `AUTHORITY_DENIED` / `repository` | Declared repository is outside the entry's selector |
-| `AUTHORITY_DENIED` / `target-unknown` | Admission needs an undeclared client or repository; fails closed |
+| `AUTHORITY_DENIED` / `target-unknown` | Admission needs an undeclared client, repository or content fact; fails closed |
 | `AUTHORITY_DENIED` / `content` | Declared content is outside the referenced entry's content selector |
 | `AUTHORITY_DENIED` / `set-membership-unavailable` | A set selector that could deny or narrow the choice has no supplied members; fails closed |
 | `INPUT_INVALID` / `obligation-contradiction` | Required and prohibited entries for the same recipe, or for overlapping content, have overlapping scopes and selectors |
 | `INPUT_INVALID` / `set-members` | Supplied set membership is malformed or names a set twice |
+| `INPUT_INVALID` / `content-permitted-without-recipe` | A content-only entry says `permitted`; only a recipe entry can permit |
 | `INPUT_INVALID` / `unknown-client` | Organization selector names an unknown native client |
 | `INPUT_INVALID` / `repository-identity` | Organization selector contains a malformed repository identity |
 | `INPUT_INVALID` / `organization-input-spec` | Organization validation failed, or a permission value contradicts the recipe input spec |
@@ -2248,10 +2252,12 @@ nothing chooses one from data.
 rejected for Vibe) supplies the Catalog-resolved members for the organization
 document's 1.2.0 set selectors. It takes part in validation, contradiction
 checks and admission, and is bound by the request digest, so a change before
-Apply is `REVIEW_STALE`. A declared target's review lists recipe entries' fulfillment
-and advice; content-only entries are reported by the portable previews. A recipe
-entry narrowed to a set without supplied members reads `unknown` or `not-taken`
-there.
+Apply is `REVIEW_STALE`. With a declared target, prepared work 1.6.0 (execution
+policy 1.4.0) lists fulfillment and advice for recipe and content-only entries,
+each with `recipeIdentity`, `content` or both, and reports a set without supplied
+members as `unavailable`. Prepared work 1.5.0 names recipe entries only; there a
+content-only entry is left out and an unavailable set reads `unknown` or
+`not-taken`.
 
 ```sh
 export ORG_TOKEN=...   # only the named variable is read
