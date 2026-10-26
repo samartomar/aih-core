@@ -18,8 +18,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/migration-export-pem-win32-declared.json",
-      "sha256": "f5a3d25212b21c717677d303ab714fb851cd055ab55761f7de6f73a8ed2fdcf7",
-      "subjectSha256": "5cead79af2874ec9956ca695339cb807e059cffa95fbb94506ae33af194151cf"
+      "sha256": "0176dadd1aa5c481bae9de300aef72ebebe1960b9d7449061af4423a564dfdb9",
+      "subjectSha256": "bcb018e0ef54c99d0954eaeb3f08dd13be1128c6ab1293fa80e77d16589d5b9a"
     }
   },
   {
@@ -40,8 +40,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/migration-export-pem-win32-off.json",
-      "sha256": "ad86c664d4b16b5642235c02ea7695be0d5b1265d871e7ce9b447a8aa352c010",
-      "subjectSha256": "e4be609e7770e9dffe3912f190b5d1f5dbe631e28195736aaae60c9381a37442"
+      "sha256": "c9b09ac02acc691158b39d69163f8b737c83cd02b9be259492fe998c0927a7f1",
+      "subjectSha256": "67d9c1934a1b3329e54202eba53a4ec2bc11daaf3061bb1dc33964c37e0397a3"
     }
   },
   {
@@ -62,8 +62,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/migration-export-p7b-win32-declared.json",
-      "sha256": "a87e411bfdc7b1dcbe8bdbfe31d221e876b2b73e89af1f91da52f2a96177331c",
-      "subjectSha256": "a9b2d08e43509877bdaabc5bbb12fc8d153d0ec8295626b909ef68b9986521be"
+      "sha256": "203f2d722f1c875b8ac990071707569024f09aa9fab2fe36f73b33233b4015c9",
+      "subjectSha256": "49ad05d98429cdf1c24da141170cd9f82846391d38cad05a5de6a963231c6699"
     }
   },
   {
@@ -84,8 +84,8 @@ export const trustCellRecords = Object.freeze([
     "launchContext": "no-client",
     "evidence": {
       "reference": "dist/harness/acceptance/migration-export-p7b-win32-off.json",
-      "sha256": "78d733214e926bd7739fdc04580bdf0c94755a1a84999178bc05bda9149ffe56",
-      "subjectSha256": "b659509452980a92946da6a209c3b8a0d7e1a0fbe9c83a531ecdb9fde22b09ec"
+      "sha256": "9afcc78f769ce2265e807f994dc335f6edbc59826e85afc01b60df9b34565721",
+      "subjectSha256": "9e4b71a23f64bc7a45cbf66343acd454b450ec5271a4d76493eca27c80487c77"
     }
   }
 ]);

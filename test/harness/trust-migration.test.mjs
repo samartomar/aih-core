@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { trustCapabilities } from '../../dist/harness/contracts.mjs';
 import { trustHelperFiles, trustCellSubjectSha256, verifyTrustAdmissionEvidence } from '../../src/harness/trust.mjs';
 import { classifyCertificateExportPlatform, exactExportRelease } from '../../src/harness/trust-export-platform.mjs';
-import { buildTrustDefinitions, selectTrustCell } from '../../src/harness/trust-definitions.mjs';
+import { buildTrustDefinitions, selectTrustCell, trustPlatformMatrix } from '../../src/harness/trust-definitions.mjs';
 const source = fileURLToPath(new URL('../../', import.meta.url));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 function fixture(run) {
@@ -61,6 +61,8 @@ test('migration rejects changed serializer library bytes rather than migrating t
   assert.equal(verify().valid, false);
 }));
 test('exact additional platform leaves recognized legacy classifications and absent admission unchanged', () => {
+  assert.deepEqual(trustPlatformMatrix.slice(0,3).map(item => [item.os,item.release,item.architecture]),
+    [['win32','Windows 11 25H2','x64'],['darwin','macOS 26','arm64'],['linux','Ubuntu 24.04 LTS','x64']]);
   const old = { os: 'win32', architecture: 'x64', release: 'Windows 11 25H2', projection: 'windows-effective-server-auth-v1' };
   assert.equal(classifyCertificateExportPlatform(old, null), old);
   const unknown = { ...old, release: null, projection: null };

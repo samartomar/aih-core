@@ -38,7 +38,7 @@ export const trustMigrationPolicy = Object.freeze({
     },
     {
       "name": "dist/harness/trust-definitions.mjs",
-      "sha256": "3fe77a63c46502a83bb876fbd342f691c75f6ccb14cb5fa346f74e456f6254cb"
+      "sha256": "dc7f7b0fe33bfdfec6d47901a43480f144832f69a1d68b73bcd1e79a401e2714"
     },
     {
       "name": "dist/harness/trust-encoding.mjs",
@@ -66,11 +66,11 @@ export const trustMigrationPolicy = Object.freeze({
     },
     {
       "name": "dist/harness/trust-migration-rules.mjs",
-      "sha256": "9748f78f987598ad40a0cdf6fad7fb174c0eaf0f93ac218c782e83305f604964"
+      "sha256": "324ea735dfc503090bd26465b48225c4521adf80abfa92f6ac909a68e3dc29cf"
     },
     {
       "name": "dist/harness/trust-export-platform.mjs",
-      "sha256": "91585ff3e5bc77bdc34e337f23be02cc158a812c8a353520534a84f0b2438265"
+      "sha256": "4a0c4934fd95cf35a057243e226ef2e738951538737b4d115bfad08e94a3b417"
     },
     {
       "name": "dist/core/trust.js",
@@ -140,7 +140,7 @@ export const trustMigrationPolicy = Object.freeze({
       },
       {
         "name": "dist/harness/trust-definitions.mjs",
-        "sha256": "3fe77a63c46502a83bb876fbd342f691c75f6ccb14cb5fa346f74e456f6254cb"
+        "sha256": "dc7f7b0fe33bfdfec6d47901a43480f144832f69a1d68b73bcd1e79a401e2714"
       },
       {
         "name": "dist/harness/trust-encoding.mjs",
@@ -168,11 +168,11 @@ export const trustMigrationPolicy = Object.freeze({
       },
       {
         "name": "dist/harness/trust-migration-rules.mjs",
-        "sha256": "9748f78f987598ad40a0cdf6fad7fb174c0eaf0f93ac218c782e83305f604964"
+        "sha256": "324ea735dfc503090bd26465b48225c4521adf80abfa92f6ac909a68e3dc29cf"
       },
       {
         "name": "dist/harness/trust-export-platform.mjs",
-        "sha256": "91585ff3e5bc77bdc34e337f23be02cc158a812c8a353520534a84f0b2438265"
+        "sha256": "4a0c4934fd95cf35a057243e226ef2e738951538737b4d115bfad08e94a3b417"
       },
       {
         "name": "dist/core/trust.js",
@@ -192,5 +192,5 @@ export const trustMigrationPolicy = Object.freeze({
     "evidenceKind": "equivalence-migration",
     "oldNativeExecutionCreated": false
   },
-  "proofSha256": "1c34a6a2ff4c4c3adb675b12914c54382f50b4e1b0baadd7a8f9dc7720d305e6"
+  "proofSha256": "395fe41d5c31e34434f07589d30a0a3297ad518155f1fd1a334872e4189e9841"
 });

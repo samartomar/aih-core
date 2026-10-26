@@ -18,8 +18,8 @@ export function projectLegacyHelper(name, bytes) {
     const end = '/** Fixed supplied-file integrations; JVM trust binds its explicit baseline and both managed outputs. */';
     if (text.split(start).length !== 2 || text.split(end).length !== 2 || text.indexOf(end) < text.indexOf(start)) throw new Error('migration-transform');
     text = text.slice(0, text.indexOf(start)) + text.slice(text.indexOf(end));
-    const row = "  Object.freeze({ os: 'win32', release: 'Windows 11 25H2', architecture: 'x64', projection: 'windows-effective-server-auth-v1' }),";
-    text = once(text, row, row + "\n  Object.freeze({ os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64', projection: 'windows-effective-server-auth-v1' }),");
+    const row = "  Object.freeze({ os: 'linux', release: 'Ubuntu 24.04 LTS', architecture: 'x64', projection: 'ubuntu-24.04-system-openssl-v1' })";
+    text = once(text, row, row + ",\n  Object.freeze({ os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64', projection: 'windows-effective-server-auth-v1' })");
   } else if (name === 'dist/harness/trust.mjs') {
     text = once(text, "export { buildCertificateExportRecipe, getTrustFileIntegration } from './trust-definitions.mjs';", "export { getTrustFileIntegration } from './trust-definitions.mjs';");
     const imported = "import { validateTrustCapabilities, trustProfiles } from './trust-definitions.mjs';";

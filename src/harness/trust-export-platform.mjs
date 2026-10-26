@@ -1,7 +1,6 @@
 // Additional export-only classification. Existing trust discovery/detection stays unchanged.
 import { platform, arch, release } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { detectTrustPlatform } from './trust-os.mjs';
 
 export const exactExportRelease = 'Windows 11 26H2 build 26340.9767';
@@ -16,10 +15,13 @@ export function detectCertificateExportPlatform() {
   const legacy = detectTrustPlatform();
   if (legacy.release !== null || platform() !== 'win32' || arch() !== 'x64' || release() !== '10.0.26340') return legacy;
   try {
-    const env = { ...process.env };
-    for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
-    const result = spawnSync(join(process.env.SystemRoot ?? 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'),
-      ['-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; $o=Get-CimInstance Win32_OperatingSystem; $v=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; [ordered]@{cimVersion=$o.Version;currentBuild=[string]$v.CurrentBuild;ubr=[int]$v.UBR;displayVersion=[string]$v.DisplayVersion;architecture=$env:PROCESSOR_ARCHITECTURE;caption=$o.Caption}|ConvertTo-Json -Compress"],
+    // This additional cell is scoped to the reviewed C:\Windows host. Environment variables
+    // must not redirect either the OS observer or its autoloaded modules to user-owned code.
+    const env = { SystemRoot: 'C:/Windows', WINDIR: 'C:/Windows',
+      PSModulePath: 'C:/Windows/System32/WindowsPowerShell/v1.0/Modules',
+      PATH: 'C:/Windows/System32;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0' };
+    const result = spawnSync('C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; $o=CimCmdlets\\Get-CimInstance Win32_OperatingSystem; $c=@(CimCmdlets\\Get-CimInstance Win32_Processor); $a=if($c.Count -gt 0 -and @($c|Where-Object Architecture -ne 9).Count -eq 0){'AMD64'}else{'unsupported'}; $v=Microsoft.PowerShell.Management\\Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; [ordered]@{cimVersion=$o.Version;currentBuild=[string]$v.CurrentBuild;ubr=[int]$v.UBR;displayVersion=[string]$v.DisplayVersion;architecture=$a;caption=$o.Caption}|Microsoft.PowerShell.Utility\\ConvertTo-Json -Compress"],
       { shell: false, windowsHide: true, encoding: 'utf8', timeout: 5000, maxBuffer: 65536, env });
     if (result.status !== 0 || result.error) return legacy;
     return classifyCertificateExportPlatform(legacy, { ...JSON.parse(result.stdout.replace(/^\uFEFF/, '')), nodeRelease: release() });

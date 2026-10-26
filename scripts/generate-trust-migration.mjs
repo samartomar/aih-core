@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalTrustJson } from '../src/harness/trust-source.mjs';
 import { hashTrustLibraries, trustCellSubjectSha256, trustHelperFiles } from '../src/harness/trust.mjs';
 import { legacyHelperNames, projectLegacyHelper, projectLegacyCore, migrationMethod, serializeMigrationPolicy } from '../src/harness/trust-migration-rules.mjs';
-import { buildTrustCapabilities } from '../src/harness/trust-definitions.mjs';
+import { buildTrustCapabilities, trustProfiles } from '../src/harness/trust-definitions.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = join(root, 'src/harness'); const dist = join(root, 'dist/harness');
 const input = JSON.parse(readFileSync(new URL('./fixtures/trust-migration-predecessor.json', import.meta.url)));
@@ -36,6 +36,11 @@ const records = input.records.map(item => {
   assert.ok(bytes.equals(readFileSync(join(source, 'acceptance', `${item.id}.json`))), 'original record stays byte-for-byte');
   return { ...item, original };
 });
+const existingText = readFileSync(join(source, 'trust-capabilities.mjs'), 'utf8');
+const existingCells = JSON.parse(/export const trustCellRecords = Object\.freeze\(([\s\S]*)\);\s*$/.exec(existingText)[1]);
+const predecessorIds = new Set(records.map(item => item.id));
+const existingNative = existingCells.filter(cell => !predecessorIds.has(cell.id));
+assert.ok(existingNative.length === 0 || existingNative.length === 4, 'retain only a complete separately captured new-host table');
 const currentFiles = trustHelperFiles.filter(name => name !== 'dist/harness/trust-migration-policy.mjs')
   .map(name => ({ name, sha256: sha(readFileSync(join(root, name))) }));
 for (const item of currentFiles.filter(item => item.name.startsWith('dist/harness/'))) {
@@ -52,7 +57,7 @@ const policy = { method: migrationMethod, originalFiles: proof.originalFiles, cu
   proof, proofSha256: digest(proof) };
 writeFileSync(join(source, 'trust-migration-policy.mjs'), serializeMigrationPolicy(policy));
 copyFileSync(join(source, 'trust-migration-policy.mjs'), join(dist, 'trust-migration-policy.mjs'));
-const cells = records.map(item => {
+const historicalCells = records.map(item => {
   const originalCell = item.original.cell;
   const cell = { ...originalCell, evidence: { reference: `dist/harness/acceptance/migration-${item.id}.json`, sha256: '', subjectSha256: '' } };
   const subject = trustCellSubjectSha256(cell, root); assert.match(subject, /^[a-f0-9]{64}$/);
@@ -66,10 +71,25 @@ const cells = records.map(item => {
   cell.evidence.sha256 = sha(bytes); cell.evidence.subjectSha256 = subject;
   return cell;
 });
+// Regeneration must preserve genuine new-host records, never rehash stale native outcomes.
+for (const cell of existingNative) {
+  assert.match(cell.id, /^export-(pem|p7b)-win32-26340-9767-(declared|off)$/);
+  assert.equal(cell.platform.release, 'Windows 11 26H2 build 26340.9767');
+  assert.equal(cell.route, 'export'); assert.equal(cell.platform.os, 'win32'); assert.equal(cell.platform.architecture, 'x64');
+  const subject = trustCellSubjectSha256(cell, root); assert.equal(subject, cell.evidence.subjectSha256, 'changed native subject requires a fresh run');
+  const bytes = readFileSync(join(root, cell.evidence.reference.replace(/^dist\//, 'src/')));
+  assert.equal(sha(bytes), cell.evidence.sha256); const record = JSON.parse(bytes);
+  assert.equal(record.schema, 'aih.trust.acceptance.v1'); assert.equal(record.subjectSha256, subject);
+  assert.ok(!record.limitations.some(value => /synthetic|controlled-platform-selection|no-new-native-os-evidence/.test(value)));
+  const required = trustProfiles[cell.probeProfile].requiredCases;
+  assert.deepEqual(record.cases.map(item => [item.id,item.kind]).sort(), required.map(item => [item.id,item.kind]).sort());
+  assert.ok(record.cases.every(item => item.outcome === 'passed' && !/synthetic/i.test(item.summary)));
+}
+const cells = [...historicalCells, ...existingNative];
 const moduleBytes = '// Static admission data: excluded from helper/evidence subject hashing.\nexport const trustCellRecords = Object.freeze(' + JSON.stringify(cells, null, 2) + ');\n';
 writeFileSync(join(source, 'trust-capabilities.mjs'), moduleBytes); copyFileSync(join(source, 'trust-capabilities.mjs'), join(dist, 'trust-capabilities.mjs'));
 const pkg = JSON.parse(readFileSync(join(root, 'package.json')));
 const fixtureBytes = JSON.stringify(buildTrustCapabilities(pkg, cells), null, 2) + '\n';
 writeFileSync(join(root, 'src/fixtures/harness/trust-capabilities/1.0.0/accept.json'), fixtureBytes);
 writeFileSync(join(root, 'dist/fixtures/harness/trust-capabilities/1.0.0/accept.json'), fixtureBytes);
-console.log(JSON.stringify({ kind: 'equivalence-migration', originalSubjectsVerified: cells.length, proofSha256: policy.proofSha256, nativeExecutionsCreated: 0 }));
+console.log(JSON.stringify({ kind: 'equivalence-migration', originalSubjectsVerified: historicalCells.length, retainedNativeCells: existingNative.length, proofSha256: policy.proofSha256, nativeExecutionsCreated: 0 }));
