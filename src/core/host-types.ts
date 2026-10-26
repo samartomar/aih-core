@@ -176,7 +176,8 @@ export interface RunResult {
   schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0' | 'urn:aihq:core:run-result:1.3.0' | 'urn:aihq:core:run-result:1.4.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
-  authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean> };
+  /** `reviewDigest` names the prepared work 1.6.0 review this run applied. */
+  authorization?: { origin: Authorization['origin']; allowPartial: Effective<boolean>; reviewDigest?: string };
   effectiveOptions: { logging: Effective<'on' | 'off'> };
   operations: OperationResult[]; checks: CheckResult[]; diagnostics: RunDiagnostic[];
   record: RecordStatus; recovery?: string; followUp: string[];
