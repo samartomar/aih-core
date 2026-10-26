@@ -1,0 +1,226 @@
+{
+  "schema": "urn:aihq:harness:tool-binding:1.0.0",
+  "tool": "claude",
+  "digest": "7f00d001a1fdf71f801da2dcf5dfae58b6a2366a852015503257a88d41eadc56",
+  "layouts": {
+    "skill": {
+      "support": "native",
+      "reason": "Recognised: the model used the full skill body.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "recognised"
+        },
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T06:22:20.527Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-inside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "inconclusive",
+          "recognised": "not-run"
+        }
+      ],
+      "roots": {
+        "project": ".claude/skills"
+      }
+    },
+    "agent": {
+      "support": "native",
+      "reason": "Listed only: the model saw the agent but no use was observed.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "listed-only"
+        },
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T06:22:29.878Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-inside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "inconclusive",
+          "recognised": "not-run"
+        }
+      ],
+      "roots": {
+        "project": ".claude/agents"
+      }
+    },
+    "command": {
+      "support": "native",
+      "reason": "Recognised: the command ran.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "recognised"
+        },
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T06:22:27.171Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-inside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "inconclusive",
+          "recognised": "not-run"
+        }
+      ],
+      "roots": {
+        "project": ".claude/commands"
+      }
+    },
+    "rule": {
+      "support": "native",
+      "reason": "Recognised: the model used the rule.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "recognised"
+        }
+      ],
+      "roots": {
+        "project": ".claude/rules"
+      }
+    },
+    "hook": {
+      "support": "native",
+      "reason": "Recognised: the hook fired and its output reached the model.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "recognised"
+        }
+      ],
+      "roots": {
+        "project": ".claude/hooks"
+      },
+      "register": {
+        "file": ".claude/settings.json",
+        "container": [
+          "hooks",
+          "SessionStart"
+        ],
+        "format": "json",
+        "approval": "none"
+      },
+      "hookEvents": {
+        "SessionStart": "SessionStart"
+      },
+      "hookProtocols": [
+        "claude-code-hooks"
+      ]
+    },
+    "mcp-server": {
+      "support": "native",
+      "reason": "Registered; the server waits for approval before a call.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "registered-pending-approval",
+          "recognised": "listed-only"
+        },
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T06:22:35.855Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-inside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "registered-pending-approval",
+          "recognised": "not-run"
+        }
+      ],
+      "roots": {
+        "project": ".mcp.json"
+      },
+      "register": {
+        "file": ".mcp.json",
+        "container": [
+          "mcpServers"
+        ],
+        "format": "json",
+        "approval": "per-project",
+        "permissionStep": "Approve the project MCP server in Claude Code."
+      }
+    },
+    "document": {
+      "support": "native",
+      "reason": "Delivered beside the item that requires it.",
+      "observations": [
+        {
+          "toolVersion": "2.1.308",
+          "observedAt": "2026-10-23T18:25:50.241Z",
+          "coreVersion": "1.0.0-dev.37",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+          "delivered": "delivered",
+          "registered": "not-checked",
+          "recognised": "not-run"
+        }
+      ],
+      "roots": {}
+    }
+  },
+  "entryFiles": [],
+  "alsoReads": []
+}

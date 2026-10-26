@@ -15,6 +15,7 @@ const accepting = new Set([
   "urn:aihq:core:organization-target:1.0.0",
   "urn:aihq:core:organization-target:1.1.0",
   "urn:aihq:harness:tool-registry:1.0.0",
+  "urn:aihq:harness:tool-binding:1.0.0",
   "urn:aihq:harness:repair:1.0.0",
   "urn:aihq:harness:repair:1.1.0",
   "urn:aihq:harness:repair:1.2.0",

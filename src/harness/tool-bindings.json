@@ -1,0 +1,867 @@
+[
+  {
+    "schema": "urn:aihq:harness:tool-binding:1.0.0",
+    "tool": "claude",
+    "digest": "7f00d001a1fdf71f801da2dcf5dfae58b6a2366a852015503257a88d41eadc56",
+    "layouts": {
+      "skill": {
+        "support": "native",
+        "reason": "Recognised: the model used the full skill body.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:20.527Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "inconclusive",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".claude/skills"
+        }
+      },
+      "agent": {
+        "support": "unconfirmed",
+        "reason": "Listed only: the model saw the agent but no use was observed.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:29.878Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "inconclusive",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".claude/agents"
+        }
+      },
+      "command": {
+        "support": "native",
+        "reason": "Recognised: the command ran.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:27.171Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "inconclusive",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".claude/commands"
+        }
+      },
+      "rule": {
+        "support": "native",
+        "reason": "Recognised: the model used the rule.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          }
+        ],
+        "roots": {
+          "project": ".claude/rules"
+        }
+      },
+      "hook": {
+        "support": "native",
+        "reason": "Recognised: the hook fired and its output reached the model.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          }
+        ],
+        "roots": {
+          "project": ".claude/hooks"
+        },
+        "register": {
+          "file": ".claude/settings.json",
+          "container": [
+            "hooks",
+            "SessionStart"
+          ],
+          "format": "json",
+          "approval": "none"
+        },
+        "hookEvents": {
+          "SessionStart": "SessionStart"
+        },
+        "hookProtocols": [
+          "claude-code-hooks"
+        ]
+      },
+      "mcp-server": {
+        "support": "native",
+        "reason": "Registered; the server waits for approval before a call.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T06:22:35.855Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".mcp.json"
+        },
+        "register": {
+          "file": ".mcp.json",
+          "container": [
+            "mcpServers"
+          ],
+          "format": "json",
+          "approval": "per-project",
+          "permissionStep": "Approve the project MCP server in Claude Code."
+        }
+      },
+      "document": {
+        "support": "native",
+        "reason": "Delivered beside the item that requires it.",
+        "observations": [
+          {
+            "toolVersion": "2.1.308",
+            "observedAt": "2026-10-23T18:25:50.241Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      }
+    },
+    "entryFiles": [],
+    "alsoReads": []
+  },
+  {
+    "schema": "urn:aihq:harness:tool-binding:1.0.0",
+    "tool": "codex",
+    "digest": "4c63939c16d636a0706e313459e7710463093a87ff46a739bc6af7f85bf5b0b8",
+    "layouts": {
+      "skill": {
+        "support": "unconfirmed",
+        "reason": "Listed only: the model saw the skill by name but did not use its body.",
+        "observations": [
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T18:26:08.560Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:46.495Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "visible-to-model",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".agents/skills"
+        }
+      },
+      "agent": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "command": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "rule": {
+        "support": "native",
+        "reason": "Recognised: the model used the AGENTS.md block.",
+        "observations": [
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T18:26:08.560Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:49.636Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "visible-to-model",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": "AGENTS.md"
+        }
+      },
+      "hook": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "mcp-server": {
+        "support": "native",
+        "reason": "Registered; calls follow the approval policy.",
+        "observations": [
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T18:26:08.560Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "listed-only"
+          },
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T06:22:52.366Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "user": {
+            "path": ".codex/config.toml",
+            "resolvedBy": "CODEX_HOME, default ~/.codex"
+          }
+        },
+        "register": {
+          "file": ".codex/config.toml",
+          "container": [
+            "mcp_servers"
+          ],
+          "format": "toml",
+          "approval": "per-user",
+          "permissionStep": "Allow the server's tool calls in the Codex approval policy."
+        }
+      },
+      "document": {
+        "support": "native",
+        "reason": "Delivered beside the item that requires it.",
+        "observations": [
+          {
+            "toolVersion": "0.163.0",
+            "observedAt": "2026-10-23T18:26:08.560Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      }
+    },
+    "entryFiles": [
+      "AGENTS.md"
+    ],
+    "alsoReads": [
+      {
+        "what": ".agents/skills in the operating-system user profile, even when the home is redirected",
+        "where": "user-profile"
+      }
+    ]
+  },
+  {
+    "schema": "urn:aihq:harness:tool-binding:1.0.0",
+    "tool": "kiro",
+    "digest": "8842093d7f774d68861195024c3256d5640e17d42915f5c73fded473cc8b628a",
+    "layouts": {
+      "skill": {
+        "support": "unconfirmed",
+        "reason": "Listed only: the model saw the skill but did not use its body.",
+        "observations": [
+          {
+            "toolVersion": "2.33.1",
+            "observedAt": "2026-10-23T07:51:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          }
+        ],
+        "roots": {
+          "project": ".kiro/skills"
+        }
+      },
+      "agent": {
+        "support": "none",
+        "reason": "No converter to Kiro agent JSON has been observed; the delivered reference file was not loaded.",
+        "observations": [
+          {
+            "toolVersion": "2.33.1",
+            "observedAt": "2026-10-23T07:51:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-recognised"
+          },
+          {
+            "toolVersion": "2.32.0",
+            "observedAt": "2026-10-23T06:23:05.093Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      },
+      "command": {
+        "support": "none",
+        "reason": "Kiro CLI did not read the delivered command; no command layout has been observed.",
+        "observations": [
+          {
+            "toolVersion": "2.33.1",
+            "observedAt": "2026-10-23T07:51:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-recognised"
+          }
+        ],
+        "roots": {}
+      },
+      "rule": {
+        "support": "native",
+        "reason": "Recognised: the model used the steering file.",
+        "observations": [
+          {
+            "toolVersion": "2.33.1",
+            "observedAt": "2026-10-23T07:51:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          }
+        ],
+        "roots": {
+          "project": ".kiro/steering"
+        }
+      },
+      "hook": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no Kiro CLI hook layout was delivered.",
+        "observations": [],
+        "roots": {}
+      },
+      "mcp-server": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "document": {
+        "support": "native",
+        "reason": "Delivered beside the item that requires it.",
+        "observations": [
+          {
+            "toolVersion": "2.33.1",
+            "observedAt": "2026-10-23T07:51:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      }
+    },
+    "entryFiles": [],
+    "alsoReads": [
+      {
+        "what": "User-level ~/.kiro configuration; home redirection is ignored",
+        "where": "user-profile"
+      }
+    ]
+  },
+  {
+    "schema": "urn:aihq:harness:tool-binding:1.0.0",
+    "tool": "copilot",
+    "digest": "c5b637edad3b5d4af69242a64fb5910c8bc39bdf36e84cd34e0ed869995b393e",
+    "layouts": {
+      "skill": {
+        "support": "native",
+        "reason": "Recognised: the model used the full skill body.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:01.952Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".github/skills"
+        }
+      },
+      "agent": {
+        "support": "none",
+        "reason": "No converter to Copilot .agent.md has been observed; the delivered reference file was not used.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-recognised"
+          }
+        ],
+        "roots": {}
+      },
+      "command": {
+        "support": "none",
+        "reason": "Copilot CLI did not list or use the delivered command; no command layout has been observed.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:10.567Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      },
+      "rule": {
+        "support": "native",
+        "reason": "Recognised: the model used the instructions block.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:06.419Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".github/copilot-instructions.md"
+        }
+      },
+      "hook": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "mcp-server": {
+        "support": "native",
+        "reason": "Recognised once the folder was trusted and the tool allowed.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T06:50:18.201Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered-pending-approval",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "project": ".mcp.json"
+        },
+        "register": {
+          "file": ".mcp.json",
+          "container": [
+            "mcpServers"
+          ],
+          "format": "json",
+          "approval": "per-project",
+          "permissionStep": "Trust the folder and allow the server's tools in Copilot CLI."
+        }
+      },
+      "document": {
+        "support": "native",
+        "reason": "Delivered beside the item that requires it.",
+        "observations": [
+          {
+            "toolVersion": "1.0.103",
+            "observedAt": "2026-10-23T18:26:26.326Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-outside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      }
+    },
+    "entryFiles": [
+      ".github/copilot-instructions.md"
+    ],
+    "alsoReads": [
+      {
+        "what": "Skills in every folder above the project",
+        "where": "ancestor-folders"
+      },
+      {
+        "what": ".claude/skills, .claude/commands and .agents/skills",
+        "where": "other-tool-folders"
+      }
+    ]
+  },
+  {
+    "schema": "urn:aihq:harness:tool-binding:1.0.0",
+    "tool": "antigravity",
+    "digest": "8c9e20d962cfcbbf82d7e197fde9261295e4488afe1d77555d5cdcbbc45f3f49",
+    "layouts": {
+      "skill": {
+        "support": "unconfirmed",
+        "reason": "Listed only: the skill body reached the model through a file read, not as a skill.",
+        "observations": [
+          {
+            "toolVersion": "1.4.6",
+            "observedAt": "2026-10-23T08:09:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "listed-only"
+          }
+        ],
+        "roots": {
+          "project": ".agents/skills"
+        }
+      },
+      "agent": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "command": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "rule": {
+        "support": "native",
+        "reason": "Recognised: the model used the GEMINI.md block.",
+        "observations": [
+          {
+            "toolVersion": "1.4.6",
+            "observedAt": "2026-10-23T08:09:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "recognised"
+          }
+        ],
+        "roots": {
+          "project": "GEMINI.md"
+        }
+      },
+      "hook": {
+        "support": "unconfirmed",
+        "reason": "Not observed: no layout for this kind was delivered to this tool.",
+        "observations": [],
+        "roots": {}
+      },
+      "mcp-server": {
+        "support": "native",
+        "reason": "Recognised once permissions.allow named the tool.",
+        "observations": [
+          {
+            "toolVersion": "1.4.6",
+            "observedAt": "2026-10-23T08:09:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "recognised"
+          },
+          {
+            "toolVersion": "1.4.6",
+            "observedAt": "2026-10-23T07:23:21.768Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "env-redirect-inside-profile",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "registered",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {
+          "user": {
+            "path": ".gemini/config/mcp_config.json",
+            "resolvedBy": "USERPROFILE"
+          }
+        },
+        "register": {
+          "file": ".gemini/config/mcp_config.json",
+          "container": [
+            "mcpServers"
+          ],
+          "format": "json",
+          "approval": "per-user",
+          "permissionStep": "Allow the server's tool in Antigravity's permissions.allow setting."
+        }
+      },
+      "document": {
+        "support": "native",
+        "reason": "Delivered beside the item that requires it.",
+        "observations": [
+          {
+            "toolVersion": "1.4.6",
+            "observedAt": "2026-10-23T08:09:30.000Z",
+            "coreVersion": "1.0.0-dev.37",
+            "os": "windows",
+            "arch": "x64",
+            "isolation": "sandbox",
+            "runRecordDigest": "a41964b3c7f45b63f12bbdb52929cd04ab794cf0e84573f523630ae29deffeb6",
+            "delivered": "delivered",
+            "registered": "not-checked",
+            "recognised": "not-run"
+          }
+        ],
+        "roots": {}
+      }
+    },
+    "entryFiles": [
+      "GEMINI.md"
+    ],
+    "alsoReads": []
+  }
+]

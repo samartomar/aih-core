@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:harness:tool-binding:1.0.0",
+  "title": "Observed tool binding",
+  "description": "Where one AI tool reads each content kind and how far that has been proven. Support is derived only from the observations; observations are scoped claims for their tool version, OS, architecture and isolation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "tool",
+    "digest",
+    "layouts",
+    "entryFiles",
+    "alsoReads"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:harness:tool-binding:1.0.0"
+    },
+    "tool": {
+      "$ref": "#/$defs/token"
+    },
+    "digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "layouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skill",
+        "agent",
+        "command",
+        "rule",
+        "hook",
+        "mcp-server",
+        "document"
+      ],
+      "properties": {
+        "skill": {
+          "$ref": "#/$defs/layout"
+        },
+        "agent": {
+          "$ref": "#/$defs/layout"
+        },
+        "command": {
+          "$ref": "#/$defs/layout"
+        },
+        "rule": {
+          "$ref": "#/$defs/layout"
+        },
+        "hook": {
+          "$ref": "#/$defs/layout"
+        },
+        "mcp-server": {
+          "$ref": "#/$defs/layout"
+        },
+        "document": {
+          "$ref": "#/$defs/layout"
+        }
+      }
+    },
+    "entryFiles": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/relativePath"
+      }
+    },
+    "entryPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "template"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "template": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "alsoReads": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "what",
+          "where"
+        ],
+        "properties": {
+          "what": {
+            "$ref": "#/$defs/text"
+          },
+          "where": {
+            "enum": [
+              "ancestor-folders",
+              "other-tool-folders",
+              "account-sync",
+              "user-profile"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9._-][A-Za-z0-9._/-]{0,255}(?<!/)$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]{1,9}(?:\\.[0-9]{1,9}){0,3}$"
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "support",
+        "reason",
+        "observations",
+        "roots"
+      ],
+      "properties": {
+        "support": {
+          "enum": [
+            "native",
+            "none",
+            "unconfirmed"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "roots": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project": {
+              "$ref": "#/$defs/relativePath"
+            },
+            "user": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "resolvedBy"
+              ],
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/relativePath"
+                },
+                "resolvedBy": {
+                  "$ref": "#/$defs/text"
+                }
+              }
+            }
+          }
+        },
+        "skillKey": {
+          "enum": [
+            "folder",
+            "declared-name"
+          ]
+        },
+        "convert": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "to",
+            "converter"
+          ],
+          "properties": {
+            "to": {
+              "$ref": "#/$defs/text"
+            },
+            "converter": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "namespace": {
+          "enum": [
+            "folder",
+            "prefix"
+          ]
+        },
+        "register": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file",
+            "container",
+            "format",
+            "approval"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/$defs/relativePath"
+            },
+            "container": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "format": {
+              "enum": [
+                "json",
+                "jsonc",
+                "toml",
+                "yaml"
+              ]
+            },
+            "approval": {
+              "enum": [
+                "none",
+                "per-user",
+                "per-project"
+              ]
+            },
+            "permissionStep": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "formats": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/token"
+          }
+        },
+        "hookEvents": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]{0,63}$"
+          }
+        },
+        "hookProtocols": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/token"
+          }
+        },
+        "commandTemplate": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolVersion",
+        "observedAt",
+        "coreVersion",
+        "os",
+        "arch",
+        "isolation",
+        "runRecordDigest",
+        "delivered",
+        "registered",
+        "recognised"
+      ],
+      "properties": {
+        "toolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "observedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,3})?Z$"
+        },
+        "coreVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "os": {
+          "enum": [
+            "windows",
+            "macos",
+            "linux"
+          ]
+        },
+        "arch": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "isolation": {
+          "enum": [
+            "os-account",
+            "sandbox",
+            "env-redirect-outside-profile",
+            "env-redirect-inside-profile"
+          ]
+        },
+        "runRecordDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "delivered": {
+          "enum": [
+            "delivered",
+            "not-delivered"
+          ]
+        },
+        "registered": {
+          "enum": [
+            "registered",
+            "registered-pending-approval",
+            "visible-to-model",
+            "not-registered",
+            "inconclusive",
+            "not-checked"
+          ]
+        },
+        "recognised": {
+          "enum": [
+            "recognised",
+            "listed-only",
+            "not-recognised",
+            "contaminated",
+            "not-run"
+          ]
+        }
+      }
+    }
+  }
+}

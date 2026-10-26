@@ -1,0 +1,29 @@
+{
+  "description": "Support derived from the shipped binding table for one tool, kind and platform, with the installed tool version when known.",
+  "cases": [
+    { "tool": "claude", "kind": "skill", "platform": { "os": "windows", "arch": "x64" }, "installedVersion": "2.1.308",
+      "expect": { "support": "native", "observed": "recognised", "stale": false } },
+    { "tool": "claude", "kind": "skill", "platform": { "os": "windows", "arch": "x64" }, "installedVersion": "2.2.0",
+      "expect": { "support": "native", "observed": "registered", "stale": true } },
+    { "tool": "claude", "kind": "skill", "platform": { "os": "linux", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "none", "stale": false } },
+    { "tool": "claude", "kind": "agent", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "listed-only", "stale": false } },
+    { "tool": "claude", "kind": "document", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "native", "observed": "delivered", "stale": false } },
+    { "tool": "codex", "kind": "skill", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "listed-only", "stale": false } },
+    { "tool": "codex", "kind": "mcp-server", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "native", "observed": "registered", "stale": false } },
+    { "tool": "kiro", "kind": "rule", "platform": { "os": "windows", "arch": "x64" }, "installedVersion": "2.32.0",
+      "expect": { "support": "native", "observed": "recognised", "stale": false } },
+    { "tool": "kiro", "kind": "hook", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "none", "stale": false } },
+    { "tool": "copilot", "kind": "agent", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "none", "observed": "delivered", "stale": false } },
+    { "tool": "antigravity", "kind": "skill", "platform": { "os": "windows", "arch": "x64" },
+      "expect": { "support": "unconfirmed", "observed": "listed-only", "stale": false } },
+    { "tool": "antigravity", "kind": "mcp-server", "platform": { "os": "windows", "arch": "arm64" },
+      "expect": { "support": "unconfirmed", "observed": "none", "stale": false } }
+  ]
+}

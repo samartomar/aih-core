@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Add the observed binding table (`urn:aihq:harness:tool-binding:1.0.0`), exported
+from `@aihq/core/harness` as `toolBindings` with its schema and fixtures. Each
+binding is `{ schema, tool, digest, layouts, entryFiles, entryPointer?, alsoReads }`
+with one layout per content kind (`toolBindingKinds`). A layout's `support`
+(`native`, `none` or `unconfirmed`) is derived only from its observations, each
+recording tool version, OS, architecture, isolation and run-record digest.
+`listed-only` never counts, documents need only delivery, and inside-profile
+redirection never counts. `deriveCellSupport` scopes support to a platform and
+marks a cell `stale` when the installed tool is newer, claiming no more than
+`registered`. `selectBindingCell` refuses a cell that is not native on that
+platform with the cell's reason. `validateToolBinding` refuses support its
+observations do not give. The table is seeded with the 23 October 2026 Windows
+x64 observations for Claude Code, Codex CLI, Kiro CLI, Copilot CLI and
+Antigravity CLI, and every observation names the SHA-256 of the published run
+record `@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json`.
+`listTools()` now reads observed tools from this table, with the same result. These are scoped claims that do not satisfy native verification
+acceptance; any binding change needs a new Core version.
+Unpublished candidate for the sole 0.1.0 release effort.
+
 Fix `checkContracts` inventing missing-fixture checks for accepts-only entries
 that publish no fixtures. Every actual published fixture remains required,
 including fixtures listed by accepts-only entries. Genuine missing producer

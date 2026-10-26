@@ -18,6 +18,7 @@ export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles,
 // native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
+export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export const contractSupport = Object.freeze({
@@ -38,6 +39,8 @@ export const contractSupport = Object.freeze({
       schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:harness:tool-registry:1.0.0', role: 'produces',
       schemaExport: '@aihq/core/harness/schemas/tool-registry/1.0.0.json' }),
+    Object.freeze({ id: 'urn:aihq:harness:tool-binding:1.0.0', role: 'produces',
+      schemaExport: '@aihq/core/harness/schemas/tool-binding/1.0.0.json' }),
     Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
       schemaExport: '@aihq/core/report/schema' }),
     Object.freeze({ id: 'urn:aihq:report:claims:1.0.0', role: 'accepts',
