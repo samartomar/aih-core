@@ -9,7 +9,7 @@ import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } from './internal/trust-custody.js';
 import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
-import { checkMember, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
+import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { validateOrganizationPolicy } from './contracts.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
@@ -105,7 +105,7 @@ function addClaims(rows: Map<string, ManagedInventorySelection>, ownership: Owne
     row(claim.managementId, claim.scope, 'claim');
   // An interrupted install is listed from its pending receipt, also before it wrote any member.
   for (const item of Object.values(ownership.items ?? {}))
-    if (item.installState === 'interrupted' && visible({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] }))
+    if (item.installState === 'interrupted' && visible(interruptedClaim(item)))
       row(item.managementId, item.scope, 'claim');
   for (const [key, owner] of Object.entries(ownership.members)) {
     if (!owner.claims && root === project && root === home) { ambiguous(); continue; }

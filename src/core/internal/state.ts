@@ -1,9 +1,8 @@
-import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, rmdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { randomUUID } from 'node:crypto';
 import { dirname, join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { OwnedFileTransaction, type OwnedFileRead } from './owned-file-transaction.js';
+import { OwnedFileTransaction, fileIdentity, type OwnedFileRead } from './owned-file-transaction.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
 import { fileTransaction, pathPins, pinsMatch, sha256, userHomeRoot, validSegment } from './host-files.js';
 import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
@@ -143,14 +142,21 @@ export function inspectTarget(root: string, path: string): OwnedFileRead {
 function settled(value: Ownership): Ownership {
   if (!Object.values(value.items ?? {}).some(item => item.pending)) return value;
   const view: Ownership = { ...value, members: { ...value.members }, ...(value.items ? { items: { ...value.items } } : {}) };
-  if (!resolvePending(view, path => { try { return inspectTarget(value.target, path); } catch { return { state: 'unreadable' }; } })) return value;
+  const inspect = (path: string) => {
+    try {
+      const live = inspectTarget(value.target, path);
+      return live.state === 'present' ? { ...live, identity: fileIdentity(join(value.target, ...path.split('/'))) } : live;
+    } catch { return { state: 'unreadable' as const }; }
+  };
+  if (!resolvePending(view, inspect)) return value;
   const sealed = sealOwnership(view);
   validateOwnership(sealed, value.target);
   return sealed;
 }
 
 export function ownershipPath(target: string): string { return `ownership/${sha256(target)}.json`; }
-/** `settle: false` reads the stored custody only, for a digest comparison that needs no target reads. */
+/** The digest of a root's stored receipt (`null` when there is none), without settling pending members. */
+export const ownershipDigest = (target: string): string | null => readOwnership(target, false).digest;
 export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
   const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
@@ -306,7 +312,8 @@ const LOCK_HOLDER = 'holder.json';
 /**
  * Take a target's state lock. The lock names its holder (process and host), so a lock left by a process that no longer
  * runs on this host can be reclaimed after a crash. A lock without a readable holder, from another host, or held by a
- * running process is never taken over; leftovers need deliberate inspection.
+ * running process is never taken over; leftovers need deliberate inspection. Reclaiming assumes one process namespace
+ * per host name.
  */
 export function lockTarget(target: string): () => void {
   const root = stateRoot(); const lock = join(root, `lock-${sha256(target)}`);
@@ -325,8 +332,8 @@ export function lockTarget(target: string): () => void {
     rmdirSync(lock);
   };
 }
-/** Move aside a lock whose recorded holder is provably gone; reports whether the lock path is free again. */
-function reclaimLock(lock: string): boolean {
+/** The lock's recorded holder is on this host and no longer runs. */
+function holderGone(lock: string): boolean {
   let holder: { pid: unknown; host: unknown };
   try {
     pathPins(lock);
@@ -335,15 +342,25 @@ function reclaimLock(lock: string): boolean {
   } catch { return false; }
   if (!Number.isSafeInteger(holder.pid) || (holder.pid as number) <= 0 || holder.host !== hostname() || holder.pid === process.pid) return false;
   try { process.kill(holder.pid as number, 0); return false; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false; }
-  // Renaming is atomic: of two reclaiming processes only one moves this lock, and a fresh lock is never moved by mistake.
-  const aside = `${lock}.stale-${randomUUID()}`;
-  try { renameSync(lock, aside); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+}
+/**
+ * Remove a lock whose recorded holder is provably gone; reports whether the lock path may be taken again. Reclaimers
+ * are serialised by an exclusive guard and re-check the holder under it. A live process only ever takes the lock by
+ * creating it, which fails while the stale one exists, so the lock removed here can only be the stale one. The caller's
+ * own exclusive create still decides who holds the lock afterwards.
+ */
+function reclaimLock(lock: string): boolean {
+  if (!holderGone(lock)) return false;
+  const guard = `${lock}.reclaim`;
+  try { mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
   try {
-    if (readdirSync(aside).some(name => name !== LOCK_HOLDER)) return true;
-    unlinkSync(join(aside, LOCK_HOLDER)); rmdirSync(aside);
-  } catch { /* The moved-aside lock stays for deliberate inspection; the lock path itself is free. */ }
-  return true;
+    try { lstatSync(lock); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+    if (!holderGone(lock)) return false;
+    unlinkSync(join(lock, LOCK_HOLDER)); rmdirSync(lock);
+    return true;
+  } catch { return false; }
+  finally { rmdirSync(guard); }
 }
 
 export function stageOwnership(target: string, runId: string, update: Ownership): () => void {

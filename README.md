@@ -1731,17 +1731,20 @@ Interrupted work keeps conservative custody; prepare again before further change
 Apply writes a pending receipt into protected custody immediately before its first
 effect (a file or a process): every selection the run writes custody for is recorded
 as an interrupted install, with no member yet. Each member is added to custody only once
-it is written. Before each file effect Apply also writes ahead, in protected custody,
-the members that effect is about to change; the custody published after the effect
-replaces that record. An Apply refused before any effect writes no receipt.
+it is written. Before each file effect changes its destination, Apply also writes ahead,
+in protected custody, the members that effect changes and the identity (device and
+inode) of the staged file that will replace the destination; the custody published
+after the effect replaces that record. An Apply refused before any effect writes no
+receipt.
 
 If the run stops, fails or its process is killed, the install stays interrupted, also
 after a restart. Inventory 1.1.0 lists it with `installState: 'interrupted'` and the
 members written so far, even when that is none; members the run only intended to write
 are never listed. When a process was killed between a file effect and its custody,
-the next read settles that one effect from the target itself: a member found exactly as
-the effect wrote it (or gone, for a removal) was written; anything else was not, and is
-never claimed. An interrupted install is never "confirmed on disk": its run is not
+reads settle that one effect from the target itself: a member counts as written only
+when it is still the very file the effect published, with exactly the bytes it wrote (or
+gone, for a removal). Anything else, including a later copy of the same bytes, was not
+written by Core and is never claimed. The next Apply on that target records the result. An interrupted install is never "confirmed on disk": its run is not
 `complete`, so `runMemberClaims` reports `confirmedOnDisk: false` even when every written
 member matches.
 
@@ -1767,8 +1770,10 @@ once complete.
 
 A killed process also leaves its target lock behind. Each lock names its holder's
 process and host; the next Apply reclaims a lock only when that holder is on this host
-and no longer running. A lock without a readable holder, from another host, or held by a
-running process is kept for deliberate inspection.
+and no longer running, re-checking it while it alone holds an exclusive reclaim guard. A
+lock without a readable holder, from another host, held by a running process, or met
+while another process is reclaiming it is kept, and that Apply does not run. Reclaiming
+assumes one process namespace per host name.
 
 Ownership roots that record what a person chose use **1.6.0**. This versioned
 migration adds, per claim, the item's name, kind, framework, both identities, tool and

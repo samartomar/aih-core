@@ -4,7 +4,7 @@
 
 Find, finish and remove interrupted installs. Apply records a pending receipt in
 protected custody immediately before its first effect, and writes ahead the members
-each file effect is about to change. Inventory 1.1.0 then reports an install that did
+each file effect is about to change, bound to the identity of the file it publishes. Inventory 1.1.0 then reports an install that did
 not complete, also after its process was killed, as `installState: 'interrupted'` with
 only the members actually written; a crash between an effect and its custody is settled
 from the target, never from what was intended. Preparing the same selection again

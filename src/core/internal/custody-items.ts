@@ -40,8 +40,14 @@ export interface CustodyItem extends ItemFacts {
   /** Publishable member paths, keyed by member, where a private input value formed part of the path. */
   redactedPaths?: Record<string, string>;
 }
-/** A member a step is about to change: its custody once written (`null` when the step removes it). */
-export interface PendingMember { key: string; descriptor: MemberDescriptor; owner: Owner | null; redactedPath?: string; preExisting?: { value: Json } }
+/**
+ * A member a step is about to change: its custody once written (`null` when the step removes it), and for a write the
+ * identity (device and inode) of the very file Apply publishes, so no later copy of the same bytes can stand in for it.
+ */
+export interface PendingMember { key: string; descriptor: MemberDescriptor; owner: Owner | null; identity?: string; redactedPath?: string; preExisting?: { value: Json } }
+/** An interrupted install counts as a claim of its selection, also before it wrote a member. */
+export const interruptedClaim = (item: Pick<CustodyItem, 'managementId' | 'scope'>): Claim =>
+  ({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] });
 interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
@@ -140,7 +146,8 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
-        !item.pending.every(entry => exact(entry, ['key', 'descriptor', 'owner'], ['redactedPath', 'preExisting']) && text(entry.key, 8192) &&
+        !item.pending.every(entry => exact(entry, ['key', 'descriptor', 'owner'], ['identity', 'redactedPath', 'preExisting']) && text(entry.key, 8192) &&
+          (entry.identity === undefined ? entry.owner === null : typeof entry.identity === 'string' && /^\d{1,40}:\d{1,40}$/.test(entry.identity)) &&
           (entry.redactedPath === undefined || text(entry.redactedPath, 4096)) && (entry.preExisting === undefined || exact(entry.preExisting, ['value']))))) return false;
     if (!text(item.managementId, 128) || !['project', 'user'].includes(item.scope as string) || identity(item.scope as 'project' | 'user', item.managementId) !== id) return false;
     if (item.name !== null && !text(item.name, 512) || item.kind !== null && !KINDS.includes(item.kind as string) ||
@@ -255,35 +262,39 @@ export function settleItem(value: Custody, id: string, keys: readonly string[]):
  * Removal releases an interrupted install: its pending members go, and the item goes once no claim or selection
  * record keeps it. Kept members leave it listed and still interrupted.
  */
-export function releaseItem(value: Custody, id: string): boolean {
+export function releaseItem(value: Custody, id: string): void {
   const item = value.items?.[id];
-  if (!item) return false;
+  if (!item) return;
   settleItem(value, id, (item.pending ?? []).map(entry => entry.key));
-  if (claimedMembers(value, item.scope, item.managementId).length || value.selections?.[id]) return !!item.pending;
+  if (claimedMembers(value, item.scope, item.managementId).length || value.selections?.[id]) return;
   const items = { ...value.items }; delete items[id];
   value.items = items;
-  return true;
 }
 /**
- * Settle members a crash left pending between a file effect and its custody. A member found exactly as the step wrote it
- * (or gone, for a removal) was written: its custody is published here. Anything else was not written by Core and is
- * dropped. A target that cannot be read keeps its entry for a later read. Returns whether anything changed.
+ * Settle members a crash left pending between a file effect and its custody. A written member is the very file the
+ * effect published (same identity) holding exactly the bytes it wrote; a removed one is gone. Only then is its custody
+ * published here; anything else was not written by Core and is dropped, so a later copy of the same bytes never counts.
+ * A target that cannot be read keeps its entry for a later read. Returns whether anything changed.
  */
-export function resolvePending(value: Custody, inspect: (path: string) => { state: 'present' | 'absent' | 'unreadable'; bytes?: Buffer }): boolean {
+export function resolvePending(value: Custody,
+  inspect: (path: string) => { state: 'present' | 'absent' | 'unreadable'; bytes?: Buffer; identity?: string }): boolean {
+  // One read per file: a step's members share it.
+  const reads = new Map<string, ReturnType<typeof inspect>>();
+  const read = (path: string) => { let found = reads.get(path); if (!found) reads.set(path, found = inspect(path)); return found; };
   let changed = false;
   for (const [id, item] of Object.entries(value.items ?? {})) {
     if (!item.pending) continue;
     const kept: PendingMember[] = [];
     let preExisting = item.preExisting, redactedPaths = item.redactedPaths;
     for (const entry of item.pending) {
-      let found: Located;
+      let found: Located, identity: string | undefined;
       try {
-        const live = inspect(entry.descriptor.path);
+        const live = read(entry.descriptor.path);
         if (live.state === 'unreadable') { kept.push(entry); continue; }
-        found = locateMember(entry.descriptor, live.state === 'present' ? live.bytes! : null);
+        found = locateMember(entry.descriptor, live.state === 'present' ? live.bytes! : null); identity = live.identity;
       } catch { kept.push(entry); continue; }
       changed = true;
-      if (found !== (entry.owner ? entry.owner.sha256 : null)) continue;
+      if (entry.owner ? !entry.identity || identity !== entry.identity || found !== entry.owner.sha256 : found !== null) continue;
       if (entry.owner) value.members[entry.key] = entry.owner; else delete value.members[entry.key];
       if (entry.preExisting && !preExisting?.[entry.key]) preExisting = { ...preExisting, [entry.key]: entry.preExisting };
       if (entry.redactedPath) redactedPaths = { ...redactedPaths, [entry.key]: entry.redactedPath };

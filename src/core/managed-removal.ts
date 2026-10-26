@@ -1,5 +1,5 @@
-import { prepare as preparePolicy, validateControls, dataObject, isManagedContentRoot } from './recipe-engine.js';
-import { ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './internal/state.js';
+import { prepare as preparePolicy, validateControls, dataObject } from './recipe-engine.js';
+import { isContentRoot, ownershipInventory, readOwnership, readOwnershipBatch, type Ownership } from './internal/state.js';
 import { installedDistribution } from './internal/installed-distribution.js';
 import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
@@ -136,7 +136,7 @@ function classify(image: Image, project: string, home: string, scope: 'project' 
   const matches = (claim: Claim, root: string) => claim.scope === scope && claim.managementId === managementId &&
     claimIdentity(claim.scope, claim.managementId, root) === wanted;
   const custody: Custody = { claimed: false, claimless: false, ambiguous: false, members: 0, retained: false };
-  const effectRoot = (root: string) => root === project || root === home || isManagedContentRoot(root);
+  const effectRoot = (root: string) => root === project || root === home || isContentRoot(root);
   // The same candidate, retention and dependency-closure rule the policy engine applies to a cleanup-only policy.
   const { candidates, retained, dependencies } = classifyStoredClaims(image.receipts,
     (_claim, root, identity) => effectRoot(root) && identity === wanted);
@@ -345,7 +345,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   }
 
   const identityOf = (managementId: string) => claimIdentity(scope, managementId, project!);
-  const effectRoot = (candidate: string) => candidate === project || candidate === home || isManagedContentRoot(candidate);
+  const effectRoot = (candidate: string) => candidate === project || candidate === home || isContentRoot(candidate);
   // The receipt recording a selection's item facts; user custody can also live in Core-managed content roots.
   const itemRoot = (managementId: string) => [...image.receipts].find(([candidate, stored]) => effectRoot(candidate) &&
     stored.value.items?.[identityOf(managementId)] !== undefined)?.[0];

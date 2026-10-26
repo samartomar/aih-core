@@ -21,6 +21,17 @@ export type OwnedFileRead =
   | { state: "present"; bytes: Buffer; mode: number }
   | { state: "unreadable"; detail: string };
 
+/** A regular file's device and inode, or `undefined` when it is absent or not a regular file. */
+export function fileIdentity(path: string): string | undefined {
+  try {
+    const stats = lstatSync(path, { bigint: true });
+    return stats.isFile() ? `${stats.dev}:${stats.ino}` : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 export type OwnedFileAction = "assert" | "write" | "remove";
 
 export type OwnedFileExpectation = { absent: true } | { sha256: string; mode?: number };
@@ -446,7 +457,11 @@ export class OwnedFileTransaction {
     return current;
   }
 
-  writeAtomic(path: string, contents: Buffer, mode: number, exclusive = false): void {
+  /**
+   * `staged` receives the identity (device and inode) of the staged file just before it replaces the destination,
+   * which keeps that identity; a throw leaves the destination untouched.
+   */
+  writeAtomic(path: string, contents: Buffer, mode: number, exclusive = false, staged?: (identity: string) => void): void {
     if (!validPath(path) || !Buffer.isBuffer(contents) || !validMode(mode)) {
       throw new Error(`invalid ${this.policy.label} write`);
     }
@@ -467,6 +482,7 @@ export class OwnedFileTransaction {
     try {
       writeFileSync(temporary, snapshot, { flag: "wx", mode });
       chmodSync(temporary, mode);
+      if (staged) staged(fileIdentity(temporary)!);
       // A newly reviewed file must not replace a file created by another process
       // after assertExpected. Linking the same-volume staging file is exclusive.
       if (exclusive) retryTransient(() => linkSync(temporary, target));
@@ -511,7 +527,8 @@ export class OwnedFileTransaction {
     }
   }
 
-  commit(input: readonly OwnedFileStep[]): void {
+  /** `staged` is called for each written step, before its destination changes (see `writeAtomic`). */
+  commit(input: readonly OwnedFileStep[], staged?: (path: string, identity: string) => void): void {
     const steps = snapshotSteps(input, this.policy);
     for (const step of steps) this.assertSafeParents(step.path);
     const applied: OwnedFileStep[] = [];
@@ -520,7 +537,8 @@ export class OwnedFileTransaction {
         this.assertExpected(step);
         if (step.action === "assert") continue;
         if (step.action === "remove") this.remove(step.path);
-        else this.writeAtomic(step.path, step.contents as Buffer, step.mode, 'absent' in step.expect);
+        else this.writeAtomic(step.path, step.contents as Buffer, step.mode, 'absent' in step.expect,
+          staged && (identity => staged(step.path, identity)));
         applied.push(step);
       }
     } catch (error) {
