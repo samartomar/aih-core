@@ -603,8 +603,9 @@ items it `requires`, as resolved by Catalog. The consumer derives these from the
 items it already holds. A complete result reports:
 
 - `installedVersion`: `{ state: 'known', version, source }`, read only from files
-  beside the tool's executable on `PATH` (an npm package whose `bin` names it, or
-  a `versions/<version>` file), or `{ state: 'unknown', reason }`.
+  beside the tool's executable on `PATH` (the npm package whose `bin` names it,
+  through a link or as the one such package beside an npm command shim, or a
+  `versions/<version>` file), or `{ state: 'unknown', reason }`.
 - per item, each executable as `present`, `absent` or `unknown`. `absent` means
   every `PATH` folder was read and none holds a regular executable file of that
   name; an unset `PATH`, a relative `PATH` entry or an unreadable folder gives
@@ -612,16 +613,21 @@ items it already holds. A complete result reports:
 - per item, same-key `copies` at `user` level, in `parentFolders` and in
   `plugins`, each `found` (with `paths`), `none` or `unavailable` (with a
   reason). Copies are read only where the [binding](#observed-tool-bindings)
-  says the tool reads that kind: `roots.user` for the user level, and the
-  project root repeated in every folder above the project, up to but not
-  including the user home. A registration file is read for the item's key in its
-  container (JSON and JSONC; other formats are `unavailable`). A hook has no key,
+  says the tool reads that kind: `roots.user` for the user level (following
+  `CODEX_HOME` for Codex; another redirect named in `resolvedBy` that is set
+  makes it `unavailable`), and, only where the binding's `alsoReads` records
+  reading every folder above the project (today Copilot CLI skills), the project
+  root repeated in each of those folders, up to but not including the user home.
+  A registration file is read for the item's key in its container (JSON and
+  JSONC; other formats and malformed files are `unavailable`). A hook has no key,
   and no binding observes a plugin location yet, so those are `unavailable`.
 - per item, the `inputs` still required: input values never reach inspection, so
   every declared input is still required.
 - `stale` per item and overall: `true` when the installed version is newer than
-  every observation proving the cell (`observedVersion` is the newest observed
-  version), and `'unchecked'` when the installed version is unknown.
+  every observation proving the cell (`observedVersion` is the newest of them),
+  `false` only when a proving observation on this OS and architecture is not
+  older, and otherwise `'unchecked'`: the installed version is unknown, nothing
+  proves the cell, or no proving observation was made on this platform.
 - `hostBlockers[]`: `executable-missing` (an `absent` executable),
   `input-required` (each declared input) and `dependency-missing` (a required
   item not among the inspected items).
@@ -633,7 +639,7 @@ items it already holds. A complete result reports:
 
 **Unknown never becomes a claim.** An `unknown` executable is never
 `executable-missing`, an `unavailable` copy is never `same-key-elsewhere`, and an
-unknown version is never `stale: false`. These are host observations of this
+unknown version or an unproven cell is never `stale: false`. These are host observations of this
 computer only: they do not verify that the tool loads or uses an item, and they
 do not satisfy native verification. Platform-scoped support stays the binding's
 static answer.
@@ -641,9 +647,9 @@ static answer.
 A request outside this shape is `invalid` (`INPUT_INVALID` with the field), an
 unknown tool is `refused` with `unknown-tool` and an unobserved tool with
 `tool-not-observed`. `controls` take `signal` and `budgetMs` (1 to 60000, default
-10000). Reads are bounded by that budget and a fixed read count in `limits`; past
-either, the result is `incomplete` and the remaining facts are unchecked. A
-cancelled inspection is `cancelled`.
+10000). Reads run synchronously and are bounded by that budget and a fixed read
+count in `limits`; past either, the result is `incomplete` and the remaining
+facts are unchecked. A signal already aborted gives `cancelled` with no facts.
 
 ## Supported AI clients
 

@@ -1,7 +1,7 @@
 // Runs inside a disposable consumer with the packed @aihq/core installed; public entries only. argv[2] is a
 // disposable root for projects, homes and PATH folders. Nothing under it is ever run by inspection.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inspectToolHost } from '@aihq/core/harness/runtime';
 import { toolBindings } from '@aihq/core/harness';
@@ -17,14 +17,24 @@ const program = path => {
   if (!windows) chmodSync(path, 0o755);
 };
 const programName = name => windows ? `${name}.cmd` : name;
-// An npm-style install whose package `bin` names the tool's executable.
+// An npm prefix as npm lays it out on Windows: a command shim beside `node_modules`, whose package `bin` names it.
 const installTool = (prefix, packageName, binary, version) => {
   const directory = join(prefix, 'node_modules', packageName);
-  program(join(directory, 'bin', programName(binary)));
-  write(join(directory, 'package.json'), JSON.stringify({ name: packageName, version,
-    bin: { [binary]: `bin/${programName(binary)}` } }));
-  return join(directory, 'bin');
+  program(join(directory, 'cli.js'));
+  write(join(directory, 'package.json'), JSON.stringify({ name: packageName, version, bin: { [binary]: 'cli.js' } }));
+  program(join(prefix, programName(binary)));
+  return prefix;
 };
+// An npm prefix as npm lays it out on POSIX: `bin/<name>` links to the package's file.
+const linkTool = (prefix, packageName, binary, version) => {
+  const directory = join(prefix, 'lib', 'node_modules', packageName);
+  program(join(directory, 'cli.js'));
+  write(join(directory, 'package.json'), JSON.stringify({ name: packageName, version, bin: { [binary]: 'cli.js' } }));
+  mkdirSync(join(prefix, 'bin'), { recursive: true });
+  symlinkSync(join(directory, 'cli.js'), join(prefix, 'bin', binary));
+  return join(prefix, 'bin');
+};
+const here = `${process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux'}-${process.arch}`;
 const host = ({ home, path }) => {
   process.env.HOME = home; process.env.USERPROFILE = home;
   for (const key of Object.keys(process.env)) if (key.toUpperCase() === 'PATH' || key === 'CODEX_HOME') delete process.env[key];
@@ -67,13 +77,14 @@ await check('unknown and unavailable facts make no works or duplicate claim, onl
   assert.deepEqual(where(result, 'executable-missing'), [], 'an unknown executable is never reported missing');
   assert.deepEqual(result.items[0].copies, {
     user: { state: 'unavailable', reason: 'user-root-not-observed' },
-    parentFolders: { state: 'none' },
+    parentFolders: { state: 'unavailable', reason: 'ancestor-reading-not-observed' },
     plugins: { state: 'unavailable', reason: 'plugin-locations-not-observed' } });
   assert.deepEqual(result.items[1].copies.user, { state: 'unavailable', reason: 'item-not-keyed' });
   assert.deepEqual(result.warnings.filter(item => item.code === 'same-key-elsewhere'), [], 'nothing unchecked is a duplicate');
   assert.deepEqual(result.unchecked, [
     { fact: 'tool-version', reason: 'tool-executable-unknown' },
     { fact: 'user-copy', item: { framework: 'example', itemId: 'review' }, reason: 'user-root-not-observed' },
+    { fact: 'parent-folder-copy', item: { framework: 'example', itemId: 'review' }, reason: 'ancestor-reading-not-observed' },
     { fact: 'plugin-copy', item: { framework: 'example', itemId: 'review' }, reason: 'plugin-locations-not-observed' },
     { fact: 'stale', item: { framework: 'example', itemId: 'review' }, reason: 'tool-version-unknown' },
     { fact: 'executable', item: { framework: 'example', itemId: 'format-hook' }, executable: 'node', reason: 'path-unavailable' },
@@ -95,6 +106,12 @@ await check('a missing executable gives executable-missing and the tool version 
   const relative = await inspectToolHost({ tool: 'claude', project, items: [hook] });
   assert.deepEqual(relative.items[0].executables, [{ name: 'node', state: 'unknown' }]);
   assert.deepEqual(relative.hostBlockers, []);
+  if (!windows) {
+    // An empty POSIX entry is the current folder.
+    host({ home: folder('missing', 'home'), path: folder('missing', 'empty-bin') + ':' });
+    const empty = await inspectToolHost({ tool: 'claude', project, items: [hook] });
+    assert.deepEqual([empty.items[0].executables, empty.hostBlockers], [[{ name: 'node', state: 'unknown' }], []]);
+  }
 });
 
 await check('an installed version newer than the observation is stale; read from files, never by running the tool', async () => {
@@ -108,36 +125,48 @@ await check('an installed version newer than the observation is stale; read from
   assert.deepEqual(result.installedVersion, { state: 'known', version: '2.2.0', source: 'package-manifest' });
   assert.equal(result.stale, true);
   assert.deepEqual(result.items.map(item => [item.observedVersion, item.stale]),
-    [['2.1.308', true], ['2.1.308', false], ['2.1.308', true]], 'an unconfirmed agent cell claims nothing to be stale');
+    [['2.1.308', true], [undefined, 'unchecked'], ['2.1.308', true]], 'an unproven agent cell is neither stale nor current');
+  assert.deepEqual(result.unchecked.filter(note => note.fact === 'stale'),
+    [{ fact: 'stale', item: { framework: 'example', itemId: 'planner' }, reason: 'cell-not-proven' }]);
   assert.deepEqual(result.items[2].executables, [{ name: 'node', state: 'present' }]);
   assert.deepEqual(where(result, 'executable-missing'), []);
   const older = installTool(folder('stale', 'older'), '@anthropic-ai/claude-code', 'claude', '2.1.0');
   host({ home: folder('stale', 'home'), path: older });
   const current = await inspectToolHost({ tool: 'claude', project, items: [skill] });
-  assert.deepEqual([current.installedVersion.version, current.stale, current.items[0].stale], ['2.1.0', false, false]);
+  // Not stale needs a proving observation on this platform; the shipped ones are Windows x64.
+  const notStale = here === 'windows-x64' ? false : 'unchecked';
+  assert.deepEqual([current.installedVersion.version, current.stale, current.items[0].stale], ['2.1.0', notStale, notStale]);
+  if (notStale === 'unchecked') assert.deepEqual(current.unchecked.filter(note => note.fact === 'stale'),
+    [{ fact: 'stale', item: { framework: 'example', itemId: 'review' }, reason: 'not-observed-on-platform' }]);
+  if (!windows) {
+    host({ home: folder('stale', 'home'), path: linkTool(folder('stale', 'linked'), '@anthropic-ai/claude-code', 'claude', '2.3.1') });
+    const linked = await inspectToolHost({ tool: 'claude', project, items: [skill] });
+    assert.deepEqual([linked.installedVersion, linked.stale], [{ state: 'known', version: '2.3.1', source: 'package-manifest' }, true]);
+  }
   assert.equal(existsSync(marker), false, 'no tool or executable was run');
 });
 
-await check('a parent-folder copy gives same-key-elsewhere with where, and is left untouched', async () => {
+await check('a parent-folder copy gives same-key-elsewhere with where, only where ancestor reading is observed', async () => {
   const parent = folder('parent', 'home', 'workspace');
   const project = folder('parent', 'home', 'workspace', 'project');
-  const copy = join(parent, '.claude', 'skills', 'review', 'SKILL.md');
+  const copy = join(parent, '.github', 'skills', 'review', 'SKILL.md');
   write(copy, '# Review\n');
-  const servers = join(parent, '.mcp.json');
-  write(servers, JSON.stringify({ mcpServers: { github: { command: 'gh-mcp' } } }));
+  const claudeCopy = join(parent, '.claude', 'skills', 'review', 'SKILL.md');
+  write(claudeCopy, '# Review\n');
   host({ home: folder('parent', 'home'), path: '' });
-  const mcp = { framework: 'example', itemId: 'github', kind: 'mcp-server', key: 'github', inputs: ['GITHUB_TOKEN'] };
   const other = { framework: 'example', itemId: 'lint', kind: 'skill', key: 'lint' };
-  const result = await inspectToolHost({ tool: 'claude', project, items: [skill, mcp, other] });
-  assert.deepEqual(result.items[0].copies.parentFolders, { state: 'found', paths: [join(parent, '.claude', 'skills', 'review')] });
-  assert.deepEqual(result.items[1].copies.parentFolders, { state: 'found', paths: [servers] });
-  assert.deepEqual(result.items[2].copies.parentFolders, { state: 'none' });
-  assert.deepEqual(result.warnings, [
+  const result = await inspectToolHost({ tool: 'copilot', project, items: [skill, other] });
+  assert.deepEqual(result.items[0].copies.parentFolders, { state: 'found', paths: [join(parent, '.github', 'skills', 'review')] });
+  assert.deepEqual(result.items[1].copies.parentFolders, { state: 'none' });
+  assert.deepEqual(result.warnings.filter(item => item.code === 'same-key-elsewhere'), [
     { code: 'same-key-elsewhere', item: { framework: 'example', itemId: 'review' }, key: 'review', where: 'parent-folder',
-      path: join(parent, '.claude', 'skills', 'review') },
-    { code: 'same-key-elsewhere', item: { framework: 'example', itemId: 'github' }, key: 'github', where: 'parent-folder', path: servers }]);
+      path: join(parent, '.github', 'skills', 'review') }]);
+  // Claude Code's binding records no ancestor reading, so its parent-folder copy is unchecked, never a duplicate.
+  const claude = await inspectToolHost({ tool: 'claude', project, items: [skill] });
+  assert.deepEqual(claude.items[0].copies.parentFolders, { state: 'unavailable', reason: 'ancestor-reading-not-observed' });
+  assert.deepEqual(claude.warnings.filter(item => item.code === 'same-key-elsewhere'), []);
   assert.equal(readFileSync(copy, 'utf8'), '# Review\n');
-  assert.deepEqual(JSON.parse(readFileSync(servers, 'utf8')), { mcpServers: { github: { command: 'gh-mcp' } } });
+  assert.equal(readFileSync(claudeCopy, 'utf8'), '# Review\n');
 });
 
 await check('user-level copies are read only where the binding observes a user root', async () => {
@@ -150,9 +179,16 @@ await check('user-level copies are read only where the binding observes a user r
   const antigravity = await inspectToolHost({ tool: 'antigravity', project, items: [mcp] });
   assert.deepEqual(antigravity.items[0].copies.user, { state: 'found', paths: [join(home, '.gemini', 'config', 'mcp_config.json')] });
   assert.deepEqual(antigravity.warnings.filter(item => item.code === 'same-key-elsewhere').map(item => item.where), ['user']);
+  write(join(home, '.gemini', 'config', 'mcp_config.json'), JSON.stringify([{ mcpServers: { github: {} } }]));
+  const malformed = await inspectToolHost({ tool: 'antigravity', project, items: [mcp] });
+  assert.deepEqual(malformed.items[0].copies.user, { state: 'unavailable', reason: 'unreadable' }, 'a malformed file is never none');
   const codex = await inspectToolHost({ tool: 'codex', project, items: [mcp] });
   assert.deepEqual(codex.items[0].copies.user, { state: 'unavailable', reason: 'registration-format-unread' });
   assert.deepEqual(codex.warnings.filter(item => item.code === 'same-key-elsewhere'), []);
+  // A redirected Codex home is followed; it holds no key here.
+  process.env.CODEX_HOME = folder('user', 'codex-home');
+  const redirected = await inspectToolHost({ tool: 'codex', project, items: [mcp] });
+  assert.deepEqual(redirected.items[0].copies.user, { state: 'unavailable', reason: 'registration-format-unread' });
 });
 
 await check('required inputs and missing dependencies are blockers with their exact meaning', async () => {

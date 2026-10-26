@@ -18,8 +18,13 @@ const INPUT = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 const IDENTIFIER = /^[^\u0000-\u001f]{1,256}$/;
 
 // Where a tool's user-level root moves when the tool's own variable is set. The variable replaces the root's
-// first segment (for Codex, `.codex`), as each binding's `roots.user.resolvedBy` states.
+// first segment (for Codex, `.codex`). Any other variable a binding's `roots.user.resolvedBy` names, when set,
+// moves the root somewhere this inspection does not follow, so the user level is unavailable.
 const USER_ROOT_VARIABLES = Object.freeze({ codex: 'CODEX_HOME' });
+const HOME_VARIABLES = new Set(['HOME', 'USERPROFILE']);
+// Kinds a tool reads from every folder above the project, as its binding's `alsoReads` `ancestor-folders`
+// entry states. Elsewhere no ancestor reading is observed, so parent-folder copies are unavailable.
+const ANCESTOR_KINDS = Object.freeze({ copilot: Object.freeze(['skill']) });
 // No binding cell observes a plugin location yet, so plugin copies are never looked for.
 const PLUGINS_UNOBSERVED = 'plugin-locations-not-observed';
 
@@ -34,8 +39,9 @@ const stringArray = (value, pattern, max) => value === undefined || (Array.isArr
 const reference = value => plainObject(value, ['framework', 'itemId']) &&
   typeof value.framework === 'string' && IDENTIFIER.test(value.framework) &&
   typeof value.itemId === 'string' && IDENTIFIER.test(value.itemId);
+// A key is one folder entry or registration key: no separators, no characters or endings Windows treats specially.
 const validKey = key => typeof key === 'string' && key.length >= 1 && key.length <= 255 && key !== '.' && key !== '..' &&
-  !/[/\\\u0000-\u001f]/.test(key);
+  !/[/\\:*?"<>|\u0000-\u001f]/.test(key) && !/[. ]$/.test(key);
 const identityOf = item => JSON.stringify([item.framework, item.itemId]);
 const ref = item => ({ framework: item.framework, itemId: item.itemId });
 
@@ -89,14 +95,13 @@ export async function inspectToolHost(request, controls = {}) {
   if (signal?.aborted) return { status: 'cancelled', diagnostics: [{ code: 'CANCELLED', reason: 'cancelled',
     message: 'Host inspection was cancelled.' }], limits: limits(0) };
 
-  // Every filesystem read counts against one bound; past the deadline, the read limit or a cancellation, the
-  // remaining facts are unchecked.
+  // Every filesystem read counts against one bound; past the deadline or the read limit, the remaining facts are
+  // unchecked. Reads run synchronously, so a signal is honoured only when it is already aborted.
   let reads = 0, stopped;
   const deadline = started + budgetMs;
   const halt = () => {
     if (stopped) return stopped;
-    if (signal?.aborted) stopped = 'cancelled';
-    else if (performance.now() > deadline) stopped = 'budget';
+    if (performance.now() > deadline) stopped = 'budget';
     else if (reads >= MAX_READS) stopped = 'read-limit';
     return stopped;
   };
@@ -118,10 +123,11 @@ export async function inspectToolHost(request, controls = {}) {
   const environment = process.env;
   const windows = process.platform === 'win32';
   const pathValue = windows ? Object.entries(environment).find(([key]) => key.toUpperCase() === 'PATH')?.[1] : environment.PATH;
-  const pathEntries = typeof pathValue === 'string' ? pathValue.split(delimiter).filter(Boolean) : [];
-  const pathDirectories = pathEntries.filter(entry => isAbsolute(entry));
-  // A relative PATH entry depends on the caller's folder, so a name not found elsewhere is not known to be absent.
-  const pathRelative = pathDirectories.length !== pathEntries.length;
+  // An empty POSIX PATH entry means the current folder. Like a relative entry it depends on the caller's folder,
+  // so a name not found elsewhere is not known to be absent.
+  const pathEntries = typeof pathValue === 'string' && pathValue ? pathValue.split(delimiter) : [];
+  const pathDirectories = pathEntries.filter(entry => entry && isAbsolute(entry));
+  const pathRelative = pathEntries.some(entry => windows ? entry && !isAbsolute(entry) : !isAbsolute(entry));
   const extensions = windows ? (Object.entries(environment).find(([key]) => key.toUpperCase() === 'PATHEXT')?.[1] ?? '.COM;.EXE;.BAT;.CMD')
     .split(';').filter(Boolean) : [''];
 
@@ -151,6 +157,37 @@ export async function inspectToolHost(request, controls = {}) {
     }
     lookups.set(name, result);
     return result;
+  };
+
+  // An npm command shim (Windows `.cmd`, or a copied script) sits in the npm prefix beside `node_modules`;
+  // exactly one installed package there must name the tool's executable in its `bin`.
+  const manifestAt = path => {
+    try {
+      const stats = read(() => statSync(path));
+      if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES) return undefined;
+      const value = JSON.parse(read(() => readFileSync(path, 'utf8')));
+      return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+    } catch (error) { if (error instanceof Stop) throw error; return undefined; }
+  };
+  const binNames = manifest => typeof manifest.bin === 'string' ? [String(manifest.name).split('/').at(-1)]
+    : manifest.bin !== null && typeof manifest.bin === 'object' ? Object.keys(manifest.bin) : [];
+  const shimPackageVersion = shim => {
+    const modules = join(dirname(shim), 'node_modules');
+    const entries = directory => { try { return read(() => readdirSync(directory, { withFileTypes: true })); }
+      catch (error) { if (error instanceof Stop) throw error; return []; } };
+    const packages = [];
+    for (const entry of entries(modules).slice(0, 512)) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('@')) for (const scoped of entries(join(modules, entry.name)).slice(0, 512)) {
+        if (scoped.isDirectory()) packages.push(join(modules, entry.name, scoped.name));
+      } else packages.push(join(modules, entry.name));
+    }
+    const matches = packages.slice(0, 1024).map(directory => manifestAt(join(directory, 'package.json')))
+      .filter(manifest => manifest && binNames(manifest).some(name => selected.tool.binaries.includes(name)));
+    if (matches.length !== 1) return { state: 'unknown', reason: 'version-not-readable' };
+    return typeof matches[0].version === 'string' && VERSION.test(matches[0].version)
+      ? { state: 'known', version: matches[0].version, source: 'package-manifest' }
+      : { state: 'unknown', reason: 'version-not-numeric' };
   };
 
   // The installed version comes only from files beside the tool's executable: an npm package whose `bin`
@@ -187,7 +224,7 @@ export async function inspectToolHost(request, controls = {}) {
         if (parent === directory) break;
         directory = parent;
       }
-      return { state: 'unknown', reason: 'version-not-readable' };
+      return shimPackageVersion(found.path);
     } catch (error) {
       if (error instanceof Stop) return { state: 'unknown', reason: halt() };
       return { state: 'unknown', reason: 'version-not-readable' };
@@ -199,6 +236,8 @@ export async function inspectToolHost(request, controls = {}) {
   const userBase = layout => {
     const variable = USER_ROOT_VARIABLES[binding.tool];
     const segments = layout.roots.user.path.split('/');
+    const named = layout.roots.user.resolvedBy.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) ?? [];
+    if (named.some(name => name !== variable && !HOME_VARIABLES.has(name) && environment[name])) return undefined;
     const override = variable && environment[variable];
     if (override) return isAbsolute(override) ? join(override, ...segments.slice(1)) : undefined;
     return join(homedir(), ...segments);
@@ -225,12 +264,15 @@ export async function inspectToolHost(request, controls = {}) {
         if (error instanceof Stop) throw error;
         return { state: 'unavailable', reason: 'unreadable' };
       }
+      // Only objects hold keys: a missing container is none, any other shape on the way is unreadable.
+      const holdsKeys = value => value !== null && typeof value === 'object' && !Array.isArray(value);
       let container = document;
-      for (const segment of registration.container) container = container !== null && typeof container === 'object' &&
-        !Array.isArray(container) && Object.hasOwn(container, segment) ? container[segment] : undefined;
-      if (container === undefined) return { state: 'none' };
-      if (container === null || typeof container !== 'object' || Array.isArray(container))
-        return { state: 'unavailable', reason: 'unreadable' };
+      for (const segment of registration.container) {
+        if (!holdsKeys(container)) return { state: 'unavailable', reason: 'unreadable' };
+        if (!Object.hasOwn(container, segment)) return { state: 'none' };
+        container = container[segment];
+      }
+      if (!holdsKeys(container)) return { state: 'unavailable', reason: 'unreadable' };
       return Object.hasOwn(container, key) ? { state: 'found', path: location } : { state: 'none' };
     }
     const path = join(location, key);
@@ -264,20 +306,24 @@ export async function inspectToolHost(request, controls = {}) {
     });
     const parentFolders = guarded(() => {
       const root = layout.roots.project;
+      if (!binding.alsoReads.some(entry => entry.where === 'ancestor-folders') ||
+          !ANCESTOR_KINDS[binding.tool]?.includes(item.kind)) return { state: 'unavailable', reason: 'ancestor-reading-not-observed' };
       if (!root) return { state: 'unavailable', reason: 'project-root-not-observed' };
       if (located(root, project) === undefined) return { state: 'unavailable', reason: 'single-file-root' };
       const paths = [];
+      let unreadable;
       let directory = dirname(project);
       // Folders above the project up to, not including, the user home: the home itself is user level.
       for (let level = 0; level < MAX_ANCESTORS && directory !== home && project !== home; level++) {
         const result = lookIn(located(root, directory), layout, item.kind, item.key);
-        if (result.state === 'unavailable') return result;
+        if (result.state === 'unavailable') unreadable ??= result;
         if (result.state === 'found') paths.push(result.path);
         const parent = dirname(directory);
         if (parent === directory) break;
         directory = parent;
       }
-      return paths.length ? { state: 'found', paths } : { state: 'none' };
+      // A copy found is a fact even when another folder could not be read.
+      return paths.length ? { state: 'found', paths } : unreadable ?? { state: 'none' };
     });
     const normalized = result => result.state === 'found' && result.path ? { state: 'found', paths: [result.path] } : result;
     return { user: normalized(user), parentFolders, plugins: { state: 'unavailable', reason: PLUGINS_UNOBSERVED } };
@@ -309,28 +355,30 @@ export async function inspectToolHost(request, controls = {}) {
       if (copy.state === 'unavailable')
         unchecked.push({ fact: `${label}-copy`, item: ref(item), reason: copy.reason });
     }
-    // Staleness compares the installed version with the cell's proving observations; the platform scoping of
-    // support is the static compatibility check's.
-    const proving = deriveCellSupport({ kind: item.kind, observations: layout.observations });
-    let stale;
-    if (installedVersion.state !== 'known') {
-      stale = 'unchecked';
-      unchecked.push({ fact: 'stale', item: ref(item), reason: 'tool-version-unknown' });
-    } else stale = deriveCellSupport({ kind: item.kind, observations: layout.observations,
-      installedVersion: installedVersion.version }).stale;
+    // Staleness compares the installed version with the observations that prove the cell. Newer than all of them,
+    // on any platform, is stale. Not stale needs a proving observation on this host's platform.
+    const proving = layout.observations.filter(observation =>
+      deriveCellSupport({ kind: item.kind, observations: [observation] }).support === 'native');
+    const here = proving.filter(observation => platform && observation.os === platform.os && observation.arch === platform.arch);
+    const newest = proving.length ? deriveCellSupport({ kind: item.kind, observations: proving }).observedOn.toolVersion : undefined;
+    let stale, staleReason;
+    if (installedVersion.state !== 'known') staleReason = 'tool-version-unknown';
+    else if (!proving.length) staleReason = 'cell-not-proven';
+    else if (deriveCellSupport({ kind: item.kind, observations: proving, installedVersion: installedVersion.version }).stale) stale = true;
+    else if (!here.length) staleReason = 'not-observed-on-platform';
+    else stale = deriveCellSupport({ kind: item.kind, observations: here, installedVersion: installedVersion.version }).stale;
+    if (staleReason) { stale = 'unchecked'; unchecked.push({ fact: 'stale', item: ref(item), reason: staleReason }); }
     return { ...ref(item), kind: item.kind, ...(item.key === undefined ? {} : { key: item.key }),
-      ...(proving.observedOn ? { observedVersion: proving.observedOn.toolVersion } : {}),
-      stale, executables, inputs, copies };
+      ...(newest ? { observedVersion: newest } : {}), stale, executables, inputs, copies };
   });
   for (const entry of binding.alsoReads) warnings.push({ code: 'also-reads', what: entry.what, where: entry.where });
   const stale = items.some(item => item.stale === true) ? true : items.some(item => item.stale === 'unchecked') ? 'unchecked' : false;
   const reason = halt();
   return {
-    status: reason === 'cancelled' ? 'cancelled' : reason ? 'incomplete' : 'complete',
+    status: reason ? 'incomplete' : 'complete',
     tool: { id: selected.tool.id, label: selected.tool.label }, binding: { digest: binding.digest },
     ...(platform ? { platform } : {}), installedVersion, stale, items, hostBlockers, warnings, unchecked,
-    diagnostics: reason === 'cancelled' ? [{ code: 'CANCELLED', reason: 'cancelled', message: 'Host inspection was cancelled.' }]
-      : reason ? [{ code: 'PREREQUISITE_UNAVAILABLE', reason, message: 'Host inspection stopped at its bound; the remaining facts are unchecked.' }] : [],
+    diagnostics: reason ? [{ code: 'PREREQUISITE_UNAVAILABLE', reason, message: 'Host inspection stopped at its bound; the remaining facts are unchecked.' }] : [],
     limits: limits(reads)
   };
 }

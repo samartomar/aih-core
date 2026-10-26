@@ -1,4 +1,4 @@
-import type { BindingKind } from './tool-binding.mjs';
+import type { BindingKind, ToolBinding } from './tool-binding.mjs';
 export interface ToolHostItemReference { framework: string; itemId: string }
 export interface ToolHostItem extends ToolHostItemReference {
   kind: BindingKind;
@@ -23,16 +23,19 @@ export type ToolHostBlocker =
   | { code: 'dependency-missing'; item: ToolHostItemReference; dependency: ToolHostItemReference };
 export type ToolHostWarning =
   | { code: 'same-key-elsewhere'; item: ToolHostItemReference; key: string; where: 'user' | 'parent-folder' | 'plugin'; path: string }
-  | { code: 'also-reads'; what: string; where: 'ancestor-folders' | 'other-tool-folders' | 'account-sync' | 'user-profile' };
+  | { code: 'also-reads'; what: string; where: ToolBinding['alsoReads'][number]['where'] };
 export interface ToolHostUnchecked {
   fact: 'tool-version' | 'executable' | 'user-copy' | 'parent-folder-copy' | 'plugin-copy' | 'stale';
   item?: ToolHostItemReference; executable?: string; reason: string;
 }
 export interface ToolHostItemResult extends ToolHostItemReference {
   kind: BindingKind; key?: string;
-  /** The newest tool version among the cell's observations, when any. */
+  /** The newest tool version among the observations that prove the cell, when any. */
   observedVersion?: string;
-  /** `true` when the installed version is newer than every proving observation; `'unchecked'` when it is unknown. */
+  /**
+   * `true` when the installed version is newer than every proving observation; `false` only against a proving
+   * observation on this platform; otherwise `'unchecked'`, with the reason in `unchecked`.
+   */
   stale: boolean | 'unchecked';
   executables: { name: string; state: 'present' | 'absent' | 'unknown' }[];
   inputs: string[];
@@ -40,7 +43,7 @@ export interface ToolHostItemResult extends ToolHostItemReference {
 }
 export interface ToolHostLimits { budgetMs: number; elapsedMs: number; reads: number; maxReads: number }
 export type ToolHostResult =
-  | { status: 'complete' | 'incomplete' | 'cancelled';
+  | { status: 'complete' | 'incomplete';
       tool: { id: string; label: string }; binding: { digest: string };
       platform?: { os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64' };
       installedVersion: { state: 'known'; version: string; source: 'package-manifest' | 'version-folder' } |
