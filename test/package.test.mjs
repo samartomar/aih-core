@@ -25,7 +25,7 @@ const expectedRuntimeNames = {
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
     'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationObligations', 'recipeOperationKinds',
-    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateMacosRepairInputs',
+    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
     'validateMacosSessionVerificationResult', 'validateNativeVerificationBundle',
@@ -280,7 +280,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {checkFileState,listManagedSelections,prepareManagedRemoval} from '@aihq/core';
       import {verifyNativeClient} from '@aihq/core';
       import type {NativeVerificationRequest, NativeVerificationResult, NativeVerificationControls} from '@aihq/core';
-      import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {validateFileStateResult,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {deriveRecipeIdentity,previewOrganizationAdmission,previewOrganizationObligations} from '@aihq/core/contracts';
       import type {DeriveRecipeIdentityRequest,RecipeIdentity,AuthoringResult,AuthoringDiagnostic,PreviewOrganizationAdmissionRequest,OrganizationAdmissionPreview,
         PreviewOrganizationObligationsRequest,OrganizationObligationsPreview,OrganizationPolicy,OrganizationObligation,OrganizationTarget,NativeClientId} from '@aihq/core/contracts';
@@ -310,6 +310,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       const nativeRequest: NativeVerificationRequest = {schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'};
       const nativeControls: NativeVerificationControls = {budgetMs:1000,admission:'candidate-smoke'};
       const nativeResult: Promise<NativeVerificationResult> = verifyNativeClient(nativeRequest,nativeControls);
+      const storedFileStateValidation: import('@aihq/core/contracts').ValidationResult = validateFileStateResult({});
       validateNativeVerificationRequest(nativeRequest); validateNativeVerificationResult({}); validateNativeVerificationBundle({});
       import type {FileStateRequest,FileStateControls,FileStateResult,ManagedInventoryResult,ManagedRemovalPreparationResult} from '@aihq/core';
       import type {CertificateExportRequest,TrustRepairRequest,TrustSources} from '@aihq/core';
@@ -401,7 +402,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {sep} from 'node:path';
       import {fileURLToPath} from 'node:url';
       import {verifyNativeClient} from '@aihq/core';
-      import {validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {validateFileStateResult,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       import {Ajv2020} from 'ajv/dist/2020.js';
       const schemas = new Ajv2020({strict:true});
@@ -785,7 +786,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     `);
     assert.match(run('run.mjs', {}, 60_000), /packed API, Harness runtime, repair and schemas passed/);
     const browser = await build({ absWorkingDir: consumer, stdin: { contents: `
-      import {checkContracts,validatePackageSupport,parsePolicy,contractSupport,deriveRecipeIdentity,previewOrganizationAdmission,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {validateFileStateResult,checkContracts,validatePackageSupport,parsePolicy,contractSupport,deriveRecipeIdentity,previewOrganizationAdmission,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {contractSupport as harnessSupport,helperMetadata,repairIndex,verificationKeys,verificationPublishers,selectVerificationPublishers,nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       globalThis.portable = [parsePolicy(${JSON.stringify(JSON.stringify(policy()))}).valid,
         contractSupport.package,harnessSupport.package,helperMetadata.diagnostics.length,repairIndex[0].id,verificationKeys.length,
@@ -795,6 +796,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       ]);
       const exampleDeclaration = (name,role,fixtures=[]) => ({schema:'urn:aihq:package-support:1.1.0',package:{name,version:'0.1.0'},entries:[],contracts:[{id:'example',role,versions:['1.0.0'],schemaExport:'example/schema',fixtures}]});
       globalThis.contractChecks = checkContracts({declarations:[exampleDeclaration('reader','accepts'),exampleDeclaration('producer','produces',[{export:'producer/fixture',expect:'accept'}])],readers:{example:bytes=>({accepted:bytes.length===2})},loadFixture:()=>new TextEncoder().encode('{}')});
+      globalThis.fileStatePortable = [validateFileStateResult(${readFileSync(new URL('../src/fixtures/core/file-state-result/1.1.0/accept.json', import.meta.url), 'utf8')}).valid, validateFileStateResult({}).valid];
       globalThis.supportValid = validatePackageSupport(contractSupport).valid;
       globalThis.nativePortable = [
         validateNativeVerificationRequest({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude'}).valid,
@@ -812,6 +814,8 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
     const portableChecks = await browserGlobals.contractChecks;
     assert.equal(portableChecks.ok, true);
     assert.equal(portableChecks.checks[0].status, 'passed');
+    assert.equal(browserGlobals.fileStatePortable[0], true);
+    assert.equal(browserGlobals.fileStatePortable[1], false);
     assert.equal(browserGlobals.supportValid, true);
     const portableAuthoring = await browserGlobals.authoring;
     assert.equal(portableAuthoring[0], 'ok');

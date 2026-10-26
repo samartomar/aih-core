@@ -150,6 +150,7 @@
     "./fixtures/harness/trust-capabilities/1.0.0/refuse.json": "./dist/fixtures/harness/trust-capabilities/1.0.0/refuse.json",
     "./fixtures/harness/trust-capabilities/1.0.0/accept.json": "./dist/fixtures/harness/trust-capabilities/1.0.0/accept.json",
     "./fixtures/core/native-verification-request/1.0.0/refuse.json": "./dist/fixtures/core/native-verification-request/1.0.0/refuse.json",
+    "./fixtures/core/native-verification-result/1.0.0/accept.json": "./dist/fixtures/core/native-verification-result/1.0.0/accept.json",
     "./fixtures/core/native-verification-result/1.0.0/refuse.json": "./dist/fixtures/core/native-verification-result/1.0.0/refuse.json",
     "./fixtures/core/native-verification-bundle/1.0.0/refuse.json": "./dist/fixtures/core/native-verification-bundle/1.0.0/refuse.json",
     "./fixtures/harness/native-verification-definition/1.0.0/refuse.json": "./dist/fixtures/harness/native-verification-definition/1.0.0/refuse.json",

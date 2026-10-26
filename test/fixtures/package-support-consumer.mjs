@@ -18,12 +18,18 @@ for (const contract of all) {
   ajv.addSchema(schema);
   assert.ok(contract.fixtures.length > 0);
 }
+// These result contracts must exercise both outcomes through public readers.
+for (const id of ['urn:aihq:core:file-state-result:1.1.0', 'urn:aihq:core:native-verification-result:1.0.0']) {
+  const contract = all.find(contract => contract.id === id);
+  assert.deepEqual(contract.fixtures.map(fixture => fixture.expect), ['accept', 'refuse']);
+}
 const publicReaders = {
   'execution-policy':core.validatePolicy, recipe:core.validateRecipe,
   'organization-policy':core.validateOrganizationPolicy, 'organization-target':core.validateOrganizationTarget,
   'repair-request':value=>value.schema.endsWith('1.1.0') ? core.validateMacosRepairRequest(value):core.validateTrustRepairRequest(value),
   'repair-inputs':value=>value.schema.endsWith('1.1.0') ? core.validateMacosRepairInputs(value):core.validateTrustRepairInputs(value),
   'certificate-export-request':core.validateCertificateExportRequest, 'certificate-export-inputs':core.validateCertificateExportInputs,
+  'file-state-result':core.validateFileStateResult,
   'native-verification-request':core.validateNativeVerificationRequest, 'native-verification-result':core.validateNativeVerificationResult,
   'native-verification-bundle':core.validateNativeVerificationBundle
 };
@@ -54,6 +60,74 @@ const checked=await checkContracts({declarations:[consumer,producer],readers,loa
 assert.equal(checked.ok,true,JSON.stringify(checked.checks.filter(c=>c.status!=='passed'),null,2));
 assert.ok(checked.checks.some(c=>c.expect==='accept'));
 assert.ok(checked.checks.some(c=>c.expectedCode==='SCHEMA_UNSUPPORTED'));
+
+// An accepting-only peer consumes published bytes without becoming a producer.
+const policyContract = all.find(contract => contract.id === 'urn:aihq:core:execution-policy:1.0.0');
+const both = {...contractSupport, contracts:[{...policyContract, role:'both'}]};
+const acceptingPeer = {...consumer, contracts:[{...policyContract, role:'accepts', fixtures:[]}]};
+const directional = await checkContracts({declarations:[both, acceptingPeer], readers, loadFixture});
+assert.equal(directional.ok, true, JSON.stringify(directional.checks, null, 2));
+assert.deepEqual(directional.checks.map(row => [row.readerPackage, row.fixturePackage, row.fixtureExport, row.status]),
+  policyContract.fixtures.map(fixture => ['fixture-consumer', '@aihq/core', fixture.export, 'passed']));
+
+// Every actual published fixture is required, including accepts-only entries.
+const publishedPeer = {...acceptingPeer, contracts:[{...policyContract, role:'accepts',
+  fixtures:policyContract.fixtures.map(fixture => ({...fixture, export:fixture.export.replace('@aihq/core/', 'fixture-consumer/')}))}]};
+const loadPublishedFixture = (packageName, exportSpecifier) => {
+  assert.ok(['@aihq/core', 'fixture-consumer'].includes(packageName));
+  assert.ok(exportSpecifier.startsWith(packageName+'/fixtures/'));
+  return loadFixture('@aihq/core', exportSpecifier.replace('fixture-consumer/', '@aihq/core/'));
+};
+for (const declarations of [[both, publishedPeer], [publishedPeer, both]]) {
+  const result = await checkContracts({declarations, readers, loadFixture:loadPublishedFixture});
+  assert.equal(result.ok, true, JSON.stringify(result.checks, null, 2));
+  assert.equal(result.checks.length, 6);
+  for (const [readerPackage, publisher] of [['fixture-consumer', both], ['@aihq/core', publishedPeer]]) {
+    assert.deepEqual(result.checks.filter(row => row.readerPackage === readerPackage)
+      .map(row => [row.fixturePackage, row.fixtureExport, row.status]),
+    publisher.contracts[0].fixtures.map(fixture => [publisher.package.name, fixture.export, 'passed']));
+  }
+}
+
+// Missing readers/bytes and wrong refusals on accepts-only published fixtures cannot pass.
+const publishedOnly = [{...both, contracts:[{...policyContract, role:'accepts', fixtures:[]}]}, publishedPeer];
+for (const [adapters, loader, reason] of [
+  [{}, loadPublishedFixture, 'reader-missing'],
+  [readers, () => 'unavailable', 'fixture-unavailable']
+]) {
+  const result = await checkContracts({declarations:publishedOnly, readers:adapters, loadFixture:loader});
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.length, 3);
+  assert.ok(result.checks.every(row => row.fixturePackage === 'fixture-consumer' && row.status === 'unavailable' && row.reason === reason));
+}
+const publishedWrongRefusal = await checkContracts({declarations:publishedOnly, loadFixture:loadPublishedFixture,
+  readers:{[policyContract.id]:async bytes => ({...await readers[policyContract.id](bytes), code:'OTHER'})}});
+assert.equal(publishedWrongRefusal.ok, false);
+assert.equal(publishedWrongRefusal.checks.find(row => row.expectedCode === 'SCHEMA_UNSUPPORTED').reason, 'outcome-mismatch');
+
+// Genuine producing declarations without fixtures remain required and unavailable.
+for (const role of ['produces', 'both']) {
+  const missing = {...both, contracts:[{...policyContract, role, fixtures:[]}]};
+  const result = await checkContracts({declarations:[acceptingPeer, missing], readers, loadFixture});
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.checks, [{contractId:policyContract.id, readerPackage:'fixture-consumer',
+    fixturePackage:'@aihq/core', status:'unavailable', reason:'fixtures-missing'}]);
+}
+
+// Producer selection must not turn unavailable checks or wrong refusal codes into passes.
+for (const [adapters, loader, reason] of [
+  [{}, loadFixture, 'reader-missing'],
+  [readers, () => 'unavailable', 'fixture-unavailable']
+]) {
+  const result = await checkContracts({declarations:[acceptingPeer, both], readers:adapters, loadFixture:loader});
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.length, 3);
+  assert.ok(result.checks.every(row => row.status === 'unavailable' && row.reason === reason));
+}
+const wrongRefusal = await checkContracts({declarations:[acceptingPeer, both], loadFixture,
+  readers:{[policyContract.id]:async bytes => ({...await readers[policyContract.id](bytes), code:'OTHER'})}});
+assert.equal(wrongRefusal.ok, false);
+assert.equal(wrongRefusal.checks.find(row => row.expectedCode === 'SCHEMA_UNSUPPORTED').reason, 'outcome-mismatch');
 
 
 // Every advertised reader must preserve the format and unknown-field location.

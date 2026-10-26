@@ -14,7 +14,7 @@ macOS session limits are internal to the package and not part of any entry.
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
@@ -85,8 +85,10 @@ the host. New trust Prepare controls accept only `signal` and `logging`.
 `@aihq/core/contracts` runs supplied readers against another declaration's
 fixtures for the same exact contract `id`. For each `accepts` or `both` entry,
 every referenced fixture from every other declaration is required, including
-fixtures on an `accepts` entry. The current declaration's own fixtures are
-excluded. Package versions and `versions` describe support; they never substitute
+fixtures on an `accepts` entry. An `accepts` entry with no fixtures contributes
+no checks. Missing fixtures on a `produces` or `both` entry remain unavailable.
+The current declaration's own fixtures are excluded.
+Package versions and `versions` describe support; they never substitute
 for exercising bytes or imply compatibility.
 
 A fixture reference is `{ export, expect: 'accept' | 'refuse', code? }`.
@@ -1219,6 +1221,32 @@ import { checkFileState } from '@aihq/core';
 
 const result = await checkFileState({ policy, target: { project: absoluteProjectPath } });
 ```
+
+Stored results can be checked without observing the filesystem:
+
+```js
+import { validateFileStateResult } from '@aihq/core/contracts';
+
+const checked = validateFileStateResult(storedResult);
+// { valid, schema?, diagnostics }
+```
+
+`validateFileStateResult(value: unknown): ValidationResult` accepts strict JSON
+data satisfying the existing file-state-result **1.1.0** schema. It performs no
+filesystem, process, network or state effects and leaves the input unchanged.
+Other schema IDs (including 1.0.0) return `SCHEMA_UNSUPPORTED` with reason
+`schema-unsupported`, `/schema`, and the encountered/supported IDs. Undeclared
+fields return `INPUT_INVALID`, reason `unknown-field`, and the escaped JSON-pointer
+path. Invalid observations and incomplete/cancelled results are valid documents
+when they satisfy that schema; validation never establishes a current file match,
+custody, execution permission or native loading.
+
+The existing `@aihq/core/fixtures/core/file-state-result/1.1.0/accept.json` and
+`refuse.json` exports exercise both reader outcomes. Native result fixtures at
+`@aihq/core/fixtures/core/native-verification-result/1.0.0/accept.json` and
+`refuse.json` exercise `validateNativeVerificationResult`; the accept fixture is
+synthetic verified-result data, not evidence of real client sessions. Both pairs
+are referenced by `contractSupport` for public-reader conformance checks.
 
 Each distinct target is captured once and compared with the final content folded in memory from all its contributing operations, across selections in dependency order; `operationIds` lists every contributing operation and `selectionIds` names the selection of each, index-aligned with `operationIds`; a target shared by several selections lists each selection once per contributing operation. A result is `urn:aihq:core:file-state-result:1.1.0`; it differs from 1.0.0 only by the required `selectionIds`. `file.sha256` checks compare the live file itself. `fileState` aggregates the comparison: `changed` wins whenever any target differs, is absent where content is desired or present where absence is desired, or a digest check fails; `match` requires at least one compared target or check, no unavailable target or check and no unread recipe; `unverified` covers everything else, including a policy with no file operations. `status` reports completion of the observation, never application: `complete` only when at least one item was compared and nothing was unavailable or not checked, otherwise `incomplete` (or `invalid`/`cancelled`), so matching files beside an opaque process are `incomplete` with `fileState: match`.
 
