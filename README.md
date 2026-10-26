@@ -1833,22 +1833,32 @@ it is then refused without reading custody, as is a cancelled one.
 
   Kept members are reviewed actions, not conflicts, so a review that only keeps
   changed members is `ready`. When any member of a selection is kept as changed, that
-  selection's licence and notice files (file names `LICENSE`, `LICENCE`, `COPYING` or
-  `NOTICE`, with or without an extension) are kept as required, so a partly removed item
-  never stands without them. Kept members stay in custody with the item, and inventory
+  selection's licence and notice files are kept as required, so a partly removed item
+  never stands without them. Catalog carries no material role for them, so the file
+  name decides: `LICENSE`, `LICENCE`, `LICENSES`, `UNLICENSE`, `COPYING`, `COPYRIGHT`,
+  `NOTICE`, `NOTICES` or `THIRD_PARTY_NOTICES` (any case, `-`/`_` separators), with an
+  optional text extension (`.txt`, `.md`, ...) or SPDX-like suffix (`LICENSE-MIT`,
+  `LICENSE.Apache-2.0`); a source file such as `license-check.js` never matches.
+  Setup-created directories emptied by a file removal are not members: the review lists
+  them in that operation's `details.declaredEffects`. Kept members stay in custody with the item, and inventory
   1.1.0 keeps listing it. The single-id call and policy `removals` still report a
   changed member as a `STATE_CONFLICT`.
 - **Removed.** Apply the preparation with the ordinary `apply`; its run result 1.4.0
   carries the member checks. `removalClaims(preparation, runResult)` from
-  `@aihq/core/contracts` gives each requested removal a claim: `removed` only when the run
-  is `complete` and every `remove` and `unregister` member is `claim-removed` and
+  `@aihq/core/contracts` gives each requested removal a claim. Only the run that applied
+  this review counts: run result 1.4.0 names it in `authorization.reviewDigest`, which
+  must equal the preparation's `reviewDigest` (cleanup operation ids repeat across
+  reviews). Then the claim is `removed` only when the run is `complete` and every `remove` and `unregister` member is `claim-removed` and
   `absent` and every `restore` member `restored` and `present-matching`, with nothing
   kept as changed or required; `partly-removed` when those hold but members are kept as
   changed or required; `inclusion-removed` for a completed origin removal; otherwise
   `not-confirmed`. Intended operations alone never support a claim.
 
-The JSON projection omits the live Apply handle in `preparation.prepared`. The CLI
-keeps the single-id form.
+When the inner preparation stops before a review (for example an Enterprise authority
+denial), entries are still `prepared` as in the single-id call, list no members and carry
+the preparation's diagnostics; there is no `reviewDigest` and nothing to Apply. The JSON
+projection omits the live Apply handle in `preparation.prepared`. The CLI keeps the
+single-id form.
 
 `aih managed remove <managementId> --scope project|user --mode vibe|enterprise [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--no-log] [--json]` previews by default and requires the same explicit review approval as `aih policy`. Its JSON projection omits the live handle and validates against `@aihq/core/schemas/managed-removal-preparation/1.0.0.json`.
 

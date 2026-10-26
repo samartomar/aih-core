@@ -270,6 +270,42 @@
           "mode": {}
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "preparation"
+        ],
+        "properties": {
+          "preparation": {
+            "type": "object",
+            "required": [
+              "review"
+            ],
+            "properties": {
+              "review": {}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reviewDigest"
+        ],
+        "properties": {
+          "reviewDigest": {}
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "reviewDigest"
+          ],
+          "properties": {
+            "reviewDigest": {}
+          }
+        }
+      }
     }
   ],
   "$defs": {

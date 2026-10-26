@@ -111,6 +111,12 @@ test('Enterprise keeps its custody-only refusal per removal and delegates file r
   });
   const counter = { calls: 0 };
   try {
+    // A denial stops the inner preparation before its review: nothing is listed and the entry carries the reason.
+    const deniedFetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(orgDocument(enterprisePolicy()))) }));
+    globalThis.fetch = (...args) => { counter.calls++; return deniedFetch(...args); };
+    const denied = await prepareManagedRemoval(many(s, [{ managementId: 'team-guidance' }], { mode: 'enterprise', organizationSource: orgSource() }), { logging: 'off' });
+    assert.deepEqual([denied.disposition, denied.preparation.status, Object.hasOwn(denied, 'reviewDigest')], ['prepared', 'blocked', false]);
+    assert.deepEqual([denied.removals[0].members, denied.removals[0].diagnostics.map(item => item.reason)], [[], ['lifecycle-remove']]);
     const inner = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }))) }));
     globalThis.fetch = (...args) => { counter.calls++; return inner(...args); };
     const result = await prepareManagedRemoval(many(s, [{ managementId: 'empty' }, { managementId: 'team-guidance' }], { mode: 'enterprise', organizationSource: orgSource() }), { logging: 'off' });

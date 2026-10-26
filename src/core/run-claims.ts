@@ -36,13 +36,16 @@ export interface RemovalClaims {
 }
 /**
  * Apply the removal claim rules of removal preparation 1.2.0 to the run that applied its review, using run result 1.4.0
- * member checks. Only a `complete` run of that review supports a claim; intended operations alone never do.
+ * member checks. Only a `complete` run whose `authorization.reviewDigest` is the preparation's `reviewDigest` supports a
+ * claim; intended operations alone never do.
  */
-export function removalClaims(preparation: { removals?: readonly RemovalEntry[] },
-  result: Pick<RunResult, 'completion' | 'members' | 'operations'>): RemovalClaims {
+export function removalClaims(preparation: { removals?: readonly RemovalEntry[]; reviewDigest?: string },
+  result: Pick<RunResult, 'completion' | 'members' | 'operations' | 'authorization'>): RemovalClaims {
   const members: readonly RunMember[] = Array.isArray(result?.members) ? result.members : [];
   const operations = new Set((Array.isArray(result?.operations) ? result.operations : []).map(operation => operation.id));
-  const complete = result?.completion === 'complete';
+  // Only the run that applied this very review speaks for it: operation ids repeat across cleanup reviews.
+  const complete = result?.completion === 'complete' && typeof preparation?.reviewDigest === 'string' &&
+    result.authorization?.reviewDigest === preparation.reviewDigest;
   return { removals: (preparation?.removals ?? []).map(entry => {
     const selector = { managementId: entry.managementId, ...(entry.origin === undefined ? {} : { origin: entry.origin }) };
     const reviewed = entry.members.every(member => member.operationId === null || operations.has(member.operationId));

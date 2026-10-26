@@ -867,7 +867,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
     members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
-    const keptOwners = new Map<PreparedStep, Owner>();
+    const stepOwners = new Map<PreparedStep, Owner>();
     let removalIndex = 0;
     const projectedMembers = (root: string): Record<string, Owner> => {
       const value: Ownership = { ...ownership.get(root)!.value, members: { ...ownership.get(root)!.value.members } };
@@ -980,7 +980,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         custody: { [key]: kept ? owner : hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
         ...(inheritance ? { inherited: Object.keys(inheritance) } : {}),
         custodyOnly: kept ? false : hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
-      keptOwners.set(steps.at(-1)!, owner);
+      stepOwners.set(steps.at(-1)!, owner);
       if (hookDecision && !matching) hookConflicts.set(`${root}:${key}`, id);
       removedIdentities.set(steps.at(-1)!, removedIds);
       if (matching) overlays.set(destination, { initial: overlay?.initial ?? initialBefore, after, priorId: id });
@@ -992,7 +992,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (step.kept || step.review.effects !== 'remove-file' || !isLegalFile(step.members![0]!) || !removedIds.some(id => changed.has(id))) continue;
         step.kept = { action: 'keep-required', reason: 'licence-or-notice' };
         step.after = step.before; step.review.effects = 'already-satisfied'; step.custodyOnly = false;
-        step.custody = { [step.ownerKey!]: keptOwners.get(step)! };
+        step.custody = { [step.ownerKey!]: stepOwners.get(step)! };
         step.review.purpose = 'Keep required managed member'; step.review.details.reason = 'keep-required';
         overlays.delete(`${step.root}:${process.platform === 'win32' ? step.path!.toLowerCase() : step.path}`);
       }
@@ -1097,7 +1097,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         Object.keys(step.directoryCleanup).map(path => `Remove setup-created directory if empty: ${safeText(path, privateValues)}`);
     }
     cleanup?.plan([...removedIdentities].map(([step, removed]): CleanupPlanRow => {
-      const owner = keptOwners.get(step)!; const remaining = step.custody?.[step.ownerKey!];
+      const owner = stepOwners.get(step)!; const remaining = step.custody?.[step.ownerKey!];
       const action = step.kept?.action ?? (remaining ? 'keep-shared' : step.restores ? 'restore' : step.review.effects === 'already-satisfied' ? 'unregister' : 'remove');
       const reason = step.kept?.reason ?? { 'keep-shared': 'another-selection', restore: 'pre-existing-value', unregister: 'already-absent', remove: undefined }[action as string];
       return { operationId: step.review.id, root: step.root!, descriptor: step.members![0]!, removed,
@@ -1218,7 +1218,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (authorization.reviewDigest !== state.review.reviewDigest) throw new Error(reportsChangedBinding ? 'digest-mismatch' : 'review-stale');
     const allowPartial = authorization.allowPartial ?? false;
     result.authorization = { origin: authorization.origin,
-      allowPartial: { value: allowPartial, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' } };
+      allowPartial: { value: allowPartial, origin: authorization.allowPartial === undefined ? 'default' : 'explicit' },
+      ...(reportsChangedBinding ? { reviewDigest: state.review.reviewDigest } : {}) };
     if (controls.signal?.aborted) throw new Error('cancelled');
     if (state.organization) {
       // Fresh online authority for this Apply call; Prepare's credential and result are never reused.

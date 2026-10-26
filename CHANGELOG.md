@@ -11,7 +11,9 @@ it) removes only that inclusion while another origin keeps the selection and its
 members. A member the person changed is kept as `keep-changed` and its item's licence
 and notice files as `keep-required`. Each removal keeps the single-id dispositions and
 safeguards; the single-id call is unchanged. `removalClaims` in
-`@aihq/core/contracts` reports `removed` only from run result 1.4.0 member checks. The
+`@aihq/core/contracts` reports `removed` only from the run result 1.4.0 member checks of
+the run that applied that review, which run result 1.4.0 now names in
+`authorization.reviewDigest`. The
 schema and its fixture are published. Unpublished candidate for the sole 0.1.0 release
 effort.
 

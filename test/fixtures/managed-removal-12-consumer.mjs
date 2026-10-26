@@ -182,7 +182,13 @@ await check('several removals in one review keep the existing per-removal dispos
   const grouped = await removeMany(project, [{ managementId: 'top' }, { managementId: 'base' }]);
   assert.deepEqual(grouped.removals.map(entry => entry.disposition), ['prepared', 'prepared'], 'removing the dependant with it frees the dependency');
   const run = await confirm(grouped);
+  assert.equal(run.authorization.reviewDigest, grouped.reviewDigest, 'the run names the review it applied');
   assert.deepEqual(removalClaims(grouped, run).removals.map(entry => entry.claim), ['removed', 'removed']);
+  // Operation ids repeat across cleanup reviews: another review's run never speaks for this one.
+  const pending = await removeMany(project, [{ managementId: 'loose' }]);
+  assert.equal(pending.removals[0].members[0].operationId, run.members[0].operationId);
+  assert.deepEqual(removalClaims(pending, run).removals.map(entry => entry.claim), ['not-confirmed']);
+  assert.equal(existsSync(join(project, 'LOOSE.md')), true);
   for (const removals of [[{ managementId: 'loose' }, { managementId: 'loose' }],
     [{ managementId: 'loose' }, { managementId: 'loose', origin: { reasonIncluded: 'chosen' } }], []]) {
     const refused = await removeMany(project, removals);

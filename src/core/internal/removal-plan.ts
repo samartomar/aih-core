@@ -19,7 +19,22 @@ export interface CleanupOptions {
   plan(rows: CleanupPlanRow[]): void;
 }
 
-/** A licence or notice file an item carries, by its file name (`LICENSE`, `LICENCE.md`, `COPYING`, `NOTICE.txt`, ...). */
+const TEXT_EXTENSIONS = new Set(['txt', 'text', 'md', 'markdown', 'rst', 'adoc', 'asciidoc', 'org', 'html', 'htm']);
+/** A licence or notice name: (UN)LICENSE/LICENCE(S), COPYING, COPYRIGHT or (THIRD-PARTY) NOTICE(S), optionally with an SPDX-like suffix. */
+const LEGAL_STEM = /^(?:(?:un)?licen[cs]es?|copying(?:\.lesser)?|copyright|(?:third[-_ ]?party[-_ ]?)?notices?)(?:[-_.][A-Za-z0-9][A-Za-z0-9.+-]*)?$/i;
+/**
+ * A licence or notice file an item carries, by its file name. A text extension is ignored; any other extension must
+ * belong to an SPDX-like suffix (`LICENSE.Apache-2.0`), so source files such as `license-check.js` never match.
+ */
 export function isLegalFile(descriptor: MemberDescriptor): boolean {
-  return descriptor.kind === 'file' && /^(licen[cs]e|copying|notice)([._-][A-Za-z0-9._-]*)?$/i.test(basename(descriptor.path));
+  if (descriptor.kind !== 'file') return false;
+  const name = basename(descriptor.path);
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  const stem = TEXT_EXTENSIONS.has(extension) ? name.slice(0, dot) : name;
+  if (!LEGAL_STEM.test(stem)) return false;
+  // Past the legal word, an extension-looking tail of letters only (".js", ".py", ".sh") is a source file, not a suffix.
+  const tail = /^(?:(?:un)?licen[cs]es?|copying(?:\.lesser)?|copyright|(?:third[-_ ]?party[-_ ]?)?notices?)(.*)$/i.exec(stem)![1]!;
+  // An upper-case tail (".MIT", ".BSD") or one carrying a version (".Apache-2.0") is an SPDX-like suffix.
+  return !/\.[A-Za-z]{1,4}$/.test(tail) || /^[-_.](?:[A-Za-z]+-)?[0-9]/.test(tail) || /^\.[A-Z][A-Z0-9.+-]*$/.test(tail) || /^\.lesser$/i.test(tail);
 }

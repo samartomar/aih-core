@@ -105,6 +105,31 @@ function readImage(project: string, home: string): Image {
   return { receipts, fingerprint: JSON.stringify({ own, entries, inventoryFailed }), ownUnreadable, inventoryFailed, foreignUnverifiable };
 }
 
+/** The installed distribution identity both removal forms report, and whether it could be verified. */
+function distributionIdentity(): { identity: { name: string; version: string }; valid: boolean } {
+  try { return { identity: installedDistribution(), valid: true }; } catch { return { identity: { name: '@aihq/core', version: 'unavailable' }, valid: false }; }
+}
+/** Removal never acquires material or accepts private inputs or evidence, even an empty map. */
+const forbiddenControls = (controls: HostControls): boolean => ['privateInputs', 'materialRoots', 'evidence'].some(name => Object.hasOwn(controls, name));
+/** Enterprise needs exactly one valid organization source; Vibe accepts none. */
+function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown): boolean {
+  if ((mode === 'enterprise') !== (source !== undefined)) return false;
+  if (mode === 'vibe') return true;
+  try { return validGitHubPolicySource(source); } catch { return false; }
+}
+/** A re-read of every receipt still classifies identically to `image`. */
+const sameImageAs = (project: string, home: string, image: Image) => (): boolean => {
+  const current = readImage(project, home);
+  return current.fingerprint === image.fingerprint && current.ownUnreadable === image.ownUnreadable &&
+    current.inventoryFailed === image.inventoryFailed && current.foreignUnverifiable === image.foreignUnverifiable;
+};
+/** Only cancellation, logging and organization authentication reach the inner cleanup Prepare. */
+const forwardedControls = (controls: HostControls): HostControls => ({ ...(controls.signal === undefined ? {} : { signal: controls.signal }),
+  ...(controls.logging === undefined ? {} : { logging: controls.logging }),
+  ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) });
+const UNVERIFIABLE = 'Protected custody for this removal could not be verified.';
+const metadataOnly = (): Diagnostic => diagnostic('AUTHORITY_DENIED', 'metadata-only-removal', 'Organization removal admission does not cover a custody-only change.');
+
 interface Custody { claimed: boolean; claimless: boolean; ambiguous: boolean; members: number; retained: boolean }
 function classify(image: Image, project: string, home: string, scope: 'project' | 'user', managementId: string): Custody {
   const wanted = claimIdentity(scope, managementId, project);
@@ -142,9 +167,7 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest | Man
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
 async function prepareOne(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
-  let identity: { name: string; version: string } = { name: '@aihq/core', version: 'unavailable' };
-  let identityValid = true;
-  try { identity = installedDistribution(); } catch { identityValid = false; }
+  const { identity, valid: identityValid } = distributionIdentity();
   const base = { schema: SCHEMA, package: identity } as const;
   const done = (disposition: ManagedRemovalDisposition, fields: Partial<ManagedRemovalPreparationResult>, diagnostics: Diagnostic[] = []): ManagedRemovalPreparationResult =>
     ({ ...base, disposition, ...fields, diagnostics });
@@ -155,28 +178,20 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
     dataObject(request, ['target', 'managementId', 'scope', 'mode', 'organizationSource']);
     validateControls(controls);
   } catch { return invalid('request-shape'); }
-  // Removal never acquires material or accepts private inputs, even an empty map.
-  const hasControl = (name: string) => Object.hasOwn(controls, name);
   let project: string | undefined;
   try { dataObject(request.target, ['project']); project = projectRoot(request.target.project); known.target = { project }; } catch { /* reported below */ }
   if (['vibe', 'enterprise'].includes(request.mode)) known.mode = request.mode;
   if (['project', 'user'].includes(request.scope)) known.scope = request.scope;
   if (typeof request.managementId === 'string' && idPattern.test(request.managementId)) known.managementId = request.managementId;
-  if (!project || !known.mode || !known.scope || !known.managementId || hasControl('privateInputs') || hasControl('materialRoots') || hasControl('evidence'))
-    return invalid('request-shape');
+  if (!project || !known.mode || !known.scope || !known.managementId || forbiddenControls(controls)) return invalid('request-shape');
   const { scope, mode, managementId } = known as Required<Pick<ManagedRemovalPreparationResult, 'scope' | 'mode' | 'managementId'>>;
-  if ((mode === 'enterprise') !== (request.organizationSource !== undefined)) return invalid('organization-source');
-  if (mode === 'enterprise') {
-    let validSource = false;
-    try { validSource = validGitHubPolicySource(request.organizationSource); } catch { /* invalid request data */ }
-    if (!validSource) return invalid('organization-source');
-  }
+  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', known, [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
     'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
 
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', known, [diagnostic(code, reason, message)]);
-  const unverifiable = () => unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.');
+  const unverifiable = () => unavailable('ownership-unverifiable', UNVERIFIABLE);
   let home: string;
   let image: Image;
   try { home = userHomeRoot(); image = readImage(project, home); } catch { return unverifiable(); }
@@ -206,11 +221,7 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
     }
     catch (error) { return unavailable(error instanceof Error ? error.message : 'trust-custody-conflict','Protected trust custody requires reconciliation.','STATE_CONFLICT'); }
   }
-  const sameImage = () => {
-    const current = readImage(project!, home);
-    return current.fingerprint === image.fingerprint && current.ownUnreadable === image.ownUnreadable &&
-      current.inventoryFailed === image.inventoryFailed && current.foreignUnverifiable === image.foreignUnverifiable;
-  };
+  const sameImage = sameImageAs(project, home, image);
   try { if (!sameImage()) return unavailable('ownership-changed', 'Protected custody changed during preflight; request removal again.'); }
   catch { return unverifiable(); }
   if (custody.ambiguous) return unavailable('ambiguous-scope', 'Legacy custody for this ID cannot be assigned to one scope.');
@@ -241,14 +252,11 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   }
   if (custody.retained) return done('retained', known, [diagnostic('PREREQUISITE_UNAVAILABLE', 'dependency-retained',
     'Another managed selection still requires this one, so its claim is retained.')]);
-  if (mode === 'enterprise' && custody.members === 0) return unavailable('metadata-only-removal',
-    'Organization removal admission does not cover a custody-only change.', 'AUTHORITY_DENIED');
+  if (mode === 'enterprise' && custody.members === 0) return done('unavailable', known, [metadataOnly()]);
 
   const hasBoundedConfig = members.some(member => member.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(member.format));
   const policy: ExecutionPolicy = { schema: hasBoundedConfig ? 'urn:aihq:core:execution-policy:1.2.0' : POLICY_11, mode, selections: [], removals: [{ managementId, scope }] };
-  const forwarded: HostControls = { ...(controls.signal === undefined ? {} : { signal: controls.signal }),
-    ...(controls.logging === undefined ? {} : { logging: controls.logging }),
-    ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) };
+  const forwarded = forwardedControls(controls);
   const trustParticipant = trustImage && trustEntries.length ? custodyParticipant(trustImage, [], () => {
     if (!sameImage()) throw new Error('review-stale');
     for (const entry of trustEntries) if (!custody.claimed && !absent(join(home,...entry.relativePath.split('/')))) throw new Error('review-stale');
@@ -288,9 +296,7 @@ const sameOrigin = (recorded: InclusionOrigin, origin: NonNullable<RemovalSelect
 
 /** Removal preparation 1.2.0: preflight every removal with the single-id safeguards, then one cleanup-only review. */
 async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult12> {
-  let identity: { name: string; version: string } = { name: '@aihq/core', version: 'unavailable' };
-  let identityValid = true;
-  try { identity = installedDistribution(); } catch { identityValid = false; }
+  const { identity, valid: identityValid } = distributionIdentity();
   const known: Partial<ManagedRemovalPreparationResult12> = {};
   const done = (disposition: ManagedRemovalPreparationResult12['disposition'], diagnostics: Diagnostic[] = [], fields: Partial<ManagedRemovalPreparationResult12> = {}): ManagedRemovalPreparationResult12 =>
     ({ schema: SCHEMA_12, package: identity, disposition, ...known, ...fields, diagnostics });
@@ -308,10 +314,8 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
       if (typeof removal.managementId !== 'string' || !idPattern.test(removal.managementId) || removal.origin !== undefined && !validOrigin(removal.origin)) throw new Error('request-shape');
     }
   } catch { return invalid('request-shape'); }
-  const hasControl = (name: string) => Object.hasOwn(controls, name);
   const mode = request.mode ?? 'vibe';
-  if (!['project', 'user'].includes(request.scope) || !['vibe', 'enterprise'].includes(mode) ||
-      hasControl('privateInputs') || hasControl('materialRoots') || hasControl('evidence')) return invalid('request-shape');
+  if (!['project', 'user'].includes(request.scope) || !['vibe', 'enterprise'].includes(mode) || forbiddenControls(controls)) return invalid('request-shape');
   known.target = { project }; known.scope = request.scope; known.mode = mode;
   const scope = request.scope;
   // A selection is named once whole, or by distinct origins; the same removal twice is ambiguous.
@@ -322,20 +326,14 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
     if (forms.has(form) || forms.size && (form === 'whole' || forms.has('whole'))) return invalid('removal-conflict');
     seen.set(removal.managementId, forms.add(form));
   }
-  if ((mode === 'enterprise') !== (request.organizationSource !== undefined)) return invalid('organization-source');
-  if (mode === 'enterprise') {
-    let validSource = false;
-    try { validSource = validGitHubPolicySource(request.organizationSource); } catch { /* invalid request data */ }
-    if (!validSource) return invalid('organization-source');
-  }
+  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', [diagnostic(code, reason, message)]);
   if (!identityValid) return unavailable('core-distribution-identity', 'The installed Core distribution identity could not be verified.');
   let home: string;
   let image: Image;
-  try { home = userHomeRoot(); image = readImage(project, home); } catch { return unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.'); }
-  if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable)
-    return unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.');
+  try { home = userHomeRoot(); image = readImage(project, home); } catch { return unavailable('ownership-unverifiable', UNVERIFIABLE); }
+  if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unavailable('ownership-unverifiable', UNVERIFIABLE);
   // Trust and session custody keep their own reviewed path: the single-id call.
   const special = new Set<string>();
   if (scope === 'user') {
@@ -410,26 +408,20 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
         'Another managed selection still requires this one, so its claim is retained.')); });
       wholeIds.delete(managementId);
     } else if (mode === 'enterprise' && classify(image, project, home, scope, managementId).members === 0) {
-      own.forEach(plan => { delete plan.whole; settle(plan, 'unavailable', diagnostic('AUTHORITY_DENIED', 'metadata-only-removal',
-        'Organization removal admission does not cover a custody-only change.')); });
+      own.forEach(plan => { delete plan.whole; settle(plan, 'unavailable', metadataOnly()); });
       wholeIds.delete(managementId);
     }
   }
   // A released origin changes only custody metadata, which Enterprise admission does not cover.
   if (mode === 'enterprise') for (const [managementId] of releaseOrigins) {
-    plans.filter(plan => plan.entry.managementId === managementId && plan.releases).forEach(plan => { delete plan.releases; settle(plan, 'unavailable',
-      diagnostic('AUTHORITY_DENIED', 'metadata-only-removal', 'Organization removal admission does not cover a custody-only change.')); });
+    plans.filter(plan => plan.entry.managementId === managementId && plan.releases).forEach(plan => { delete plan.releases; settle(plan, 'unavailable', metadataOnly()); });
     releaseOrigins.delete(managementId);
   }
   if (!wholeIds.size && !releaseOrigins.size) return done('not-prepared', [], { removals: plans.map(plan => plan.entry) });
 
-  const sameImage = () => {
-    const current = readImage(project!, home);
-    return current.fingerprint === image.fingerprint && current.ownUnreadable === image.ownUnreadable &&
-      current.inventoryFailed === image.inventoryFailed && current.foreignUnverifiable === image.foreignUnverifiable;
-  };
+  const sameImage = sameImageAs(project, home, image);
   try { if (!sameImage()) return unavailable('ownership-changed', 'Protected custody changed during preflight; request removal again.'); }
-  catch { return unavailable('ownership-unverifiable', 'Protected custody for this removal could not be verified.'); }
+  catch { return unavailable('ownership-unverifiable', UNVERIFIABLE); }
   const originReleases = [...releaseOrigins].map(([managementId, origins]) => {
     const root = itemRoot(managementId)!;
     const item = image.receipts.get(root)!.value.items![identityOf(managementId)]!;
@@ -439,12 +431,9 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   });
   const policy: ExecutionPolicy = { schema: POLICY_14, mode, selections: [],
     ...(wholeIds.size ? { removals: [...wholeIds].map(managementId => ({ managementId, scope })) } : {}) };
-  const forwarded: HostControls = { ...(controls.signal === undefined ? {} : { signal: controls.signal }),
-    ...(controls.logging === undefined ? {} : { logging: controls.logging }),
-    ...(controls.authentication === undefined ? {} : { authentication: controls.authentication }) };
   let rows: CleanupPlanRow[] = [];
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
-    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
+    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwardedControls(controls),
   undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; } });
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
@@ -455,7 +444,11 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
       ...(descriptor.kind === 'block' ? { blockId: descriptor.blockId } : {}), ...(descriptor.kind === 'hook' ? { groupId: descriptor.groupId } : {}) };
   };
   for (const plan of plans) {
-    if (plan.whole) {
+    // Without a review nothing is listed or can be applied; each prepared entry carries the preparation's reasons.
+    if ((plan.whole || plan.releases) && !preparation.review) {
+      plan.entry.disposition = 'prepared'; plan.entry.change = plan.whole ? 'remove-selection' : 'remove-origin';
+      plan.entry.diagnostics = clone(preparation.diagnostics);
+    } else if (plan.whole) {
       const id = identityOf(plan.entry.managementId);
       plan.entry.disposition = 'prepared'; plan.entry.change = 'remove-selection';
       plan.entry.members = rows.filter(row => row.removed.includes(id)).map(row => ({ ...listed(row.root, row.descriptor, row.redactedPath),

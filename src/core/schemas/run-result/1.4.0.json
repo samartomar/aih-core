@@ -321,6 +321,11 @@
             "value",
             "origin"
           ]
+        },
+        "reviewDigest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The review digest this run applied; present for prepared work 1.6.0 reviews."
         }
       },
       "required": [
