@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Add `inspectToolHost({ tool, project, items }, controls?)` to
+`@aihq/core/harness/runtime`: a Node host inspection for one observed tool and a
+set of items that uses bounded reads and runs nothing. It reports the installed
+tool version read from files (or `unknown`), each required executable as
+`present`, `absent` or `unknown`, same-key copies at user level, in parent folders
+and in tool plugins as `found`, `none` or `unavailable`, and the inputs still
+required. It returns `hostBlockers` (`executable-missing`, `input-required`,
+`dependency-missing`), `warnings` (`same-key-elsewhere` with where, `also-reads`)
+and `stale` when the installed version is newer than the binding's observations.
+Unknown and unavailable facts are listed in `unchecked` and never become a works
+or duplicate claim. It never edits or removes what it finds. No format or package
+version changes. Unpublished candidate for the sole 0.1.0 release effort.
+
 Add the observed binding table (`urn:aihq:harness:tool-binding:1.0.0`), exported
 from `@aihq/core/harness` as `toolBindings` with its schema and fixtures. Each
 binding is `{ schema, tool, digest, layouts, entryFiles, entryPointer?, alsoReads }`

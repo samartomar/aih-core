@@ -120,6 +120,9 @@ export type ReadGitHubPolicyResult =
       message: string; source?: GitHubPolicySource; retryAfterSeconds?: number;
       helper: GitHubPolicyReaderIdentity; accounting: GitHubPolicyReaderAccounting };
 export declare function readGitHubPolicy(source: unknown, controls?: GitHubPolicyReaderControls): Promise<ReadGitHubPolicyResult>;
+export { inspectToolHost } from './tool-host.mjs';
+export type { ToolHostItemReference, ToolHostItem, ToolHostRequest, ToolHostControls, ToolHostCopy, ToolHostBlocker,
+  ToolHostWarning, ToolHostUnchecked, ToolHostItemResult, ToolHostLimits, ToolHostResult } from './tool-host.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
 export type { MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
