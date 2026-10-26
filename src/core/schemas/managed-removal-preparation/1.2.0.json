@@ -1,0 +1,595 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:managed-removal-preparation:1.2.0",
+  "description": "Removal preparation 1.2.0: several removals, whole or by one recorded origin, in one cleanup-only review. $defs/request describes the request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "package",
+    "disposition",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:managed-removal-preparation:1.2.0"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "@aihq/core"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "disposition": {
+      "enum": [
+        "prepared",
+        "not-prepared",
+        "unavailable",
+        "invalid",
+        "cancelled"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scope": {
+      "enum": [
+        "project",
+        "user"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "vibe",
+        "enterprise"
+      ]
+    },
+    "diagnostics": {
+      "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+    },
+    "removals": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "reviewDigest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "runId",
+        "diagnostics",
+        "record",
+        "resolutionInputs"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "partial",
+            "blocked",
+            "invalid",
+            "cancelled"
+          ]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "review": {
+          "$ref": "urn:aihq:core:prepared-work:1.6.0"
+        },
+        "diagnostics": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+        },
+        "record": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/record"
+        },
+        "evidence": {
+          "$ref": "urn:aihq:core:prepared-work:1.1.0#/properties/evidence"
+        },
+        "resolutionInputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "selectionId",
+              "operationId",
+              "observedSha256",
+              "availableChoices"
+            ],
+            "properties": {
+              "selectionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "observedSha256": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                ]
+              },
+              "availableChoices": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "replace",
+                    "adopt"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "prepared"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "preparation",
+          "removals"
+        ],
+        "properties": {
+          "preparation": {},
+          "removals": {}
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "preparation"
+              ],
+              "properties": {
+                "preparation": {}
+              }
+            },
+            {
+              "required": [
+                "reviewDigest"
+              ],
+              "properties": {
+                "reviewDigest": {}
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "not-prepared"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "removals"
+        ],
+        "properties": {
+          "removals": {}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "enum": [
+              "invalid",
+              "cancelled"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "removals"
+          ],
+          "properties": {
+            "removals": {}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "not": {
+              "const": "invalid"
+            }
+          }
+        },
+        "required": [
+          "disposition"
+        ]
+      },
+      "then": {
+        "required": [
+          "target",
+          "scope",
+          "mode"
+        ],
+        "properties": {
+          "target": {},
+          "scope": {},
+          "mode": {}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "set"
+          ],
+          "properties": {
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "framework",
+                "setId",
+                "setSha256"
+              ],
+              "properties": {
+                "framework": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "setId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "setSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "chosen"
+            }
+          }
+        }
+      ]
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managementId"
+      ],
+      "properties": {
+        "managementId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "action",
+        "operationId"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "text-block",
+            "config-entry",
+            "config-member",
+            "hook-group-member"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pointer": {
+          "type": "string"
+        },
+        "blockId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool"
+          ],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "action": {
+          "enum": [
+            "remove",
+            "restore",
+            "unregister",
+            "keep-shared",
+            "keep-changed",
+            "keep-required"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operationId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "remove"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {}
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {}
+            }
+          }
+        }
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managementId",
+        "disposition",
+        "diagnostics",
+        "members"
+      ],
+      "properties": {
+        "managementId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "disposition": {
+          "enum": [
+            "prepared",
+            "absent",
+            "retained",
+            "reconcile-required",
+            "unavailable"
+          ]
+        },
+        "change": {
+          "enum": [
+            "remove-selection",
+            "remove-origin"
+          ]
+        },
+        "diagnostics": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "prepared"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "change"
+            ],
+            "properties": {
+              "change": {}
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "change"
+              ],
+              "properties": {
+                "change": {}
+              }
+            },
+            "properties": {
+              "members": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "remove-origin"
+              }
+            },
+            "required": [
+              "change"
+            ]
+          },
+          "then": {
+            "required": [
+              "origin"
+            ],
+            "properties": {
+              "origin": {}
+            }
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "scope",
+        "removals"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project"
+          ],
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "scope": {
+          "enum": [
+            "project",
+            "user"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "vibe",
+            "enterprise"
+          ]
+        },
+        "organizationSource": {
+          "type": "object"
+        },
+        "removals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/selector"
+          }
+        }
+      }
+    }
+  }
+}

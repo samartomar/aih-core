@@ -38,6 +38,7 @@ import type { Diagnostic, ExecutionPolicy, Json, Operation, OrganizationPolicy, 
 import type { Authorization, CheckResult, RunMember, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, PreparedSelection, ResolutionInput, ReviewCheck, ReviewOperation, RunResult, StaleBinding } from './host-types.js';
 import type { TrustEngineParticipant } from './internal/trust-participant.js';
 import { guardTrustMember } from './internal/trust-custody.js';
+import { isLegalFile, type CleanupOptions, type CleanupPlanRow } from './internal/removal-plan.js';
 
 interface PreparedProcess {
   executable: ResolvedExecutable | { material: string; bytes: Buffer; filename: string } | { missing: string };
@@ -66,6 +67,8 @@ interface PreparedStep {
   redactedPaths?: Record<string, string>;
   /** A cleanup step that writes the recorded pre-existing value back instead of removing the member. */
   restores?: boolean;
+  /** Removal preparation 1.2.0: a cleanup step that keeps its member and the claims on it, with the reason. */
+  kept?: { action: 'keep-changed' | 'keep-required'; reason: string };
 }
 interface PreparedState {
   trustParticipant?: TrustEngineParticipant;
@@ -322,7 +325,7 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
     unavailableInvocations?: CapturedUnavailableInvocations,
     custodyImageStillCurrent?: () => boolean,
-    trustParticipant?: TrustEngineParticipant): Promise<PreparationResult> {
+    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions): Promise<PreparationResult> {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
@@ -839,6 +842,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const updates = itemUpdates.get(step.root) ?? Object.create(null);
       updates[step.item.id] = { item: step.item, requires: selectionOps.get(step.authored.selectionId) ?? [] }; itemUpdates.set(step.root, updates);
     }
+    // A released inclusion rewrites only the kept selection's recorded origins; its members and claims stay.
+    for (const release of cleanup?.originReleases ?? []) {
+      const updates = itemUpdates.get(release.root) ?? Object.create(null);
+      updates[release.id] = { item: { id: release.id, named: true, facts: release.facts }, requires: [] }; itemUpdates.set(release.root, updates);
+      observations.push({ id: `lifecycle/origin-${observations.length}`, reason: `remove-origin:${release.facts.managementId}` });
+    }
     for (const [root, stored] of ownership) if (effectRoot(root)) for (const [key, claim] of Object.entries(stored.value.selections ?? {})) {
       if (!candidates.has(key) || retained.has(key)) continue;
       const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim: null, requires: [] }; selectionUpdates.set(root, updates);
@@ -858,6 +867,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
     members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
+    const keptOwners = new Map<PreparedStep, Owner>();
     let removalIndex = 0;
     const projectedMembers = (root: string): Record<string, Owner> => {
       const value: Ownership = { ...ownership.get(root)!.value, members: { ...ownership.get(root)!.value.members } };
@@ -905,6 +915,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const before = overlay ? overlay.after : initialBefore;
       let after: Buffer | null = before; let effect: ReviewOperation['effects'] = 'already-satisfied'; let heir: string | undefined;
       let matching = false; let hookDecision: HookDecision | undefined; let priorHookConflict: string | undefined; let restores = false;
+      let kept: PreparedStep['kept'];
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
         if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14) {
@@ -933,14 +944,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
-        if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
+        if (!matching && cleanup) kept = { action: 'keep-changed', reason: hookDecision.reason ?? 'managed-content-changed' };
+        else if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
+      // Removal preparation 1.2.0 names the keep instead of reporting a conflict; the member and its claims stay.
+      else if (!matching && cleanup) kept = { action: 'keep-changed', reason: 'managed-content-changed' };
       else if (!matching) { effect = 'conflict'; conflicts.push({
         ...diagnostic('STATE_CONFLICT', 'managed-content-changed', 'Changed or unverifiable managed content is preserved.'),
         ...(policy.schema !== 'urn:aihq:core:execution-policy:1.0.0' ? { guidance: 'Restore the recorded content or reconcile this managed member manually, then prepare again. Generated cleanup has no keyed replace resolution.' } : {})
       }); }
       else if (before !== null && after === null) effect = 'remove-file';
       else if (before !== null && after !== null && !before.equals(after)) effect = 'replace-file';
+      if (kept) { after = before; effect = 'already-satisfied'; }
       const removedIds = removed.map(claim => claimId(claim, root));
       const retainingAncestors = new Set(removedIds.flatMap(id => [...ancestors(id)]));
       const droppedDependencyGuards = policy.selections.flatMap(selection => retainingAncestors.has(claimId(selection)) ? selectionOps.get(selection.id) ?? [] : []);
@@ -953,21 +968,34 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
       // Cleanup runs without the private inputs that formed a path; the redaction recorded at install stands in.
       const redactedPath = redactedPathFor(ownership.get(root)!.value, key);
-      steps.push({ review: { id, purpose: 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'member' ? 'config.member' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
-        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, redactedPath ?? descriptor.path), reason: hookDecision?.reason ?? (restores ? 'restore-pre-existing' : 'explicit-managed-removal'),
+      steps.push({ review: { id, purpose: kept ? 'Keep changed managed member' : 'Remove selected managed member', kind: descriptor.kind === 'entry' ? 'config.entries' : descriptor.kind === 'member' ? 'config.member' : descriptor.kind === 'block' ? 'text.block' : descriptor.kind === 'hook' ? 'hook.group' : 'file.remove',
+        scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, redactedPath ?? descriptor.path), reason: kept ? kept.action : hookDecision?.reason ?? (restores ? 'restore-pre-existing' : 'explicit-managed-removal'),
           ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [restores ? { path: descriptor.entry, action: 'set' as const, value: '[REDACTED]' } : { path: descriptor.entry, action: 'remove' as const }] } :
             descriptor.kind === 'member' ? { format: descriptor.format, member: { container: descriptor.container, action: 'remove' as const } } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) },
           ...(namesSelections ? { selectionId: null } : {}) },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, members: [descriptor], ...(restores ? { restores } : {}),
-        ...(redactedPath ? { redactedPaths: { [key]: redactedPath } } : {}),
-        custody: { [key]: hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
+        ...(redactedPath ? { redactedPaths: { [key]: redactedPath } } : {}), ...(kept ? { kept } : {}),
+        custody: { [key]: kept ? owner : hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
         ...(inheritance ? { inherited: Object.keys(inheritance) } : {}),
-        custodyOnly: hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
+        custodyOnly: kept ? false : hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
+      keptOwners.set(steps.at(-1)!, owner);
       if (hookDecision && !matching) hookConflicts.set(`${root}:${key}`, id);
       removedIdentities.set(steps.at(-1)!, removedIds);
       if (matching) overlays.set(destination, { initial: overlay?.initial ?? initialBefore, after, priorId: id });
+    }
+    if (cleanup) {
+      // An item kept as changed keeps its licence and notice files too, so its content never stands without them.
+      const changed = new Set([...removedIdentities].filter(([step]) => step.kept?.action === 'keep-changed').flatMap(([, ids]) => ids));
+      for (const [step, removedIds] of removedIdentities) {
+        if (step.kept || step.review.effects !== 'remove-file' || !isLegalFile(step.members![0]!) || !removedIds.some(id => changed.has(id))) continue;
+        step.kept = { action: 'keep-required', reason: 'licence-or-notice' };
+        step.after = step.before; step.review.effects = 'already-satisfied'; step.custodyOnly = false;
+        step.custody = { [step.ownerKey!]: keptOwners.get(step)! };
+        step.review.purpose = 'Keep required managed member'; step.review.details.reason = 'keep-required';
+        overlays.delete(`${step.root}:${process.platform === 'win32' ? step.path!.toLowerCase() : step.path}`);
+      }
     }
     for (const [step, removedIds] of removedIdentities) {
       const parents = new Set(removedIds.flatMap(id => [...ancestors(id)]));
@@ -1068,6 +1096,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (Object.keys(step.directoryCleanup).length) step.review.details.declaredEffects =
         Object.keys(step.directoryCleanup).map(path => `Remove setup-created directory if empty: ${safeText(path, privateValues)}`);
     }
+    cleanup?.plan([...removedIdentities].map(([step, removed]): CleanupPlanRow => {
+      const owner = keptOwners.get(step)!; const remaining = step.custody?.[step.ownerKey!];
+      const action = step.kept?.action ?? (remaining ? 'keep-shared' : step.restores ? 'restore' : step.review.effects === 'already-satisfied' ? 'unregister' : 'remove');
+      const reason = step.kept?.reason ?? { 'keep-shared': 'another-selection', restore: 'pre-existing-value', unregister: 'already-absent', remove: undefined }[action as string];
+      return { operationId: step.review.id, root: step.root!, descriptor: step.members![0]!, removed,
+        ...(owner.approval ? { approval: { tool: owner.approval.tool } } : {}),
+        ...(step.redactedPaths?.[step.ownerKey!] ? { redactedPath: step.redactedPaths[step.ownerKey!] } : {}),
+        action, ...(reason === undefined ? {} : { reason }) };
+    }));
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
       reviewDigest: digest({ review: base, bindings, steps: steps.map(step => ({ id: step.review.id, before: step.before ? sha256(step.before) : null,
         after: step.after ? sha256(step.after) : null })), privateDigest: digest(privateInputs),...(trustParticipant?{trustBinding:trustParticipant.reviewBinding}:{}), nonce: randomBytes(32).toString('hex') }) });

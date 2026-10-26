@@ -18,6 +18,7 @@ import preparedSchema15 from './schemas/prepared-work/1.5.0.json' with { type: '
 import organizationTargetSchema from './schemas/organization-target/1.0.0.json' with { type: 'json' };
 import organizationTargetSchema11 from './schemas/organization-target/1.1.0.json' with { type: 'json' };
 import managedRemovalSchema11 from './schemas/managed-removal-preparation/1.1.0.json' with { type: 'json' };
+import managedRemovalSchema12 from './schemas/managed-removal-preparation/1.2.0.json' with { type: 'json' };
 import policySchema11 from './schemas/execution-policy/1.1.0.json' with { type: 'json' };
 import recipeSchema11 from './schemas/recipe/1.1.0.json' with { type: 'json' };
 import preparedSchema11 from './schemas/prepared-work/1.1.0.json' with { type: 'json' };
@@ -82,7 +83,7 @@ export {
 export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
   NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
   NativeVerificationResult } from './native-contracts.js';
-export { runMemberClaims, type RunMemberClaims } from './run-claims.js';
+export { runMemberClaims, removalClaims, type RunMemberClaims, type RemovalClaims } from './run-claims.js';
 export { validateNativeVerificationRequest, validateNativeVerificationResult,
   validateNativeVerificationBundle } from './native-contracts.js';
 
@@ -110,9 +111,9 @@ export const contractSupport = Object.freeze({
     ...[policySchema, recipeSchema, preparedSchema, resultSchema, organizationSchema,
       policySchema11, recipeSchema11, preparedSchema11, resultSchema11, fileStateSchema,
       managedInventorySchema, managedRemovalSchema, policySchema12, recipeSchema12, preparedSchema14, managedRemovalSchema11, policySchema13, recipeSchema13, organizationSchema11,
-      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11, recipeSchema14].map((schema): SupportedContract => ({
+      organizationTargetSchema, preparedSchema15, organizationTargetSchema11, policySchema14, preparedSchema16, resultSchema14, managedInventorySchema11, recipeSchema14, managedRemovalSchema12].map((schema): SupportedContract => ({
       id: schema.$id, role: [preparedSchema, resultSchema, fileStateSchema, preparedSchema11, resultSchema11,
-        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14, managedInventorySchema11].includes(schema as never) ? 'produces' : 'accepts',
+        managedInventorySchema, managedRemovalSchema, preparedSchema14, managedRemovalSchema11, preparedSchema15, preparedSchema16, resultSchema14, managedInventorySchema11, managedRemovalSchema12].includes(schema as never) ? 'produces' : 'accepts',
       schemaExport: `@aihq/core/schemas/${schema.$id.split(':')[3]}/${schemaVersion(schema.$id)}.json`
     })),
     ...trustContractSchemas.map((schema): SupportedContract => ({

@@ -14,7 +14,7 @@ macOS session limits are internal to the package and not part of any entry.
 | Import | Exports |
 | --- | --- |
 | `@aihq/core` | `inspect`, `prepare`, `apply`, `verifyMacosSession`, `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, `writeSupportReport`, `resolveStateLocation`, and the types named by those operations' requests, controls, reviews and results |
-| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, `stateLocation`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
+| `@aihq/core/contracts` | `checkContracts`, `validatePackageSupport`, `recipeOperationKinds`, `parsePolicy`, `validatePolicy`, `parseOrganizationPolicy`, `validateOrganizationPolicy`, `validateOrganizationTarget`, `validateRecipe`, `validateFileStateResult`, `deriveRecipeIdentity`, `previewOrganizationAdmission`, `previewOrganizationObligations`, `contractSupport`, `stateLocation`, `runMemberClaims`, `removalClaims`, trust, macOS and native validators, and the portable document types they parse, validate or derive |
 | `@aihq/core/report` | Portable reporting validation, projection, JSON import/export and types |
 | `@aihq/core/report/schema` | Experimental reporting snapshot JSON Schema |
 | `@aihq/core/report/schemas/claims/1.0.0.json` | Normalized claim-set JSON Schema |
@@ -34,6 +34,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/file-state-result/1.1.0.json` | File-state observation result 1.1.0 JSON Schema (adds `targets[].selectionIds`) |
 | `@aihq/core/schemas/managed-inventory-result/1.0.0.json` | Managed inventory result JSON Schema |
 | `@aihq/core/schemas/managed-removal-preparation/1.0.0.json` | Managed removal preparation JSON Schema |
+| `@aihq/core/schemas/managed-removal-preparation/1.2.0.json` | Removal preparation 1.2.0 JSON Schema: several removals, by origin, with named member actions (`$defs/request` describes the request) |
 | `@aihq/core/schemas/execution-policy/1.1.0.json` | Execution-policy 1.1.0 JSON Schema (adds owned hook groups) |
 | `@aihq/core/schemas/recipe/1.1.0.json` | Recipe 1.1.0 JSON Schema (adds `hook.group`) |
 | `@aihq/core/schemas/prepared-work/1.1.0.json` | Serializable review 1.1.0 JSON Schema |
@@ -1696,9 +1697,9 @@ Core applies an approval only where no choice was made yet:
   restores the location's earlier state (Core never replaces an earlier value, so
   there is none to write back). When the person has since changed that approval,
   removal keeps their edit: the review reports the member as a `STATE_CONFLICT`
-  (`managed-content-changed`) and the run result as `kept`. Removal preparation
-  1.2.0's named `keep-changed` action is not part of this Core. A file Core created
-  only to hold the location stays behind as an empty object.
+  (`managed-content-changed`) and the run result as `kept`; removal preparation
+  1.2.0 lists it as `keep-changed` instead. A file Core created only to hold the
+  location stays behind as an empty object.
 
 Only the approval file Core writes is read: an approval or denial the tool records
 elsewhere (for example in the user's own state) is not seen.
@@ -1783,6 +1784,72 @@ When relevant custody contains INI, YAML or properties entries, the convenience 
 Other removals retain the previous identities. All four new schema files are
 exported under their versioned `@aihq/core/schemas/...` paths.
 
+### Removal preparation 1.2.0
+
+Pass `removals` instead of `managementId` to remove several selections, or one
+recorded inclusion of a selection, in one reviewed step:
+
+```ts
+prepareManagedRemoval({ target: { project }, scope: 'project' | 'user', mode?: 'vibe' | 'enterprise', organizationSource?,
+  removals: { managementId, origin?: { set: { framework, setId, setSha256 } } | { reasonIncluded: 'chosen' } }[] }, controls?)
+```
+
+`mode` defaults to `vibe`. The result is `urn:aihq:core:managed-removal-preparation:1.2.0`.
+Every requested removal gets its own entry, in request order, with the dispositions of
+the single-id call: `prepared`, `absent`, `retained`, `reconcile-required` or
+`unavailable`, each with its diagnostics. Their safeguards are unchanged: claimless
+legacy custody is `reconcile-required` (`legacy-reconcile`), unverifiable or
+ambiguous custody `unavailable`, and in Enterprise a change only to custody is
+`unavailable` (`AUTHORITY_DENIED`, `metadata-only-removal`), including removing an
+origin. Trust and session custody keep the single-id call (`single-removal-required`).
+Retention is computed over all whole removals together, so a dependant removed with its
+dependency frees both. The whole request is `invalid` when it is malformed, or when it
+names a selection twice in the same form or both whole and by origin (`removal-conflict`);
+it is then refused without reading custody, as is a cancelled one.
+
+- **By origin.** An `origin` names one recorded inclusion exactly as inventory 1.1.0
+  reports it: the full set identity (framework, set id and set digest; a set id with
+  another digest never matches) or `chosen`. A `required-by` origin is not removable
+  on its own. While another origin remains, only that inclusion is removed
+  (`change: 'remove-origin'`): the selection, its claims and every member stay, listed
+  as `keep-shared` (`another-origin`), and the recorded origins lose that one. Removing
+  the last origin removes the selection (`change: 'remove-selection'`). An inclusion
+  that is not recorded is `absent` (`origin-absent`); a selection that recorded no
+  origins is `reconcile-required` (`origin-unrecorded`) and can be removed whole.
+- **One review.** All prepared removals share one cleanup-only preparation (execution
+  policy 1.4.0, prepared work 1.6.0) and its `reviewDigest`, which the result repeats.
+  Each entry lists every member it touches before Apply: `kind`, `path` (private
+  path values stay redacted), `pointer`, `blockId` or `groupId`, `approval: { tool }` for
+  an approval Core wrote, the review `operationId` (or `null`) and one `action`:
+
+  | `action` | Meaning | `reason` |
+  | --- | --- | --- |
+  | `remove` | Core removes its bytes. | none |
+  | `restore` | Core writes back the person's earlier value it replaced. | `pre-existing-value` |
+  | `unregister` | The member is already gone; only Core's claim is released. | `already-absent` |
+  | `keep-shared` | Another selection or origin still owns it; only this claim or inclusion goes. | `another-selection`, `another-origin` |
+  | `keep-changed` | The person changed it; it stays, with Core's claim. | `managed-content-changed` or the hook-group reason |
+  | `keep-required` | A licence or notice file of an item that keeps a changed member. | `licence-or-notice` |
+
+  Kept members are reviewed actions, not conflicts, so a review that only keeps
+  changed members is `ready`. When any member of a selection is kept as changed, that
+  selection's licence and notice files (file names `LICENSE`, `LICENCE`, `COPYING` or
+  `NOTICE`, with or without an extension) are kept as required, so a partly removed item
+  never stands without them. Kept members stay in custody with the item, and inventory
+  1.1.0 keeps listing it. The single-id call and policy `removals` still report a
+  changed member as a `STATE_CONFLICT`.
+- **Removed.** Apply the preparation with the ordinary `apply`; its run result 1.4.0
+  carries the member checks. `removalClaims(preparation, runResult)` from
+  `@aihq/core/contracts` gives each requested removal a claim: `removed` only when the run
+  is `complete` and every `remove` and `unregister` member is `claim-removed` and
+  `absent` and every `restore` member `restored` and `present-matching`, with nothing
+  kept as changed or required; `partly-removed` when those hold but members are kept as
+  changed or required; `inclusion-removed` for a completed origin removal; otherwise
+  `not-confirmed`. Intended operations alone never support a claim.
+
+The JSON projection omits the live Apply handle in `preparation.prepared`. The CLI
+keeps the single-id form.
+
 `aih managed remove <managementId> --scope project|user --mode vibe|enterprise [--project <path>] [--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]] [--apply --yes] [--allow-partial] [--no-log] [--json]` previews by default and requires the same explicit review approval as `aih policy`. Its JSON projection omits the live handle and validates against `@aihq/core/schemas/managed-removal-preparation/1.0.0.json`.
 
 **Review operation IDs.** An authored policy operation's review `id` is `<selectionId>/<operationId>`: the policy selection `id` and the recipe operation `id`, joined by one `/`. Neither part can contain `/`. Recipe checks use the same form with the check `id`, and prerequisite observations use `<selectionId>/prerequisite-<index>`. Observations of a generated management-root removal use `lifecycle/root-<n>`. Generated lifecycle cleanup uses `lifecycle/remove-<n>`, skipping any number an authored operation already uses; a selection may itself be called `lifecycle`, so do not recover the selection by splitting an ID. Policy Prepare also returns `operationSelections` beside the review: one `{id, selectionId, operationId}` per review operation, in review operation order, with `selectionId` and `operationId` `null` for generated cleanup (empty for an invalid or cancelled Prepare; absent for repair). It is not part of the review or its digest, so every prepared-work format is unchanged, and `prepareManagedRemoval` omits it from its embedded preparation.
@@ -1814,6 +1881,13 @@ Check install and removal wording against this table. Each status establishes on
 | `disposition` | `unavailable` | Custody or a prerequisite could not be verified, so nothing was prepared. | "Could not check". | "Absent", "not managed" or "removed". |
 | `disposition` | `invalid` | The request was malformed or its organization source was wrong. | "Request invalid". | Anything about custody or the target. |
 | `disposition` | `cancelled` | Preparation stopped on cancellation. | "Cancelled". | Anything about custody or the target. |
+| `disposition` | `not-prepared` | Removal preparation 1.2.0: no requested removal could be prepared; each entry's own disposition says why. | "Nothing to remove was prepared", with each entry's reason. | "Removed" or "absent" for the request as a whole. |
+| `removals[].members[].action` | `remove` | The reviewed plan removes Core's bytes of this member. | "Will be removed" before Apply. | "Removed" before `removalClaims` says so. |
+| `removals[].members[].action` | `restore` | The reviewed plan writes back the person's earlier value. | "Will be restored" before Apply. | "Restored" before the run's member check. |
+| `removals[].members[].action` | `unregister` | The member was already gone; the plan releases only Core's claim. | "Already gone; Core stops managing it". | That Core removed it. |
+| `removals[].members[].action` | `keep-shared` | Another selection or origin still owns this member. | "Kept for another selection" or "kept for another set". | "Removed". |
+| `removals[].members[].action` | `keep-changed` | The person changed this member; it stays, under Core's claim. | "Kept because you changed it". | "Removed" or "unchanged". |
+| `removals[].members[].action` | `keep-required` | A licence or notice file kept with an item that keeps a changed member. | "Kept: the item's licence or notice". | "Removed". |
 | `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
 | `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`). It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |
 | `completion` | `cancelled` | The run stopped on cancellation. Effects completed before it are kept. | "Cancelled", naming the operations that were applied. | "Nothing changed". |
