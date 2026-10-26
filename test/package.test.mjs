@@ -18,7 +18,7 @@ import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/
 const expectedRuntimeNames = {
   '@aihq/core': [
     'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'inspect', 'listManagedSelections',
-    'prepare', 'prepareManagedRemoval', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
+    'prepare', 'prepareManagedRemoval', 'prepareUpdate', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
   ],
   '@aihq/core/contracts': [
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
