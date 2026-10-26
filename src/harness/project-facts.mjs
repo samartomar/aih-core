@@ -4,7 +4,7 @@
 // from the files it read is omitted, never guessed; only the package-manager default is
 // inferred, and only from direct evidence (a package.json with no stronger package-manager
 // signal), which the fact's confidence states.
-import { closeSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, lstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -63,11 +63,17 @@ export async function detectProjectFacts(request, controls = {}) {
   };
   const read = operation => { if (halt()) throw new Stop(); reads += 1; return operation(); };
   // At most MAX_FILE_BYTES+1 bytes are read from a candidate, so a large file is reported
-  // over-limit instead of being read whole.
+  // over-limit instead of being read whole. The candidate must be a regular file: a FIFO or
+  // device can block a synchronous open forever, past any budget, so links and non-regular
+  // files are refused before the open.
   const boundedRead = path => read(() => {
     let handle;
     try {
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink() || !stat.isFile()) return { present: false, overLimit: false, text: null, irregular: true };
       handle = openSync(path, 'r');
+      const opened = statSync(path);
+      if (!opened.isFile()) return { present: false, overLimit: false, text: null, irregular: true };
       const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
       const length = readSync(handle, buffer, 0, MAX_FILE_BYTES + 1, 0);
       if (length > MAX_FILE_BYTES) return { present: true, overLimit: true, text: null };
@@ -101,6 +107,8 @@ export async function detectProjectFacts(request, controls = {}) {
     try {
       const result = boundedRead(join(project, name));
       if (result.present) files.set(name, result);
+      if (result.irregular) diagnostics.push({ code: 'PREREQUISITE_UNAVAILABLE', reason: 'candidate-not-regular-file',
+        message: `${name} is not a regular file; project facts detection never opens links or devices.` });
     } catch (error) {
       if (error instanceof Stop) break;
       diagnostics.push({ code: 'PREREQUISITE_UNAVAILABLE', reason: 'read-failed',

@@ -198,7 +198,8 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {
-      const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format)).map(([key]) => key));
+      const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
+        owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
           !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
     }

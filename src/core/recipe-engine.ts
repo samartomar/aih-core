@@ -453,6 +453,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     let obligations: OrganizationObligationsReview | undefined;
     const steps: PreparedStep[] = [];
     const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string }>();
+    // The last reviewed rescue step per notes path: a later rescue composes on its bytes, so the steps
+    // must run in creation order even after the review's topological re-sort.
+    const rescueChains = new Map<string, string>();
     // Members whose step conflicted: later same-member steps are blocked, not guessed.
     const hookConflicts = new Map<string, string>();
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
@@ -556,7 +559,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         // Project basics update: the person's own lines rescued from a shared block, with the user-owned
         // notes write that preserves them; null unless this step updates a shared block they added lines to.
         let rescuedLines: string[] | null = null;
-        let rescueStep: { path: string; before: Buffer | null; after: Buffer; mode: number } | null = null;
+        let rescueStep: { path: string; initial: Buffer | null; before: Buffer | null; after: Buffer; mode: number } | null = null;
         if (op.kind === 'process.run') {
           const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
@@ -744,8 +747,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               const body = extractBlockBody(before.toString('utf8'), member.startMarker, member.endMarker);
               const extra = body === null ? null : personLinesInside(body, prior.sharedContent.replace(/\r\n?/g, '\n'));
               if (extra) {
-                const folder = typeof bound.projectFolder === 'string' && bound.projectFolder.length >= 1 && bound.projectFolder.length <= 64 &&
-                  !bound.projectFolder.includes('/') ? bound.projectFolder : 'ai-coding';
+                // The folder the reviewed recipe configured, which may be a nested safe relative path; the
+                // notes file lands inside it either way.
+                const configured = bound.projectFolder;
+                const segments = typeof configured === 'string' ? configured.split('/') : [];
+                const folder = segments.length >= 1 && segments.length <= 8 && segments.every(segment => validSegment(segment)) ? segments.join('/') : 'ai-coding';
                 const notesPath = `${folder}/${USER_NOTES_FILE}`;
                 const notesKey = `${project}:${process.platform === 'win32' ? notesPath.toLowerCase() : notesPath}`;
                 const notesOverlay = overlays.get(notesKey);
@@ -758,8 +764,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
                   const afterText = base + extra.join(eol) + eol;
                   if (Buffer.byteLength(afterText, 'utf8') <= 16 * 1024 * 1024) {
                     rescuedLines = extra;
-                    rescueStep = { path: notesPath, before: notesBefore, after: Buffer.from(afterText, 'utf8'),
-                      mode: notesLive.state === 'present' ? notesLive.mode : 0o600 };
+                    // The pinned initial state is the pre-review file; the overlaid bytes are only this
+                    // step's immediate input, so several rescued blocks can update in one run.
+                    rescueStep = { path: notesPath, initial: notesOverlay ? notesOverlay.initial : notesBefore, before: notesBefore,
+                      after: Buffer.from(afterText, 'utf8'), mode: notesLive.state === 'present' ? notesLive.mode : 0o600 };
                   }
                 }
               }
@@ -819,6 +827,20 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               const errors: ParseError[] = []; const value = parseJsonc(found.toString('utf8'), errors, { allowTrailingComma: true }) as Json;
               if (!errors.length && value !== undefined) (preExisting ??= {})[key] = value;
             }
+          // A reviewed replacement of a person's own shared block keeps that block's content in protected
+          // custody; the last removal writes the person's block back instead of leaving nothing.
+          if (resolution === 'replace' && op.kind === 'text.block' && op.action === 'set' && op.content && !editConflict && before !== null &&
+              sharedBlockRole(op.startMarker, op.endMarker) !== null && descriptors.length === 1) {
+            const member = descriptors[0]!;
+            const key = memberKey(member);
+            if (member.kind === 'block' && custody?.[key]) {
+              const prior = projected.members[key];
+              const mine = (prior?.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope);
+              const liveContent = extractBlockBody(before.toString('utf8'), member.startMarker, member.endMarker);
+              const newContent = resolveString(op.content, bound);
+              if (!mine && liveContent !== null && liveContent !== newContent) (preExisting ??= {})[key] = liveContent;
+            }
+          }
           // A member this selection installed whose bytes no longer match is the person's local edit.
           if (effect === 'conflict') conflictReason = editConflict ?? (drift ? 'managed-content-changed' : sharedChange ? 'shared-member' : overlap ? 'overlapping-member' : 'existing-content');
           if (effect === 'conflict') conflicts.push(editConflict === 'approval-denied' ? { ...diagnostic('STATE_CONFLICT', 'approval-denied',
@@ -840,18 +862,20 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (rescuedLines !== null && rescueStep) {
           const rescueId = `${selection.id}/${op.id}-rescued`;
           const rescueKey = `${project}:${process.platform === 'win32' ? rescueStep.path.toLowerCase() : rescueStep.path}`;
+          const priorRescue = rescueChains.get(rescueKey);
           const rescueReview: ReviewOperation = { id: rescueId, purpose: `Move your lines from the aih:shared block to ${rescueStep.path}`,
             kind: 'file.write', scope: op.scope,
             effects: rescueStep.before === null ? 'create-file' : rescueStep.before.equals(rescueStep.after) ? 'already-satisfied' : 'replace-file',
-            ownership: 'unowned', requires: [id], checks: [],
+            ownership: 'unowned', requires: [...new Set([id, ...(priorRescue ? [priorRescue] : [])])], checks: [],
             details: { target: safeText(join(project!, rescueStep.path), privateValues),
               content: redactExact(rescueStep.after.toString('utf8'), privateValues), mode: rescueStep.mode },
             ...(namesSelections ? { selectionId: selection.id } : {}) };
-          steps.push({ review: rescueReview, root: project!, path: rescueStep.path, initialBefore: rescueStep.before, before: rescueStep.before,
+          steps.push({ review: rescueReview, root: project!, path: rescueStep.path, initialBefore: rescueStep.initial, before: rescueStep.before,
             after: rescueStep.after, mode: rescueStep.mode, pins: pathPins(join(project!, rescueStep.path)), managementId: selection.managementId,
             recipeIdentity, checks: [], authored: { selectionId: selection.id, operationId: `${op.id}-rescued`, overlayKey: rescueKey, choices: [] },
             item: selectionItem(selection, project!, privateValues) });
-          overlays.set(rescueKey, { initial: rescueStep.before, after: rescueStep.after, priorId: rescueId });
+          overlays.set(rescueKey, { initial: rescueStep.initial, after: rescueStep.after, priorId: rescueId });
+          rescueChains.set(rescueKey, rescueId);
           currentIds.push(rescueId);
         }
         function emit(): void {
@@ -1048,11 +1072,24 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
         if (!remaining.length && matching) {
-          // A member that replaced the person's JSON value gives that value back instead of leaving the pointer empty.
-          // A member the person already deleted stays deleted: only Core's present, unchanged value is given back.
-          const recorded = bytes !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
+          // A member that replaced the person's value gives that value back instead of leaving the pointer
+          // empty; a member the person already deleted stays deleted: only Core's present, unchanged value
+          // is given back. Shared blocks join this rule: the person's earlier block content is restored.
+          const shared = descriptor.kind === 'block' && sharedBlockRole(descriptor.startMarker, descriptor.endMarker) !== null;
+          const recorded = bytes !== null && (descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') || shared) ?
+            preExistingFor(ownership.get(root)!.value, key) : undefined;
           if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
-          else ({ bytes: after, heir } = subtractMember(descriptor, before, owner));
+          else if (recorded && shared && typeof recorded.value === 'string' && descriptor.kind === 'block') {
+            after = renderTextBlock(before, { blockId: descriptor.blockId, startMarker: descriptor.startMarker,
+              endMarker: descriptor.endMarker, action: 'set', content: recorded.value });
+            restores = true;
+          }
+          else {
+            ({ bytes: after, heir } = subtractMember(descriptor, before, owner));
+            // Removing a shared block never removes the entry file: when the block was the file's only
+            // content the file stays behind empty, and the person's other text always survives.
+            if (after === null && shared) after = Buffer.alloc(0);
+          }
         }
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
@@ -1085,7 +1122,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         scope: removed[0]!.scope, effects: effect, ownership: 'managed', requires: [...new Set([...(overlay ? [overlay.priorId] : []), ...(priorHookConflict ? [priorHookConflict] : []), ...droppedDependencyGuards, ...removed.flatMap(claim => { const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root)); return selection ? selectionOps.get(selection.id) ?? [] : []; })])], checks: [], details: { target: join(root, redactedPath ?? descriptor.path), reason: kept ? kept.action : hookDecision?.reason ?? (restores ? 'restore-pre-existing' : 'explicit-managed-removal'),
           ...(descriptor.kind === 'hook' ? { format: descriptor.format, hookGroup: hookDecision!.details } : {}),
           ...(descriptor.kind === 'entry' ? { format: descriptor.format, entries: [restores ? { path: descriptor.entry, action: 'set' as const, value: '[REDACTED]' } : { path: descriptor.entry, action: 'remove' as const }] } :
-            descriptor.kind === 'member' ? { format: descriptor.format, member: { container: descriptor.container, action: 'remove' as const } } : descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker, blockAction: 'remove' as const } : {}) },
+            descriptor.kind === 'member' ? { format: descriptor.format, member: { container: descriptor.container, action: 'remove' as const } } :
+            descriptor.kind === 'block' ? { blockId: descriptor.blockId, startMarker: descriptor.startMarker, endMarker: descriptor.endMarker,
+              blockAction: restores ? 'set' as const : 'remove' as const, ...(restores ? { content: '[REDACTED]' } : {}) } : {}) },
           ...(namesSelections ? { selectionId: null } : {}) },
         root, path: descriptor.path, ownerKey: key, initialBefore, before, after, pins: pathPins(join(root, descriptor.path)), mode: live.state === 'present' ? live.mode : owner.mode,
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, members: [descriptor], ...(restores ? { restores } : {}),
@@ -1198,7 +1237,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(source === undefined ? {} : { materialSource: source }),
         ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
           kind: selection.kind!, origins: clone(selection.origins!) }),
-        ...(selection.projectFacts === undefined ? {} : { projectFacts: clone(selection.projectFacts) }),
+        ...(selection.projectFacts === undefined ? {} : { projectFacts: selection.projectFacts.map(fact => ({ ...fact, value: safeText(fact.value, privateValues) })) }),
         ...(facts?.hookCommands.length ? { hookCommands: facts.hookCommands } : {}),
         ...(step === undefined ? {} : { permissionStep: step }),
         inputs: facts?.inputs ?? [],
@@ -1883,7 +1922,7 @@ function selectionItem(selection: ExecutionPolicy['selections'][number], project
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
       tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins),
-      ...(selection.projectFacts === undefined ? {} : { projectFacts: clone(selection.projectFacts) }),
+      ...(selection.projectFacts === undefined ? {} : { projectFacts: selection.projectFacts.map(fact => ({ ...fact, value: safeText(fact.value, privateValues) })) }),
       ...(source === undefined ? {} : { materialSource: source }) } };
 }
 /** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */

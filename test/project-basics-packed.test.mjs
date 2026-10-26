@@ -30,7 +30,7 @@ test('a packed consumer installs Project basics from detected and inferred facts
     copyFileSync(new URL('./fixtures/project-basics-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 6);
+    assert.equal(receipt.checks.length, 12);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

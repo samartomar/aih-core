@@ -266,12 +266,25 @@ function approvalOperation(binding, register, plan, scope, key) {
  * public deriveRecipeIdentity, binds both item identities and the binding digest. Rendering never grants authority:
  * the recipe is ordinary execution-policy content that Enterprise organization policy governs in full.
  */
-export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents } = {}) {
+export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
     if (scope !== 'project' && scope !== 'user') invalid('scope', '/scope', 'Expected project or user.');
     if (projectFolder !== undefined && (!text(projectFolder, 255) || !isSafeRelativePath(projectFolder)))
       invalid('project-folder', '/projectFolder', 'Expected a safe relative folder.');
+    // The consumer-reviewed facts this delivery renders into its Project basics selections: validated
+    // here, echoed in the result, and placed on the selection metadata by the caller. Facts never add
+    // operations or authority, and never change the pinned material bytes.
+    if (projectFacts !== undefined) {
+      if (!Array.isArray(projectFacts) || projectFacts.length === 0 || projectFacts.length > 32) invalid('project-facts', '/projectFacts', 'Expected at most 32 project facts.');
+      for (const [index, fact] of projectFacts.entries()) {
+        if (!isRecord(fact) || Object.keys(fact).some(key => !['field', 'value', 'confidence'].includes(key)) ||
+            typeof fact.field !== 'string' || !/^[a-z][A-Za-z0-9]{0,63}$/.test(fact.field) ||
+            typeof fact.value !== 'string' || !fact.value || fact.value.length > 256 ||
+            !['detected', 'inferred'].includes(fact.confidence))
+          invalid('project-facts', `/projectFacts/${index}`, 'Expected { field, value, confidence: detected | inferred }.');
+      }
+    }
     // One ticked server, named exactly: there is no list, wildcard or approve-all form.
     if (grantApproval !== undefined && !(isRecord(grantApproval) && Object.keys(grantApproval).length === 2 &&
         typeof grantApproval.framework === 'string' && typeof grantApproval.itemId === 'string'))
@@ -315,7 +328,7 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
         target: target(plan.base, segmentsOf(pointer.file)), blockId: 'aihq.entry-pointer', startMarker: '<!-- BEGIN aih:shared:pointer -->',
         endMarker: '<!-- END aih:shared:pointer -->', action: 'set', content: { literal: content }, requires: [], checks: [] });
     }
-    if (plan.entryShared) inputs.projectFolder = { type: 'string', required: true, default: 'ai-coding', minLength: 1, maxLength: 64,
+    if (plan.entryShared) inputs.projectFolder = { type: 'string', required: true, default: sharedFolder, minLength: 1, maxLength: 64,
       description: 'Project folder, one name at the project root, that receives the Project basics files.' };
     const register = plan.layout.register;
     if (info.kind === 'hook') {
@@ -369,7 +382,8 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
         path: member.packagePath, sha256: member.sha256, byteLength: member.byteLength })),
       targets: [scope], prerequisites, operations, checks
     };
-    return { status: 'rendered', tool: binding.tool, item: info.ref, bindingDigest: binding.digest, materialRoot: deliveryMaterialRoot, recipe };
+    return { status: 'rendered', tool: binding.tool, item: info.ref, bindingDigest: binding.digest, materialRoot: deliveryMaterialRoot,
+      ...(projectFacts ? { projectFacts } : {}), recipe };
   });
 }
 
