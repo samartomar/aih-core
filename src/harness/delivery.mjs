@@ -160,9 +160,9 @@ function deliveryPlan(info, binding, scope, { projectFolder, support } = {}) {
     const texts = markdown(info);
     if (texts.length === 0) invalid('item-invalid', `${path}/materials`, 'A rule carries its Markdown text.');
     const placement = payload.placement ?? 'file';
-    const entryBlock = segments => {
+    const entryBlock = (segments, shared = false) => {
       if (texts.length !== 1) unavailable('rule-text-ambiguous', `${path}/materials`, 'A marker block takes exactly one Markdown material.');
-      plan.blocks.push({ member: texts[0], segments });
+      plan.blocks.push({ member: texts[0], segments, shared });
     };
     if (placement === 'project-folder') {
       if (scope !== 'project') unavailable('scope-not-bound', `${path}/payload/placement`, 'A project-folder rule is delivered only to a project.');
@@ -170,7 +170,10 @@ function deliveryPlan(info, binding, scope, { projectFolder, support } = {}) {
     } else if (placement === 'entry-block') {
       if (scope !== 'project' || binding.entryFiles.length === 0)
         unavailable('scope-not-bound', `${path}/payload/placement`, 'The binding names no entry file for a marker block.');
-      for (const entry of binding.entryFiles) entryBlock(segmentsOf(entry));
+      // The shared guidance block uses the published aih:shared markers, one block per entry file; the
+      // project folder it routes to is a reviewed recipe input, so updates can find the user's notes file.
+      plan.entryShared = true;
+      for (const entry of binding.entryFiles) entryBlock(segmentsOf(entry), true);
     } else {
       const root = needRoot();
       if (binding.entryFiles.includes(rootPath) || /\.md$/i.test(rootPath)) entryBlock(root);
@@ -263,12 +266,25 @@ function approvalOperation(binding, register, plan, scope, key) {
  * public deriveRecipeIdentity, binds both item identities and the binding digest. Rendering never grants authority:
  * the recipe is ordinary execution-policy content that Enterprise organization policy governs in full.
  */
-export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents } = {}) {
+export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
     if (scope !== 'project' && scope !== 'user') invalid('scope', '/scope', 'Expected project or user.');
     if (projectFolder !== undefined && (!text(projectFolder, 255) || !isSafeRelativePath(projectFolder)))
       invalid('project-folder', '/projectFolder', 'Expected a safe relative folder.');
+    // The consumer-reviewed facts this delivery renders into its Project basics selections: validated
+    // here, echoed in the result, and placed on the selection metadata by the caller. Facts never add
+    // operations or authority, and never change the pinned material bytes.
+    if (projectFacts !== undefined) {
+      if (!Array.isArray(projectFacts) || projectFacts.length === 0 || projectFacts.length > 32) invalid('project-facts', '/projectFacts', 'Expected at most 32 project facts.');
+      for (const [index, fact] of projectFacts.entries()) {
+        if (!isRecord(fact) || Object.keys(fact).some(key => !['field', 'value', 'confidence'].includes(key)) ||
+            typeof fact.field !== 'string' || !/^[a-z][A-Za-z0-9]{0,63}$/.test(fact.field) ||
+            typeof fact.value !== 'string' || !fact.value || fact.value.length > 256 ||
+            !['detected', 'inferred'].includes(fact.confidence))
+          invalid('project-facts', `/projectFacts/${index}`, 'Expected { field, value, confidence: detected | inferred }.');
+      }
+    }
     // One ticked server, named exactly: there is no list, wildcard or approve-all form.
     if (grantApproval !== undefined && !(isRecord(grantApproval) && Object.keys(grantApproval).length === 2 &&
         typeof grantApproval.framework === 'string' && typeof grantApproval.itemId === 'string'))
@@ -291,15 +307,29 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
         ...(member.executable === true ? { mode: 493 } : {}), requires: [], checks: [checkId] });
       checks.push({ id: checkId, purpose: `${segments.join('/')} has the pinned bytes`, kind: 'file.sha256', target: at, sha256: member.sha256 });
     });
-    plan.blocks.forEach(({ member, segments }, index) => {
+    const sharedFolder = text(projectFolder, 255) && isSafeRelativePath(projectFolder) ? projectFolder : 'ai-coding';
+    plan.blocks.forEach(({ member, segments, shared }, index) => {
       const value = contents?.[member.id];
       if (typeof value !== 'string') unavailable('content-required', `/contents/${member.id}`, 'A marker block needs the material text.');
       if (sha256Hex(value) !== member.sha256 || new TextEncoder().encode(value).length !== member.byteLength)
         invalid('content-mismatch', `/contents/${member.id}`, 'The supplied text does not match the material SHA-256 and length.');
-      operations.push({ id: `block-${index + 1}`, purpose: `Set the ${key} block in ${segments.join('/')}`, kind: 'text.block', scope,
-        target: target(plan.base, segments), blockId: key, startMarker: `<!-- BEGIN aih:${key} -->`, endMarker: `<!-- END aih:${key} -->`,
-        action: 'set', content: { literal: value }, requires: [], checks: [] });
+      operations.push({ id: `block-${index + 1}`, purpose: `Set the ${shared ? 'aih:shared' : key} block in ${segments.join('/')}`, kind: 'text.block', scope,
+        target: target(plan.base, segments), blockId: key, startMarker: `<!-- BEGIN ${shared ? 'aih:shared' : `aih:${key}`} -->`,
+        endMarker: `<!-- END ${shared ? 'aih:shared' : `aih:${key}`} -->`, action: 'set', content: { literal: value }, requires: [], checks: [] });
     });
+    // A binding that declares an entry pointer also points the tool at the shared guidance folder: one
+    // aih:shared:pointer block in the pointer file, next to the guidance blocks. Nothing is written without it.
+    if (plan.entryShared && binding.entryPointer) {
+      const pointer = binding.entryPointer;
+      if (!text(pointer.file, 255) || !isSafeRelativePath(pointer.file) || typeof pointer.template !== 'string' ||
+          !pointer.template || pointer.template.length > 4096) invalid('binding-invalid', '/binding/entryPointer', 'The binding names a malformed entry pointer.');
+      const content = pointer.template.replaceAll('{projectFolder}', sharedFolder);
+      operations.push({ id: 'entry-pointer', purpose: `Point ${binding.tool} at the shared guidance folder`, kind: 'text.block', scope,
+        target: target(plan.base, segmentsOf(pointer.file)), blockId: 'aihq.entry-pointer', startMarker: '<!-- BEGIN aih:shared:pointer -->',
+        endMarker: '<!-- END aih:shared:pointer -->', action: 'set', content: { literal: content }, requires: [], checks: [] });
+    }
+    if (plan.entryShared) inputs.projectFolder = { type: 'string', required: true, default: sharedFolder, minLength: 1, maxLength: 64,
+      description: 'Project folder, one name at the project root, that receives the Project basics files.' };
     const register = plan.layout.register;
     if (info.kind === 'hook') {
       const { rendered, executable } = hookCommand(info, plan, scope);
@@ -352,7 +382,8 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
         path: member.packagePath, sha256: member.sha256, byteLength: member.byteLength })),
       targets: [scope], prerequisites, operations, checks
     };
-    return { status: 'rendered', tool: binding.tool, item: info.ref, bindingDigest: binding.digest, materialRoot: deliveryMaterialRoot, recipe };
+    return { status: 'rendered', tool: binding.tool, item: info.ref, bindingDigest: binding.digest, materialRoot: deliveryMaterialRoot,
+      ...(projectFacts ? { projectFacts } : {}), recipe };
   });
 }
 

@@ -6,6 +6,7 @@ import { canonicalJson } from './canonical.js';
 import { RecipeEditError, configArrayMemberBytes, configMemberBytes, blockMemberBytes } from './recipe-editors.js';
 import { locateHookGroups } from './hook-group.js';
 import { sha256 } from './host-files.js';
+import { sharedBlockMarker, sharedBlockRole } from './shared-blocks.js';
 import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
@@ -14,6 +15,8 @@ import { githubName } from './material-descriptors.js';
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
   | { kind: 'text-block'; file: string; blockId: string; sha256: string }
+  | { kind: 'entry-block'; file: string; marker: string; sha256: string }
+  | { kind: 'entry-pointer'; file: string; marker: string; sha256: string }
   | { kind: 'config-entry'; file: string; pointer: string; sha256: string }
   | { kind: 'config-member'; file: string; pointer: string; 'value-sha256': string }
   | { kind: 'hook-group-member'; file: string; selector: { path: (string | number)[]; valueSha256: string }; sha256: string }
@@ -23,6 +26,8 @@ export interface ItemFacts {
   managementId: string; scope: 'project' | 'user';
   name: string | null; kind: SelectionMetadata['kind'] | null; framework: string | null;
   item: SelectionMetadata['item'] | null; tool: string | null; origins: InclusionOrigin[];
+  /** Project facts the consumer reviewed for this selection; redacted projection only ever shows them as facts. */
+  projectFacts?: SelectionMetadata['projectFacts'];
   /** The exact git commit the selection's referenced recipe was last applied from; absent for every other source. */
   materialSource?: GitMaterialProvenance;
 }
@@ -59,8 +64,14 @@ const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'docum
 export const pointerOf = (segments: readonly string[]): string =>
   segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
 /** The published kind of a target-keyed member. */
-export function publicKind(descriptor: MemberDescriptor): 'file' | 'text-block' | 'config-entry' | 'config-member' | 'hook-group-member' {
-  return descriptor.kind === 'file' ? 'file' : descriptor.kind === 'block' ? 'text-block' : descriptor.kind === 'entry' ? 'config-entry' :
+export function publicKind(descriptor: MemberDescriptor): 'file' | 'text-block' | 'entry-block' | 'entry-pointer' | 'config-entry' | 'config-member' | 'hook-group-member' {
+  if (descriptor.kind === 'block') {
+    const marker = sharedBlockMarker(descriptor.startMarker);
+    if (marker === 'aih:shared') return 'entry-block';
+    if (marker === 'aih:shared:pointer') return 'entry-pointer';
+    return 'text-block';
+  }
+  return descriptor.kind === 'file' ? 'file' : descriptor.kind === 'entry' ? 'config-entry' :
     descriptor.kind === 'member' ? 'config-member' : 'hook-group-member';
 }
 /** The RFC 6901 pointer of an entry or of the array holding a member. */
@@ -72,7 +83,12 @@ export function typedMembers(key: string, owner: Owned): TypedMember[] {
   const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
   const approval = (pointer: string): TypedMember[] => owner.approval ? [{ kind: 'approval-change', tool: owner.approval.tool, file: descriptor.path, pointer }] : [];
   if (descriptor.kind === 'file') return [{ kind: 'file', path: descriptor.path, sha256: owner.sha256, executable: (owner.mode & 0o111) !== 0 }];
-  if (descriptor.kind === 'block') return [{ kind: 'text-block', file: descriptor.path, blockId: descriptor.blockId, sha256: owner.sha256 }];
+  if (descriptor.kind === 'block') {
+    const role = sharedBlockRole(descriptor.startMarker, descriptor.endMarker);
+    if (role === 'guidance') return [{ kind: 'entry-block', file: descriptor.path, marker: 'aih:shared', sha256: owner.sha256 }];
+    if (role === 'pointer') return [{ kind: 'entry-pointer', file: descriptor.path, marker: 'aih:shared:pointer', sha256: owner.sha256 }];
+    return [{ kind: 'text-block', file: descriptor.path, blockId: descriptor.blockId, sha256: owner.sha256 }];
+  }
   if (descriptor.kind === 'entry') return [{ kind: 'config-entry', file: descriptor.path, pointer: pointerOf(descriptor.entry), sha256: owner.sha256 },
     ...approval(pointerOf(descriptor.entry))];
   if (descriptor.kind === 'member') return [{ kind: 'config-member', file: descriptor.path, pointer: pointerOf(descriptor.container),
@@ -146,13 +162,23 @@ function validProvenance(value: unknown): boolean {
   const name = githubName(value.repository);
   return !!name && value.identity === `${name.owner}/${name.repo}@${value.commit}`;
 }
+/** Reviewed project facts recorded with a selection; the vocabulary Core renders into Project basics. */
+export function validProjectFacts(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 32) return false;
+  const FACT_FIELD = /^[a-z][A-Za-z0-9]{0,63}$/;
+  return value.every(fact => exact(fact, ['field', 'value', 'confidence']) && typeof fact.field === 'string' &&
+    FACT_FIELD.test(fact.field) && typeof fact.value === 'string' && fact.value.length > 0 && fact.value.length <= 256 &&
+    (fact.confidence === 'detected' || fact.confidence === 'inferred'));
+}
 
 /** Strict item validation: facts are well formed and typed members equal the derived custody. */
 export function validItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): boolean {
   const items = value.items as unknown;
   if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
-    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'], ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource']) ||
+    if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
+        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
@@ -166,12 +192,14 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
+    if (!validProjectFacts(item.projectFacts)) return false;
     const owned = claimedMembers(value, item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {
-      const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format)).map(([key]) => key));
+      const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
+        owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
           !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
     }
@@ -236,7 +264,9 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
   // Provenance always follows the recipe source of the latest run, described or not.
   const source = item.facts.materialSource;
   value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
-    framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins, ...(source ? { materialSource: source } : {}), members: prior?.members ?? [],
+    framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins,
+    ...(facts.projectFacts ? { projectFacts: facts.projectFacts } : {}),
+    ...(source ? { materialSource: source } : {}), members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
     ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),

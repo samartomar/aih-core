@@ -355,6 +355,8 @@
           "enum": [
             "file",
             "text-block",
+            "entry-block",
+            "entry-pointer",
             "config-entry",
             "config-member",
             "hook-group-member"

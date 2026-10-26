@@ -126,6 +126,12 @@ export type InclusionOrigin =
   | { reasonIncluded: 'in-set'; set: { framework: string; setId: string; setSha256: string }; options?: Record<string, string[]> }
   /** `framework` is absent only when the requiring Catalog release publishes no framework identity. */
   | { reasonIncluded: 'required-by'; requiredBy: { framework?: string; itemId: string } };
+/**
+ * One project fact a Harness diagnostic read (or, rarely, inferred) from the project, reviewed by the
+ * consumer and recorded with the selection. Facts are never executed: `detected` names the file evidence,
+ * `inferred` names the convention (today only the npm default for a package.json with no stronger signal).
+ */
+export interface ProjectFact { field: string; value: string; confidence: 'detected' | 'inferred' }
 /** A Catalog item named by framework and item id; content identities never take part in matching. */
 export interface CatalogItemRef { framework: string; itemId: string }
 /** A Catalog set named by framework, set id and its exact digest. */
@@ -142,6 +148,8 @@ export interface SelectionMetadata {
   kind: 'skill' | 'agent' | 'command' | 'rule' | 'hook' | 'mcp-server' | 'document';
   /** One entry per simultaneous inclusion, so overlapping sets keep every origin. */
   origins: InclusionOrigin[];
+  /** Project facts the consumer reviewed for this selection; rendered guidance shows them as detected or inferred. */
+  projectFacts?: ProjectFact[];
 }
 export interface Selection extends Partial<SelectionMetadata> {
   id: string;
