@@ -33,6 +33,8 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
   try {
     const [packed] = JSON.parse(run([join(source, 'scripts/pack-distribution.mjs'), '--pack-destination', root], source));
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module', dependencies: { '@aihq/core': 'file:' + join(root, packed.filename) } }));
+    // As in the other packed consumers: the bundled @sigstore packages never reach a registry.
+    writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     run([process.env.npm_execpath, 'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false']);
     copyFileSync(new URL('./fixtures/state-location-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const observed = JSON.parse(run(['check.mjs', project]).trim());

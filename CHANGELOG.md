@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Add `renderDelivery` and `checkCompatibility` to `@aihq/core/harness`, portable
+data functions that never import the Core engine. `renderDelivery({ tool, item,
+binding, scope, projectFolder?, grantApproval?, contents? })` renders a checked
+Catalog release 1.6 item as an ordinary Core recipe (`file.write`,
+`config.entries`, `text.block`, `hook.group`) for one tool's binding: only content
+materials are delivered, never the behaviour file; skills use `payload.dirName`;
+rule and skill names follow the layout `namespace`; hook commands use the named
+interpreter or program, Catalog's four placeholders and the layout
+`commandTemplate`, and never rely on a shebang. The recipe identity from
+`deriveRecipeIdentity` binds both item identities and the binding digest.
+Rendered recipes are ordinary execution-policy content that Enterprise
+organization policy governs in full. `checkCompatibility({ tool, platform, items,
+binding })` answers from the binding alone, counting only observations from that
+OS and architecture, with per-item support, reason, observation, `boundAs`
+fallback, permission step, delivered and always-loaded sizes in bytes and
+characters, and the static blockers `protocol-not-spoken`,
+`required-but-unsupported`, `native-only-kind` and `same-folder`; set fit is
+computed over the supplied Catalog-resolved members. Granting MCP approval and
+`config.member` are not rendered yet. No format or package version changes.
+Unpublished candidate for the sole 0.1.0 release effort.
+
 Publish where Core keeps its state. `@aihq/core/contracts` exports `stateLocation`,
 portable relative descriptors only: `{ root: { base: "userHome", segments: [".aih",
 "core"] }, projectMarkers: { path, meaning }[] }`, with markers `ownership`,
