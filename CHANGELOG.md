@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Require Node `>=26.12.1 <27` for host execution. Observe the selected Node
+and npm versions separately, including missing or conflicting PATH candidates.
+Inspect npm's effective HTTPS trust in its own process; an already trusted
+Node endpoint prepares no repair effects and reports `REPAIR_NOT_NEEDED`.
+Preserve explicit trust overrides and historical native evidence. Development
+packaging accepts npm 11 and npm 12 metadata without changing archive-mode
+qualification or the published interfaces. Native platform qualification and
+publication remain separate.
+
 Add Project basics per repository. `@aihq/core/harness/runtime` gains
 `detectProjectFacts({ project }, controls?)`, a bounded read-only diagnostic that runs
 nothing: it reads only a fixed candidate list (`package.json`, the common lockfiles,

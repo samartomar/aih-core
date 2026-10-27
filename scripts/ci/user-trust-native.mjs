@@ -1,3 +1,4 @@
+import { readCorePackMetadata } from '../pack-metadata.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -141,7 +142,7 @@ if (process.argv[2] === '--consumer') {
   const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 120000 });
   let succeeded = false;
   try {
-    const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], source))[0];
+    const packed = readCorePackMetadata(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], source));
     writeFileSync(join(reportDirectory, 'native-package.json'), JSON.stringify({ name: packed.name,
       version: packed.version, filename: packed.filename, sha256: sha256(readFileSync(join(root, packed.filename))),
       integrity: packed.integrity, workflowRevision: process.env.GITHUB_SHA ?? null }, null, 2));

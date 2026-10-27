@@ -1,3 +1,4 @@
+import { readCorePackMetadata } from '../scripts/pack-metadata.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -23,7 +24,7 @@ test('a packed Core consumer adds, updates, conflicts, resolves and removes an o
   // Installing the packed artifact beside the concurrent suite has exceeded 180 s on Windows runners.
   const npm = (args, cwd) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], { cwd, env, encoding: 'utf8', timeout: 300_000 });
   try {
-    const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], packageRoot))[0];
+    const packed = readCorePackMetadata(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], packageRoot));
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'hook-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
     writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');

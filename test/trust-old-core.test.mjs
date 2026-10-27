@@ -1,3 +1,4 @@
+import { readCorePackMetadata } from '../scripts/pack-metadata.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -47,7 +48,7 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
       // when npm packs an older package graph.
       npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund'], archiveRoot);
       execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: archiveRoot, env, timeout: 120_000, windowsHide: true });
-      const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch], archiveRoot))[0];
+      const packed = readCorePackMetadata(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch], archiveRoot));
       writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module', dependencies: {
         '@aihq/core': `file:${join(scratch, packed.filename)}`
       } }));
@@ -81,7 +82,7 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
       `);
       const runOld = (value, selectedHome = home) => {
         const input = join(consumer, 'policy.json'); writeFileSync(input, JSON.stringify(value));
-        const result = spawnSync(process.execPath, ['old-api.mjs', input, project], { cwd: consumer,
+        const result = spawnSync(process.env.AIH_TEST_LEGACY_NODE || process.execPath, ['old-api.mjs', input, project], { cwd: consumer,
           env: { ...env, HOME: selectedHome, USERPROFILE: selectedHome }, encoding: 'utf8', timeout: 30_000, windowsHide: true });
         assert.equal(result.status, 0, result.stdout + result.stderr);
         return JSON.parse(result.stdout);

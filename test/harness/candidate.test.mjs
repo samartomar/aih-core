@@ -28,7 +28,7 @@ test('system CA is selected before root inventory when OS passes and Node reject
     systemRoots: async () => { throw Error('root inventory must not run'); }
   });
   assert.equal(result.kind, 'system-ca');
-  assert.deepEqual(calls, ['os', 'node', 'system-ca']);
+  assert.deepEqual(calls, ['node', 'os', 'system-ca']);
 });
 
 test('extra CA search selects only valid OS roots signing every peer chain', async () => {

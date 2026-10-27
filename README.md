@@ -4,7 +4,13 @@ Core exposes one headless execution path to CLIs and application hosts. An autho
 
 **Unreleased development slice:** this candidate implements policy-free inspection, user-scope Node/npm and selected Python/pip, Git, Cargo, conda, Gradle and Maven CA repair, and Vibe execution of declared file, narrow configuration, text-block, managed removal and approved process recipes. A bounded read-only check compares a policy's declared file intent with local files without preparation, effects or history. Recipes may be inline or reference bounded, pinned local/HTTPS archive material or one exact GitHub commit. Supplied checks run after application and before dependents; explicit `allowPartial` permits independent work. Enterprise policies are admitted against an independently selected github.com or local organization document, read freshly before Prepare and again before Apply effects. The included schemas describe this development format and are not yet a published compatibility promise.
 
-The Node host requires **Node >=24.15.0 <25**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
+The Node host requires **Node >=26.12.1 <27**. The contracts and Harness metadata entries have no Node filesystem, process, network or installation effects. They can be bundled for a browser; host operations require a Node host with the relevant filesystem permissions.
+
+The selected qualification runtime is Node 26.12.1. Its bundled npm 11.20.0
+and separately acquired npm 12.2.1 are different executable observations.
+Neither Node's version nor a package pin establishes the selected npm version.
+Historical native verification records keep their exact Node/runtime subjects;
+this runtime range does not requalify their platforms or client closures.
 
 ## Public imports
 
@@ -2681,10 +2687,40 @@ import { resolveStateLocation } from '@aihq/core';
 const { root } = resolveStateLocation(); // for example /home/me/.aih/core
 ```
 
+## Effective Node and npm trust
+
+Inspection records the selected Node host's version separately from npm's
+version command, and reports absent or conflicting PATH candidates. Node is the
+host running Core, even when PATH points to another Node or contains none.
+An unparseable version command is reported without an invented version.
+
+`npm/tls/effective` runs the selected npm process against its configured HTTPS
+registry, retaining its environment, project/user configuration, CA overrides
+and proxy selection. It requires effective `strict-ssl=true` and refuses an
+inherited TLS verification bypass. A pass describes that npm process and
+endpoint. The existing `<target>/tls/node/<host>` checks describe Core's Node
+TLS view, including the managed configuration projection when requested; they
+do not establish npm's effective trust. Offline inspection skips the npm probe.
+
+Prefer inspection before selecting a persistent supplied-CA repair. For
+`node-os-trust`, an already trusted endpoint returns the existing `blocked`
+preparation status with diagnostic `REPAIR_NOT_NEEDED`, reason
+`node-already-trusted`, and no prepared handle or repair effects. No Apply is
+needed for that result. A system-CA candidate refuses explicit conflicting
+Node trust flags, environment selection or extra-CA override. Supplied bundles
+remain an explicit fallback with the existing conflict, exclusion and rollback
+review. Nothing disables TLS verification or changes an OS trust store.
+
+The Linux process fixtures use an isolated `SSL_CERT_FILE` and loopback HTTPS
+server to verify trusted/untrusted outcomes, npm CA precedence and refusal of
+disabled verification. They do not qualify Windows/macOS stores, Linux native
+admission, real user accounts or client sessions. Those exact native tuples
+remain independently gated.
+
 ## Development checks
 
 Source lives in [`samartomar/aih-core`](https://github.com/samartomar/aih-core).
-Use Node 24 within the declared engine range. Clone this repository and run the
+Use Node 26 within the declared engine range. Clone this repository and run the
 following commands inside it. Generic engine source lives in `src/core/`; supplied
 repair definitions and bounded helpers live in `src/harness/`. Harness does not
 import the engine. There is one root manifest and one published distribution;
@@ -2696,6 +2732,13 @@ npm run typecheck
 npm run build
 npm test
 ```
+
+The historical Core compatibility fixture retains its original Node 24 guard.
+Set `AIH_TEST_LEGACY_NODE` to an independently selected Node 24 executable when
+running that fixture from Node 26. This selects only the historical control;
+the current package and its tests continue to run on Node 26. Without that
+compatible historical runtime the fixture reports its failure; it does not
+rewrite historical source or infer a compatibility pass.
 
 Ordinary CI runs on pull requests and pushes to `main`, with superseded runs
 cancelled. Feature pushes do not duplicate PR checks. Documentation-only edits

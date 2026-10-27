@@ -17,7 +17,7 @@ printf 'Runtime: %s; npm %s\n' "$(node --version)" "$(npm --version)"
 id
 test "$(uname -m)" = arm64
 case "$(sw_vers -productVersion)" in 26.*) ;; *) exit 1 ;; esac
-case "$(node --version)" in v24.*) ;; *) exit 1 ;; esac
+case "$(node --version)" in v26.*) ;; *) exit 1 ;; esac
 test "${NODE_TLS_REJECT_UNAUTHORIZED:-}" != 0
 
 mkdir -p "$case_dir/packs" "$case_dir/consumer" "$case_dir/tls" "$case_dir/home"

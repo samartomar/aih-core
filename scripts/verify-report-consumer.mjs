@@ -1,3 +1,4 @@
+import { readCorePackMetadata } from './pack-metadata.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { copyFile, mkdtemp, writeFile, readFile, readdir, rm, mkdir } from 'node:fs/promises';
@@ -23,7 +24,7 @@ try {
  if (tarball) {
   pack = { filename: basename(tarball) };
   await copyFile(tarball, join(temporary,pack.filename));
- } else pack = JSON.parse(runNpm(['pack','--ignore-scripts','--json','--pack-destination',temporary]))[0];
+ } else pack = readCorePackMetadata(runNpm(['pack','--ignore-scripts','--json','--pack-destination',temporary]));
  console.log(JSON.stringify({tarball: tarball ? pack.filename : 'packed-here'}));
  const consumer = join(temporary,'consumer'); await mkdir(consumer);
  await writeFile(join(consumer,'package.json'),JSON.stringify({private:true,type:'module'}));

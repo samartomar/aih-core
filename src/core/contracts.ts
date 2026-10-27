@@ -152,8 +152,8 @@ export const contractSupport = Object.freeze({
     { export: '@aihq/core/support', runtime: 'portable' },
     { export: '@aihq/core/report', runtime: 'portable' },
     { export: '@aihq/core/harness', runtime: 'portable' },
-    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' },
-    { export: '@aihq/core', runtime: 'node', nodeRange: '>=24.15.0 <25' }
+    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=26.12.1 <27' },
+    { export: '@aihq/core', runtime: 'node', nodeRange: '>=26.12.1 <27' }
   ]
 } satisfies PackageSupport);
 

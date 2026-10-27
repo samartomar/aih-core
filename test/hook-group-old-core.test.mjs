@@ -42,7 +42,9 @@ function buildOldCore() {
 const oldCore = (index, mode, project, policy) => {
   const file = join(scratch, `policy-${Math.random().toString(16).slice(2)}.json`);
   writeFileSync(file, JSON.stringify(policy));
-  const result = spawnSync(process.execPath, [join(index, '../../../old-run.mjs'), index, mode, project, file], { encoding: 'utf8', env: process.env, timeout: 120_000 });
+  // Historical source keeps its original Node 24 requirement. Never rewrite its guard to qualify Node 26.
+  const legacyNode = process.env.AIH_TEST_LEGACY_NODE || process.execPath;
+  const result = spawnSync(legacyNode, [join(index, '../../../old-run.mjs'), index, mode, project, file], { encoding: 'utf8', env: process.env, timeout: 120_000 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   return JSON.parse(result.stdout);
 };

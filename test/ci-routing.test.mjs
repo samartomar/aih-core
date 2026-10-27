@@ -45,7 +45,7 @@ test('platform facilities select only their affected OS while shared changes wid
     ['src/harness/native/linux/facility.c', 'ubuntu-latest'],
     ['src/harness/native/windows/facility.cs', 'windows-latest'],
     ['src/harness/macos-session-platform.mjs', 'macos-latest']
-  ]) assert.deepEqual(select([{ status: 'M', paths: [path] }]).matrix, [{ os, node: '24' }]);
+  ]) assert.deepEqual(select([{ status: 'M', paths: [path] }]).matrix, [{ os, node: '26' }]);
   for (const path of ['src/core/types.ts', 'src/harness/native/adapter.mjs', 'package-lock.json', '.github/workflows/checks.yml', 'new-runtime.xyz']) {
     const result = select([{ status: 'M', paths: [path] }]);
     assert.equal(result.suite, 'full', path);
@@ -65,7 +65,7 @@ test('explicit full and deleted/renamed/unknown changes cannot skip coverage', (
 test('report-local changes select their affected consumers on Linux', () => {
   const result = select([{ status: 'M', paths: ['src/harness/report/data.mjs'] }]);
   assert.equal(result.suite, 'report');
-  assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '24' }]);
+  assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '26' }]);
   assert.equal(result.nativeLinux, false);
 });
 
@@ -84,7 +84,7 @@ test('added, modified or renamed documentation selects no suite', () => {
 test('documentation with a platform facility selects that platform only', () => {
   const result = select([{ status: 'A', paths: ['docs/linux.md'] }, { status: 'M', paths: ['src/harness/native/linux/facility.c'] }]);
   assert.equal(result.suite, 'full');
-  assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '24' }]);
+  assert.deepEqual(result.matrix, [{ os: 'ubuntu-latest', node: '26' }]);
 });
 
 test('a full suite never comes with an empty matrix', () => {

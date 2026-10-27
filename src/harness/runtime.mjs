@@ -510,7 +510,7 @@ function executable(name) {
 // keytool's own -version exists only in newer JDKs; its documented -J option passes -version
 // to the Java launcher on every supported JDK, which prints the runtime version and exits.
 const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
-const resolutionTargets = new Set(['rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
+const resolutionTargets = new Set(['node', 'npm', 'rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
 const clientTargets = new Set(clientGuidanceTargets);
 // Guidance rules accept only their published platforms; other hosts get platform-neutral steps.
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
@@ -654,12 +654,47 @@ async function tlsProbe(origin, deadline, signal, ca) {
   });
 }
 
+// Ask the selected npm process about its own effective config. Never derive npm trust from Core's TLS socket.
+async function npmTrustConfiguration(npm, deadline, signal) {
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED && process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '1')
+    return { reason: 'tls-verification-disabled' };
+  const values = {};
+  for (const key of ['registry', 'strict-ssl']) {
+    const result = await runProcess(npm, ['config', 'get', key], deadline, 10000, signal, 4096, process.env, true);
+    if (result.kind !== 'complete' || result.code !== 0)
+      return { reason: result.kind === 'cancelled' ? 'cancelled' : result.reason ?? 'config-unavailable',
+        ...(result.terminationUnresolved ? { terminationUnresolved: true } : {}) };
+    values[key] = result.stdout.trim();
+  }
+  if (values['strict-ssl'] !== 'true') return { reason: 'tls-verification-disabled' };
+  try {
+    const url = new URL(values.registry);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+      return { reason: 'config-invalid' };
+    return { origin: url.origin };
+  } catch { return { reason: 'config-invalid' }; }
+}
+
+async function npmTrustProbe(npm, deadline, signal) {
+  const config = await npmTrustConfiguration(npm, deadline, signal);
+  if (config.reason) return { kind: 'unavailable', reason: config.reason,
+    ...(config.terminationUnresolved ? { terminationUnresolved: true } : {}) };
+  const result = await runProcess(npm, ['ping', '--fetch-retries=0', '--fetch-timeout=12000'],
+    deadline, 15000, signal, 65536);
+  return result.kind === 'complete' ? { kind: result.code === 0 ? 'passed' : 'failed',
+    reason: result.code === 0 ? 'npm-tls-ok' : 'npm-tls-failed' } :
+    { kind: 'unavailable', reason: result.kind === 'cancelled' ? 'cancelled' : result.reason ?? 'probe-invocation',
+      ...(result.terminationUnresolved ? { terminationUnresolved: true } : {}) };
+}
+
 /** Diagnose an OS-trusted Node candidate with fixed probe kinds and no repair effects. */
 async function assessNodeTrustCandidate(request, controls = {}) {
   if (request?.originId !== 'npm-registry' || controls?.budgetMs !== undefined &&
       (!Number.isSafeInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > 120000))
     return { kind: 'unresolved', reason: 'origin-invalid', probes: 0 };
   const started = performance.now();
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED && process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '1')
+    return { kind: 'unresolved', reason: 'tls-verification-disabled', probes: 0 };
   const npm = executable('npm');
   if (!npm) return { kind: 'unresolved', reason: 'executable-missing', probes: 0 };
   const configured = await runProcess(npm, ['config', 'get', 'registry'],
@@ -695,6 +730,13 @@ async function assessNodeTrustCandidate(request, controls = {}) {
     return cachedRoots;
   };
   const probe = async (kind, origin, roots, timeoutMs, signal) => {
+    if (kind === 'system-ca') {
+      const flags = [...nodeOptions(process.env.NODE_OPTIONS ?? ''), ...process.execArgv].map(flag => flag.replaceAll('_', '-'));
+      if (flags.filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag)).at(-1) === '--no-use-system-ca' ||
+          flags.some(flag => ['--use-bundled-ca', '--use-openssl-ca'].includes(flag)) || process.env.NODE_EXTRA_CA_CERTS ||
+          process.env.NODE_USE_SYSTEM_CA !== undefined && process.env.NODE_USE_SYSTEM_CA !== '1')
+        return { kind: 'unavailable', reason: 'explicit-trust-override' };
+    }
     if (kind === 'os') {
       const curl = executable('curl');
       if (!curl || process.platform === 'win32' && !/\.exe$/i.test(curl))
@@ -808,10 +850,12 @@ function nodeOptions(value) {
   if (started) options.push(current);
   return options;
 }
-const newProcessUsesSystemCa = () => process.env.NODE_USE_SYSTEM_CA === '1' ||
-  // Node also accepts underscores for dashes in option names.
-  nodeOptions(process.env.NODE_OPTIONS ?? '').map(flag => flag.replaceAll('_', '-'))
-    .filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag)).at(-1) === '--use-system-ca';
+const newProcessUsesSystemCa = () => {
+  // Node options override the environment default; this process's execArgv does not propagate.
+  const flag = nodeOptions(process.env.NODE_OPTIONS ?? '').map(flag => flag.replaceAll('_', '-'))
+    .filter(flag => ['--use-system-ca', '--no-use-system-ca'].includes(flag)).at(-1);
+  return flag === undefined ? process.env.NODE_USE_SYSTEM_CA === '1' : flag === '--use-system-ca';
+};
 /**
  * Explicit `ca` for a Node TLS probe of `targetId` as a new process would trust it from Core's persisted
  * configuration, never this process's own start-time trust: the bundled roots (plus system roots only when a new
@@ -958,8 +1002,10 @@ export async function diagnose(request, controls = {}) {
       const others = pathCandidates(target).filter(item => item.real !== usedReal).length;
       const launcher = /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i;
       wsl = process.platform === 'win32' && target.id === 'bash' && (launcher.test(binary) || launcher.test(usedReal));
-      if (wsl || others > 0) observations.push({ id: `${target.id}/resolution`, target: target.id,
-        detail: clean(`Used ${basename(binary)} from PATH entry ${pathIndex(binary) ?? '?'}.` +
+      if (wsl || others > 0 || ['node', 'npm'].includes(target.id)) observations.push({ id: `${target.id}/resolution`, target: target.id,
+        detail: clean((target.id === 'node' ? `Selected host ${basename(binary)}; ` +
+          (pathCandidates(target).length ? `PATH entry ${pathIndex(binary) ?? '?'} for the host.` : 'node not found on PATH.') :
+          `Used ${basename(binary)} from PATH entry ${pathIndex(binary) ?? '?'}.`) +
           (others > 0 ? ` ${others} other candidate${others === 1 ? ' resolves' : 's resolve'} on PATH.` : '') +
           (wsl ? ' This bash is a WSL launcher (System32 or WindowsApps), not Git Bash; the resolution is ambiguous.' : '')) });
     }
@@ -971,7 +1017,8 @@ export async function diagnose(request, controls = {}) {
     // Running the WSL launcher can start a distribution or an install prompt; inspection never does that.
     if (wsl) { push(`${target.id}/version`, target.id, 'skipped', 'wsl-launcher',
       'The resolved bash is the Windows WSL launcher; its version command was not run.'); continue; }
-    const version = await runProcess(binary, versionArgs[target.id] ?? ['--version'], deadline, profile.localProcessMs, controls.signal);
+    const version = await runProcess(binary, versionArgs[target.id] ?? ['--version'], deadline, profile.localProcessMs, controls.signal,
+      profile.outputBytes, process.env, ['node', 'npm'].includes(target.id));
     if (version.terminationUnresolved) {
       diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
       if (version.initialReason === 'deadline') diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'deadline', 'The diagnostic child exceeded its deadline before cancellation.'));
@@ -986,7 +1033,10 @@ export async function diagnose(request, controls = {}) {
       if (version.code === 0) {
         push(`${target.id}/version`, target.id, 'passed', 'version-ok', 'The version command exited successfully; its raw output was not retained.');
         tools.at(-1).state = 'runnable';
-        observations.push({ id: `${target.id}/version`, target: target.id, detail: 'Runnable version command observed.' });
+        const observed = ['node', 'npm'].includes(target.id) && /^v?\d+\.\d+\.\d+$/.test(version.stdout?.trim() ?? '') ?
+          version.stdout.trim().replace(/^v/, '') : undefined;
+        observations.push({ id: `${target.id}/version`, target: target.id, detail: observed ?
+          `${target.label} ${observed} observed from the selected executable.` : 'Runnable version command observed; version identity unavailable.' });
       } else { tools.at(-1).state = 'broken'; push(`${target.id}/version`, target.id, 'failed', 'version-exit', 'The version command exited unsuccessfully; its raw output was not retained.'); }
     } else push(`${target.id}/version`, target.id, 'unavailable', version.reason ?? 'probe-invocation');
     if (!selected.has(target.id)) continue;
@@ -1028,6 +1078,19 @@ export async function diagnose(request, controls = {}) {
       if (node.kind === 'cancelled') { cancelled = true; push(nodeId, target.id, 'unavailable', 'cancelled'); break; }
       push(nodeId, target.id, node.kind === 'passed' ? 'passed' : ['limit', 'unavailable'].includes(node.kind) ? 'unavailable' : 'failed',
         node.reason === 'certificate-chain' && os.kind === 'complete' && os.code === 0 ? 'node-certificate-chain' : node.reason, origin);
+    }
+    if (!cancelled && !halted && target.id === 'npm') {
+      if (network === 'off') push('npm/tls/effective', 'npm', 'skipped', 'network-off');
+      else if (tools.at(-1).state === 'runnable') {
+        const effective = await npmTrustProbe(binary, deadline, controls.signal);
+        push('npm/tls/effective', 'npm', effective.kind === 'passed' ? 'passed' : effective.kind === 'failed' ? 'failed' : 'unavailable',
+          effective.reason, 'Selected npm process with its effective registry, CA, proxy and strict TLS configuration.');
+        if (effective.terminationUnresolved) {
+          diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'An npm diagnostic child did not confirm termination.'));
+          halted = true; break;
+        }
+        if (effective.reason === 'cancelled') { cancelled = true; break; }
+      }
     }
     if (cancelled || halted) break;
   }

@@ -37,8 +37,10 @@ export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwor
   CertificateReview, TrustOutputReview, TrustInputs, TrustRunOutput, TrustRunTarget, TrustRunTrust } from './trust-contracts.js';
 import type { Authorization, HostControls, PolicyRequest, PreparedHandle } from './host-types.js';
 import { isProxy } from 'node:util/types';
+import { nodeRuntimeSupported } from './internal/node-runtime.js';
 export type { RepairRequest } from './repair.js';
 export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
+  if (!nodeRuntimeSupported()) return preparePolicy(request as PolicyRequest, controls);
   const kind = request && typeof request === 'object' && !isProxy(request) ?
     Object.getOwnPropertyDescriptor(request, 'useCase')?.value : undefined;
   const schema = request && typeof request === 'object' && !isProxy(request) ? Object.getOwnPropertyDescriptor(request, 'schema')?.value : undefined;

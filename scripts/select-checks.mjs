@@ -33,10 +33,10 @@ const platforms = new Set(changes.flatMap(row => row.paths.filter(path => !docs(
 // A platform-only change must name at least one platform, or the full suite would run on no OS.
 const platformOnly = platforms.size > 0 && changes.every(row => /^[AM]$/.test(row.status) && row.paths.every(path => docs(path) || platform(path)));
 if (args.includes('--full')) suite = 'full';
-const matrix = args.includes('--full') || !platformOnly ? suite === 'none' ? [] : suite === 'report' ? [{ os: 'ubuntu-latest', node: '24' }] : [
-  { os: 'ubuntu-latest', node: '24' }, { os: 'windows-latest', node: '24' },
-  { os: 'macos-latest', node: '24' }, { os: 'ubuntu-latest', node: '24.15.0' }
-] : [...platforms].sort().map(os => ({ os, node: '24' }));
+const matrix = args.includes('--full') || !platformOnly ? suite === 'none' ? [] : suite === 'report' ? [{ os: 'ubuntu-latest', node: '26' }] : [
+  { os: 'ubuntu-latest', node: '26' }, { os: 'windows-latest', node: '26' },
+  { os: 'macos-latest', node: '26' }, { os: 'ubuntu-latest', node: '26.12.1' }
+] : [...platforms].sort().map(os => ({ os, node: '26' }));
 const result = { suite, matrix, nativeLinux: suite === 'full' && matrix.some(row => row.os === 'ubuntu-latest'),
   reason: args.includes('--full') ? 'explicit-full' : suite === 'none' ? 'documentation-only' : suite === 'report' ? 'portable-report' : platformOnly ? 'platform-facility' : 'full-fallback' };
 process.stdout.write(JSON.stringify(result) + '\n');

@@ -291,6 +291,10 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
       definition.inputs[key]?.type !== 'file'));
     const candidate = definition.candidateDiagnostic ? await assessRepairCandidate({ id: selected.id, inputs: ordinaryInputs },
       { signal: controls.signal, budgetMs: 120000 }) : undefined;
+    if (candidate?.kind === 'unresolved' && candidate.reason === 'node-already-trusted')
+      return recordPreparation({ status: 'blocked', runId, diagnostics: [{ code: 'REPAIR_NOT_NEEDED',
+        reason: 'node-already-trusted', message: 'The selected Node process already trusts the reviewed endpoint. No repair effects were prepared.' }],
+      record: disabled }, controls);
     if (candidate?.kind === 'unresolved') return fail(candidate.reason === 'cancelled' ? 'cancelled' : 'blocked',
       ['deadline', 'root-count', 'root-bytes', 'peer-count', 'candidate-count', 'output-bytes'].includes(candidate.reason) ? 'DIAGNOSTIC_LIMIT' :
       candidate.reason === 'cancelled' ? 'CANCELLED' : 'PREREQUISITE_UNAVAILABLE', candidate.reason);
