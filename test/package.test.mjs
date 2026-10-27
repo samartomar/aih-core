@@ -57,7 +57,7 @@ const expectedRuntimeNames = {
   '@aihq/core/harness/runtime': [
     'assessRepairCandidate', 'assessRepairObservations', 'canonicalTrustJson', 'composeExistingTrust', 'createTufTrustClient',
     'detectProjectFacts', 'detectTrustPlatform', 'diagnose', 'discoverTrustSources', 'getCatalogIndexTrust', 'getCurrentTrustStatus', 'getRepairRecipe', 'getTrustFileIntegration',
-    'getTrustRecipe', 'getTrustSnapshot', 'getVerificationTrust', 'hashTrustSourceSet', 'inspectToolHost', 'inspectUserToolTrust', 'managedRepairRemovalNeedsReconciliation', 'observeMacosApplication',
+    'getTrustRecipe', 'getTrustSnapshot', 'getVerificationTrust', 'hashTrustSourceSet', 'inspectJvmRuntime', 'inspectToolHost', 'inspectUserToolTrust', 'managedRepairRemovalNeedsReconciliation', 'observeMacosApplication',
     'observeMacosGuiSession', 'parseJvmTrustStore', 'parseTrustOutput', 'persistedConfigurationMembers',
     'prepareRepairDefinition', 'readGitHubPolicy', 'readLocalPolicy', 'readMacosGuiDomainKey', 'renderMacosSessionLaunchAgent',
     'renderRepair', 'renderTrustFileRepair', 'repairObservationRequests', 'reviewTrustDelta', 'serializeTrustSet',

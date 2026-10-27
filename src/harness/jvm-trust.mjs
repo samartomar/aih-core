@@ -453,6 +453,11 @@ function gradleConfigAmbiguous(text) {
     // continuation can change a neighbor, and escaped keys can hide duplicates.
     if ((row.match(/\\+$/)?.[0].length ?? 0) % 2) return true;
     if (/^\s*[^\s=:]*\\/.test(row)) return true;
+    // The fixed output is JKS. A provider/type or JVM option can select another
+    // application store, and an explicit daemon home can select another JDK's
+    // baseline. Preserve those choices by refusing this automatic rewrite.
+    if (/trustStore/i.test(row) && !/^\s*systemProp\.javax\.net\.ssl\.trustStore(?:Password)?=/.test(row)) return true;
+    if (/^\s*org\.gradle\.java\.home(?:\s|=|:)/.test(row)) return true;
     for (const key of GRADLE_KEYS) {
       const escaped = key.replaceAll('.', '\\.');
       if (new RegExp(`^\\s*${escaped}=`).test(row)) {

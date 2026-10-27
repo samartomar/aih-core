@@ -49,6 +49,19 @@ const prepare = (targets, configSnapshots = {}, extra = {}) => renderConfigurati
   offline: true, ...extra
 }), getRepairRecipe(variantRef(targets)), configSnapshots);
 
+test('JVM repair refuses application store type/provider and daemon overrides before rewriting Gradle', () => {
+  for (const text of [
+    'systemProp.javax.net.ssl.trustStoreType=PKCS12\n',
+    'systemProp.javax.net.ssl.trustStoreProvider=CustomProvider\n',
+    'org.gradle.jvmargs=-Djavax.net.ssl.trustStore=/application/store.p12\n',
+    'org.gradle.java.home=/application/jdk\n'
+  ]) {
+    const result=prepare(['gradle'], {'gradle-config':Buffer.from(text)});
+    assert.equal(result.status,'invalid',text);
+    assert.equal(result.diagnostics[0].reason,'config-ambiguous',text);
+  }
+});
+
 test('jvm-ca definition ships fixed variants, baseline input, executable bindings and config snapshots', () => {
   const definition = repairIndex.find(item => item.id === 'jvm-ca');
   assert.equal(definition.managementId, 'jvm-trust');

@@ -28,6 +28,14 @@ export interface UserToolTrustResult {
   recommendation?: {scope:'observed-conda-environment';key:'ssl_verify';value:'truststore'};
 }
 export declare function inspectUserToolTrust(request: UserToolTrustRequest, controls?: DiagnoseControls): Promise<UserToolTrustResult>;
+/** Explicit launcher discovery; never establishes effective manager TLS or native admission. */
+export interface JvmRuntimeRequest {
+  target: 'gradle' | 'maven'; javaExecutable: string; executable: string; project: string;
+}
+export interface JvmRuntimeResult {
+  decision: 'blocked' | 'unconfirmed'; reason: string; observation: Record<string, unknown>;
+}
+export declare function inspectJvmRuntime(request: JvmRuntimeRequest, controls?: DiagnoseControls): Promise<JvmRuntimeResult>;
 export interface DiagnoseResult {
   requestId: string; helper: { name: string; version: string }; status: 'completed' | 'cancelled' | 'invalid' | 'unavailable';
   tools: { id: string; label: string; state: string; selection: string; config?: string }[];

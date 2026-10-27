@@ -1438,6 +1438,53 @@ Vendor transforms retain neighboring settings. Preserved configuration bodies ar
 
 Python must be `python` on Windows or `python3` on macOS/Linux. Online pip uses that Python interpreter through `-m pip`; Git and conda require direct executables. Windows online observation remains explicitly unqualified; offline pip retains its direct-executable readiness check. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
 
+## Inspect JVM runtime selection
+
+`inspectJvmRuntime` from `@aihq/core/harness/runtime` queries explicitly selected
+Java and Gradle/Maven launchers in an existing project:
+
+```js
+import { inspectJvmRuntime } from '@aihq/core/harness/runtime';
+const observation = await inspectJvmRuntime({
+  target: 'gradle', javaExecutable: '/selected/jdk/bin/java',
+  executable: '/selected/gradle/bin/gradle', project: '/disposable/project'
+}, { budgetMs: 10000 });
+```
+
+This runs the selected Java's property/version query and the manager's
+`--version` command, including its normal launcher and rc behavior. It never
+runs a project task or modifies a trust store. Use disposable homes/projects for
+fixtures. Processes run sequentially with one deadline, bounded output and owned
+POSIX process-group cleanup. Explicit JVM option variables are refused before
+launch rather than removed. Windows observer/cleanup remains unqualified and
+refuses before invocation; macOS x64 also remains gated for the selected JDK.
+
+`observation.launcher` identifies the explicitly queried Java only; it does not
+certify that a manager uses that executable. Gradle's reported daemon home and
+Maven's reported runtime home are separate observations. A different reported
+home blocks with `daemon-jvm-differs` or `manager-jvm-differs`. Unavailable or
+ambiguous version output never supplies an invented version. Toolchain execution
+and effective manager TLS remain `unconfirmed`, even when homes agree.
+
+`observation.store` describes only that selected Java's default JSSE file path:
+`lib/security/jssecacerts` takes precedence over `cacerts`. It records bounded
+file bytes' digest, resolved path and a JKS or PKCS12 **envelope** observation,
+not password/MAC verification or CA-only admission. Missing, unreadable or
+unknown stores stay explicit. No automatic conversion or baseline selection is
+performed, and PKCS12 does not enter the existing JKS repair through discovery.
+See the [JSSE guide](https://docs.oracle.com/en/java/javase/27/security/java-secure-socket-extension-jsse-reference-guide.html)
+for the provider-specific default selection contract.
+
+OpenJDK 27.0.1.0.3, Gradle 9.8.2 and Maven 3.10.0 remain qualification candidates.
+These protocol fixtures establish no native distribution, endpoint or repair
+qualification. macOS x64 and Windows arm64 require separately sourced compatible
+JDK distributions. No new native cell is admitted. Discovery returns `blocked`
+or `unconfirmed`, never permission to export a fallback bundle. Existing explicit
+repair still requires its own review, Apply approval, complete JKS baseline,
+conflict checks, exclusions and rollback. Gradle application store type/provider,
+JVM trust flags and explicit daemon-home configuration now refuse automatic
+rewriting rather than redirecting the application to a mismatched baseline.
+
 ## Repair Gradle and Maven trust
 
 The versioned shared request selects `gradle`, `maven`, or both, with an explicit
