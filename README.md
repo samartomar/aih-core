@@ -12,6 +12,42 @@ Neither Node's version nor a package pin establishes the selected npm version.
 Historical native verification records keep their exact Node/runtime subjects;
 this runtime range does not requalify their platforms or client closures.
 
+`inspectUserToolTrust` from `@aihq/core/harness/runtime` observes one explicitly
+selected Python interpreter (also for `python -m pip`), Conda, Git or Cargo process
+in the caller's project. It returns `no-repair`, `bundle-fallback`, `unconfirmed`
+or `blocked` plus the actual process/configuration observations. Conda can also
+return `native-truststore` with a scoped configuration recommendation when a
+process-local truststore probe works after default certifi fails; automatic CA
+repair then refuses the bundle workaround. Preparing that native configuration
+change remains an explicit authored-policy operation. `network: 'off'`
+never establishes working TLS. HTTPS queries preserve verification and inherited
+trust; package managers may update ordinary query caches. Use disposable homes
+and projects for fixtures.
+
+The qualification candidates are Python 3.15.2, pip 26.2.2, Conda 26.9.4,
+Git 2.56.0 (Windows 2.56.0.windows.4), and Rust 1.99.1. Cargo's version and
+reported TLS backend are observed separately from the required selected rustc
+executable. Python's explicit `pythonRecipe` exceptions are `pyyaml-onnx` and
+`code-review-graph` (3.14.10), and `serena` (3.13.18). The optional
+`interpreterSource` is a caller declaration: process paths are observed, but a
+uv-managed versus system distribution is never certified from its path alone.
+Exact interpreter/distributor/dependency artifacts still need qualification.
+
+Online user-tool CA repair runs the effective-process gate before rendering
+persistent changes. A working endpoint reports `REPAIR_NOT_NEEDED`; ambiguous
+configuration, explicit trust overrides or unknown backends block fallback.
+Offline repair remains an explicitly unverified supplied-bundle path, and refuses
+known Conda truststore/Git Schannel modes. Cargo HTTP repair preserves its Git
+transport choice; Git CLI dependency fetches require a separate Git decision.
+Python recipe exceptions can be inspected explicitly; automatic repair currently
+uses the general candidate and refuses incompatible interpreters. Online pip
+inspection and repair verification both use the selected Python's `-m pip`.
+Conda inspection currently selects base and refuses a conflicting active environment.
+The Windows observer process/cleanup protocol remains unqualified and refuses
+before invocation; Conda additionally needs its Windows launcher argument proof. These are
+bounded preparation limits, not native support claims. No new Windows, macOS,
+Linux architecture or WSL2 tuple is admitted by these protocol fixtures.
+
 ## Public imports
 
 Each code entry lists its exports explicitly. Trust definition assembly, helper file layout and
@@ -1392,15 +1428,15 @@ aih repair user-tools-ca --target pip --target git --inputs-file repair-inputs.j
 aih repair user-tools-ca --target pip --target conda --inputs-file repair-inputs.json --apply --allow-partial
 ```
 
-The API uses `prepare({ useCase: 'repair', repairs: [{ id: 'user-tools-ca', targets: ['pip', 'git'], inputs: { caFile: absolutePemPath } }] })`, followed by the same explicit `apply` authorization as Node/npm. Tool readiness checks run before configuration changes. Cargo also requires Git because its retained configuration enables `git-fetch-with-cli`. Nothing installs missing tools.
+The API uses `prepare({ useCase: 'repair', repairs: [{ id: 'user-tools-ca', targets: ['pip', 'git'], inputs: { caFile: absolutePemPath } }] })`, followed by the same explicit `apply` authorization as Node/npm. Tool readiness checks run before configuration changes. Cargo HTTP repair preserves the existing Git transport selection and does not require Git CLI. Nothing installs missing tools.
 
 Cargo repair requires the legacy `~/.cargo/config` file to be absent because Cargo prefers it over the selected `config.toml`. Preparation reports this prerequisite and Apply rechecks it before effects. Resolve any legacy configuration explicitly before preparing again. Inherited `CARGO_HTTP_SSL_VERIFY` must be unset, empty or exactly `true`; the behavior probe preserves that environment.
 
-Python sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for future user shell sessions; Windows also persists both user environment values. The Python behavior check confirms the supplied CA identities loaded into its default TLS context and reaches PyPI. pip sets its user `cert`, Git sets user `http.sslCAInfo`, Cargo sets user `http.cainfo` and `net.git-fetch-with-cli`, and conda sets user `ssl_verify`. The selected recipe declares its exact paths, commands and checks in the review. Canonical user config locations are supported; redirected locations and inherited trust overrides or verification bypasses require correction before preparation.
+Python sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for future user shell sessions; Windows also persists both user environment values. The Python behavior check confirms the supplied CA identities loaded into its default TLS context and reaches PyPI. pip sets its user `cert`, Git sets user `http.sslCAInfo`, Cargo sets only user `http.cainfo`, and conda sets user `ssl_verify`. The selected recipe declares its exact paths, commands and checks in the review. Canonical user config locations are supported; redirected locations and inherited trust overrides or verification bypasses require correction before preparation.
 
 Vendor transforms retain neighboring settings. Preserved configuration bodies are private inputs and appear redacted in reviews and routine history. Existing unowned or changed files require an exact reviewed replacement resolution, even when their other content will be preserved. Managed trust retains existing certificates and includes baseline roots alongside the supplied CA. Relevant config files, helper bytes and input bytes are bound to the prepared work; changes require another review. Online verification exercises the selected tool and its effective trust configuration. `--offline` reports skipped behavioral verification and incomplete repair. A failed or unavailable prerequisite prevents its dependent configuration changes. `--allow-partial` permits only reviewed independent work and does not authorize a conflict replacement.
 
-Python must be `python` on Windows or `python3` on macOS/Linux. pip, Git and conda require direct executables; Windows batch wrappers are unavailable. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
+Python must be `python` on Windows or `python3` on macOS/Linux. Online pip uses that Python interpreter through `-m pip`; Git and conda require direct executables. Windows online observation remains explicitly unqualified; offline pip retains its direct-executable readiness check. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
 
 ## Repair Gradle and Maven trust
 

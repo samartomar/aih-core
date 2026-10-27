@@ -12,6 +12,22 @@ export interface DiagnoseRequest {
   persistedTrust?: PersistedTrust;
 }
 export interface DiagnoseControls { signal?: AbortSignal; budgetMs?: number }
+export interface UserToolTrustRequest {
+  target: 'python' | 'pip' | 'conda' | 'git' | 'cargo';
+  /** Python interpreter for python/pip; the selected tool executable otherwise. */
+  executable: string; project: string; network: 'declared' | 'off'; endpoint?: string;
+  pythonRecipe?: 'general' | 'pyyaml-onnx' | 'code-review-graph' | 'serena';
+  /** Caller declaration, reported separately from observed process paths; never native admission. */
+  interpreterSource?: 'system' | 'uv-managed' | 'unknown';
+  /** Required for Cargo: independently observed in the same selected project. */
+  rustcExecutable?: string;
+}
+export interface UserToolTrustResult {
+  decision: 'blocked' | 'unconfirmed' | 'no-repair' | 'bundle-fallback' | 'native-truststore'; reason: string;
+  observation: Record<string, unknown>;
+  recommendation?: {scope:'observed-conda-environment';key:'ssl_verify';value:'truststore'};
+}
+export declare function inspectUserToolTrust(request: UserToolTrustRequest, controls?: DiagnoseControls): Promise<UserToolTrustResult>;
 export interface DiagnoseResult {
   requestId: string; helper: { name: string; version: string }; status: 'completed' | 'cancelled' | 'invalid' | 'unavailable';
   tools: { id: string; label: string; state: string; selection: string; config?: string }[];

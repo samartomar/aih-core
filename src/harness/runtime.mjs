@@ -33,6 +33,8 @@ export function managedRepairRemovalNeedsReconciliation({ managementId, scope, m
 export { readGitHubPolicy } from './github-policy.mjs';
 export { readLocalPolicy } from './local-policy.mjs';
 export { inspectToolHost } from './tool-host.mjs';
+export { inspectUserToolTrust } from './user-trust.mjs';
+import { inspectUserToolTrust } from './user-trust.mjs';
 export { detectProjectFacts } from './project-facts.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
@@ -1040,6 +1042,23 @@ export async function diagnose(request, controls = {}) {
       } else { tools.at(-1).state = 'broken'; push(`${target.id}/version`, target.id, 'failed', 'version-exit', 'The version command exited unsuccessfully; its raw output was not retained.'); }
     } else push(`${target.id}/version`, target.id, 'unavailable', version.reason ?? 'probe-invocation');
     if (!selected.has(target.id)) continue;
+    if (['python', 'pip', 'conda', 'git', 'cargo'].includes(target.id) && tools.at(-1).state === 'runnable') {
+      const selectedExecutable = target.id === 'pip' ? executable(process.platform === 'win32' ? 'python' : 'python3') : binary;
+      const availableBudget = Math.min(25000, remaining(deadline));
+      const effective = selectedExecutable && availableBudget > 0 ? await inspectUserToolTrust({ target: target.id,
+        executable: selectedExecutable, project, network,
+        ...(target.id === 'cargo' && executable('rustc') ? {rustcExecutable:executable('rustc')} : {}) }, { signal: controls.signal, budgetMs: availableBudget }) :
+        { decision: 'blocked', reason: selectedExecutable ? 'deadline' : 'executable-unavailable', observation: {} };
+      observations.push({ id: `${target.id}/effective-trust`, target: target.id,
+        detail: clean(JSON.stringify(effective.observation)) });
+      if(effective.decision==='native-truststore')repairChoices.push({target:target.id,kind:'manual-guidance',
+        reason:'native-truststore-available',guidance:'Review ssl_verify: truststore for the observed Conda environment through an explicit configuration policy. No CA-file fallback was prepared.'});
+      push(`${target.id}/tls/effective`, target.id,
+        network === 'off' ? 'skipped' : effective.decision === 'no-repair' ? 'passed' : effective.decision === 'bundle-fallback' ? 'failed' :
+          effective.reason === 'network-off' ? 'skipped' : 'unavailable', network === 'off' ? 'network-off' : effective.reason);
+      if (effective.reason === 'termination-unresolved') { halted = true; break; }
+      if (effective.reason === 'cancelled') { cancelled = true; break; }
+    }
     const authority = persistedTrust && persistedAuthority(persistedTrust, target.id);
     for (const origin of target.origins) {
       const host = new URL(origin).host;

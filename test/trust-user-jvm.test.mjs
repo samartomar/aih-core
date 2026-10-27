@@ -117,12 +117,15 @@ test('a configuration change after review rejects as trust-binding-changed befor
   assert.equal(existsSync(p.review.inputs.trust.outputs[0].path), false);
 }));
 
-test('a changed executable after review rejects as trust-binding-changed', () => withPath(async () => {
-  fixtureTool('pip');
+test('a changed selected pip interpreter after review rejects as trust-binding-changed', {skip:process.platform==='win32'}, () => withPath(async () => {
+  const interpreter=join(bin,'python3');
+  writeFileSync(interpreter,`#!${process.execPath}\nconst a=process.argv.slice(2);
+    if(a[0]==='-c')console.log(JSON.stringify({version:'3.15.2',executable:${JSON.stringify(interpreter)},prefix:'/fixture',basePrefix:'/fixture',pip:'26.2.2'}));
+    else if(a.includes('index')){console.error('CERTIFICATE_VERIFY_FAILED');process.exit(1);}`,{mode:0o755});
   const p = await prepare(repair('user-tools-ca', ['pip'], { network: 'declared', sources: { os: false, supplied: [{ id: 'team', file: source('exe.pem') }] } }), { logging: 'off' });
   assert.equal(p.status, 'ready', JSON.stringify(p.diagnostics));
   assert.equal(p.review.inputs.trust.targets[0].verification.status, 'planned');
-  fixtureTool('pip', 'replaced after review');
+  writeFileSync(interpreter,'\n// replaced after review\n',{flag:'a'});
   const r = await apply(p.prepared, approve(p), { logging: 'off' });
   assert.equal(r.completion, 'rejected', JSON.stringify(r.diagnostics));
   assert.ok(r.diagnostics.some(d => d.code === 'REVIEW_STALE' && d.reason === 'trust-binding-changed'));

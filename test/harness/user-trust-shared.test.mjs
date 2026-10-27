@@ -116,7 +116,8 @@ test('shared file route preserves the existing actual-client environment and con
     id: 'user-tools-ca', variantRef: variantRef(['pip'], 'declared'), targets: ['pip'], offline: false,
     bundlePath: '/x/ca.pem', bundleSha256: 'a'.repeat(64), fingerprints: ['b'.repeat(64)],
     configSnapshots: {}, executablePaths: { pipExecutable: process.execPath } });
-  assert.equal(declared.status, 'completed', JSON.stringify(declared.diagnostics));
+  assert.equal(declared.status, 'blocked', JSON.stringify(declared.diagnostics));
+  assert.equal(declared.diagnostics[0].reason, 'effective-executable-unavailable');
   try {
     process.env.PIP_TRUSTED_HOST = 'pypi.org';
     const bypassed = renderUserToolsTrustFileRepair({

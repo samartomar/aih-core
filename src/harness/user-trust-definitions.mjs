@@ -15,9 +15,11 @@ export const userToolsRepair = Object.freeze({
     ['declared', 'off'].map(network => Object.freeze({ os, architectures: Object.freeze(['x64', 'arm64']),
       targets: Object.freeze([...targets]), network, recipeRef: `user-tools-ca/${os}/${targets.join('+')}/${network}`,
       executableBindings: Object.freeze(network === 'off' ? [] : [
-        ...(targets.includes('pip') ? [Object.freeze({ name: 'pip', pathInput: 'pipExecutable' })] : []),
+        ...(targets.some(target => ['python', 'pip'].includes(target)) ? [Object.freeze({ name: os === 'win32' ? 'python' : 'python3', pathInput: 'pythonExecutable' })] : []),
         ...(targets.includes('git') ? [Object.freeze({ name: 'git', pathInput: 'gitExecutable' })] : []),
-        ...(targets.includes('cargo') ? [Object.freeze({ name: 'cargo', pathInput: 'cargoExecutable' })] : [])]),
+        ...(targets.includes('cargo') ? [Object.freeze({ name: 'cargo', pathInput: 'cargoExecutable' })] : []),
+        ...(targets.includes('cargo') ? [Object.freeze({ name: 'rustc', pathInput: 'rustcExecutable' })] : []),
+        ...(targets.includes('conda') ? [Object.freeze({ name: 'conda', pathInput: 'condaExecutable' })] : [])]),
       requiredAbsences: Object.freeze(targets.includes('cargo') ? [Object.freeze({
         target: Object.freeze({ root: 'userHome', segments: Object.freeze([Object.freeze(literal('.cargo')), Object.freeze(literal('config'))]) }),
         reason: 'cargo-legacy-config', purpose: 'Cargo extensionless config must be absent so the selected config.toml is active'

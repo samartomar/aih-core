@@ -141,18 +141,16 @@ test('missing selected tool stays unavailable, needs explicit partial and writes
   assert.equal(existsSync(join(home, '.gitconfig')), false);
 }));
 
-test('missing Git blocks only the Cargo branch while reviewed pip work completes', () => withPath(async () => {
+test('Cargo HTTP repair does not require or select Git CLI transport', () => withPath(async () => {
   fixtureTool('pip'); fixtureTool('cargo');
   const prepared = await prepare(request(source('cargo.pem'), ['pip', 'cargo']), { logging: 'off' });
-  assert.equal(prepared.status, 'partial', JSON.stringify(prepared.diagnostics));
-  assert.ok(prepared.review.operations.filter(item => item.id.startsWith('trust/cargo-'))
-    .every(item => item.effects === 'unavailable'));
-  const result = await apply(prepared.prepared, authorize(prepared, { allowPartial: true }), { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
   assert.equal(result.completion, 'incomplete', JSON.stringify(result.diagnostics));
   assert.ok(['applied', 'already-satisfied'].includes(result.operations.find(item => item.id === 'trust/pip-config').application));
-  assert.equal(result.operations.find(item => item.id === 'trust/cargo-config').application, 'not-attempted');
+  assert.ok(['applied', 'already-satisfied'].includes(result.operations.find(item => item.id === 'trust/cargo-config').application));
   assert.match(readFileSync(pipConfig('cargo'), 'utf8'), /cert\s*=/);
-  assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
+  assert.doesNotMatch(readFileSync(join(home, '.cargo', 'config.toml'), 'utf8'), /git-fetch-with-cli/);
 }));
 
 test('Cargo legacy config blocks preparation without effects', () => withPath(async () => {
@@ -205,7 +203,7 @@ test('Cargo required absence survives its authorized config directory creation',
   assert.match(readFileSync(join(home, '.cargo', 'config.toml'), 'utf8'), /cainfo/);
 }));
 
-test('a repair rejects an intermediate executable binding retarget before any effect', t => withPath(async () => {
+test('an unobserved Cargo executable alias is refused before any effect', t => withPath(async () => {
   fixtureTool('git');
   const first = join(bin, 'first.exe'), second = join(bin, 'second.exe');
   const middle = join(bin, 'middle.exe'), alias = join(bin, process.platform === 'win32' ? 'cargo.exe' : 'cargo');
@@ -213,11 +211,8 @@ test('a repair rejects an intermediate executable binding retarget before any ef
   try { symlinkSync(first, middle, 'file'); symlinkSync(middle, alias, 'file'); }
   catch (error) { if (error.code === 'EPERM') { t.skip('This Windows account cannot create executable symlinks'); return; } throw error; }
   const prepared = await prepare(request(source('binding-alias.pem'), ['cargo'], 'declared'), { logging: 'off' });
-  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
-  unlinkSync(middle); symlinkSync(second, middle, 'file');
-  const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
-  assert.equal(result.completion, 'rejected');
-  assert.equal(result.diagnostics[0].code, 'REVIEW_STALE');
+  assert.equal(prepared.status, 'blocked', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.diagnostics[0].code, 'PREREQUISITE_UNAVAILABLE');
   assert.equal(existsSync(join(home, '.aih')), false);
   assert.equal(existsSync(join(home, '.cargo', 'config.toml')), false);
 }));
@@ -225,12 +220,10 @@ test('a repair rejects an intermediate executable binding retarget before any ef
 test('a substitute executable never yields verified success', () => withPath(async () => {
   fixtureTool('git');
   const prepared = await prepare(request(source('substitute.pem'), ['git'], 'declared'), { logging: 'off' });
-  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
-  const result = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
-  const operation = result.operations.find(item => item.id === 'trust/git-config');
-  assert.equal(operation.application, 'applied');
-  assert.notEqual(operation.verification.status, 'passed');
-  assert.equal(result.completion, 'incomplete');
+  assert.equal(prepared.status, 'blocked', JSON.stringify(prepared.diagnostics));
+  assert.equal(prepared.diagnostics[0].reason, 'identity-unavailable');
+  assert.equal(prepared.prepared, undefined);
+  assert.equal(existsSync(join(home, '.gitconfig')), false);
 }));
 
 test('all selected config rewrites finish, retain private neighbors and repeat idempotently', () => withPath(async () => {
@@ -292,26 +285,15 @@ test('changed or new user configuration after review rejects before any effect',
   rmSync(config);
 }));
 
-test('changed supplied CA or reviewed executable rejects before any effect', () => withPath(async () => {
+test('changed supplied CA rejects before any offline effect', () => withPath(async () => {
   fixtureTool('pip');
   const file = source('stale-source.pem');
-  const prepared = await prepare(request(file, ['pip'], 'declared'), { logging: 'off' });
+  const prepared = await prepare(request(file, ['pip']), { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   writeFileSync(file, Buffer.concat([root, Buffer.from(' ')]));
   const changed = await apply(prepared.prepared, authorize(prepared), { logging: 'off' });
   assert.equal(changed.completion, 'rejected');
   assert.equal(changed.diagnostics[0].code, 'REVIEW_STALE');
-  const again = await prepare(request(source('stale-executable.pem'), ['pip'], 'declared'), { logging: 'off' });
-  assert.equal(again.status, 'ready', JSON.stringify(again.diagnostics));
-  const fixture = join(bin, process.platform === 'win32' ? 'pip.exe' : 'pip');
-  rmSync(fixture, { force: true });
-  writeFileSync(fixture, process.platform === 'win32' ? 'not an executable image' : '#!/bin/sh\nexit 1\n',
-    process.platform === 'win32' ? {} : { mode: 0o755 });
-  const swapped = await apply(again.prepared, authorize(again), { logging: 'off' });
-  assert.equal(swapped.completion, 'rejected');
-  assert.equal(swapped.diagnostics[0].code, 'REVIEW_STALE');
-  rmSync(fixture, { force: true });
-  fixtureTool('pip');
   assert.equal(existsSync(pipConfig()), false);
 }));
 
