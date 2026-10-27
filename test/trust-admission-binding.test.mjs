@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {trustCapabilities,selectTrustCell} from '../dist/harness/contracts.mjs';
-import {detectTrustPlatform} from '../dist/harness/trust.mjs';
+import {detectCertificateExportPlatform as detectTrustPlatform} from '../dist/harness/trust-export-platform.mjs';
 const platform=detectTrustPlatform();
 const admitted=!!platform.release&&selectTrustCell({definitionId:'certificate-export',route:'export',target:null,
   platform,network:'declared',format:'pem'},trustCapabilities).status==='admitted';
@@ -27,7 +27,7 @@ test(`${subject} ${mutation} ${phase} rejects before output effects`,{skip:!admi
 import {prepare,apply} from ${imports('core/index.js')};
 import {validateRunResult12,validatePreparedWork12} from ${imports('core/contracts.js')};
 import {trustCapabilities,selectTrustCell} from ${imports('harness/contracts.mjs')};
-import {detectTrustPlatform} from ${imports('harness/trust.mjs')};
+import {detectCertificateExportPlatform as detectTrustPlatform} from ${imports('harness/trust-export-platform.mjs')};
 import {readFileSync,writeFileSync,unlinkSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 const p=await prepare({schema:'urn:aihq:core:certificate-export-request:1.0.0',useCase:'certificate-export',

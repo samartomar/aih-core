@@ -18,7 +18,7 @@ test('admitted Windows export cells are named by exactly the matching export var
       ? trustCellRecords.filter(cell => cell.network === variant.network).map(cell => cell.id).sort() : [];
     assert.deepEqual([...variant.capabilityIds].sort(), expected, `${variant.os}/${variant.network}`);
   }
-  assert.equal(exportDefinition.variants.find(v => v.os === 'win32' && v.network === 'declared').capabilityIds.length, 2);
+  assert.equal(exportDefinition.variants.find(v => v.os === 'win32' && v.network === 'declared').capabilityIds.length, 4);
 });
 
 test('no repair variant, native or file, names an admitted cell', () => {
@@ -37,6 +37,10 @@ test('selection requires the chosen variant to name the matching cell', () => {
     const selected = selectTrustCell(exportQuery(format, network), capabilities);
     assert.equal(selected.status, 'admitted', `${format}/${network}`);
     assert.equal(selected.cell.id, `export-${format === 'pem' ? 'pem' : 'p7b'}-win32-${network}`);
+    const current = selectTrustCell(exportQuery(format, network,
+      { os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64' }), capabilities);
+    assert.equal(current.status, 'admitted', `26H2/${format}/${network}`);
+    assert.equal(current.cell.id, `export-${format === 'pem' ? 'pem' : 'p7b'}-win32-26340-9767-${network}`);
   }
   // The same tuple matches a cell, but a definition set whose variant does not name it must not admit it.
   const unassociated = buildTrustDefinitions([]);

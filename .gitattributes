@@ -2,6 +2,9 @@
 # Installed trust admission binds helper and evidence bytes across checkouts.
 src/harness/*.mjs text eol=lf
 src/harness/acceptance/*.json text eol=lf
+# The finite export migration compares this source transition before binding its compiled bytes.
+src/core/trust.ts text eol=lf
+scripts/fixtures/trust-migration-predecessor.json text eol=lf
 # Observed bindings name the SHA-256 of their published run record's bytes.
 src/harness/run-records/*.json text eol=lf
 # Native facility source/resource pins must survive Windows and POSIX checkouts.

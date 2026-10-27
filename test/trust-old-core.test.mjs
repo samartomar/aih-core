@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { prepare, apply } from '../dist/core/index.js';
 import { trustCapabilities } from '../dist/harness/contracts.mjs';
-import { detectTrustPlatform } from '../dist/harness/runtime.mjs';
+import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 import { policy as unrelatedPolicy } from './fixture.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
@@ -54,6 +54,9 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer);
       assert.ok(existsSync(join(consumer, 'node_modules/@aihq/core/dist/core/index.js')));
       process.env.HOME = home; process.env.USERPROFILE = home;
+      // These old readers understand ownership 1.0. Pre-existing output parents
+      // avoid adding newer created-directory evidence to this compatibility case.
+      mkdirSync(join(home, '.aih', 'exports'), { recursive: true });
       const file = join(scratch, `${label}.pem`);
       writeFileSync(file, readFileSync(new URL('./fixtures/root-a.pem', import.meta.url)));
       const request = { schema: 'urn:aihq:core:certificate-export-request:1.0.0', useCase: 'certificate-export', network: 'off',
@@ -62,6 +65,13 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
       assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
       assert.equal((await apply(prepared.prepared, { approved: true, origin: 'automation', reviewDigest: prepared.review.reviewDigest }, { logging: 'off' })).completion, 'complete');
       const output = prepared.review.inputs.trust.outputs[0];
+      const ownershipBytes = selectedHome => {
+        const directory = join(selectedHome, '.aih', 'core', 'ownership');
+        return readdirSync(directory).sort().map(name => readFileSync(join(directory, name)));
+      };
+      const legacyOwnership = ownershipBytes(home);
+      assert.ok(legacyOwnership.length > 0);
+      assert.ok(legacyOwnership.every(bytes => JSON.parse(bytes).schema === 'urn:aihq:core:ownership:1.0.0'));
       writeFileSync(join(consumer, 'old-api.mjs'), `
         import {readFileSync} from 'node:fs';
         import {prepare,apply} from '@aihq/core';
@@ -69,14 +79,15 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
         const r=p.prepared?await apply(p.prepared,{approved:true,origin:'automation',reviewDigest:p.review.reviewDigest},{logging:'off'}):p;
         console.log(JSON.stringify(r));
       `);
-      const runOld = value => {
+      const runOld = (value, selectedHome = home) => {
         const input = join(consumer, 'policy.json'); writeFileSync(input, JSON.stringify(value));
         const result = spawnSync(process.execPath, ['old-api.mjs', input, project], { cwd: consumer,
-          env: { ...env, HOME: home, USERPROFILE: home }, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+          env: { ...env, HOME: selectedHome, USERPROFILE: selectedHome }, encoding: 'utf8', timeout: 30_000, windowsHide: true });
         assert.equal(result.status, 0, result.stdout + result.stderr);
         return JSON.parse(result.stdout);
       };
-      assert.equal(runOld(unrelatedPolicy()).completion, 'complete', `${label} unrelated policy remains usable.`);
+      const unrelated = runOld(unrelatedPolicy());
+      assert.equal(unrelated.completion, 'complete', `${label} unrelated policy remains usable: ${JSON.stringify(unrelated)}`);
       const before = readFileSync(output.path);
       const replacement = readFileSync(new URL('./harness/fixtures/root-b.pem', import.meta.url), 'utf8');
       const overwrite = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections: [{ id: 'export',
@@ -94,6 +105,21 @@ test('packed pre-hook and hook-capable Core retain unrelated work and later over
       assert.ok(returned.diagnostics.some(item => ['trust-output-conflict', 'trust-custody-conflict'].includes(item.reason)));
       assert.ok(returned.review.observations.some(item => item.id === 'recorded-trust-custody'));
       assert.equal(readFileSync(output.path, 'utf8'), replacement, 'Returning to new Core preserves the changed bytes for review.');
+      // A genuinely newer receipt is a separate case: old readers must refuse
+      // it without changing either the exported bytes or the ownership evidence.
+      const newerHome = join(scratch, `${label}-newer-home`); mkdirSync(newerHome);
+      process.env.HOME = newerHome; process.env.USERPROFILE = newerHome;
+      const newer = await prepare(request, { logging: 'off' });
+      assert.equal(newer.status, 'ready', JSON.stringify(newer));
+      assert.equal((await apply(newer.prepared, { approved: true, origin: 'automation', reviewDigest: newer.review.reviewDigest }, { logging: 'off' })).completion, 'complete');
+      const newerOutput = newer.review.inputs.trust.outputs[0].path;
+      const newerBytes = readFileSync(newerOutput), newerOwnership = ownershipBytes(newerHome);
+      assert.ok(newerOwnership.some(bytes => JSON.parse(bytes).schema === 'urn:aihq:core:ownership:1.5.0'));
+      const refused = runOld(unrelatedPolicy(), newerHome);
+      assert.equal(refused.status, 'invalid', JSON.stringify(refused));
+      assert.ok(refused.diagnostics.some(item => item.reason === 'ownership-invalid'));
+      assert.deepEqual(readFileSync(newerOutput), newerBytes);
+      assert.deepEqual(ownershipBytes(newerHome), newerOwnership);
     }
   } finally {
     for (const [key, value] of Object.entries(previous)) {

@@ -27,7 +27,8 @@ export const consumerProfiles = Object.freeze({ pem: 'pem-server-ca-v1', 'pkcs7-
 export const trustPlatformMatrix = Object.freeze([
   Object.freeze({ os: 'win32', release: 'Windows 11 25H2', architecture: 'x64', projection: 'windows-effective-server-auth-v1' }),
   Object.freeze({ os: 'darwin', release: 'macOS 26', architecture: 'arm64', projection: 'macos-effective-server-auth-v1' }),
-  Object.freeze({ os: 'linux', release: 'Ubuntu 24.04 LTS', architecture: 'x64', projection: 'ubuntu-24.04-system-openssl-v1' })
+  Object.freeze({ os: 'linux', release: 'Ubuntu 24.04 LTS', architecture: 'x64', projection: 'ubuntu-24.04-system-openssl-v1' }),
+  Object.freeze({ os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64', projection: 'windows-effective-server-auth-v1' })
 ]);
 
 const FAMILIES = Object.freeze({
@@ -132,7 +133,6 @@ export const trustProfiles = Object.freeze({
 
 const TRANSFORMS = Object.freeze({ 'node-npm-ca': 'node-npm-ca-bindings', 'user-tools-ca': 'user-tools-ca-bindings',
   'jvm-ca': 'jvm-ca-bindings', 'certificate-export': 'certificate-export-bindings' });
-export const trustTransformIds = Object.freeze(Object.values(TRANSFORMS));
 const ROUTE_ADAPTER = Object.freeze({ file: 'repair-file-v1', native: 'repair-native-v1', export: 'certificate-export-v1' });
 const ROUTE_KIND = Object.freeze({ file: 'shipped', native: 'native-unavailable', export: 'export-generator' });
 
@@ -379,18 +379,6 @@ export function buildCertificateExportRecipe({ materialId, materialPath, outputS
       target, material: materialId, mode: 0o600, requires: [], checks: ['export-digest'] }],
     checks: [{ id: 'export-digest', purpose: 'Check the exported file bytes', kind: 'file.sha256', target, sha256 }]
   };
-}
-
-/** Candidate (not admitted) export cell skeleton and the proof a record must contain; evidence digests stay unset. */
-export function exportAdmissionTemplate(format, platform = trustPlatformMatrix[0]) {
-  const configurationProfile = consumerProfiles[format];
-  const probe = Object.entries(trustProfiles).find(([, item]) => item.kind === 'probe' && item.configuration === configurationProfile);
-  if (!configurationProfile || !probe) return undefined;
-  return { cell: { id: `export-${format === 'pem' ? 'pem' : 'p7b'}-${platform.os}`, definitionId: 'certificate-export', route: 'export', target: null,
-      platform: { os: platform.os, release: platform.release, architecture: platform.architecture }, network: 'declared',
-      projection: platform.projection, client: null, configurationProfile, probeProfile: probe[0], launchContext: 'no-client' },
-    requiredCases: probe[1].requiredCases.filter(item => !item.os || item.os === platform.os).map(item => ({ ...item })),
-    requiredLimitations: [...probe[1].requiredLimitations] };
 }
 
 /** Fixed supplied-file integrations; JVM trust binds its explicit baseline and both managed outputs. */

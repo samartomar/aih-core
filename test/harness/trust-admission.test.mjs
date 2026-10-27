@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { verifyTrustAdmissionEvidence, trustCellSubjectSha256, hashTrustLibraries, trustHelperFiles, serializeTrustSet, parseTrustOutput,
   acceptanceRecordSchema } from '../../src/harness/trust.mjs';
-import { buildTrustCapabilities, buildTrustDefinitions, exportAdmissionTemplate, trustProfiles } from '../../src/harness/trust-definitions.mjs';
+import { buildTrustCapabilities, buildTrustDefinitions, trustProfiles } from '../../src/harness/trust-definitions.mjs';
 import { trustCellRecords } from '../../src/harness/trust-capabilities.mjs';
 import { sha256Hex } from '../../src/harness/trust-encoding.mjs';
 
@@ -20,34 +20,49 @@ function installedRoot() {
   const parent = join(worktree, '.scratch'); mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'trust-admission-'));
   mkdirSync(join(root, 'dist', 'harness'), { recursive: true });
-  for (const name of trustHelperFiles) cpSync(join(worktree, 'src', 'harness', name.split('/').pop()), join(root, name));
+  for (const name of trustHelperFiles) { mkdirSync(dirname(join(root, name)), { recursive: true }); cpSync(join(worktree, name), join(root, name)); }
   return root;
 }
-function fixtureRecord(template, cell, subject, mutate = value => value) {
-  return mutate({ schema: acceptanceRecordSchema, cellId: cell.id, subjectSha256: subject, cell: template.cell,
-    cases: template.requiredCases.map(item => ({ id: item.id, kind: item.kind, outcome: 'passed', summary: 'synthetic fixture outcome' })),
-    limitations: [...template.requiredLimitations] });
+// The specified Windows 11 25H2 export cell for each format, without evidence.
+const exportCell = format => ({ id: `export-${format === 'pem' ? 'pem' : 'p7b'}-win32`, definitionId: 'certificate-export', route: 'export',
+  target: null, platform: { os: 'win32', release: 'Windows 11 25H2', architecture: 'x64' }, network: 'declared',
+  projection: 'windows-effective-server-auth-v1', client: null,
+  configurationProfile: format === 'pem' ? 'pem-server-ca-v1' : 'pkcs7-certificate-import-v1',
+  probeProfile: format === 'pem' ? 'export-pem-parse-v1' : 'export-p7b-parse-v1', launchContext: 'no-client' });
+// A record reporting every case and limitation the cell's probe profile requires as passed.
+function fixtureRecord(tested, subject, mutate = value => value) {
+  const probe = trustProfiles[tested.probeProfile];
+  return mutate({ schema: acceptanceRecordSchema, cellId: tested.id, subjectSha256: subject, cell: tested,
+    cases: probe.requiredCases.filter(item => !item.os || item.os === tested.platform.os)
+      .map(item => ({ id: item.id, kind: item.kind, outcome: 'passed', summary: 'synthetic fixture outcome' })),
+    limitations: [...probe.requiredLimitations] });
 }
 // Builds an admitted-looking cell around a synthetic record; used only against a temporary tree.
 function stage(root, format, mutate, name = 'a.json') {
-  const template = exportAdmissionTemplate(format);
-  const draft = { ...template.cell, evidence: { reference: `evidence/${name}`, sha256: '0'.repeat(64), subjectSha256: '0'.repeat(64) } };
+  const tested = exportCell(format);
+  const draft = { ...tested, evidence: { reference: `evidence/${name}`, sha256: '0'.repeat(64), subjectSha256: '0'.repeat(64) } };
   const subject = trustCellSubjectSha256(draft, root);
   mkdirSync(join(root, 'evidence'), { recursive: true });
-  const text = JSON.stringify(fixtureRecord(template, draft, subject, mutate));
+  const text = JSON.stringify(fixtureRecord(tested, subject, mutate));
   writeFileSync(join(root, 'evidence', name), text);
-  const cell = { ...template.cell, evidence: { reference: `evidence/${name}`, sha256: sha256Hex(Buffer.from(text)), subjectSha256: subject } };
+  const cell = { ...tested, evidence: { reference: `evidence/${name}`, sha256: sha256Hex(Buffer.from(text)), subjectSha256: subject } };
   return { cell, subject, text, capabilities: buildTrustCapabilities(pkg, [cell]) };
 }
 const verify = (root, capabilities) => verifyTrustAdmissionEvidence({ packageRoot: root, capabilities, definitions: buildTrustDefinitions(capabilities.cells) });
 const reason = (root, capabilities) => verify(root, capabilities).diagnostics[0]?.reason;
 const withRoot = fn => { const root = installedRoot(); try { return fn(root); } finally { rmSync(root, { recursive: true, force: true }); } };
 
-test('shipped cells have actual passed records and claim only certificate transport', () => {
+test('shipped evidence verifies historical transport claims without inventing new execution', () => {
   assert.ok(trustCellRecords.every(cell => cell.route === 'export' && cell.client === null));
   assert.equal(verifyTrustAdmissionEvidence({ packageRoot: worktree, capabilities: buildTrustCapabilities(pkg, trustCellRecords) }).valid, true);
   for (const cell of trustCellRecords) {
-    const record = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
+    const envelope = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
+    if (envelope.schema === 'aih.trust.acceptance-migration.v1') {
+      assert.equal(envelope.kind, 'equivalence-migration');
+      assert.ok(envelope.limitations.includes('equivalence-migration-no-new-old-os-execution'));
+    }
+    const record = envelope.schema === 'aih.trust.acceptance-migration.v1'
+      ? JSON.parse(Buffer.from(envelope.originalRecordBytes, 'base64')) : envelope;
     assert.ok(record.cases.every(item => item.outcome === 'passed' && !item.summary.includes('Synthetic fixture')));
     assert.ok(record.limitations.includes('no-os-fullset-claim') && record.limitations.includes('no-native-client-claim'));
     assert.equal(record.limitations.includes('synthetic-fixture-only'), false);
@@ -102,7 +117,7 @@ test('record transport failures: duplicate keys, trailing text, bad digest, subj
 }));
 
 test('the subject binds profile files and serializer library bytes only where a profile uses them', () => withRoot(root => {
-  const pem = exportAdmissionTemplate('pem').cell; const p7b = exportAdmissionTemplate('pkcs7-der').cell;
+  const pem = exportCell('pem'); const p7b = exportCell('pkcs7-der');
   const before = { pem: trustCellSubjectSha256(pem, root), p7b: trustCellSubjectSha256(p7b, root) };
   assert.match(before.pem, /^[a-f0-9]{64}$/); assert.match(before.p7b, /^[a-f0-9]{64}$/);
   assert.notEqual(before.pem, before.p7b);
@@ -115,7 +130,7 @@ test('the subject binds profile files and serializer library bytes only where a 
   const lonely = mkdtempSync(join(tmpdir(), 'aih-trust-lonely-'));
   try {
     mkdirSync(join(lonely, 'dist', 'harness'), { recursive: true });
-    for (const name of trustHelperFiles) cpSync(join(worktree, 'src', 'harness', name.split('/').pop()), join(lonely, name));
+    for (const name of trustHelperFiles) { mkdirSync(dirname(join(lonely, name)), { recursive: true }); cpSync(join(worktree, name), join(lonely, name)); }
     writeFileSync(join(lonely, 'package.json'), '{}');
     assert.match(trustCellSubjectSha256(pem, lonely), /^[a-f0-9]{64}$/);
     assert.equal(trustCellSubjectSha256(p7b, lonely), null);

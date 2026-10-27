@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepare,apply } from '../dist/core/index.js';
 import { trustCapabilities,selectTrustCell } from '../dist/harness/contracts.mjs';
-import { detectTrustPlatform } from '../dist/harness/trust.mjs';
+import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 const platform=detectTrustPlatform();const admitted=!!platform.release&&selectTrustCell({definitionId:'certificate-export',route:'export',target:null,platform,network:'declared',format:'pem'},trustCapabilities).status==='admitted';
 const testExport=(name,fn)=>test(name,{skip:!admitted?'Exact installed export format capability unavailable on this host.':false},fn);
 let scratch;const previous={HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE};

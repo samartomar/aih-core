@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { trustRepairIndex, trustLimits, buildTrustCapabilities, validateRepairDefinition11, validateTrustCapabilities,
-  selectTrustCell, selectRepairDefinition, buildTrustDefinitions, buildCertificateExportRecipe, resolveTrustRecipeRef, trustTransformIds, trustAdapters,
-  exportAdmissionTemplate, getTrustFileIntegration } from '../../src/harness/trust-definitions.mjs';
+  selectTrustCell, selectRepairDefinition, buildTrustDefinitions, buildCertificateExportRecipe, resolveTrustRecipeRef, trustAdapters,
+  trustProfiles, getTrustFileIntegration } from '../../src/harness/trust-definitions.mjs';
 import { userToolsRepair } from '../../src/harness/user-trust-definitions.mjs';
 import { jvmRepair } from '../../src/harness/jvm-trust-definitions.mjs';
 
@@ -110,22 +110,31 @@ test('empty admission metadata reports unavailable without inventing an admitted
 });
 
 const evidence = { reference: 'evidence/trust/a.json', sha256: 'a'.repeat(64), subjectSha256: 'b'.repeat(64) };
-const exportCell = (format = 'pem', overrides = {}) => ({ ...exportAdmissionTemplate(format).cell, evidence, ...overrides });
+// The specified Windows 11 25H2 export cell for each format, stated independently of the profile data.
+const exportCell = (format = 'pem', overrides = {}) => ({ id: `export-${format === 'pem' ? 'pem' : 'p7b'}-win32`,
+  definitionId: 'certificate-export', route: 'export', target: null, platform: { os: 'win32', release: 'Windows 11 25H2', architecture: 'x64' },
+  network: 'declared', projection: 'windows-effective-server-auth-v1', client: null,
+  configurationProfile: format === 'pem' ? 'pem-server-ca-v1' : 'pkcs7-certificate-import-v1',
+  probeProfile: format === 'pem' ? 'export-pem-parse-v1' : 'export-p7b-parse-v1', launchContext: 'no-client', evidence, ...overrides });
 const doc = cells => ({ schema: 'urn:aihq:harness:trust-capabilities:1.0.0', package: pkg, cells });
 const reasons = (cells, options = {}) => validateTrustCapabilities(doc(cells), { package: pkg, definitions: buildTrustDefinitions(cells), ...options }).diagnostics.map(d => d.reason);
 
-test('export admission cells validate against the tested matrix and fixed profiles; the template is staged, not admitted', () => {
+test('export admission cells validate against the tested matrix and fixed profiles; each probe names the proof a record must contain', () => {
   const both = [exportCell('pem'), exportCell('pkcs7-der')];
   assert.equal(validateTrustCapabilities(doc(both), { package: pkg, definitions: buildTrustDefinitions(both) }).valid, true);
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema('trust-capabilities/1.0.0'));
   assert.equal(validate(doc([exportCell()])), true, JSON.stringify(validate.errors));
-  const template = exportAdmissionTemplate('pkcs7-der');
-  assert.equal(template.cell.client, null); assert.equal(template.cell.launchContext, 'no-client');
-  assert.ok(template.requiredCases.some(item => item.id === 'p7b-custom-store-import' && item.kind === 'positive'));
-  assert.deepEqual(new Set(template.requiredCases.map(item => item.kind)), new Set(['positive', 'negative', 'persistence']));
-  assert.deepEqual(template.requiredLimitations, ['no-os-fullset-claim', 'no-native-client-claim']);
-  assert.equal(exportAdmissionTemplate('pem').requiredCases.some(item => item.id.includes('custom-store')), false);
-  assert.equal(exportAdmissionTemplate('jks'), undefined);
+  const shared = prefix => [['deterministic-bytes', 'positive'], ['independent-parse-set', 'positive'], ['public-api-write', 'positive'],
+    ['reject-key-material', 'negative'], ['reject-output-extension-mismatch', 'negative'], ['reject-unsafe-path', 'negative'],
+    ['custody-recorded', 'persistence'], ['refresh-replace-reviewed', 'persistence'], ['removal-reconciled', 'persistence']]
+    .map(([id, kind]) => ({ id: `${prefix}-${id}`, kind }));
+  const sorted = items => [...items].sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(sorted(trustProfiles['export-pem-parse-v1'].requiredCases), sorted(shared('pem')));
+  // Only P7B carries the Windows Import-Certificate case and the unavailable-serializer refusal.
+  assert.deepEqual(sorted(trustProfiles['export-p7b-parse-v1'].requiredCases), sorted([...shared('p7b'),
+    { id: 'p7b-custom-store-import', kind: 'positive', os: 'win32' }, { id: 'p7b-serializer-failure-unavailable', kind: 'negative' }]));
+  for (const id of ['export-pem-parse-v1', 'export-p7b-parse-v1'])
+    assert.deepEqual(trustProfiles[id].requiredLimitations, ['no-os-fullset-claim', 'no-native-client-claim']);
 });
 
 test('malformed or caller-asserted cells cannot enter: profiles, tuples, platform, projection, client and identity are exact', () => {
@@ -185,7 +194,6 @@ test('every adapter, recipe and transform reference resolves to a fixed implemen
       const resolved = resolveTrustRecipeRef(variant.recipeRef);
       assert.equal(resolved.definitionId, definition.id);
       assert.equal(resolved.kind, { file: 'shipped', native: 'native-unavailable', export: 'export-generator' }[variant.route]);
-      assert.ok(trustTransformIds.includes(variant.transformId));
       assert.ok(trustAdapters.some(adapter => adapter.id === variant.adapterId));
     }
   }
