@@ -16,7 +16,7 @@ export async function auditInstalledPackages(root) {
     const packageRoot = join(root, 'node_modules', declaration.package.name);
     const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
     assert.deepEqual(declaration.package, { name: manifest.name, version: manifest.version });
-    assert.equal(manifest.engines.node, '>=24.15.0 <25');
+    assert.equal(manifest.engines.node, '>=26.12.1 <27');
     for (const entry of declaration.entries) {
       assert.equal(entry.runtime === 'portable' || entry.runtime === 'node', true);
       if (entry.runtime === 'node') assert.equal(entry.nodeRange, manifest.engines.node);
@@ -49,7 +49,7 @@ export async function auditInstalledPackages(root) {
   const coreManifest = JSON.parse(readFileSync(join(root, 'node_modules/@aihq/core/package.json'), 'utf8'));
   for (const name of ['@aihq/harness', '@aihq/catalog', '@aihq/scan']) assert.equal(coreManifest.dependencies[name], undefined);
   return { packages: Object.fromEntries(Object.entries(declarations).map(([name, value]) => [name, value.package])),
-    schemas: Object.fromEntries(schemas), nodeRange: '>=24.15.0 <25', noSeparateHarness: true, privateFilesExcluded: true, declaredMaterialFiles: materialCount,
+    schemas: Object.fromEntries(schemas), nodeRange: '>=26.12.1 <27', noSeparateHarness: true, privateFilesExcluded: true, declaredMaterialFiles: materialCount,
     roles: Object.fromEntries(Object.entries(declarations).map(([name, value]) =>
       [name, [...new Set(value.contracts.map(contract => contract.role))].sort()])),
     declarations: JSON.parse(JSON.stringify(declarations)) };

@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26.12.1'
       - id: route
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26.12.1'
       - run: node scripts/build-linux-facility.mjs --check
       - uses: actions/upload-artifact@v4
         if: always()
@@ -70,6 +70,13 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
+        if: needs.select.outputs.suite == 'full'
+        with:
+          node-version: '24.22.1'
+      - if: needs.select.outputs.suite == 'full'
+        name: Select the historical Core control runtime
+        run: node -e "require('node:fs').appendFileSync(process.env.GITHUB_ENV, 'AIH_TEST_LEGACY_NODE=' + process.execPath + '\n')"
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -86,7 +93,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26.12.1'
       - env:
           SELECT: ${{ needs.select.result }}
           PACKAGE: ${{ needs.package.result }}

@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, rmdirSync, unlinkSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
+import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
 import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './contracts.js';
 import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type ReadLocalPolicyResult, type GitHubPolicySource,
@@ -354,7 +355,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error('captured-prerequisite-invalid');
     }
     if (controls.signal?.aborted) throw new Error('cancelled');
-    if (Number(process.versions.node.split('.')[0]) !== 24 || Number(process.versions.node.split('.')[1]) < 15) throw new Error('node-runtime');
+    if (!nodeRuntimeSupported()) throw new Error('node-runtime');
     dataObject(request, ['useCase', 'policy', 'target', 'resolutions', 'organizationSource', 'organizationTarget', 'organizationSetMembers']);
     dataObject(request.target, ['project']);
     if (request.useCase !== 'policy') throw new Error('use-case-unsupported');

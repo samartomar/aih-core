@@ -109,12 +109,17 @@ export async function selectTrustCandidateWith(originsInput, dependencies, contr
     catch { return { kind: 'unavailable', reason: late() ?? 'probe-invocation' }; }
   };
   const unresolved = reason => ({ kind: 'unresolved', reason, probes, elapsedMs: Math.ceil(performance.now() - started) });
+  let alreadyTrusted = true;
+  for (const origin of origins) {
+    const node = await attempt('node', origin);
+    if (node.kind === 'passed') continue;
+    if (node.kind !== 'failed' || node.reason !== 'certificate-chain') return unresolved(node.reason ?? 'node-tls-unavailable');
+    alreadyTrusted = false;
+  }
+  if (alreadyTrusted) return unresolved('node-already-trusted');
   for (const origin of origins) {
     const os = await attempt('os', origin);
     if (os.kind !== 'passed') return unresolved(os.reason ?? 'os-tls-unavailable');
-    const node = await attempt('node', origin);
-    if (node.kind !== 'failed' || node.reason !== 'certificate-chain')
-      return unresolved(node.kind === 'passed' ? 'node-already-trusted' : node.reason ?? 'node-tls-unavailable');
   }
   let systemPasses = true;
   for (const origin of origins) {

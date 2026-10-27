@@ -60,7 +60,7 @@ export const contractSupport = Object.freeze({
   entries: Object.freeze([
     { export: '@aihq/core/harness', runtime: 'portable' },
     { export: '@aihq/core/report', runtime: 'portable' },
-    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=24.15.0 <25' }
+    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=26.12.1 <27' }
   ])
 });
 

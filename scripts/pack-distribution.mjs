@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { create, list } from 'tar';
+import { readCorePackMetadata } from './pack-metadata.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -45,7 +46,7 @@ try {
   if (build) execFileSync(process.execPath, [join(root, 'scripts/build.mjs')], { cwd: root, stdio: ['ignore', 2, 2], windowsHide: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
-  const [packed] = JSON.parse(execFileSync(process.execPath, [process.env.npm_execpath,
+  const packed = readCorePackMetadata(execFileSync(process.execPath, [process.env.npm_execpath,
     'pack', '--ignore-scripts', '--json', '--pack-destination', scratch], { cwd: root, env, encoding: 'utf8', timeout: 120_000, windowsHide: true }));
   assert.equal(packed.filename, filename);
   const input = join(scratch, filename), output = join(scratch, 'distribution.tgz');

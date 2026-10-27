@@ -1,3 +1,4 @@
+import { readCorePackMetadata } from '../pack-metadata.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -462,7 +463,7 @@ if (process.argv[2] === '--consumer') {
     // Fixture provisioning: convert/copy the selected JDK baseline to JKS and
     // prove fingerprint-multiset equality before any pack or product effect.
     const baseline = convertBaselineToJks(root);
-    const packed = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], source))[0];
+    const packed = readCorePackMetadata(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', root], source));
     writeFileSync(join(reportDirectory, 'native-package.json'), JSON.stringify({ ...identity, privilege,
       name: packed.name, version: packed.version, filename: packed.filename,
       sha256: sha256(readFileSync(join(root, packed.filename))),
