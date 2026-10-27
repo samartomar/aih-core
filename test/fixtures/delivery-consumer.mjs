@@ -340,11 +340,13 @@ await check('malformed route input refuses the check, and routes never admit an 
     [[{ framework: FRAMEWORK }], '/nativeRoutes/0'], [[{ framework: '../x', lines: [] }], '/nativeRoutes/0'],
     [[{ framework: FRAMEWORK, lines: [''] }], '/nativeRoutes/0'], [[{ framework: FRAMEWORK, lines: ['x'.repeat(4097)] }], '/nativeRoutes/0'],
     [[{ framework: FRAMEWORK, lines: [7] }], '/nativeRoutes/0'], [[{ framework: FRAMEWORK, lines: [], installed: true }], '/nativeRoutes/0'],
-    [[UPSTREAM_ROUTES, UPSTREAM_ROUTES], '/nativeRoutes/1/framework']]) {
+    [[UPSTREAM_ROUTES, UPSTREAM_ROUTES], '/nativeRoutes/1/framework'],
+    [Array.from({ length: 4097 }, (_, index) => ({ framework: `f${index}`, lines: [] })), '/nativeRoutes'],
+    [[{ framework: FRAMEWORK, lines: Array(4097).fill('Claude Code: /plugin install x') }], '/nativeRoutes/0']]) {
     const refused = ask(nativeRoutes);
     assert.deepEqual([refused.status, refused.code, refused.reason, refused.path], ['refused', 'INPUT_INVALID', 'native-routes', path]);
   }
-  assert.equal(ask([{ framework: FRAMEWORK, lines: ['\u{1F600}'.repeat(4096)] }]).status, 'checked', 'lines are bounded in characters');
+  assert.equal(ask([{ framework: FRAMEWORK, lines: ['x'.repeat(4096), ...Array(4095).fill('y')] }]).status, 'checked', 'the bounds are inclusive');
   const unknown = checkCompatibility({ tool: 'nope', platform: WINDOWS, items: [], binding: bindingWith('claude'), nativeRoutes: [UPSTREAM_ROUTES] });
   assert.deepEqual([unknown.status, unknown.reason], ['refused', 'unknown-tool']);
   // Cursor has a published route line but no observed binding: guidance never makes a tool selectable.

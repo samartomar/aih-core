@@ -936,7 +936,6 @@ depend on order. Per item the result is:
 - **Sets.** Each referenced set reports `fit` (`full`, `partial` or `none`),
   member counts `{ native, unconfirmed, none }` (a blocked or not-rendered
   member counts as `none`) and the summed `deliveredSize`, over the supplied non-excluded members.
-
 - **Plugin routes.** Pass `nativeRoutes: [{ framework, lines }]`, each the
   `nativeRoutes` lines of a checked Catalog release (release format 1.6 and
   later), to receive `pluginRoutes`. Each line names a tool and upstream's own
@@ -951,13 +950,14 @@ depend on order. Per item the result is:
   exactly the selected tool's registry `label` (`Claude Code: /plugin install x`
   gives `/plugin install x` for `claude`). A line naming the tool any other way
   is not attributed to it, so `not-listed` means no supplied line uses its label;
-  `not-supplied` means no lines were passed for that framework. This is
+  `not-supplied` means no lines were passed for that framework. Core reports the
+  lines it is given and cannot check that they came from a checked release. This is
   display-only guidance for the tool's own plugin manager: Core never runs a
   route, a route is not an item and does not mean the plugin is installed,
   enabled, permitted, observed or working, and it changes no support, refusal,
   size or set answer. Without `nativeRoutes` the result has no `pluginRoutes`.
   Anything but at most 4096 entries of a framework id and at most 4096 lines of 1
-  to 4096 characters, or a framework given twice, refuses the check with
+  to 4096 UTF-16 code units (as Catalog's release reader counts), or a framework given twice, refuses the check with
   `INPUT_INVALID` `native-routes`. An unknown or unobserved tool is refused as
   before, whatever routes are supplied.
 

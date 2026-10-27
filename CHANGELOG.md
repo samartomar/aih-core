@@ -2,12 +2,10 @@
 
 ## Unreleased
 
-`checkCompatibility` accepts optional `nativeRoutes`, each checked Catalog release's
-display-only route lines by framework, and then returns `pluginRoutes`: per
-framework, the route text of the lines naming the tool by its registry label,
-with `listed`, `not-listed` or `not-supplied`. Guidance is never run and never
-changes support, refusals, sizes or sets; without `nativeRoutes` the result is
-unchanged. Malformed route input is `INPUT_INVALID` `native-routes`.
+Add display-only plugin-route guidance to `checkCompatibility`: given Catalog
+`nativeRoutes` lines by framework, `pluginRoutes` lists the routes naming the
+tool by its registry label (`listed`, `not-listed`, `not-supplied`). Routes are
+never run and change no other answer; without them the result is unchanged.
 
 Project CLI content support only from observations for the exact installed client
 version when selected. Compatibility accepts `installedVersion`; rendering can

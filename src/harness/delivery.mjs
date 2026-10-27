@@ -439,9 +439,8 @@ function cellOn(binding, kind, platform, installedVersion) {
 
 /** Where plugin-route guidance comes from: the `nativeRoutes` lines of the caller's checked Catalog releases. */
 const PLUGIN_ROUTE_SOURCE = 'catalog-native-routes';
-const routeLine = line => typeof line === 'string' && line.length > 0 && [...line].length <= 4096;
 
-/** The supplied Catalog `nativeRoutes` lines by framework, bounded as Catalog's release schema bounds them. */
+/** The supplied Catalog `nativeRoutes` lines by framework, bounded as Catalog's release reader bounds them. */
 function readNativeRoutes(nativeRoutes) {
   if (!Array.isArray(nativeRoutes) || nativeRoutes.length > 4096)
     invalid('native-routes', '/nativeRoutes', 'Expected at most 4096 { framework, lines } entries.');
@@ -450,7 +449,7 @@ function readNativeRoutes(nativeRoutes) {
     const at = `/nativeRoutes/${index}`;
     if (!isRecord(entry) || Object.keys(entry).some(key => !['framework', 'lines'].includes(key)) ||
         typeof entry.framework !== 'string' || !ID.test(entry.framework) ||
-        !Array.isArray(entry.lines) || entry.lines.length > 4096 || !entry.lines.every(routeLine))
+        !Array.isArray(entry.lines) || entry.lines.length > 4096 || !entry.lines.every(line => text(line)))
       invalid('native-routes', at, "Expected { framework, lines } holding one Catalog release's nativeRoutes lines.");
     if (supplied.has(entry.framework)) invalid('native-routes', `${at}/framework`, 'Expected one entry per framework.');
     supplied.set(entry.framework, entry.lines);
@@ -465,11 +464,11 @@ function readNativeRoutes(nativeRoutes) {
 function pluginRoutes(supplied, label, frameworks) {
   const prefix = `${label}: `;
   return [...new Set([...frameworks, ...supplied.keys()])].sort(compareCodeUnits).map(framework => {
-    const lines = supplied.get(framework);
-    const routes = (lines ?? []).filter(line => line.startsWith(prefix) && line.length > prefix.length)
+    const suppliedLines = supplied.get(framework);
+    const listed = (suppliedLines ?? []).filter(line => line.startsWith(prefix) && line.length > prefix.length)
       .map(line => line.slice(prefix.length));
     return { framework, source: PLUGIN_ROUTE_SOURCE,
-      state: lines === undefined ? 'not-supplied' : routes.length > 0 ? 'listed' : 'not-listed', lines: routes };
+      state: suppliedLines === undefined ? 'not-supplied' : listed.length > 0 ? 'listed' : 'not-listed', lines: listed };
   });
 }
 
@@ -488,7 +487,7 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     bindingFor(tool, binding);
     observationTarget(platform, installedVersion);
     if (!Array.isArray(items) || items.length > 4096) invalid('items', '/items', 'Expected at most 4096 item entries.');
-    const routes = nativeRoutes === undefined ? undefined : readNativeRoutes(nativeRoutes);
+    const suppliedRoutes = nativeRoutes === undefined ? undefined : readNativeRoutes(nativeRoutes);
     const merged = new Map();
     items.forEach((entry, index) => {
       const at = `/items/${index}`;
@@ -575,7 +574,7 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     }
     return { status: 'checked', tool: binding.tool, platform: { os: platform.os, arch: platform.arch }, bindingDigest: binding.digest,
       items: results.map(({ result }) => result), sets: [...sets.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, summary]) => summary),
-      ...(routes ? { pluginRoutes: pluginRoutes(routes, selectTool(binding.tool).tool.label,
+      ...(suppliedRoutes ? { pluginRoutes: pluginRoutes(suppliedRoutes, selectTool(binding.tool).tool.label,
         ordered.map(entry => entry.info.ref.framework)) } : {}) };
   });
 }
