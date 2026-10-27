@@ -59,9 +59,22 @@ export interface SetCompatibility {
   set: SetRef; fit: 'full' | 'partial' | 'none'; members: { native: number; unconfirmed: number; none: number };
   deliveredSize: Size & { alwaysLoaded: Size };
 }
+/**
+ * Display-only plugin-route guidance for one framework: the route text of the supplied Catalog `nativeRoutes` lines
+ * naming the tool by its registry label. A route says how the tool's own plugin manager could install upstream's
+ * bundle; it never means the bundle is installed, enabled, permitted, observed or working, and Core never runs it.
+ */
+export interface PluginRouteGuidance {
+  framework: string; source: 'catalog-native-routes';
+  /** `listed`: lines name this tool. `not-listed`: lines were supplied, none names this tool's label. `not-supplied`: none were passed. */
+  state: 'listed' | 'not-listed' | 'not-supplied';
+  lines: string[];
+}
 export interface CompatibilityResult {
   status: 'checked'; tool: string; platform: BindingPlatform; bindingDigest: string;
   items: ItemCompatibility[]; sets: SetCompatibility[];
+  /** Present only when the request passed `nativeRoutes`: one entry per checked item framework or supplied framework. */
+  pluginRoutes?: PluginRouteGuidance[];
 }
 export interface CompatibilityEntry {
   readonly item: CatalogItem; readonly fallback?: CatalogItem; readonly excluded?: boolean; readonly required?: boolean;
@@ -69,4 +82,6 @@ export interface CompatibilityEntry {
 }
 export declare function checkCompatibility(request: {
   tool: string; platform: BindingPlatform; installedVersion?: string; items: readonly CompatibilityEntry[]; binding: ToolBinding;
+  /** Each checked Catalog release's `nativeRoutes` lines (`<tool name>: <route>`), by the release's framework. */
+  nativeRoutes?: readonly { readonly framework: string; readonly lines: readonly string[] }[];
 }): CompatibilityResult | DeliveryRefusal;

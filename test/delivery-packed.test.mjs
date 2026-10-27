@@ -29,11 +29,11 @@ test('a packed consumer renders Catalog items as ordinary recipes and checks sta
     copyFileSync(new URL('./fixtures/delivery-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 20);
+    assert.equal(receipt.checks.length, 23);
     writeFileSync(join(consumer, 'types.mts'), `
       import { checkCompatibility, deliveryMaterialRoot, renderDelivery, toolBindings } from '@aihq/core/harness';
-      import type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, RenderedDelivery,
-        SetCompatibility, StaticBlockerCode } from '@aihq/core/harness';
+      import type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, PluginRouteGuidance,
+        RenderedDelivery, SetCompatibility, StaticBlockerCode } from '@aihq/core/harness';
       declare const item: CatalogItem;
       const binding = toolBindings[0]!;
       const rendered: RenderedDelivery | DeliveryRefusal = renderDelivery({ tool: 'claude', item, binding, scope: 'project', platform: { os: 'windows', arch: 'x64' }, installedVersion: '2.1.308' });
@@ -46,6 +46,14 @@ test('a packed consumer renders Catalog items as ordinary recipes and checks sta
         first.staticBlockers[0]?.code satisfies StaticBlockerCode | undefined;
         const set: SetCompatibility | undefined = result.sets[0];
         set?.fit satisfies 'full' | 'partial' | 'none' | undefined;
+      }
+      const guided = checkCompatibility({ tool: 'claude', platform: { os: 'linux', arch: 'x64' }, items: entries, binding,
+        nativeRoutes: [{ framework: 'f', lines: ['Claude Code: /plugin install x@y'] }] });
+      if (guided.status === 'checked') {
+        const route: PluginRouteGuidance | undefined = guided.pluginRoutes?.[0];
+        route?.state satisfies 'listed' | 'not-listed' | 'not-supplied' | undefined;
+        route?.source satisfies 'catalog-native-routes' | undefined;
+        route?.lines satisfies string[] | undefined;
       }
     `);
     const require = createRequire(import.meta.url);

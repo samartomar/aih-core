@@ -19,7 +19,7 @@ export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, v
 export type { ApprovalLocation, BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';
 export { renderDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
 export type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, ItemRef, RenderedDelivery,
-  SetCompatibility, SetRef, StaticBlockerCode } from './delivery.mjs';
+  PluginRouteGuidance, SetCompatibility, SetRef, StaticBlockerCode } from './delivery.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
