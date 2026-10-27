@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { prepare, apply } from '../dist/core/index.js';
 import { trustCapabilities } from '../dist/harness/contracts.mjs';
-import { detectTrustPlatform } from '../dist/harness/runtime.mjs';
+import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 import { policy as unrelatedPolicy } from './fixture.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));

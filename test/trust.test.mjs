@@ -7,7 +7,7 @@ import { X509Certificate } from 'node:crypto';
 import { prepare, apply, prepareManagedRemoval, listManagedSelections } from '../dist/core/index.js';
 import { validatePreparedWork12, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
 import { trustCapabilities,selectTrustCell } from '../dist/harness/contracts.mjs';
-import { detectTrustPlatform } from '../dist/harness/trust.mjs';
+import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 const platform=detectTrustPlatform();
 const admitted=!!platform.release&&selectTrustCell({definitionId:'certificate-export',route:'export',target:null,platform,
   network:'declared',format:'pem'},trustCapabilities).status==='admitted';
