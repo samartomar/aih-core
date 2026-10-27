@@ -61,12 +61,13 @@ export interface SetCompatibility {
 }
 /**
  * Display-only plugin-route guidance for one framework: the route text of the supplied Catalog `nativeRoutes` lines
- * naming the tool by its registry label. A route says how the tool's own plugin manager could install upstream's
- * bundle; it never means the bundle is installed, enabled, permitted, observed or working, and Core never runs it.
+ * naming the tool by its registry label or, in that framework, an upstream name Harness attributes to it. A route
+ * says how the tool's own plugin manager could install upstream's bundle; it never means the bundle is installed,
+ * enabled, permitted, observed or working, and Core never runs it.
  */
 export interface PluginRouteGuidance {
   framework: string; source: 'catalog-native-routes';
-  /** `listed`: lines name this tool. `not-listed`: lines were supplied, none names this tool's label. `not-supplied`: none were passed. */
+  /** `listed`: lines name this tool. `not-listed`: lines were supplied, none names this tool's label or attributed name. `not-supplied`: none were passed. */
   state: 'listed' | 'not-listed' | 'not-supplied';
   lines: string[];
 }

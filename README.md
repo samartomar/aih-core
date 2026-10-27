@@ -948,8 +948,15 @@ depend on order. Per item the result is:
 
   `lines` is the route text, in published order, of each line whose tool name is
   exactly the selected tool's registry `label` (`Claude Code: /plugin install x`
-  gives `/plugin install x` for `claude`). A line naming the tool any other way
-  is not attributed to it, so `not-listed` means no supplied line uses its label;
+  gives `/plugin install x` for `claude`), or, in one framework, an upstream name
+  Harness attributes to the tool. Superpowers' published routes name two tools
+  differently from the registry: its README heads the `copilot plugin` routes
+  "GitHub Copilot CLI" and the `agy plugin` route "Antigravity", and `copilot` and
+  `agy` are the binaries of `copilot` (Copilot CLI) and `antigravity` (Antigravity
+  CLI). Those two names count only in framework `superpowers`, only as written
+  (case and spacing included), and never for another tool or surface such as
+  `copilot-vscode`. A line naming the tool any other way is not attributed to it,
+  so `not-listed` means no supplied line uses its label or an attributed name;
   `not-supplied` means no lines were passed for that framework. Core reports the
   lines it is given and cannot check that they came from a checked release. This is
   display-only guidance for the tool's own plugin manager: Core never runs a
