@@ -38,7 +38,9 @@ export interface ToolBinding {
   readonly alsoReads: readonly { readonly what: string; readonly where: 'ancestor-folders' | 'other-tool-folders' | 'account-sync' | 'user-profile' }[];
 }
 export interface CellSupport {
-  support: BindingSupport; observed: ObservedLevel; stale: boolean;
+  support: BindingSupport; observed: ObservedLevel;
+  /** This platform has observations, but none for the exact installed version requested. */
+  stale: boolean;
   observedOn?: { toolVersion: string; os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64'; observedAt: string };
 }
 export type BindingSelection =

@@ -370,8 +370,8 @@ export async function inspectToolHost(request, controls = {}) {
       if (copy.state === 'unavailable')
         unchecked.push({ fact: `${label}-copy`, item: ref(item), reason: copy.reason });
     }
-    // Staleness compares the installed version with the observations that prove the cell. Newer than all of them,
-    // on any platform, is stale. Not stale needs a proving observation on this host's platform.
+    // An installed version without exact proof is stale; a host with proving observations also needs an
+    // exact version match. A current cell requires that proof on this host's platform.
     const proving = layout.observations.filter(observation =>
       deriveCellSupport({ kind: item.kind, observations: [observation] }).support === 'native');
     const here = proving.filter(observation => platform && observation.os === platform.os && observation.arch === platform.arch);

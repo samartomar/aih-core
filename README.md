@@ -676,9 +676,11 @@ is not native (`convert-not-observed`).
 **Support is scoped to the platform it was observed on.** `deriveCellSupport({ kind,
 observations, platform?, installedVersion? })` counts only observations made on
 `platform`'s OS and architecture, so a cell observed only on Windows is
-`unconfirmed` on Linux. When `installedVersion` is newer than every proving
-observation, the cell is `stale` and claims no more than `registered`; an older
-installed version keeps the observed claim. `platform` takes `os` `windows`,
+`unconfirmed` on Linux. With `installedVersion`, only observations for that exact
+version count. If this platform has observations only for other versions, the
+cell is `unconfirmed`, `observed: 'none'` and `stale: true`, with no `observedOn`.
+Neither an older nor a newer version inherits support. Without `installedVersion`,
+the result remains a historical platform projection. `platform` takes `os` `windows`,
 `macos` or `linux` and `arch` `x64` or `arm64`. The result
 is `{ support, observed, stale, observedOn? }`, where `observed` is the strongest
 counted level (`recognised`, `registered`, `listed-only`, `delivered` or `none`).
@@ -723,6 +725,38 @@ without local machine paths.
 `verifyNativeClient` route or a canary run with a published run record. They hold
 only for their tool version, OS, architecture and isolation, and they do not
 satisfy native verification acceptance, which keeps its stronger bar.
+
+### Selected CLI candidates and exact-version checks
+
+These are qualification targets, not new native support declarations:
+
+| CLI | Selected candidate | Current binding evidence |
+| --- | --- | --- |
+| Claude Code stable | 2.1.308 | Matching Windows x64 observations; agent listing is unconfirmed and MCP still needs approval |
+| Codex CLI | 0.164.0 | Historical 0.163.0; native shared-skill precedence and body use unqualified |
+| Gemini CLI | 0.65.0 | Unobserved; eligible authentication and native content use unqualified |
+| Antigravity CLI | 1.4.7 | Historical 1.4.6; separate CLI, IDE and Gemini identities |
+| Copilot CLI | 1.0.103 | Matching Windows x64 skill/rule observations; agent conversion and hooks unqualified |
+| Kimi Code (`@moonshot-ai/kimi-code`, Node/native distribution) | 2.3.3 | Unobserved; no old Python distribution assumption or shell/ask equivalence |
+| Kiro CLI default harness | 2.34.0 | Historical 2.33.1; effective KIRO_HOME, workspace trust and content use unqualified; V3 opt-in remains separate |
+| OpenCode | 1.19.4 | Unobserved; native content and plugin/interactive permission semantics unqualified |
+
+Use `checkCompatibility({ ..., platform, installedVersion })` to project only the
+selected version's observations. For example, Codex 0.164.0 does not inherit the
+0.163.0 rule or MCP observation. Unknown Gemini, Kimi and OpenCode bindings remain
+`tool-not-observed`; knowing their registry identity does not enable rendering.
+All other OS/architecture cells remain unconfirmed until observed separately.
+The exact client/runtime/artifact/content-kind/isolation closure still needs
+native qualification; the version guard does not establish that closure.
+
+`renderDelivery({ ..., platform, installedVersion })` accepts the same explicit
+selection, requiring both fields together. It refuses `kind-not-native` unless
+that exact cell has a native binding observation. This guard preserves the
+binding's registration-versus-use distinction: a pending MCP approval can be
+rendered but still needs the person's OK, and an agent listed only is refused.
+Omitting both fields retains content-only projection using the historical layout;
+a rendered recipe alone is never evidence of successful native loading or use.
+The original binding table and published canary run record remain unchanged.
 
 **Every binding change needs a new Core version.** The table is Harness data
 shipped in `@aihq/core`. Refreshing observations by a canary run is a separate
@@ -842,7 +876,7 @@ repair status, and a rendered recipe id is not a repair (`repair-unsupported`).
 ```js
 import { checkCompatibility } from '@aihq/core/harness';
 
-const result = checkCompatibility({ tool: 'codex', platform: { os: 'windows', arch: 'x64' }, binding, items: [
+const result = checkCompatibility({ tool: 'codex', platform: { os: 'windows', arch: 'x64' }, installedVersion: '0.164.0', binding, items: [
   { item: bootstrapHook, fallback: bootstrapRule, sets: [setRef] },
   { item: reviewSkill, required: true, sets: [setRef] }
 ] });
@@ -953,10 +987,11 @@ items it already holds. A complete result reports:
   and no binding observes a plugin location yet, so those are `unavailable`.
 - per item, the `inputs` still required: input values never reach inspection, so
   every declared input is still required.
-- `stale` per item and overall: `true` when the installed version is newer than
-  every observation proving the cell (`observedVersion` is the newest of them),
-  `false` only when a proving observation on this OS and architecture is not
-  older, and otherwise `'unchecked'`: the installed version is unknown, nothing
+- `stale` per item and overall: `true` when the installed version differs from
+  every proving observation, or every proving observation on this host platform
+  when it has any (`observedVersion` is the newest historical proving version).
+  `false` requires an exact proving observation on this OS and architecture,
+  and otherwise `'unchecked'`: the installed version is unknown, nothing
   proves the cell, or no proving observation was made on this platform.
 - `hostBlockers[]`: `executable-missing` (an `absent` executable),
   `input-required` (each declared input) and `dependency-missing` (a required
