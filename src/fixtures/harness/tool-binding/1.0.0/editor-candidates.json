@@ -1,0 +1,565 @@
+[
+  {
+    "tool": "cursor",
+    "installedVersion": "3.27.14",
+    "status": "source-preparation-only",
+    "binding": {
+      "schema": "urn:aihq:harness:tool-binding:1.0.0",
+      "tool": "cursor",
+      "layouts": {
+        "skill": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {
+            "project": ".agents/skills",
+            "user": {
+              "path": ".agents/skills",
+              "resolvedBy": "Local user home; no cloud sync assumed."
+            }
+          },
+          "skillKey": "folder"
+        },
+        "agent": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "command": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "rule": {
+          "support": "unconfirmed",
+          "reason": "Documented .mdc rules need frontmatter; plain .md is ignored. Conversion and loading are unqualified.",
+          "observations": [],
+          "roots": {
+            "project": ".cursor/rules"
+          },
+          "formats": [
+            "mdc"
+          ]
+        },
+        "hook": {
+          "support": "unconfirmed",
+          "reason": "Cursor hooks have their own event/payload/response and trust protocol; no Claude adapter is qualified.",
+          "observations": [],
+          "roots": {
+            "project": ".cursor",
+            "user": {
+              "path": ".cursor",
+              "resolvedBy": "Local user home."
+            }
+          },
+          "register": {
+            "file": "hooks.json",
+            "container": [
+              "hooks"
+            ],
+            "format": "json",
+            "approval": "per-project"
+          }
+        },
+        "mcp-server": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "document": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        }
+      },
+      "entryFiles": [
+        "AGENTS.md"
+      ],
+      "alsoReads": [
+        {
+          "what": ".cursor/skills and compatible skill locations; check same-name duplicates before choosing one copy.",
+          "where": "other-tool-folders"
+        }
+      ],
+      "digest": "af4d623ab8078d5572ce35b237f29d85a97cc52f8ec36c054b61cc2b09964c21"
+    },
+    "gates": [
+      "Exact editor artifact and dependency closure are not qualified.",
+      "Native registration/listing/loading/use and cleanup require separate authorization.",
+      "Cursor editor build is separate from Cursor agent CLI; Linux x64 patch metadata does not qualify another artifact.",
+      "Rules require .mdc conversion; hooks require exact event, shell and allow/block protocol qualification."
+    ],
+    "nativeCells": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "windows",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://cursor.com/docs/skills",
+        "retrievedAt": "2026-10-27T07:20:30.965018+00:00",
+        "sha256": "2b00d14488b00a3ec222e036f6a008e1ea53ad80d472edb376a77d679ce1c260"
+      },
+      {
+        "url": "https://cursor.com/docs/rules",
+        "retrievedAt": "2026-10-27T07:20:31.324806+00:00",
+        "sha256": "ae7d38b705ffcf3bd033bc2a20054469ebfdaa9efea6ee82dde361e31363ecc3"
+      },
+      {
+        "url": "https://cursor.com/docs/hooks",
+        "retrievedAt": "2026-10-27T07:20:31.642145+00:00",
+        "sha256": "70c70306826135b2a7b20ce37cdd81d1c703409566d8658b7e1855f5d8fd61de"
+      }
+    ]
+  },
+  {
+    "tool": "copilot-vscode",
+    "installedVersion": "1.143.1",
+    "status": "source-preparation-only",
+    "binding": {
+      "schema": "urn:aihq:harness:tool-binding:1.0.0",
+      "tool": "copilot-vscode",
+      "layouts": {
+        "skill": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {
+            "project": ".github/skills"
+          },
+          "skillKey": "folder"
+        },
+        "agent": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "command": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "rule": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "hook": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "mcp-server": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "document": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        }
+      },
+      "entryFiles": [
+        ".github/copilot-instructions.md"
+      ],
+      "alsoReads": [
+        {
+          "what": "Other configured skill locations and custom instructions; inspect editor settings before native use.",
+          "where": "other-tool-folders"
+        }
+      ],
+      "digest": "9160ac0e99575537f2fdb42c5fbace9dcaf7e4b558305cf41d4231d1e37676d0"
+    },
+    "gates": [
+      "Exact editor artifact and dependency closure are not qualified.",
+      "Native registration/listing/loading/use and cleanup require separate authorization.",
+      "Exact VS Code plus Copilot extension pair, enabled proposed APIs, configuration and native content loading are unqualified; CLI proof does not qualify this pair."
+    ],
+    "nativeCells": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "windows",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      }
+    ],
+    "extension": {
+      "id": "GitHub.copilot-chat",
+      "version": "0.48.1",
+      "manifestUrl": "https://GitHub.gallerycdn.vsassets.io/extensions/github/copilot-chat/0.48.1/1778884121163/Microsoft.VisualStudio.Code.Manifest",
+      "manifestSha256": "b70ad0b117bc4b202df5eb39a079575e6493b21676310a0c8d071d239c12f585",
+      "engines": {
+        "vscode": "^1.120.0",
+        "npm": ">=9.0.0",
+        "node": ">=22.14.0"
+      },
+      "pairObserved": false
+    },
+    "sources": [
+      {
+        "url": "https://GitHub.gallerycdn.vsassets.io/extensions/github/copilot-chat/0.48.1/1778884121163/Microsoft.VisualStudio.Code.Manifest",
+        "retrievedAt": "2026-10-27T07:20:30.557381+00:00",
+        "sha256": "b70ad0b117bc4b202df5eb39a079575e6493b21676310a0c8d071d239c12f585"
+      },
+      {
+        "url": "https://code.visualstudio.com/docs/agent-customization/agent-skills.md",
+        "retrievedAt": "2026-10-27T07:20:33.261329+00:00",
+        "sha256": "26973567be23eb5756eb6db62afacf055455fbe6f427d40b45659aacb44d361a"
+      }
+    ]
+  },
+  {
+    "tool": "kiro-ide",
+    "installedVersion": "1.4.26",
+    "status": "source-preparation-only",
+    "binding": {
+      "schema": "urn:aihq:harness:tool-binding:1.0.0",
+      "tool": "kiro-ide",
+      "layouts": {
+        "skill": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "agent": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "command": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "rule": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {
+            "project": ".kiro/steering",
+            "user": {
+              "path": ".kiro/steering",
+              "resolvedBy": "Local user home."
+            }
+          },
+          "formats": [
+            "md"
+          ]
+        },
+        "hook": {
+          "support": "unconfirmed",
+          "reason": "Standalone IDE 1.x hook JSON needs its own trigger/action/shell qualification; not a CLI agent or Claude hook group.",
+          "observations": [],
+          "roots": {
+            "project": ".kiro/hooks"
+          },
+          "formats": [
+            "json"
+          ]
+        },
+        "mcp-server": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {
+            "project": ".kiro",
+            "user": {
+              "path": ".kiro",
+              "resolvedBy": "Local user home."
+            }
+          },
+          "register": {
+            "file": "settings/mcp.json",
+            "container": [
+              "mcpServers"
+            ],
+            "format": "json",
+            "approval": "per-project",
+            "permissionStep": "Review and approve the selected server and its tools in Kiro IDE.",
+            "approvalLocation": {
+              "shape": "other"
+            }
+          }
+        },
+        "document": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        }
+      },
+      "entryFiles": [
+        "AGENTS.md"
+      ],
+      "alsoReads": [],
+      "digest": "d07ed21ea2fe1032cf0dd6ee7a566227f41817aa514efe9f969681c77f8cc8ad"
+    },
+    "gates": [
+      "Exact editor artifact and dependency closure are not qualified.",
+      "Native registration/listing/loading/use and cleanup require separate authorization.",
+      "IDE hooks/steering/MCP and workspace trust must be qualified independently of Kiro CLI 2.x or V3."
+    ],
+    "nativeCells": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "windows",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://kiro.dev/docs/steering/",
+        "retrievedAt": "2026-10-27T07:20:32.009158+00:00",
+        "sha256": "d2c413e042842588a22aba1d3da409e5542d3ac08a6b3d480fd953b4e177f32b"
+      },
+      {
+        "url": "https://kiro.dev/docs/hooks/",
+        "retrievedAt": "2026-10-27T07:20:32.309431+00:00",
+        "sha256": "42410fe034b420f8c58fc5db894f73ff4a9dab331dd0bf8cb33f7134a4e9799f"
+      },
+      {
+        "url": "https://kiro.dev/docs/mcp/",
+        "retrievedAt": "2026-10-27T07:20:32.603916+00:00",
+        "sha256": "edf65b5ff3b103d94dce89f1fa74fee8d19ec2d79fd9d5d3f6792c380bc27f8a"
+      }
+    ]
+  },
+  {
+    "tool": "zed",
+    "installedVersion": "1.25.3",
+    "status": "source-preparation-only",
+    "binding": {
+      "schema": "urn:aihq:harness:tool-binding:1.0.0",
+      "tool": "zed",
+      "layouts": {
+        "skill": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {
+            "project": ".agents/skills",
+            "user": {
+              "path": ".agents/skills",
+              "resolvedBy": "Local user home."
+            }
+          },
+          "skillKey": "folder"
+        },
+        "agent": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "command": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        },
+        "rule": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "hook": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "mcp-server": {
+          "support": "unconfirmed",
+          "reason": "No native editor observation; documented paths do not prove loading.",
+          "observations": [],
+          "roots": {}
+        },
+        "document": {
+          "support": "unconfirmed",
+          "reason": "No selected editor layout or native observation for this kind; delivery remains unavailable.",
+          "observations": [],
+          "roots": {}
+        }
+      },
+      "entryFiles": [
+        ".rules",
+        ".cursorrules",
+        ".windsurfrules",
+        ".clinerules",
+        ".github/copilot-instructions.md",
+        "AGENT.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md"
+      ],
+      "alsoReads": [],
+      "digest": "69d591fcd3d0ed26f50cb970272eba1c34a4db56e40c5d16935910dd8ce38095"
+    },
+    "gates": [
+      "Exact editor artifact and dependency closure are not qualified.",
+      "Native registration/listing/loading/use and cleanup require separate authorization.",
+      "Legacy instruction precedence must be checked before AGENTS.md delivery; first existing file wins.",
+      "Zed Agent skills must be direct children, with no duplicate shared copies; external ACP agents have independent loading.",
+      "Personal instructions use ~/.config/zed/AGENTS.md or %APPDATA%/Zed/AGENTS.md; no cross-platform user rule root is assumed."
+    ],
+    "nativeCells": [
+      {
+        "os": "windows",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "windows",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "macos",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "x64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      },
+      {
+        "os": "linux",
+        "arch": "arm64",
+        "status": "unconfirmed",
+        "blocker": "Exact artifact, isolated native loading/use and cleanup not qualified."
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://zed.dev/docs/ai/instructions",
+        "retrievedAt": "2026-10-26T22:07:00.767535+00:00",
+        "sha256": "866281ea28d3a171e1fb565147357ed771d9e2b7fd763212b06659db9d24b81b"
+      },
+      {
+        "url": "https://zed.dev/docs/ai/skills",
+        "retrievedAt": "2026-10-26T22:07:01.105366+00:00",
+        "sha256": "b5b780873b6ab6ef239953307f9e29db7cde24111ebdd1d951fb743ea22b747d"
+      }
+    ]
+  }
+]
