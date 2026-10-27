@@ -605,6 +605,10 @@ shipped with this package. A request naming an unobserved tool is refused with
 only; Core never binds content from them. Being listed does not mean a tool is
 installed, configured or verified.
 
+Unqualified editor candidate layouts and exact identities are available as a
+[packed preparation fixture](docs/editor-content-candidates.md). They do not
+change the offered tool list or enable rendering.
+
 ## Observed tool bindings
 
 `toolBindings` from `@aihq/core/harness` is the observed binding table: one

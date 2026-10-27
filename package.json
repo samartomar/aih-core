@@ -141,6 +141,7 @@
     "./fixtures/harness/tool-binding/1.0.0/refuse.json": "./dist/fixtures/harness/tool-binding/1.0.0/refuse.json",
     "./fixtures/harness/tool-binding/1.0.0/accept.json": "./dist/fixtures/harness/tool-binding/1.0.0/accept.json",
     "./fixtures/harness/tool-binding/1.0.0/support-cases.json": "./dist/fixtures/harness/tool-binding/1.0.0/support-cases.json",
+    "./fixtures/harness/tool-binding/1.0.0/editor-candidates.json": "./dist/fixtures/harness/tool-binding/1.0.0/editor-candidates.json",
     "./fixtures/core/prepared-work/1.5.0/refuse.json": "./dist/fixtures/core/prepared-work/1.5.0/refuse.json",
     "./fixtures/core/execution-policy/1.4.0/refuse.json": "./dist/fixtures/core/execution-policy/1.4.0/refuse.json",
     "./fixtures/core/execution-policy/1.4.0/accept.json": "./dist/fixtures/core/execution-policy/1.4.0/accept.json",
@@ -223,6 +224,7 @@
     "docs/reporting/FIELDS.md",
     "docs/reporting/REPRODUCE.md",
     "examples/reporting",
+    "docs/editor-content-candidates.md",
     "docs/templates.md",
     "examples/templates"
   ],
