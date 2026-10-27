@@ -491,18 +491,10 @@
         }
       },
       "entryFiles": [
-        ".rules",
-        ".cursorrules",
-        ".windsurfrules",
-        ".clinerules",
-        ".github/copilot-instructions.md",
-        "AGENT.md",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "GEMINI.md"
+        "AGENTS.md"
       ],
       "alsoReads": [],
-      "digest": "69d591fcd3d0ed26f50cb970272eba1c34a4db56e40c5d16935910dd8ce38095"
+      "digest": "68b9efccaa5fcde04c2bdb36b008de999946fea19f067aadd69bb077f5a2e2d8"
     },
     "gates": [
       "Exact editor artifact and dependency closure are not qualified.",
@@ -560,6 +552,17 @@
         "retrievedAt": "2026-10-26T22:07:01.105366+00:00",
         "sha256": "b5b780873b6ab6ef239953307f9e29db7cde24111ebdd1d951fb743ea22b747d"
       }
+    ],
+    "instructionPrecedence": [
+      ".rules",
+      ".cursorrules",
+      ".windsurfrules",
+      ".clinerules",
+      ".github/copilot-instructions.md",
+      "AGENT.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "GEMINI.md"
     ]
   }
 ]

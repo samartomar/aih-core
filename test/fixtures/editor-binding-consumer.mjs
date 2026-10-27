@@ -75,7 +75,8 @@ check('native layouts and precedence do not duplicate shared skill copies', () =
   assert.equal(kiro.layouts.hook.roots.project, '.kiro/hooks');
   assert.equal(kiro.layouts['mcp-server'].register.file, 'settings/mcp.json');
   assert.equal(zed.layouts.skill.roots.project, '.agents/skills');
-  assert.deepEqual(zed.entryFiles, ['.rules', '.cursorrules', '.windsurfrules', '.clinerules', '.github/copilot-instructions.md',
+  assert.deepEqual(zed.entryFiles, ['AGENTS.md']);
+  assert.deepEqual(candidates[3].instructionPrecedence, ['.rules', '.cursorrules', '.windsurfrules', '.clinerules', '.github/copilot-instructions.md',
     'AGENT.md', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
   assert.ok(candidates[3].gates.some(gate => gate.includes('precedence')));
   for (const binding of [cursor, copilot, kiro, zed]) for (const kind of ['agent', 'command'])

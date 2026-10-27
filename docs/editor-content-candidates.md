@@ -61,7 +61,9 @@ selected editor's proposed-API compatibility remain unqualified.
 Zed's project instruction precedence is the first existing file in this order:
 `.rules`, `.cursorrules`, `.windsurfrules`, `.clinerules`,
 `.github/copilot-instructions.md`, `AGENT.md`, `AGENTS.md`, `CLAUDE.md`,
-`GEMINI.md`. Delivering `AGENTS.md` while an earlier file exists cannot establish
+`GEMINI.md`. This order is kept in candidate `instructionPrecedence` metadata;
+the binding's `entryFiles` contains only `AGENTS.md` because that field names
+simultaneous write targets. Delivering `AGENTS.md` while an earlier file exists cannot establish
 that it is loaded. Personal instructions use `~/.config/zed/AGENTS.md` or
 `%APPDATA%/Zed/AGENTS.md`; no common user rule root is supplied. Keep one shared
 skill copy and inspect conflicts before any later native operation. Zed external
