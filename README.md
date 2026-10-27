@@ -40,8 +40,11 @@ Offline repair remains an explicitly unverified supplied-bundle path, and refuse
 known Conda truststore/Git Schannel modes. Cargo HTTP repair preserves its Git
 transport choice; Git CLI dependency fetches require a separate Git decision.
 Python recipe exceptions can be inspected explicitly; automatic repair currently
-uses the general candidate and refuses incompatible interpreters. Conda inspection
-currently selects base and refuses a conflicting active environment. These are
+uses the general candidate and refuses incompatible interpreters. Online pip
+inspection and repair verification both use the selected Python's `-m pip`.
+Conda inspection currently selects base and refuses a conflicting active environment.
+The Windows observer process/cleanup protocol remains unqualified and refuses
+before invocation; Conda additionally needs its Windows launcher argument proof. These are
 bounded preparation limits, not native support claims. No new Windows, macOS,
 Linux architecture or WSL2 tuple is admitted by these protocol fixtures.
 
@@ -1433,7 +1436,7 @@ Python sets `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` for future user shell sessi
 
 Vendor transforms retain neighboring settings. Preserved configuration bodies are private inputs and appear redacted in reviews and routine history. Existing unowned or changed files require an exact reviewed replacement resolution, even when their other content will be preserved. Managed trust retains existing certificates and includes baseline roots alongside the supplied CA. Relevant config files, helper bytes and input bytes are bound to the prepared work; changes require another review. Online verification exercises the selected tool and its effective trust configuration. `--offline` reports skipped behavioral verification and incomplete repair. A failed or unavailable prerequisite prevents its dependent configuration changes. `--allow-partial` permits only reviewed independent work and does not authorize a conflict replacement.
 
-Python must be `python` on Windows or `python3` on macOS/Linux. pip, Git and conda require direct executables; Windows batch wrappers are unavailable. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
+Python must be `python` on Windows or `python3` on macOS/Linux. Online pip uses that Python interpreter through `-m pip`; Git and conda require direct executables. Windows online observation remains explicitly unqualified; offline pip retains its direct-executable readiness check. conda also needs its base Python connection module. Git verification refuses an explicit `schannel` backend that does not consume this CA setting. Public endpoint checks do not prove the supplied CA was necessary for, or repaired, a different endpoint's trust failure.
 
 ## Repair Gradle and Maven trust
 

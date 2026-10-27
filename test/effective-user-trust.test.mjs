@@ -17,6 +17,7 @@ test('effective trust refuses missing and incompatible selected Python without s
   try {
     const absent = await runtime.inspectUserToolTrust({ target: 'python', executable: join(root, 'missing'), project: root, network: 'off' });
     assert.equal(absent.decision, 'blocked');
+    if(process.platform==='win32'){assert.equal(absent.reason,'windows-process-protocol-unqualified');return;}
     assert.equal(absent.reason, 'executable-unavailable');
     const script = join(root, 'python.cjs');
     writeFileSync(script, `#!/usr/bin/env node\nconsole.log(JSON.stringify({version:'3.12.3',executable:${JSON.stringify(script)},prefix:'/fixture',basePrefix:'/fixture',openssl:'OpenSSL fixture',defaultPaths:{},pip:null}));\n`, { mode: 0o755 });
@@ -43,7 +44,7 @@ test('Git observes backend/config sources and refuses scoped or duplicate overri
     assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'config-ambiguous');
     fixture(root, `if(a[0]==='--version')console.log('git version 2.56.0');else if(a[0]==='config')process.exit(1);`);
     assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'backend-unconfirmed');
-    fixture(root, `if(a[0]==='--version')console.log('git version 2.56.0');else console.log('global\\tfile:/fixture/.gitconfig\\turl.file:///tmp/fixture.insteadof https://');`);
+    fixture(root, `if(a[0]==='--version')console.log('git version 2.56.0');else if(a[0]==='config'){const pattern=new RegExp(a.at(-1));for(const [key,value] of [['http.sslbackend','openssl'],['url.file:///tmp/fixture.insteadof','https://']])if(pattern.test(key))console.log('global\\tfile:/fixture/.gitconfig\\t'+key+' '+value);}`);
     assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'config-ambiguous');
   } finally {
     for (const [key,value] of Object.entries(saved)) { if(value===undefined)delete process.env[key];else process.env[key]=value; }

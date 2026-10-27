@@ -105,12 +105,7 @@ function processOutput(executable, args, cwd, deadline, signal) {
     const kill = signal => {
       try {
         if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
-        else if (child.pid) {
-          // The owned tree only; taskkill is an OS helper, never a shell command.
-          const killer=spawn(join(process.env.SystemRoot || 'C:\\Windows','System32','taskkill.exe'),
-            ['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore',shell:false});
-          killer.once('error',()=>{});
-        }
+        else child.kill(signal);
       } catch (error) { if(error.code!=='ESRCH')reason='termination-unresolved'; }
     };
     const stop = value => { reason ??= value; kill('SIGTERM');
@@ -199,6 +194,8 @@ export async function inspectUserToolTrust(request, controls = {}) {
     return blocked('input-invalid');
   // Script shell launchers on Windows require a separate qualified argument protocol.
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(request.executable)) return blocked('launcher-unqualified');
+  if(process.platform==='win32')return blocked(request.target==='conda' ?
+    'conda-windows-launcher-unqualified' : 'windows-process-protocol-unqualified');
   const deadline = performance.now() + (controls.budgetMs ?? 25000);
   const run = args => processOutput(request.executable, args, request.project, deadline, controls.signal);
   const observation = { target: request.target, executable: request.executable, platform: process.platform,
