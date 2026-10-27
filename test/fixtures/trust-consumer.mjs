@@ -5,8 +5,8 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { delimiter, dirname, join } from 'node:path';
 import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
 import { validatePreparedWork12, validatePreparedWork14, validateRunResult12 } from '@aihq/core/contracts';
-import { trustCapabilities, selectTrustCell } from '@aihq/core/harness';
-import { detectTrustPlatform, parseTrustOutput, verifyTrustAdmissionEvidence } from '@aihq/core/harness/runtime';
+import { trustCapabilities } from '@aihq/core/harness';
+import { parseTrustOutput, verifyTrustAdmissionEvidence } from '@aihq/core/harness/runtime';
 
 const installed = dirname(dirname(dirname(fileURLToPath(import.meta.resolve('@aihq/core')))));
 const cli = join(installed, 'dist/core/cli.js');
@@ -69,19 +69,21 @@ let written = 0;
 for (const format of ['pem', 'pkcs7-der']) {
   const request = { schema: 'urn:aihq:core:certificate-export-request:1.0.0', useCase: 'certificate-export', format,
     output: `packed/cli.${format === 'pem' ? 'pem' : 'p7b'}`, sources: source, network: 'off' };
-  const platform = detectTrustPlatform();
-  const cell = selectTrustCell({ definitionId: 'certificate-export', route: 'export', target: null, platform, network: 'off', format }, trustCapabilities);
+  // Public Prepare owns export-specific classification. The general discovery
+  // detector deliberately retains its older scope.
+  const preview = await prepare(request, { logging: 'off' });
   const result = spawnSync(process.execPath, [cli, 'export-ca', '--format', format, '--output', request.output,
     '--inputs-file', document, '--offline', '--apply', '--yes', '--no-log', '--json'], {
     cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 60_000, windowsHide: true
   });
   const value = JSON.parse(result.stdout);
-  if (cell.status === 'unavailable') {
+  if (preview.status === 'blocked') {
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.equal(value.status, 'blocked'); assert.equal(validatePreparedWork12(value.review).valid, true);
     assert.deepEqual(value.resolutionInputs, []);
     continue;
   }
+  assert.equal(preview.status, 'ready', JSON.stringify(preview.diagnostics));
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal(value.completion, 'complete'); assert.equal(validateRunResult12(value).valid, true);
   assert.equal(value.trust.outputs.length, 1);
