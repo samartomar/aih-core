@@ -16,6 +16,7 @@ import { userToolsRecipe, renderUserToolsRepair, prepareUserToolsRepair,
 import { jvmRepair } from './jvm-trust-definitions.mjs';
 import { jvmRecipe, renderJvmRepair, prepareJvmRepair, renderJvmTrustFileRepair } from './jvm-trust.mjs';
 export { validateBaselineStore, parseJvmTrustStore } from './jvm-trust.mjs';
+export { inspectJvmRuntime } from './jvm-trust-runtime.mjs';
 import { resolveTrustRecipeRef, buildCertificateExportRecipe } from './trust-definitions.mjs';
 export { validateSuppliedCa, composeExistingTrust } from './ca.mjs';
 /** Definition-owned metadata prevents a convenience operation from treating
