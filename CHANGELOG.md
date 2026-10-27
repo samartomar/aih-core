@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Add display-only plugin-route guidance to `checkCompatibility`: given Catalog
+`nativeRoutes` lines by framework, `pluginRoutes` lists the routes naming the
+tool by its registry label (`listed`, `not-listed`, `not-supplied`). Routes are
+never run and change no other answer; without them the result is unchanged.
+
 Project CLI content support only from observations for the exact installed client
 version when selected. Compatibility accepts `installedVersion`; rendering can
 require an explicit version/platform pair and refuse unobserved content kinds.

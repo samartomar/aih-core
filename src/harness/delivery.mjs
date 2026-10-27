@@ -437,6 +437,41 @@ function cellOn(binding, kind, platform, installedVersion) {
   return { support: derived.support, reason, observed: derived.observed, observedOn: derived.observedOn ?? null, layout };
 }
 
+/** Where plugin-route guidance comes from: the `nativeRoutes` lines of the caller's checked Catalog releases. */
+const PLUGIN_ROUTE_SOURCE = 'catalog-native-routes';
+
+/** The supplied Catalog `nativeRoutes` lines by framework, bounded as Catalog's release reader bounds them. */
+function readNativeRoutes(nativeRoutes) {
+  if (!Array.isArray(nativeRoutes) || nativeRoutes.length > 4096)
+    invalid('native-routes', '/nativeRoutes', 'Expected at most 4096 { framework, lines } entries.');
+  const supplied = new Map();
+  nativeRoutes.forEach((entry, index) => {
+    const at = `/nativeRoutes/${index}`;
+    if (!isRecord(entry) || Object.keys(entry).some(key => !['framework', 'lines'].includes(key)) ||
+        typeof entry.framework !== 'string' || !ID.test(entry.framework) ||
+        !Array.isArray(entry.lines) || entry.lines.length > 4096 || !entry.lines.every(line => text(line)))
+      invalid('native-routes', at, "Expected { framework, lines } holding one Catalog release's nativeRoutes lines.");
+    if (supplied.has(entry.framework)) invalid('native-routes', `${at}/framework`, 'Expected one entry per framework.');
+    supplied.set(entry.framework, entry.lines);
+  });
+  return supplied;
+}
+
+/**
+ * Display-only guidance: the route text of each line naming the tool by its registry label (`<label>: <route>`),
+ * in published order. A line naming the tool any other way is not attributed to it. Nothing here is run or observed.
+ */
+function pluginRoutes(supplied, label, frameworks) {
+  const prefix = `${label}: `;
+  return [...new Set([...frameworks, ...supplied.keys()])].sort(compareCodeUnits).map(framework => {
+    const suppliedLines = supplied.get(framework);
+    const listed = (suppliedLines ?? []).filter(line => line.startsWith(prefix) && line.length > prefix.length)
+      .map(line => line.slice(prefix.length));
+    return { framework, source: PLUGIN_ROUTE_SOURCE,
+      state: suppliedLines === undefined ? 'not-supplied' : listed.length > 0 ? 'listed' : 'not-listed', lines: listed };
+  });
+}
+
 const refKey = ref => `${ref.framework}\u0000${ref.itemId}`;
 const setKey = set => `${set.framework}\u0000${set.setId}\u0000${set.setSha256}`;
 const isSetRef = set => isRecord(set) && Object.keys(set).length === 3 && typeof set.framework === 'string' && ID.test(set.framework) &&
@@ -447,11 +482,12 @@ const isSetRef = set => isRecord(set) && Object.keys(set).length === 3 && typeof
  * Only observations made on that platform count. Items are the members left after Catalog's set expansion and
  * exclusions; entries repeated across overlapping sets merge, so the answer does not depend on their order.
  */
-export function checkCompatibility({ tool, platform, installedVersion, items, binding } = {}) {
+export function checkCompatibility({ tool, platform, installedVersion, items, binding, nativeRoutes } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
     observationTarget(platform, installedVersion);
     if (!Array.isArray(items) || items.length > 4096) invalid('items', '/items', 'Expected at most 4096 item entries.');
+    const suppliedRoutes = nativeRoutes === undefined ? undefined : readNativeRoutes(nativeRoutes);
     const merged = new Map();
     items.forEach((entry, index) => {
       const at = `/items/${index}`;
@@ -537,6 +573,8 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
       summary.fit = summary.members.native === total ? 'full' : summary.members.native === 0 ? 'none' : 'partial';
     }
     return { status: 'checked', tool: binding.tool, platform: { os: platform.os, arch: platform.arch }, bindingDigest: binding.digest,
-      items: results.map(({ result }) => result), sets: [...sets.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, summary]) => summary) };
+      items: results.map(({ result }) => result), sets: [...sets.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, summary]) => summary),
+      ...(suppliedRoutes ? { pluginRoutes: pluginRoutes(suppliedRoutes, selectTool(binding.tool).tool.label,
+        ordered.map(entry => entry.info.ref.framework)) } : {}) };
   });
 }

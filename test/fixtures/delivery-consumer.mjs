@@ -294,6 +294,67 @@ await check('only observations from the same OS and architecture count: a Window
   assert.deepEqual([refused.status, refused.reason], ['refused', 'platform']);
 });
 
+// A Catalog release's display-only nativeRoutes lines, as published for upstream plugin bundles: "<tool name>: <route>".
+const UPSTREAM_ROUTES = { framework: 'upstream-plugins', lines: [
+  'Claude Code: /plugin marketplace add example/marketplace', 'Cursor: /add-plugin example',
+  'Claude Code: /plugin install example@marketplace', 'GitHub Copilot CLI: copilot plugin install example@marketplace'] };
+
+await check('plugin-route guidance lists the supplied Catalog route lines for the tool by its registry label, in published order', () => {
+  const plainResult = compat('claude', WINDOWS, [{ item: skill }]);
+  assert.equal(Object.hasOwn(plainResult, 'pluginRoutes'), false, 'no guidance field unless routes are supplied');
+  const result = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [{ item: skill }], binding: bindingWith('claude'),
+    nativeRoutes: [UPSTREAM_ROUTES] });
+  assert.equal(result.status, 'checked');
+  assert.deepEqual(result.pluginRoutes, [
+    { framework: FRAMEWORK, source: 'catalog-native-routes', state: 'not-supplied', lines: [] },
+    { framework: 'upstream-plugins', source: 'catalog-native-routes', state: 'listed',
+      lines: ['/plugin marketplace add example/marketplace', '/plugin install example@marketplace'] }]);
+  // Guidance changes nothing else: support, observation, size and sets are those of the plain check.
+  const { pluginRoutes, ...rest } = result;
+  assert.deepEqual(rest, plainResult);
+  const listed = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [], binding: bindingWith('claude'),
+    nativeRoutes: [{ framework: FRAMEWORK, lines: ['Claude Code: /plugin install review@example'] }] });
+  assert.deepEqual(listed.pluginRoutes.map(entry => [entry.framework, entry.state, entry.lines]),
+    [[FRAMEWORK, 'listed', ['/plugin install review@example']]]);
+});
+
+await check('plugin-route guidance is not-listed when no supplied line names the tool by its label, and empty input lists nothing', () => {
+  for (const tool of ['codex', 'copilot']) {
+    const result = checkCompatibility({ tool, platform: WINDOWS, items: [{ item: skill }], binding: bindingWith(tool), nativeRoutes: [UPSTREAM_ROUTES] });
+    assert.equal(result.status, 'checked');
+    // Copilot CLI's registry label is not "GitHub Copilot CLI": another spelling is never attributed to the tool.
+    assert.deepEqual(result.pluginRoutes.map(entry => [entry.framework, entry.state, entry.lines]),
+      [[FRAMEWORK, 'not-supplied', []], ['upstream-plugins', 'not-listed', []]]);
+  }
+  const empty = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [{ item: skill }], binding: bindingWith('claude'), nativeRoutes: [] });
+  assert.deepEqual(empty.pluginRoutes.map(entry => [entry.framework, entry.state]), [[FRAMEWORK, 'not-supplied']]);
+  const unlabelled = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [], binding: bindingWith('claude'),
+    nativeRoutes: [{ framework: FRAMEWORK, lines: ['Claude Code:', 'Claude Code: ', 'claude code: /plugin install x', '/plugin install x'] }] });
+  assert.deepEqual(unlabelled.pluginRoutes.map(entry => [entry.state, entry.lines]), [['not-listed', []]]);
+});
+
+await check('malformed route input refuses the check, and routes never admit an unknown or unobserved tool', () => {
+  const ask = nativeRoutes => checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [{ item: skill }], binding: bindingWith('claude'), nativeRoutes });
+  for (const [nativeRoutes, path] of [
+    [{ framework: FRAMEWORK, lines: [] }, '/nativeRoutes'], [UPSTREAM_ROUTES.lines, '/nativeRoutes/0'],
+    [[{ framework: FRAMEWORK }], '/nativeRoutes/0'], [[{ framework: '../x', lines: [] }], '/nativeRoutes/0'],
+    [[{ framework: FRAMEWORK, lines: [''] }], '/nativeRoutes/0'], [[{ framework: FRAMEWORK, lines: ['x'.repeat(4097)] }], '/nativeRoutes/0'],
+    [[{ framework: FRAMEWORK, lines: [7] }], '/nativeRoutes/0'], [[{ framework: FRAMEWORK, lines: [], installed: true }], '/nativeRoutes/0'],
+    [[UPSTREAM_ROUTES, UPSTREAM_ROUTES], '/nativeRoutes/1/framework'],
+    [Array.from({ length: 4097 }, (_, index) => ({ framework: `f${index}`, lines: [] })), '/nativeRoutes'],
+    [[{ framework: FRAMEWORK, lines: Array(4097).fill('Claude Code: /plugin install x') }], '/nativeRoutes/0']]) {
+    const refused = ask(nativeRoutes);
+    assert.deepEqual([refused.status, refused.code, refused.reason, refused.path], ['refused', 'INPUT_INVALID', 'native-routes', path]);
+  }
+  assert.equal(ask([{ framework: FRAMEWORK, lines: ['x'.repeat(4096), ...Array(4095).fill('y')] }]).status, 'checked', 'the bounds are inclusive');
+  const unknown = checkCompatibility({ tool: 'nope', platform: WINDOWS, items: [], binding: bindingWith('claude'), nativeRoutes: [UPSTREAM_ROUTES] });
+  assert.deepEqual([unknown.status, unknown.reason], ['refused', 'unknown-tool']);
+  // Cursor has a published route line but no observed binding: guidance never makes a tool selectable.
+  const unobserved = checkCompatibility({ tool: 'cursor', platform: WINDOWS, items: [], binding: bindingWith('claude'), nativeRoutes: [UPSTREAM_ROUTES] });
+  assert.deepEqual([unobserved.status, unobserved.code, unobserved.reason], ['refused', 'PREREQUISITE_UNAVAILABLE', 'tool-not-observed']);
+  assert.equal(Object.hasOwn(unobserved, 'pluginRoutes'), false);
+});
+
 await check('compatibility uses the exact installed CLI version without borrowing older observations', () => {
   const binding = bindingWith('codex');
   const result = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.164.0',
