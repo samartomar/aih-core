@@ -69,6 +69,18 @@ const fixtureLauncher = name => {
   writeFileSync(file, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n', { mode: 0o600 });
   return file;
 };
+
+test('public Prepare preserves escaped Gradle trust overrides and refuses automatic repair', () => withPath(async () => {
+  fixtureExecutable('keytool');
+  const path = join(home, '.gradle', 'gradle.properties');
+  mkdirSync(dirname(path), { recursive: true });
+  const original = 'org.gradle.jvmargs=-Djavax.net.ssl.trustSt\\u006freProvider=CustomProvider\n';
+  writeFileSync(path, original);
+  const result = await prepare(request(source('escaped.pem'), ['gradle']), { logging: 'off' });
+  assert.notEqual(result.status, 'ready');
+  assert.ok(result.diagnostics.some(item => item.reason === 'config-ambiguous'), JSON.stringify(result.diagnostics));
+  assert.equal(readFileSync(path, 'utf8'), original);
+}));
 const boundaryKeytool = (t, listedFingerprint) => {
   if (process.platform !== 'win32') {
     const file = join(bin, 'keytool');

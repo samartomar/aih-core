@@ -442,6 +442,21 @@ function variantFor(request) {
 }
 
 const GRADLE_KEYS = ['systemProp.javax.net.ssl.trustStore', 'systemProp.javax.net.ssl.trustStorePassword'];
+// Java Properties decodes value escapes before Gradle interprets JVM arguments.
+function decodedPropertyValue(value) {
+  let decoded = '';
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] !== '\\') { decoded += value[index]; continue; }
+    const escaped = value[++index];
+    if (escaped === undefined) return undefined;
+    if (escaped === 'u') {
+      const hex = value.slice(index + 1, index + 5);
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) return undefined;
+      decoded += String.fromCharCode(parseInt(hex, 16)); index += 4;
+    } else decoded += ({ t: '\t', n: '\n', r: '\r', f: '\f' })[escaped] ?? escaped;
+  }
+  return decoded;
+}
 /** Duplicate managed keys or non-`=` separators must never become an apparently verified rewrite. */
 function gradleConfigAmbiguous(text) {
   if (/\r(?!\n)/.test(text)) return true;
@@ -457,6 +472,10 @@ function gradleConfigAmbiguous(text) {
     // application store, and an explicit daemon home can select another JDK's
     // baseline. Preserve those choices by refusing this automatic rewrite.
     if (/trustStore/i.test(row) && !/^\s*systemProp\.javax\.net\.ssl\.trustStore(?:Password)?=/.test(row)) return true;
+    if (/^\s*org\.gradle\.jvmargs(?:\s|=|:)/.test(row)) {
+      const decoded = decodedPropertyValue(row);
+      if (decoded === undefined || /trustStore/i.test(decoded)) return true;
+    }
     if (/^\s*org\.gradle\.java\.home(?:\s|=|:)/.test(row)) return true;
     for (const key of GRADLE_KEYS) {
       const escaped = key.replaceAll('.', '\\.');
