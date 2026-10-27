@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Project CLI content support only from observations for the exact installed client
+version when selected. Compatibility accepts `installedVersion`; rendering can
+require an explicit version/platform pair and refuse unobserved content kinds.
+Keep historical binding/run-record bytes and per-server approval distinctions.
+Packed consumers cover the selected CLI candidates; native activation, exact
+artifact qualification and publication remain separate.
+
 Observe selected Python/pip, Conda, Git and Cargo effective trust before online
 user-tool CA repair. Keep exact candidate compatibility, Python recipe exceptions,
 declared interpreter provenance, Cargo/rustc versions and TLS backends separate.

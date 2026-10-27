@@ -142,15 +142,22 @@ check('support is scoped to the observed platform', () => {
     assert.deepEqual(deriveCellSupport({ kind: 'rule', observations, platform }), { support: 'unconfirmed', observed: 'none', stale: false });
 });
 
-check('a newer installed tool makes the cell stale, claiming no more than registered', () => {
+check('a different installed version has no qualifying observation in either version direction', () => {
   const observations = [observation({ toolVersion: '2.1.308', recognised: 'recognised' })];
   const at = installedVersion => deriveCellSupport({ kind: 'skill', observations, platform: WINDOWS, installedVersion });
   assert.partialDeepStrictEqual(at('2.1.308'), { support: 'native', observed: 'recognised', stale: false });
-  assert.partialDeepStrictEqual(at('2.1.200'), { support: 'native', observed: 'recognised', stale: false });
-  assert.partialDeepStrictEqual(at('2.1.309'), { support: 'native', observed: 'registered', stale: true });
-  assert.partialDeepStrictEqual(at('3.0'), { support: 'native', observed: 'registered', stale: true });
-  assert.deepEqual(at('2.1.309').observedOn, { toolVersion: '2.1.308', os: 'windows', arch: 'x64', observedAt: '2026-10-23T00:00:00.000Z' });
+  assert.deepEqual(at('2.1.200'), { support: 'unconfirmed', observed: 'none', stale: true });
+  assert.deepEqual(at('2.1.309'), { support: 'unconfirmed', observed: 'none', stale: true });
+  assert.deepEqual(at('3.0'), { support: 'unconfirmed', observed: 'none', stale: true });
+  assert.equal(at('2.1.309').observedOn, undefined, 'a historical observation is never attributed to a different selected version');
   assert.throws(() => at('latest'), TypeError);
+  const mixed = [observation({ toolVersion: '2.1.308', recognised: 'recognised' }),
+    observation({ toolVersion: '2.1.309', registered: 'not-registered' })];
+  assert.partialDeepStrictEqual(deriveCellSupport({ kind: 'skill', observations: mixed, platform: WINDOWS, installedVersion: '2.1.309' }),
+    { support: 'none', observed: 'delivered', stale: false, observedOn: { toolVersion: '2.1.309' } });
+  assert.partialDeepStrictEqual(selectBindingCell({ tool: 'codex', kind: 'rule', platform: WINDOWS, installedVersion: '0.164.0' }),
+    { status: 'refused', reason: 'kind-not-native', cell: { support: 'unconfirmed' } });
+
 });
 
 check('the published support cases hold for the shipped table', () => {
