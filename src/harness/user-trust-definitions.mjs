@@ -16,7 +16,6 @@ export const userToolsRepair = Object.freeze({
       targets: Object.freeze([...targets]), network, recipeRef: `user-tools-ca/${os}/${targets.join('+')}/${network}`,
       executableBindings: Object.freeze(network === 'off' ? [] : [
         ...(targets.some(target => ['python', 'pip'].includes(target)) ? [Object.freeze({ name: os === 'win32' ? 'python' : 'python3', pathInput: 'pythonExecutable' })] : []),
-        ...(targets.includes('pip') ? [Object.freeze({ name: 'pip', pathInput: 'pipExecutable' })] : []),
         ...(targets.includes('git') ? [Object.freeze({ name: 'git', pathInput: 'gitExecutable' })] : []),
         ...(targets.includes('cargo') ? [Object.freeze({ name: 'cargo', pathInput: 'cargoExecutable' })] : []),
         ...(targets.includes('cargo') ? [Object.freeze({ name: 'rustc', pathInput: 'rustcExecutable' })] : []),

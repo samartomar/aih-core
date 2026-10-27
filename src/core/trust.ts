@@ -108,7 +108,7 @@ function installedHelper(): string {
   const root = dirname(distributionManifest); const packageIdentity = installedDistribution();
   if (canonicalJson(packageIdentity) !== canonicalJson(harnessSupport.package)) throw new Error('harness-unsupported');
   const names = [...new Set(['package.json','dist/distribution.mjs','dist/harness/contracts.mjs','dist/harness/runtime.mjs','dist/harness/ca.mjs',
-    'dist/harness/user-trust-definitions.mjs','dist/harness/user-trust.mjs','dist/harness/effective-user-trust.mjs','dist/harness/jvm-trust-definitions.mjs','dist/harness/jvm-trust.mjs',
+    'dist/harness/user-trust-definitions.mjs','dist/harness/user-trust.mjs','dist/harness/jvm-trust-definitions.mjs','dist/harness/jvm-trust.mjs',
     ...trustHelperFiles.map(name => name.startsWith('dist/') ? name : `dist/${name}`)])].sort();
   const libraries = hashTrustLibraries({packageRoot:root}); if (libraries.status !== 'hashed') throw new Error(libraries.reason);
   return hash({libraries:libraries.sha256,helpers:names.map(name => { const bytes = readRegularFile(join(root,name), { maxBytes: 4_000_000 });

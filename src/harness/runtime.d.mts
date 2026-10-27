@@ -23,8 +23,9 @@ export interface UserToolTrustRequest {
   rustcExecutable?: string;
 }
 export interface UserToolTrustResult {
-  decision: 'blocked' | 'unconfirmed' | 'no-repair' | 'bundle-fallback'; reason: string;
+  decision: 'blocked' | 'unconfirmed' | 'no-repair' | 'bundle-fallback' | 'native-truststore'; reason: string;
   observation: Record<string, unknown>;
+  recommendation?: {scope:'observed-conda-environment';key:'ssl_verify';value:'truststore'};
 }
 export declare function inspectUserToolTrust(request: UserToolTrustRequest, controls?: DiagnoseControls): Promise<UserToolTrustResult>;
 export interface DiagnoseResult {

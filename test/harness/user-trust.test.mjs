@@ -191,22 +191,22 @@ test('pip verification refuses effective trusted hosts before an index query wit
   try {
     // The external process fixture speaks the real pip config-list protocol.
     // Node is a real shell-free executable on every supported test host.
-    writeFileSync(join(root, 'config'), `
-      const fs=require('node:fs');
-      fs.writeFileSync(process.env.FIXTURE_QUERY_MARKER,process.argv[2]);
-      if(process.argv[2]==='list'){
-        process.stdout.write('global.cert='+JSON.stringify(process.env.FIXTURE_CA)+'\\n'+process.env.FIXTURE_TRUST_KEY+"='private-bypass-host.example'\\n");process.exit(0)
-      }
-      process.exit(1);
+    const boundary=join(root,'python-boundary.cjs');
+    writeFileSync(boundary, `
+      const fs=require('node:fs');require('node:child_process').spawnSync=(file,args)=>{
+        if(args[0]!=='-m'||args[1]!=='pip'||args[2]!=='config'||args[3]!=='list')return {status:2,stdout:'',stderr:''};
+        fs.writeFileSync(process.env.FIXTURE_QUERY_MARKER,args[3]);
+        return {status:0,stdout:'global.cert='+JSON.stringify(process.env.FIXTURE_CA)+'\\n'+process.env.FIXTURE_TRUST_KEY+"='private-bypass-host.example'\\n",stderr:''};
+      };
     `);
     const recipe = getRepairRecipe(`user-tools-ca/${process.platform}/pip/declared`);
     const probe = recipe.checks.find(item => item.id === 'pip-behavior');
     for (const key of ['global.trusted-host', 'index.trusted-host', 'install.trusted-host', 'download.trusted-host', ':env:.trusted-host']) {
       const marker = join(root, key.replaceAll(':', '-'));
-      const bindings = { bundlePath: join(root, 'ca.pem'), pipConfigPath: join(root, 'pip.conf'), pipExecutable: process.execPath };
+      const bindings = { bundlePath: join(root, 'ca.pem'), pipConfigPath: join(root, 'pip.conf'), pythonExecutable: process.execPath };
       const env = { ...process.env, FIXTURE_CA: bindings.bundlePath, FIXTURE_TRUST_KEY: key, FIXTURE_QUERY_MARKER: marker };
       for (const name of Object.keys(env)) if (/^PIP_(TRUSTED_HOST|CERT|CONFIG_FILE|INDEX_URL|EXTRA_INDEX_URL)$/i.test(name)) delete env[name];
-      const result = spawnSync(probe.executable.name, probe.args.map(slot => slot.literal ?? bindings[slot.input]),
+      const result = spawnSync(probe.executable.name, ['--require',boundary,...probe.args.map(slot => slot.literal ?? bindings[slot.input])],
         { cwd: root, env, shell: false, encoding: 'utf8', timeout: probe.timeoutMs, maxBuffer: probe.maxOutputBytes, windowsHide: true });
       assert.equal(result.status, 1, key);
       assert.equal(readFileSync(marker, 'utf8'), 'list', `${key} must be observed through active config list`);
@@ -223,13 +223,13 @@ test('pip active config lists validate repr values and all trust overrides witho
     writeFileSync(boundary, `
       const fs=require('node:fs');require('node:child_process').spawnSync=(file,args,options)=>{
         if(options.shell!==false||file!==process.env.FIXTURE_BOUND_EXE||options.env.PIP_CONFIG_FILE!==process.env.PIP_CONFIG_FILE)return {status:2,stdout:'',stderr:''};
-        if(args[0]==='config'&&args[1]==='list')return {status:0,stdout:process.env.FIXTURE_CONFIG_LIST,stderr:''};
-        if(args[0]==='--disable-pip-version-check'){fs.writeFileSync(process.env.FIXTURE_NETWORK_MARKER,'queried');return {status:0,stdout:'pip versions',stderr:''}}
+        if(args[0]==='-m'&&args[1]==='pip'&&args[2]==='config'&&args[3]==='list')return {status:0,stdout:process.env.FIXTURE_CONFIG_LIST,stderr:''};
+        if(args[0]==='-m'&&args[1]==='pip'&&args[2]==='--disable-pip-version-check'){fs.writeFileSync(process.env.FIXTURE_NETWORK_MARKER,'queried');return {status:0,stdout:'pip versions',stderr:''}}
         return {status:2,stdout:'',stderr:''};
       };
     `);
     const probe = getRepairRecipe(`user-tools-ca/${process.platform}/pip/declared`).checks.find(item => item.id === 'pip-behavior');
-    const bindings = { bundlePath: join(root, 'ca.pem'), pipConfigPath: join(root, 'pip.conf'), pipExecutable: process.execPath };
+    const bindings = { bundlePath: join(root, 'ca.pem'), pipConfigPath: join(root, 'pip.conf'), pythonExecutable: process.execPath };
     const selected = `global.cert=${JSON.stringify(bindings.bundlePath)}\n`;
     const safe = selected + "global.index-url='https://pypi.org/simple'\nindex.extra-index-url='https://one.example/simple\\t https://two.example/simple'\n";
     const cases = [

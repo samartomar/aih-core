@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as runtime from '@aihq/core/harness/runtime';
@@ -43,9 +43,52 @@ test('Git observes backend/config sources and refuses scoped or duplicate overri
     assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'config-ambiguous');
     fixture(root, `if(a[0]==='--version')console.log('git version 2.56.0');else if(a[0]==='config')process.exit(1);`);
     assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'backend-unconfirmed');
+    fixture(root, `if(a[0]==='--version')console.log('git version 2.56.0');else console.log('global\\tfile:/fixture/.gitconfig\\turl.file:///tmp/fixture.insteadof https://');`);
+    assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'config-ambiguous');
   } finally {
     for (const [key,value] of Object.entries(saved)) { if(value===undefined)delete process.env[key];else process.env[key]=value; }
     rmSync(root, { recursive:true, force:true });
+  }
+});
+
+test('a timed-out selected process that ignores TERM is killed before inspection returns', {skip:process.platform==='win32',timeout:10000}, async()=>{
+  const root=mkdtempSync(join(tmpdir(),'aih-effective-timeout-'));
+  try {
+    const pidFile=join(root,'pid');
+    const executable=fixture(root,`require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));process.on('SIGTERM',()=>{});setInterval(()=>{},100);`);
+    const result=await runtime.inspectUserToolTrust({target:'python',executable,project:root,network:'off'},{budgetMs:500});
+    assert.equal(result.reason,'deadline');
+    const pid=Number(readFileSync(pidFile,'utf8'));
+    assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('pip trust and repair checks use the same selected Python environment', {skip:process.platform==='win32'}, async()=>{
+  const root=mkdtempSync(join(tmpdir(),'aih-effective-pip-'));
+  const keys=['PIP_TRUSTED_HOST','PIP_CERT','REQUESTS_CA_BUNDLE','CURL_CA_BUNDLE'];
+  const previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+  try {
+    for(const key of keys)delete process.env[key];
+    const source=`if(a[0]==='-c')console.log(JSON.stringify({version:'3.15.2',executable:${JSON.stringify(join(root,'tool'))},prefix:'/fixture/venv',basePrefix:'/fixture/system',openssl:'OpenSSL fixture',defaultPaths:{},pip:'26.2.2'}));else if(a.includes('index')){console.error('CERTIFICATE_VERIFY_FAILED');process.exit(1);}`;
+    const executable=fixture(root,source);
+    const request={target:'pip',executable,project:root,network:'declared'};
+    const fallback=await runtime.inspectUserToolTrust(request);
+    assert.equal(fallback.decision,'bundle-fallback');
+    const ref=`user-tools-ca/${process.platform}/pip/declared`;
+    const rendered=runtime.renderRepair({id:'user-tools-ca',variantRef:ref,bundlePath:join(root,'trust.pem'),bundleSha256:'a'.repeat(64),
+      executablePaths:{pythonExecutable:executable}});
+    assert.equal(rendered.status,'completed',JSON.stringify(rendered.diagnostics));
+    const recipe=runtime.getRepairRecipe(ref);
+    assert.equal(recipe.inputs.pipExecutable,undefined);
+    assert.deepEqual(recipe.checks.find(item=>item.id==='pip-installed').args.map(item=>item.literal),['-m','pip','--version']);
+    assert.ok(recipe.checks.find(item=>item.id==='pip-behavior').args.some(item=>item.input==='pythonExecutable'));
+    fixture(root,source.replace("console.error('CERTIFICATE_VERIFY_FAILED');process.exit(1);",'process.exit(0);'));
+    assert.equal((await runtime.inspectUserToolTrust(request)).decision,'no-repair');
+    process.env.PIP_CERT=join(root,'override.pem');
+    assert.equal((await runtime.inspectUserToolTrust(request)).reason,'explicit-trust-override');
+  } finally {
+    for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+    rmSync(root,{recursive:true,force:true});
   }
 });
 
@@ -78,10 +121,33 @@ test('Cargo observes Rust and its own backend separately before deciding trust',
     assert.equal(result.observation.version,'1.99.0');
     assert.equal(result.observation.rustVersion,'1.99.1');
     assert.equal(result.observation.backend,'openssl');
+    copyFileSync(executable,join(root,'cargo'));
+    const priorPath=process.env.PATH;
+    try {
+      process.env.PATH=root;
+      const diagnostic=await runtime.diagnose({requestId:'cargo-environment',targets:['cargo'],project:root,network:'off'});
+      const observed=diagnostic.observations.find(item=>item.id==='cargo/effective-trust');
+      assert.equal(JSON.parse(observed.detail).rustVersion,'1.99.1');
+      assert.equal(diagnostic.checks.find(item=>item.id==='cargo/tls/effective').outcome,'skipped');
+    } finally {process.env.PATH=priorPath;}
+    mkdirSync(join(root,'.cargo'));mkdirSync(process.env.CARGO_HOME);
+    writeFileSync(join(root,'.cargo','config.toml'),'[net]\ngit-fetch-with-cli = true\n');
+    writeFileSync(join(process.env.CARGO_HOME,'config.toml'),'[net]\ngit-fetch-with-cli = false\n');
+    assert.equal((await runtime.inspectUserToolTrust(request)).reason,'config-ambiguous');
   } finally {
     if(previous===undefined)delete process.env.CARGO_HOME;else process.env.CARGO_HOME=previous;
     rmSync(root,{recursive:true,force:true});
   }
+});
+
+test('Conda prefers an effective process-local native alternative over a bundle workaround', {skip:process.platform==='win32'},async()=>{
+  const root=mkdtempSync(join(tmpdir(),'aih-effective-conda-'));
+  try {
+    const executable=fixture(root,`const script=a[a.indexOf('-c')+1];console.log(JSON.stringify(script.includes('conda.__version__')?{version:'26.9.4',python:'3.15.2',prefix:'/fixture/conda',sslVerify:true,configSources:[]}:script.includes('CONDA_SSL_VERIFY')?{tls:'passed'}:{tls:'certificate-chain'}));`);
+    const result=await runtime.inspectUserToolTrust({target:'conda',executable,project:root,network:'declared'});
+    assert.equal(result.decision,'native-truststore');
+    assert.deepEqual(result.recommendation,{scope:'observed-conda-environment',key:'ssl_verify',value:'truststore'});
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
 
 test('selected Python effective trust suppresses persistent repair in the public file route', { skip: process.platform === 'win32' }, async () => {
