@@ -1452,8 +1452,8 @@ const observation = await inspectJvmRuntime({
 ```
 
 This runs the selected Java's property/version query and the manager's
-`--version` command, including its normal launcher and rc behavior. It never
-runs a project task or modifies a trust store. Use disposable homes/projects for
+`--version` command, including its normal launcher and rc behavior. The helper performs no trust-store or configuration writes; normal launcher/rc
+behavior can have its own effects. It requests no project task. Use disposable homes/projects for
 fixtures. Processes run sequentially with one deadline, bounded output and owned
 POSIX process-group cleanup. Explicit JVM option variables are refused before
 launch rather than removed. Windows observer/cleanup remains unqualified and
@@ -1481,9 +1481,10 @@ qualification. macOS x64 and Windows arm64 require separately sourced compatible
 JDK distributions. No new native cell is admitted. Discovery returns `blocked`
 or `unconfirmed`, never permission to export a fallback bundle. Existing explicit
 repair still requires its own review, Apply approval, complete JKS baseline,
-conflict checks, exclusions and rollback. Gradle application store type/provider,
-JVM trust flags and explicit daemon-home configuration now refuse automatic
-rewriting rather than redirecting the application to a mismatched baseline.
+conflict checks, exclusions and rollback. This preparation leaves the existing
+repair implementation unchanged. Additional repair refusals for application
+store type/provider, embedded JVM trust flags and explicit daemon-home settings
+require separate admission evidence before integration.
 
 ## Repair Gradle and Maven trust
 
