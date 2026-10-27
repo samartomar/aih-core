@@ -12,6 +12,35 @@ Neither Node's version nor a package pin establishes the selected npm version.
 Historical native verification records keep their exact Node/runtime subjects;
 this runtime range does not requalify their platforms or client closures.
 
+`inspectUserToolTrust` from `@aihq/core/harness/runtime` observes one explicitly
+selected Python interpreter (also for `python -m pip`), Conda, Git or Cargo process
+in the caller's project. It returns `no-repair`, `bundle-fallback`, `unconfirmed`
+or `blocked` plus the actual process/configuration observations. `network: 'off'`
+never establishes working TLS. HTTPS queries preserve verification and inherited
+trust; package managers may update ordinary query caches. Use disposable homes
+and projects for fixtures.
+
+The qualification candidates are Python 3.15.2, pip 26.2.2, Conda 26.9.4,
+Git 2.56.0 (Windows 2.56.0.windows.4), and Rust 1.99.1. Cargo's version and
+reported TLS backend are observed separately from the required selected rustc
+executable. Python's explicit `pythonRecipe` exceptions are `pyyaml-onnx` and
+`code-review-graph` (3.14.10), and `serena` (3.13.18). The optional
+`interpreterSource` is a caller declaration: process paths are observed, but a
+uv-managed versus system distribution is never certified from its path alone.
+Exact interpreter/distributor/dependency artifacts still need qualification.
+
+Online user-tool CA repair runs the effective-process gate before rendering
+persistent changes. A working endpoint reports `REPAIR_NOT_NEEDED`; ambiguous
+configuration, explicit trust overrides or unknown backends block fallback.
+Offline repair remains an explicitly unverified supplied-bundle path, and refuses
+known Conda truststore/Git Schannel modes. Cargo HTTP repair preserves its Git
+transport choice; Git CLI dependency fetches require a separate Git decision.
+Python recipe exceptions can be inspected explicitly; automatic repair currently
+uses the general candidate and refuses incompatible interpreters. Conda inspection
+currently selects base and refuses a conflicting active environment. These are
+bounded preparation limits, not native support claims. No new Windows, macOS,
+Linux architecture or WSL2 tuple is admitted by these protocol fixtures.
+
 ## Public imports
 
 Each code entry lists its exports explicitly. Trust definition assembly, helper file layout and

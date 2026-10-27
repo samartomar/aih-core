@@ -3,6 +3,39 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { userToolsRepair } from './user-trust-definitions.mjs';
 import { composeExistingTrust, validateSuppliedCa } from './ca.mjs';
+import { spawnSync } from 'node:child_process';
+
+// The engine's renderer is synchronous. A single bounded read-only child runs the
+// same effective-process observer used by diagnostics; it never edits a tool home.
+// Re-render at Apply repeats this gate before effects. Unknown trust is not fallback permission.
+function effectiveRepairGate(variant, executablePaths) {
+  if (variant.network === 'off') return;
+  const requests = variant.targets.map(target => ({ target,
+    executable: executablePaths?.[target === 'pip' ? 'pythonExecutable' : `${target}Executable`],
+    project: homedir(), network: 'declared',
+    ...(target === 'cargo' ? {rustcExecutable:executablePaths?.rustcExecutable} : {}) }));
+  if (requests.some(request => !request.executable)) return invalid('effective-executable-unavailable',
+    'Select the exact environment executable before preparing trust repair.', 'PREREQUISITE_UNAVAILABLE');
+  const script = `import { inspectUserToolTrust } from ${JSON.stringify(new URL('./effective-user-trust.mjs', import.meta.url).href)};
+    const deadline=Date.now()+20000,results=[];
+    for(const request of JSON.parse(process.argv[1])) {
+      if(Date.now()>=deadline){results.push({decision:'blocked',reason:'deadline'});break;}
+      const r=await inspectUserToolTrust(request,{budgetMs:Math.max(1,deadline-Date.now())});
+      results.push({decision:r.decision,reason:r.reason});
+    }
+    console.log(JSON.stringify(results));`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(requests)],
+    { timeout: 24000, maxBuffer: 16384, encoding: 'utf8', shell: false, windowsHide: true });
+  let results;
+  try { results = child.status === 0 && !child.error ? JSON.parse(child.stdout) : undefined; } catch {}
+  if (!Array.isArray(results) || results.length !== requests.length) return invalid('effective-trust-unavailable',
+    'Effective trust could not be established within its process bound.', 'PREREQUISITE_UNAVAILABLE');
+  if (results.some(result => result.decision === 'no-repair')) return { status: 'blocked', diagnostics: [{
+    code: 'REPAIR_NOT_NEEDED', reason: results.every(result => result.decision === 'no-repair') ? 'effective-trust' : 'select-only-needed-targets',
+    message: 'A selected process already trusts its endpoint. Exclude it before preparing a scoped CA fallback.' }] };
+  const unresolved = results.find(result => result.decision !== 'bundle-fallback');
+  if (unresolved) return invalid(unresolved.reason, 'Resolve the selected process trust/backend before preparing a CA fallback.', 'PREREQUISITE_UNAVAILABLE');
+}
 
 const literal = value => ({ literal: value });
 const input = name => ({ input: name });
@@ -48,6 +81,9 @@ export function renderUserToolsRepair(request) {
     try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
     catch { return invalid('config-encoding', 'User configuration must be complete UTF-8 text.'); }
     if (text.includes('\0')) return invalid('config-encoding', 'User configuration contains invalid text.');
+    if (file.operationId === 'conda-config' && /^ssl_verify\s*:\s*['"]?truststore['"]?\s*(?:#.*)?$/m.test(text) ||
+        file.operationId === 'git-config' && /^\s*sslbackend\s*=\s*['"]?schannel['"]?\s*(?:[#;].*)?$/im.test(text))
+      return invalid('native-trust-selected', 'The selected native backend needs an effective-process decision; a generic CA-file rewrite is unavailable.', 'PREREQUISITE_UNAVAILABLE');
     if (file.operationId === 'pip-config' && /^[ \t]*trusted-host[ \t]*[:=](?:[ \t]*\S|[ \t]*\r?\n[ \t]+\S)/im.test(text) ||
         file.operationId === 'git-config' && /^\s*sslverify\s*=\s*(?:false|no|off|0)\s*(?:[#;].*)?$/im.test(text) ||
         file.operationId === 'cargo-config' && /^\s*ssl-verify\s*=\s*false\s*(?:#.*)?$/im.test(text))
@@ -60,6 +96,8 @@ export function renderUserToolsRepair(request) {
     if (file.operationId === 'cargo-config') bindings.cargoCaValue = request.bundlePath.replaceAll('\\', '/');
     bindings[file.operationId.replace('-config', 'ConfigPath')] = join(homedir(), ...file.target.segments.map(item => item.literal));
   }
+  const effective = effectiveRepairGate(variant, request.executablePaths);
+  if (effective) return effective;
   return { status: 'completed', bindings, privateBindings };
 }
 function ambiguousConfig(id, text) {
@@ -322,20 +360,16 @@ export function userToolsRecipe(variant) {
     inputs[`${id}ConfigPath`] = { type: 'string', required: true, maxLength: 4096 };
     checks.push(check(`${id}-installed`, `Require the selected existing ${id} executable`, id, ['--version']));
     const selectedChecks = [`${id}-installed`];
-    if (id === 'cargo') {
-      checks.push(check('cargo-git-installed', 'Cargo git-fetch-with-cli requires existing Git', 'git', ['--version']));
-      selectedChecks.push('cargo-git-installed');
-    }
     operations.push({ id: `${id}-ready`, purpose: `Verify existing ${id} prerequisites before changing its configuration`,
       kind: 'process.run', scope: 'user', executable: { name: id }, args: [literal('--version')], cwd, env: {},
       timeoutMs: 15000, maxOutputBytes: 4096, acceptedExitCodes: [0], effects: [`Read-only ${id} version process`],
       requires: [], checks: [...selectedChecks] });
     if (variant.network !== 'off') selectedChecks.push(`${id}-behavior`);
-    const keys = { pip: '[global] cert', git: '[http] sslCAInfo', cargo: '[http] cainfo and [net] git-fetch-with-cli=true', conda: 'ssl_verify' };
+    const keys = { pip: '[global] cert', git: '[http] sslCAInfo', cargo: '[http] cainfo (HTTP transport only)', conda: 'ssl_verify' };
     operations.push({ id: file.operationId, purpose: `Set ${id} ${keys[id]} using the reviewed CA path; preserve neighboring configuration`,
       ...({ pip: { kind: 'config.entries', format: 'ini', entries: [{ path: ['global', 'cert'], action: 'set', value: input('bundlePath') }] },
         git: { kind: 'config.entries', format: 'ini', entries: [{ path: ['http', 'sslCAInfo'], action: 'set', value: input('gitCaValue') }] },
-        cargo: { kind: 'config.entries', format: 'toml', entries: [{ path: ['http', 'cainfo'], action: 'set', value: input('cargoCaValue') }, { path: ['net', 'git-fetch-with-cli'], action: 'set', value: literal(true) }] },
+        cargo: { kind: 'config.entries', format: 'toml', entries: [{ path: ['http', 'cainfo'], action: 'set', value: input('cargoCaValue') }] },
         conda: { kind: 'config.entries', format: 'yaml', entries: [{ path: ['ssl_verify'], action: 'set', value: input('bundlePath') }] }
       }[id]), scope: 'user', target: structuredClone(file.target),
       requires: ['material', `${id}-ready`], checks: selectedChecks });

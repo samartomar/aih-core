@@ -29,7 +29,7 @@ for (const name of ['contracts.mjs', 'contracts.d.mts', 'runtime.mjs', 'runtime.
   'macos-session-profiles.mjs', 'macos-session-profiles.d.mts', 'macos-session-definitions.mjs', 'macos-session-definitions.d.mts',
   'trust-update.mjs', 'trust-update.d.mts', 'ca.mjs', 'candidate.mjs', 'github-policy.mjs', 'local-policy.mjs', 'user-trust.mjs', 'user-trust-definitions.mjs', 'jvm-trust.mjs', 'jvm-trust-definitions.mjs', 'scan-trust.mjs', 'verification-publishers.mjs', 'trust-data.mjs', 'guidance.mjs', 'guidance.d.mts',
   'tool-registry.mjs', 'tool-registry.d.mts', 'tool-binding.mjs', 'tool-binding.d.mts', 'tool-binding-data.mjs', 'tool-bindings.json', 'tool-host.mjs', 'tool-host.d.mts', 'delivery.mjs', 'delivery.d.mts', 'delivery-review.mjs', 'delivery-review.d.mts',
-  'project-facts.mjs', 'project-facts.d.mts',
+  'project-facts.mjs', 'project-facts.d.mts', 'effective-user-trust.mjs',
   'trust-definitions.mjs', 'trust-validation.mjs', 'trust-capabilities.mjs', 'trust-encoding.mjs', 'trust-source.mjs', 'trust-os.mjs', 'trust.mjs', 'trust.d.mts',
   'trust-migration.mjs', 'trust-migration-rules.mjs', 'trust-migration-policy.mjs', 'trust-export-platform.mjs', 'trust-export-platform.d.mts'])
   copyFileSync(new URL(`../src/harness/${name}`, import.meta.url), new URL(`harness/${name}`, dist));

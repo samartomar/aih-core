@@ -59,13 +59,13 @@ test('full transformed user configuration stays in sensitive bindings', () => {
   assert.equal(recipe.inputs.pipConfig, undefined);
 });
 
-test('Cargo retains both donor keys, Windows path safety, neighboring TOML and idempotence', () => {
+test('Cargo retains its backend selection, Windows path safety, neighboring TOML and idempotence', () => {
   const path = process.platform === 'win32' ? 'C:\\Users\\samar\\ca.pem' : '/x/ca.pem';
   const serialized = process.platform === 'win32' ? '"C:/Users/samar/ca.pem"' : '"/x/ca.pem"';
   const original = '# keep\r\n[http]\r\nproxy = "https://proxy.example"\r\n[net]\r\nretry = 2\r\n';
   const first = prepare(['cargo'], { 'cargo-config': Buffer.from(original) }, { managedPath: path });
   assert.equal(first.status, 'completed', JSON.stringify(first.diagnostics));
-  assert.equal(first.renderedConfigs.cargoConfig, `# keep\r\n[http]\r\nproxy = "https://proxy.example"\r\ncainfo = ${serialized}\r\n[net]\r\nretry = 2\r\ngit-fetch-with-cli = true\r\n`);
+  assert.equal(first.renderedConfigs.cargoConfig, `# keep\r\n[http]\r\nproxy = "https://proxy.example"\r\ncainfo = ${serialized}\r\n[net]\r\nretry = 2\r\n`);
   const twice = prepare(['cargo'], { 'cargo-config': Buffer.from(first.renderedConfigs.cargoConfig) }, { managedPath: path });
   assert.equal(twice.renderedConfigs.cargoConfig, first.renderedConfigs.cargoConfig);
 });
@@ -343,8 +343,8 @@ test('fixed native graphs gate mutations behind tool readiness and Cargo Git, re
     assert.ok(config.requires.includes('material'));
     assert.ok(!recipe.checks.some(item => item.id === `${id}-behavior`));
   }
-  assert.ok(recipe.operations.find(item => item.id === 'cargo-ready').checks.includes('cargo-git-installed'));
-  assert.equal(recipe.checks.find(item => item.id === 'cargo-git-installed').executable.name, 'git');
+  assert.equal(recipe.checks.some(item => item.id === 'cargo-git-installed'), false);
+  assert.deepEqual(recipe.operations.find(item => item.id === 'cargo-config').entries.map(item=>item.path), [['http','cainfo']]);
   for (const suffix of ['ssl', 'requests']) {
     const persist = recipe.operations.find(item => item.id === `python-persist-${suffix}`);
     assert.ok(persist.requires.includes('python-ready'));

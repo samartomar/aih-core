@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Observe selected Python/pip, Conda, Git and Cargo effective trust before online
+user-tool CA repair. Keep exact candidate compatibility, Python recipe exceptions,
+declared interpreter provenance, Cargo/rustc versions and TLS backends separate.
+Refuse ambiguous/overridden trust and suppress already-trusted repairs. Cargo HTTP
+repair no longer forces Git CLI transport. Add public protocol/packed fixtures;
+native artifact and platform qualification remain open.
+
 Require Node `>=26.12.1 <27` for host execution. Observe the selected Node
 and npm versions separately, including missing or conflicting PATH candidates.
 Inspect npm's effective HTTPS trust in its own process; an already trusted
