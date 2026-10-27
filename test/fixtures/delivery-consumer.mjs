@@ -322,7 +322,7 @@ await check('plugin-route guidance is not-listed when no supplied line names the
   for (const tool of ['codex', 'copilot']) {
     const result = checkCompatibility({ tool, platform: WINDOWS, items: [{ item: skill }], binding: bindingWith(tool), nativeRoutes: [UPSTREAM_ROUTES] });
     assert.equal(result.status, 'checked');
-    // Copilot CLI's registry label is not "GitHub Copilot CLI": another spelling is never attributed to the tool.
+    // "GitHub Copilot CLI" is attributed to copilot only in the framework whose published routes support it, never here.
     assert.deepEqual(result.pluginRoutes.map(entry => [entry.framework, entry.state, entry.lines]),
       [[FRAMEWORK, 'not-supplied', []], ['upstream-plugins', 'not-listed', []]]);
   }
@@ -331,6 +331,70 @@ await check('plugin-route guidance is not-listed when no supplied line names the
   const unlabelled = checkCompatibility({ tool: 'claude', platform: WINDOWS, items: [], binding: bindingWith('claude'),
     nativeRoutes: [{ framework: FRAMEWORK, lines: ['Claude Code:', 'Claude Code: ', 'claude code: /plugin install x', '/plugin install x'] }] });
   assert.deepEqual(unlabelled.pluginRoutes.map(entry => [entry.state, entry.lines]), [['not-listed', []]]);
+});
+
+// The Superpowers release's published nativeRoutes lines, verbatim and in order (upstream README at 5bf4e780).
+const SUPERPOWERS_ROUTES = { framework: 'superpowers', lines: [
+  'Claude Code: /plugin install superpowers@claude-plugins-official',
+  'Claude Code: /plugin marketplace add obra/superpowers-marketplace',
+  'Claude Code: /plugin install superpowers@superpowers-marketplace',
+  'Antigravity: agy plugin install https://github.com/obra/superpowers',
+  'Cursor: /add-plugin superpowers',
+  'Devin CLI: devin plugins install obra/superpowers',
+  'Factory Droid: droid plugin marketplace add https://github.com/obra/superpowers',
+  'Factory Droid: droid plugin install superpowers@superpowers',
+  'Gemini CLI: gemini extensions install https://github.com/obra/superpowers',
+  'GitHub Copilot CLI: copilot plugin marketplace add obra/superpowers-marketplace',
+  'GitHub Copilot CLI: copilot plugin install superpowers@superpowers-marketplace',
+  'Grok Build CLI: grok plugin install superpowers@xai-official --trust',
+  'Kimi Code: /plugins install https://github.com/obra/superpowers',
+  'OpenCode: Fetch and follow instructions from https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.opencode/INSTALL.md',
+  'Pi: pi install git:github.com/obra/superpowers',
+  'Qwen Code: qwen extensions install obra/superpowers',
+  'Hermes Agent: hermes plugins install obra/superpowers --enable',
+  'Muse: muse plugins install ./superpowers',
+  'Muse: muse plugins approve superpowers'] };
+const routesFor = (tool, nativeRoutes) => {
+  const result = checkCompatibility({ tool, platform: WINDOWS, items: [], binding: bindingWith(tool), nativeRoutes });
+  assert.equal(result.status, 'checked', JSON.stringify(result));
+  return result.pluginRoutes.map(entry => [entry.framework, entry.state, entry.lines]);
+};
+
+await check("published Superpowers routes reach each observed CLI by its label or Harness's exact attributed upstream name", () => {
+  assert.deepEqual(Object.fromEntries(['claude', 'codex', 'kiro', 'copilot', 'antigravity'].map(tool => [tool, routesFor(tool, [SUPERPOWERS_ROUTES])])), {
+    claude: [['superpowers', 'listed', ['/plugin install superpowers@claude-plugins-official',
+      '/plugin marketplace add obra/superpowers-marketplace', '/plugin install superpowers@superpowers-marketplace']]],
+    codex: [['superpowers', 'not-listed', []]],
+    kiro: [['superpowers', 'not-listed', []]],
+    copilot: [['superpowers', 'listed', ['copilot plugin marketplace add obra/superpowers-marketplace',
+      'copilot plugin install superpowers@superpowers-marketplace']]],
+    antigravity: [['superpowers', 'listed', ['agy plugin install https://github.com/obra/superpowers']]] });
+  // The registry label still counts in every framework, and label and attributed lines keep their published order.
+  assert.deepEqual(routesFor('antigravity', [{ framework: 'superpowers', lines: ['Antigravity CLI: agy b', 'Antigravity: agy a'] }]),
+    [['superpowers', 'listed', ['agy b', 'agy a']]]);
+  assert.deepEqual(routesFor('copilot', [{ framework: 'other', lines: ['Copilot CLI: copilot x'] }]), [['other', 'listed', ['copilot x']]]);
+});
+
+await check('attributed upstream names match exactly, only in their framework, never by near, cased or other-surface names', () => {
+  for (const [tool, line] of [
+    ['copilot', 'GitHub Copilot: copilot plugin install x'], ['copilot', 'github copilot cli: copilot plugin install x'],
+    ['copilot', 'GitHub Copilot CLI : copilot plugin install x'], ['copilot', 'GitHub Copilot CLI:copilot plugin install x'],
+    ['copilot', 'GitHub Copilot in VS Code: code --install-extension x'], ['copilot', 'Copilot: copilot plugin install x'],
+    ['copilot', 'GitHub Copilot CLI: '], ['antigravity', 'antigravity: agy plugin install x'],
+    ['antigravity', 'Antigravity IDE: agy plugin install x'], ['antigravity', 'Google Antigravity: agy plugin install x'],
+    ['antigravity', 'Gemini CLI: gemini extensions install x'], ['antigravity', 'agy: agy plugin install x'],
+    ['claude', 'GitHub Copilot CLI: copilot plugin install x'], ['claude', 'Antigravity: agy plugin install x']])
+    assert.deepEqual(routesFor(tool, [{ framework: 'superpowers', lines: [line] }]), [['superpowers', 'not-listed', []]], `${tool} ${line}`);
+  // The same names in another framework are not attributed: the evidence is the Superpowers release's own routes.
+  for (const tool of ['copilot', 'antigravity'])
+    assert.deepEqual(routesFor(tool, [{ ...SUPERPOWERS_ROUTES, framework: 'superpowers-fork' }]), [['superpowers-fork', 'not-listed', []]]);
+  assert.deepEqual(routesFor('copilot', []), []);
+  const malformed = checkCompatibility({ tool: 'copilot', platform: WINDOWS, items: [], binding: bindingWith('copilot'),
+    nativeRoutes: [{ framework: 'superpowers', lines: SUPERPOWERS_ROUTES.lines.concat(['']) }] });
+  assert.deepEqual([malformed.status, malformed.reason, malformed.path], ['refused', 'native-routes', '/nativeRoutes/0']);
+  // The IDE surface is its own registry entry, unobserved: published CLI routes never make it selectable.
+  const ide = checkCompatibility({ tool: 'copilot-vscode', platform: WINDOWS, items: [], binding: bindingWith('copilot'), nativeRoutes: [SUPERPOWERS_ROUTES] });
+  assert.deepEqual([ide.status, ide.reason], ['refused', 'tool-not-observed']);
 });
 
 await check('malformed route input refuses the check, and routes never admit an unknown or unobserved tool', () => {

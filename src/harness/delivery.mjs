@@ -439,6 +439,14 @@ function cellOn(binding, kind, platform, installedVersion) {
 
 /** Where plugin-route guidance comes from: the `nativeRoutes` lines of the caller's checked Catalog releases. */
 const PLUGIN_ROUTE_SOURCE = 'catalog-native-routes';
+/**
+ * Upstream tool names in a framework's published route lines that differ from the registry label, attributed by exact
+ * name in that framework only. Superpowers (README at 5bf4e780) heads its `copilot plugin` routes "GitHub Copilot CLI"
+ * and its `agy plugin` route "Antigravity"; `copilot` and `agy` are those registry tools' binaries.
+ */
+const ROUTE_NAMES = Object.freeze({
+  superpowers: Object.freeze({ copilot: Object.freeze(['GitHub Copilot CLI']), antigravity: Object.freeze(['Antigravity']) })
+});
 
 /** The supplied Catalog `nativeRoutes` lines by framework, bounded as Catalog's release reader bounds them. */
 function readNativeRoutes(nativeRoutes) {
@@ -458,15 +466,19 @@ function readNativeRoutes(nativeRoutes) {
 }
 
 /**
- * Display-only guidance: the route text of each line naming the tool by its registry label (`<label>: <route>`),
- * in published order. A line naming the tool any other way is not attributed to it. Nothing here is run or observed.
+ * Display-only guidance: the route text of each line naming the tool by its registry label (`<label>: <route>`) or,
+ * in that framework, by an attributed upstream name, in published order. A line naming the tool any other way is not
+ * attributed to it. Nothing here is run or observed.
  */
-function pluginRoutes(supplied, label, frameworks) {
-  const prefix = `${label}: `;
+function pluginRoutes(supplied, tool, frameworks) {
   return [...new Set([...frameworks, ...supplied.keys()])].sort(compareCodeUnits).map(framework => {
     const suppliedLines = supplied.get(framework);
-    const listed = (suppliedLines ?? []).filter(line => line.startsWith(prefix) && line.length > prefix.length)
-      .map(line => line.slice(prefix.length));
+    const prefixes = [tool.label, ...(Object.hasOwn(ROUTE_NAMES, framework) && Object.hasOwn(ROUTE_NAMES[framework], tool.id)
+      ? ROUTE_NAMES[framework][tool.id] : [])].map(name => `${name}: `);
+    const listed = (suppliedLines ?? []).flatMap(line => {
+      const prefix = prefixes.find(name => line.startsWith(name) && line.length > name.length);
+      return prefix ? [line.slice(prefix.length)] : [];
+    });
     return { framework, source: PLUGIN_ROUTE_SOURCE,
       state: suppliedLines === undefined ? 'not-supplied' : listed.length > 0 ? 'listed' : 'not-listed', lines: listed };
   });
@@ -574,7 +586,7 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     }
     return { status: 'checked', tool: binding.tool, platform: { os: platform.os, arch: platform.arch }, bindingDigest: binding.digest,
       items: results.map(({ result }) => result), sets: [...sets.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, summary]) => summary),
-      ...(suppliedRoutes ? { pluginRoutes: pluginRoutes(suppliedRoutes, selectTool(binding.tool).tool.label,
+      ...(suppliedRoutes ? { pluginRoutes: pluginRoutes(suppliedRoutes, selectTool(binding.tool).tool,
         ordered.map(entry => entry.info.ref.framework)) } : {}) };
   });
 }
