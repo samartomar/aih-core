@@ -18,7 +18,7 @@ const VERSION = /^[0-9]{1,9}(?:\.[0-9]{1,9}){0,3}$/;
 
 const level = item => item.recognised === 'recognised' ? 'recognised' : REGISTERED.has(item.registered) ? 'registered'
   : item.recognised === 'listed-only' ? 'listed-only' : item.delivered === 'delivered' ? 'delivered' : 'none';
-// Documents need only delivery; every other kind needs the tool to list it, show it to the model or use it.
+// Documents need only delivery; other kinds need registration, model visibility or use. Listing alone never proves support.
 const proves = (kind, item) => item.delivered === 'delivered' &&
   (kind === 'document' || REGISTERED.has(item.registered) || item.recognised === 'recognised');
 const refutes = (kind, item) => kind !== 'document' && item.delivered === 'delivered' &&
@@ -45,8 +45,8 @@ const contradicts = item => item.delivered !== 'delivered' && (REGISTERED.has(it
 
 /**
  * Derives a cell's support from its observations. With `platform`, only observations made on that OS and
- * architecture count. With `installedVersion`, a native cell whose observations are all older is `stale`
- * and claims no more than `registered`.
+ * architecture count. With `installedVersion`, only that exact version counts. Observations on another
+ * version make the cell stale, never native; omitting the version retains the historical platform projection.
  */
 export function deriveCellSupport({ kind, observations, platform, installedVersion } = {}) {
   if (!toolBindingKinds.includes(kind)) throw new TypeError(`Unknown content kind: ${kind}`);
@@ -56,17 +56,17 @@ export function deriveCellSupport({ kind, observations, platform, installedVersi
     throw new TypeError("platform must be { os: 'windows' | 'macos' | 'linux', arch: 'x64' | 'arm64' }");
   if (installedVersion !== undefined && (typeof installedVersion !== 'string' || !VERSION.test(installedVersion)))
     throw new TypeError('installedVersion must be a dotted numeric version');
-  const counted = observations.filter(item => QUALIFYING.has(item.isolation) &&
+  const onPlatform = observations.filter(item => QUALIFYING.has(item.isolation) &&
     (platform === undefined || item.os === platform.os && item.arch === platform.arch));
+  const counted = installedVersion === undefined ? onPlatform : onPlatform.filter(item => item.toolVersion === installedVersion);
   const proving = counted.filter(item => proves(kind, item));
   const support = proving.length ? 'native' : counted.some(item => refutes(kind, item)) ? 'none' : 'unconfirmed';
   const newest = items => items.reduce((best, item) => !best || compareVersions(item.toolVersion, best.toolVersion) > 0 ? item : best, undefined);
-  const stale = support === 'native' && installedVersion !== undefined &&
-    compareVersions(installedVersion, newest(proving).toolVersion) > 0;
+  const stale = installedVersion !== undefined && onPlatform.length > 0 && counted.length === 0;
   const rank = item => LEVELS.indexOf(level(item));
   const best = newest(counted.filter(item => rank(item) === Math.max(...counted.map(rank))));
-  if (!best) return { support, observed: 'none', stale: false };
-  const observed = stale && level(best) === 'recognised' ? 'registered' : level(best);
+  if (!best) return { support, observed: 'none', stale };
+  const observed = level(best);
   const { toolVersion, os, arch, observedAt } = best;
   return { support, observed, stale, observedOn: { toolVersion, os, arch, observedAt } };
 }
@@ -88,7 +88,10 @@ export function selectBindingCell({ tool, kind, platform, installedVersion } = {
   const elsewhere = layout.observations.length > 0 &&
     !layout.observations.some(item => item.os === platform.os && item.arch === platform.arch);
   if (derived.support !== 'native') return { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'kind-not-native',
-    tool: binding.tool, kind, cell: { support: derived.support, reason: !elsewhere && derived.support === layout.support ? layout.reason
+    tool: binding.tool, kind, cell: { support: derived.support, reason: derived.stale ? `Not observed for ${installedVersion} on ${platform.os} ${platform.arch}; observations from another version do not count.`
+      : installedVersion !== undefined && !elsewhere && derived.support !== layout.support
+      ? `No native ${kind} binding for ${installedVersion} on ${platform.os} ${platform.arch}; only exact version observations count.`
+      : !elsewhere && derived.support === layout.support ? layout.reason
       : `Not observed on ${platform.os} ${platform.arch}; observations from another platform do not count.` } };
   return { status: 'selected', tool: binding.tool, kind, ...derived, digest: binding.digest, layout };
 }

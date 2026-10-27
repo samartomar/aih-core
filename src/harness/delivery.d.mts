@@ -36,6 +36,8 @@ export interface RenderedDelivery {
 export declare const deliveryMaterialRoot: 'catalog';
 export declare function renderDelivery(request: {
   tool: string; item: CatalogItem; binding: ToolBinding; scope: 'project' | 'user'; projectFolder?: string;
+  /** Supply both to refuse rendering without native binding evidence for this exact tuple. Neither establishes native admission. */
+  platform?: BindingPlatform; installedVersion?: string;
   /** The one MCP server item being rendered, ticked to have its approval written; never a list or approve-all. */
   grantApproval?: ItemRef;
   /** Text of content materials keyed by material id, needed only for marker blocks; checked against each SHA-256. */
@@ -66,5 +68,5 @@ export interface CompatibilityEntry {
   readonly sets?: readonly SetRef[];
 }
 export declare function checkCompatibility(request: {
-  tool: string; platform: BindingPlatform; items: readonly CompatibilityEntry[]; binding: ToolBinding;
+  tool: string; platform: BindingPlatform; installedVersion?: string; items: readonly CompatibilityEntry[]; binding: ToolBinding;
 }): CompatibilityResult | DeliveryRefusal;

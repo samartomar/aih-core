@@ -294,6 +294,58 @@ await check('only observations from the same OS and architecture count: a Window
   assert.deepEqual([refused.status, refused.reason], ['refused', 'platform']);
 });
 
+await check('compatibility uses the exact installed CLI version without borrowing older observations', () => {
+  const binding = bindingWith('codex');
+  const result = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.164.0',
+    items: [{ item: github }, { item: skill }] });
+  assert.equal(result.status, 'checked');
+  for (const item of result.items) {
+    assert.deepEqual([item.support, item.observed, item.observedOn], ['unconfirmed', 'none', null]);
+    assert.match(item.reason, /Not observed for 0\.164\.0/);
+  }
+  assert.match(byId(result, 'github').permissionStep, /Still needs your OK in Codex CLI/);
+  const invalid = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: 'latest', items: [] });
+  assert.deepEqual([invalid.status, invalid.code, invalid.reason], ['refused', 'INPUT_INVALID', 'installed-version']);
+});
+
+await check('selected CLI tuples render only observed kinds and keep every unobserved platform blocked', () => {
+  const selected = [['claude', '2.1.308'], ['codex', '0.164.0'], ['gemini', '0.65.0'], ['antigravity', '1.4.7'],
+    ['copilot', '1.0.103'], ['kimi', '2.3.3'], ['kiro', '2.34.0'], ['opencode', '1.19.4']];
+  for (const [tool, installedVersion] of selected) {
+    const binding = toolBindings.find(entry => entry.tool === tool);
+    for (const os of ['windows', 'macos', 'linux']) for (const arch of ['x64', 'arm64']) {
+      const platform = { os, arch };
+      const rendered = renderDelivery({ tool, binding, item: skill, scope: 'project', platform, installedVersion });
+      const working = ['claude', 'copilot'].includes(tool) && os === 'windows' && arch === 'x64';
+      assert.equal(rendered.status, working ? 'rendered' : 'refused', `${tool} ${installedVersion} ${os} ${arch}`);
+      if (working) assert.ok(writes(rendered.recipe).some(path => path.endsWith('/SKILL.md')));
+      else assert.equal(rendered.reason, binding ? 'kind-not-native' : 'tool-not-observed');
+    }
+  }
+  const binding = bindingWith('claude');
+  for (const request of [{ installedVersion: '2.1.308' }, { platform: WINDOWS }, { platform: WINDOWS, installedVersion: 'latest' }]) {
+    const result = renderDelivery({ tool: 'claude', binding, item: skill, scope: 'project', ...request });
+    assert.equal(result.status, 'refused', JSON.stringify(request));
+    assert.equal(result.code, 'INPUT_INVALID');
+  }
+});
+
+await check('a matching CLI binding preserves pending approval and listed-only use distinctions', () => {
+  const agent = catalogItem({ id: 'reviewer', kind: 'agent', files: { 'reviewer.md': 'Review.\n' }, payload: { files: ['m0'] } });
+  const binding = bindingWith('claude');
+  const query = { tool: 'claude', binding, platform: WINDOWS, installedVersion: '2.1.308' };
+  const result = checkCompatibility({ ...query, items: [{ item: github }, { item: agent }] });
+  assert.equal(result.status, 'checked');
+  assert.deepEqual([byId(result, 'github').support, byId(result, 'github').observed], ['native', 'registered']);
+  assert.match(byId(result, 'github').permissionStep, /Still needs your OK/);
+  assert.deepEqual([byId(result, agent.id).support, byId(result, agent.id).observed], ['unconfirmed', 'listed-only']);
+  const pending = renderDelivery({ ...query, item: github, scope: 'project' });
+  assert.equal(pending.status, 'rendered');
+  assert.equal(pending.recipe.operations.some(op => op.id === 'approve-server'), false);
+  const listed = renderDelivery({ ...query, item: agent, scope: 'project' });
+  assert.deepEqual([listed.status, listed.reason], ['refused', 'kind-not-native']);
+});
+
 await check('static blockers: native-only-kind, protocol-not-spoken, required-but-unsupported and same-folder', () => {
   const agent = catalogItem({ id: 'reviewer', kind: 'agent', files: { 'reviewer.md': 'Review.\n' }, payload: { files: ['m0'] } });
   assert.deepEqual(codes(byId(compat('copilot', WINDOWS, [{ item: agent }]), 'reviewer')), ['native-only-kind']);

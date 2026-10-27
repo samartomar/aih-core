@@ -29,17 +29,17 @@ test('a packed consumer renders Catalog items as ordinary recipes and checks sta
     copyFileSync(new URL('./fixtures/delivery-consumer.mjs', import.meta.url), join(consumer, 'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 17);
+    assert.equal(receipt.checks.length, 20);
     writeFileSync(join(consumer, 'types.mts'), `
       import { checkCompatibility, deliveryMaterialRoot, renderDelivery, toolBindings } from '@aihq/core/harness';
       import type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, RenderedDelivery,
         SetCompatibility, StaticBlockerCode } from '@aihq/core/harness';
       declare const item: CatalogItem;
       const binding = toolBindings[0]!;
-      const rendered: RenderedDelivery | DeliveryRefusal = renderDelivery({ tool: 'claude', item, binding, scope: 'project' });
+      const rendered: RenderedDelivery | DeliveryRefusal = renderDelivery({ tool: 'claude', item, binding, scope: 'project', platform: { os: 'windows', arch: 'x64' }, installedVersion: '2.1.308' });
       if (rendered.status === 'rendered') rendered.recipe.materials[0]!.source.input satisfies typeof deliveryMaterialRoot;
       const entries: CompatibilityEntry[] = [{ item, excluded: false, sets: [{ framework: 'f', setId: 's', setSha256: '0'.repeat(64) }] }];
-      const result: CompatibilityResult | DeliveryRefusal = checkCompatibility({ tool: 'claude', platform: { os: 'linux', arch: 'x64' }, items: entries, binding });
+      const result: CompatibilityResult | DeliveryRefusal = checkCompatibility({ tool: 'claude', platform: { os: 'linux', arch: 'x64' }, items: entries, binding, installedVersion: '2.1.308' });
       if (result.status === 'checked') {
         const first: ItemCompatibility = result.items[0]!;
         first.deliveredSize.alwaysLoaded.chars satisfies number;

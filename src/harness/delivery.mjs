@@ -15,6 +15,8 @@ const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /** The MCP registration operation id; the one approval a recipe grants depends on it. */
 const REGISTER_SERVER = 'register-server';
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const OPERATING_SYSTEMS = ['windows', 'macos', 'linux'], ARCHITECTURES = ['x64', 'arm64'];
+const VERSION = /^[0-9]{1,9}(?:\.[0-9]{1,9}){0,3}$/;
 // Kinds a tool must read natively: there are no reference files, so these are never delivered where unread.
 const NATIVE_ONLY = new Set(['agent', 'command']);
 // How each hook protocol's runtime names the project and home folders inside a hook command.
@@ -37,6 +39,14 @@ const guarded = body => {
 const text = (value, max = 4096) => typeof value === 'string' && value.length > 0 && value.length <= max;
 const segmentsOf = path => path.split('/');
 const lines = members => members.map(member => `${member.relPath}\t${member.sha256}\n`).sort(compareCodeUnits).join('');
+
+/** Validate the caller-selected observation tuple; a render guard always needs both fields. */
+function observationTarget(platform, installedVersion, requireVersion = false) {
+  if (!isRecord(platform) || !OPERATING_SYSTEMS.includes(platform.os) || !ARCHITECTURES.includes(platform.arch) || Object.keys(platform).length !== 2)
+    invalid('platform', '/platform', "Expected { os: 'windows' | 'macos' | 'linux', arch: 'x64' | 'arm64' }.");
+  if ((requireVersion || installedVersion !== undefined) && (typeof installedVersion !== 'string' || !VERSION.test(installedVersion)))
+    invalid('installed-version', '/installedVersion', 'Expected a dotted numeric installed version.');
+}
 
 /** The validated binding for the named tool; refusals match selectTool. The digest is recomputed. */
 function bindingFor(tool, binding) {
@@ -266,7 +276,7 @@ function approvalOperation(binding, register, plan, scope, key) {
  * public deriveRecipeIdentity, binds both item identities and the binding digest. Rendering never grants authority:
  * the recipe is ordinary execution-policy content that Enterprise organization policy governs in full.
  */
-export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts } = {}) {
+export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts, platform, installedVersion } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
     if (scope !== 'project' && scope !== 'user') invalid('scope', '/scope', 'Expected project or user.');
@@ -293,6 +303,11 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     const info = readItem(item, '/item');
     if (grantApproval && (grantApproval.framework !== info.ref.framework || grantApproval.itemId !== info.ref.itemId || info.kind !== 'mcp-server'))
       invalid('grant-approval', '/grantApproval', 'grantApproval names the MCP server item being rendered, and only that one.');
+    if (platform !== undefined || installedVersion !== undefined) {
+      observationTarget(platform, installedVersion, true);
+      const cell = cellOn(binding, info.kind, platform, installedVersion);
+      if (cell.support !== 'native') unavailable('kind-not-native', '/item/kind', cell.reason);
+    }
     const plan = deliveryPlan(info, binding, scope, { projectFolder });
     const key = recipeKey(info, '/item');
     const recipeId = `${binding.tool}.${info.ref.itemId}`;
@@ -387,7 +402,6 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
   });
 }
 
-const OPERATING_SYSTEMS = ['windows', 'macos', 'linux'], ARCHITECTURES = ['x64', 'arm64'];
 const STATIC_BLOCKERS = new Set(['native-only-kind', 'protocol-not-spoken']);
 const zero = () => ({ bytes: 0, chars: 0 });
 const emptySize = () => ({ ...zero(), alwaysLoaded: zero() });
@@ -410,12 +424,15 @@ function deliveredSize(info, plan) {
 }
 
 /** A cell's support, reason and newest observation on this platform; the reason rule matches selectBindingCell. */
-function cellOn(binding, kind, platform) {
+function cellOn(binding, kind, platform, installedVersion) {
   const layout = binding.layouts[kind];
-  const derived = deriveCellSupport({ kind, observations: layout.observations, platform });
+  const derived = deriveCellSupport({ kind, observations: layout.observations, platform, installedVersion });
   const elsewhere = layout.observations.length > 0 &&
     !layout.observations.some(item => item.os === platform.os && item.arch === platform.arch);
-  const reason = !elsewhere && derived.support === layout.support ? layout.reason
+  const reason = derived.stale ? `Not observed for ${installedVersion} on ${platform.os} ${platform.arch}; observations from another version do not count.`
+    : installedVersion !== undefined && !elsewhere && derived.support !== layout.support
+      ? `No native ${kind} binding for ${installedVersion} on ${platform.os} ${platform.arch}; only exact version observations count.`
+      : !elsewhere && derived.support === layout.support ? layout.reason
     : `Not observed on ${platform.os} ${platform.arch}; observations from another platform do not count.`;
   return { support: derived.support, reason, observed: derived.observed, observedOn: derived.observedOn ?? null, layout };
 }
@@ -430,11 +447,10 @@ const isSetRef = set => isRecord(set) && Object.keys(set).length === 3 && typeof
  * Only observations made on that platform count. Items are the members left after Catalog's set expansion and
  * exclusions; entries repeated across overlapping sets merge, so the answer does not depend on their order.
  */
-export function checkCompatibility({ tool, platform, items, binding } = {}) {
+export function checkCompatibility({ tool, platform, installedVersion, items, binding } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
-    if (!isRecord(platform) || !OPERATING_SYSTEMS.includes(platform.os) || !ARCHITECTURES.includes(platform.arch) || Object.keys(platform).length !== 2)
-      invalid('platform', '/platform', "Expected { os: 'windows' | 'macos' | 'linux', arch: 'x64' | 'arm64' }.");
+    observationTarget(platform, installedVersion);
     if (!Array.isArray(items) || items.length > 4096) invalid('items', '/items', 'Expected at most 4096 item entries.');
     const merged = new Map();
     items.forEach((entry, index) => {
@@ -463,12 +479,12 @@ export function checkCompatibility({ tool, platform, items, binding } = {}) {
     const excluded = new Set([...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)));
     const ordered = [...merged.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, entry]) => entry);
     const results = ordered.map(entry => {
-      const own = cellOn(binding, entry.info.kind, platform);
+      const own = cellOn(binding, entry.info.kind, platform, installedVersion);
       const isExcluded = excluded.has(refKey(entry.info.ref));
       let bound = entry.info, cell = own, boundAs;
       if (!isExcluded && own.support !== 'native' && entry.fallback && !NATIVE_ONLY.has(entry.info.kind) &&
           !NATIVE_ONLY.has(entry.fallback.kind) && !excluded.has(refKey(entry.fallback.ref))) {
-        const candidate = cellOn(binding, entry.fallback.kind, platform);
+        const candidate = cellOn(binding, entry.fallback.kind, platform, installedVersion);
         if (candidate.support === 'native') {
           bound = entry.fallback; cell = candidate;
           boundAs = { kind: entry.fallback.kind, item: entry.fallback.ref, viaFallback: true };
