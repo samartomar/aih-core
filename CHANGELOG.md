@@ -408,8 +408,9 @@ Contributor note: the internal `exportAdmissionTemplate`, `trustTransformIds` an
 admission records pin those helper files' bytes, the four historical certificate-export cells now
 use explicit finite equivalence-migration envelopes that preserve their original records and
 limitations while binding the current implementation (samartomar/aih-core#81). This creates no new
-historical-platform execution. Exact Windows 11 26H2 build 26340.9767 export classification is prepared;
-its distinct native cells remain unavailable until fresh acceptance. The public interface and
+historical-platform execution. Four distinct Windows 11 26H2 build 26340.9767 cells now carry fresh
+standard-user PEM/P7B declared/off acceptance, including native P7B import and cleanup. Other 26H2 builds
+remain unavailable. The public interface and
 the certificate-export recipe are unchanged.
 
 Stop exporting the undeclared `assessNodeTrustCandidate` from `@aihq/core/harness/runtime`.

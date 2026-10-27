@@ -1283,8 +1283,9 @@ on the historical platform or a stronger OS-discovery/native-client claim.
 `verifyTrustAdmissionEvidence` reports whether that provenance verifies; `valid` is not
 a claim that every cell was freshly executed. Original controlled-selection limitations
 remain applicable. The additional export classifier recognizes only Windows 11 Pro
-Insider Preview 26H2 build 26340.9767 x64; a format remains unavailable until its distinct
-native admission cell is supplied. Existing OS discovery and other repair classification
+Insider Preview 26H2 build 26340.9767 x64. Its four distinct PEM/P7B declared/off
+cells carry fresh standard-user native acceptance, including separate P7B imports
+and disposable-store cleanup. Other 26H2 builds are not admitted by these cells. Existing OS discovery and other repair classification
 retain their earlier behavior.
 
 `export-ca` reviews a standalone certificate export without a service URL or

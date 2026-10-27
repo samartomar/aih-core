@@ -60,7 +60,7 @@ test('migration rejects changed serializer library bytes rather than migrating t
   for (let i = 0; i < capabilities.cells.length; i++) change(() => {}, i);
   assert.equal(verify().valid, false);
 }));
-test('exact additional platform leaves recognized legacy classifications and absent admission unchanged', () => {
+test('exact additional platform preserves legacy classifications and requires matching admission', () => {
   assert.deepEqual(trustPlatformMatrix.slice(0,3).map(item => [item.os,item.release,item.architecture]),
     [['win32','Windows 11 25H2','x64'],['darwin','macOS 26','arm64'],['linux','Ubuntu 24.04 LTS','x64']]);
   const old = { os: 'win32', architecture: 'x64', release: 'Windows 11 25H2', projection: 'windows-effective-server-auth-v1' };
@@ -71,6 +71,9 @@ test('exact additional platform leaves recognized legacy classifications and abs
   assert.equal(classifyCertificateExportPlatform(unknown, facts).release, exactExportRelease);
   for (const [field, value] of [['nodeRelease','10.0.26341'],['ubr',9766],['ubr',9768],['ubr','9767'],['displayVersion','25H2'],['architecture','ARM64']])
     assert.equal(classifyCertificateExportPlatform(unknown, { ...facts, [field]: value }), unknown);
-  assert.equal(selectTrustCell({ definitionId: 'certificate-export', route: 'export', target: null, network: 'declared', format: 'pem',
-    platform: { os: 'win32', architecture: 'x64', release: exactExportRelease } }, trustCapabilities, buildTrustDefinitions(trustCapabilities.cells)).status, 'unavailable');
+  const request = { definitionId: 'certificate-export', route: 'export', target: null, network: 'declared', format: 'pem',
+    platform: { os: 'win32', architecture: 'x64', release: exactExportRelease } };
+  assert.equal(selectTrustCell(request, trustCapabilities, buildTrustDefinitions(trustCapabilities.cells)).status, 'admitted');
+  const historical = { ...trustCapabilities, cells: trustCapabilities.cells.filter(cell => cell.evidence.reference.includes('/migration-')) };
+  assert.equal(selectTrustCell(request, historical, buildTrustDefinitions(historical.cells)).status, 'unavailable');
 });

@@ -1,18 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { release, tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
 import { trustCapabilities } from '../../dist/harness/contracts.mjs';
-import { trustCellSubjectSha256 } from '../../src/harness/trust.mjs';
-import { trustProfiles } from '../../src/harness/trust-definitions.mjs';
 import { detectCertificateExportPlatform, exactExportRelease } from '../../src/harness/trust-export-platform.mjs';
 const source = fileURLToPath(new URL('../../', import.meta.url));
 const scratch = join(source, '.scratch');
-const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 for (const scenario of ['identity-change', 'identity-failure', 'policy-change', 'helper-change'])
   test(`controlled public consumer refuses ${scenario} at Apply without writing export output`, { skip: process.platform !== 'win32' || process.arch !== 'x64' }, () => {
     mkdirSync(scratch, { recursive: true }); const root = mkdtempSync(join(scratch, 'migration-public-'));
@@ -22,18 +18,8 @@ for (const scenario of ['identity-change', 'identity-failure', 'policy-change', 
       const installed = join(root, 'node_modules/@aihq/core'); mkdirSync(installed, { recursive: true });
       cpSync(join(source, 'dist'), join(installed, 'dist'), { recursive: true });
       cpSync(join(source, 'package.json'), join(installed, 'package.json'));
-      const cell = { id: 'synthetic-controlled-26h2-pem-off', definitionId: 'certificate-export', route: 'export', target: null,
-        platform: { os: 'win32', architecture: 'x64', release: exactExportRelease }, network: 'off',
-        projection: 'windows-effective-server-auth-v1', client: null, configurationProfile: 'pem-server-ca-v1',
-        probeProfile: 'export-pem-parse-v1', launchContext: 'no-client',
-        evidence: { reference: 'dist/harness/acceptance/synthetic-controlled.json', sha256: '', subjectSha256: '' } };
-      const { evidence, ...tested } = cell; const subject = trustCellSubjectSha256(cell, installed);
-      const record = { schema: 'aih.trust.acceptance.v1', cellId: cell.id, subjectSha256: subject, cell: tested,
-        cases: trustProfiles[cell.probeProfile].requiredCases.map(item => ({ id: item.id, kind: item.kind, outcome: 'passed', summary: 'Synthetic fixture admission for controlled refusal tests only.' })),
-        limitations: [...trustProfiles[cell.probeProfile].requiredLimitations, 'synthetic-fixture-only'] };
-      const bytes = Buffer.from(JSON.stringify(record)); writeFileSync(join(installed, evidence.reference), bytes);
-      cell.evidence = { ...evidence, sha256: sha(bytes), subjectSha256: subject };
-      writeFileSync(join(installed, 'dist/harness/trust-capabilities.mjs'), `export const trustCellRecords = Object.freeze(${JSON.stringify([...trustCapabilities.cells, cell])});\n`);
+      assert.ok(trustCapabilities.cells.some(cell => cell.platform.release === exactExportRelease &&
+        cell.network === 'off' && cell.configurationProfile === 'pem-server-ca-v1'), 'use the shipped genuine admission data');
       cpSync(join(source, 'test/fixtures/trust-migration-consumer.mjs'), join(root, 'consumer.mjs'));
       const env = { ...process.env, USERPROFILE: home, HOME: home };
       for (const key of Object.keys(env)) if (/^(NODE_OPTIONS|NODE_PATH|NODE_TEST_CONTEXT)$/i.test(key)) delete env[key];

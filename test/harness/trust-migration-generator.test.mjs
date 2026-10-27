@@ -10,6 +10,8 @@ import { trustHelperFiles, trustCellSubjectSha256 } from '../../src/harness/trus
 import { trustProfiles } from '../../src/harness/trust-definitions.mjs';
 const source = fileURLToPath(new URL('../../', import.meta.url));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+const historical = trustCapabilities.cells.filter(cell => cell.evidence.reference.includes('/migration-'));
+assert.equal(historical.length,4);
 
 test('generator refuses duplicate native cells, wrong tuples and mismatched record identities', () => {
   const scratch = join(source, '.scratch'); mkdirSync(scratch, { recursive: true });
@@ -23,7 +25,7 @@ test('generator refuses duplicate native cells, wrong tuples and mismatched reco
     for (const name of ['src/fixtures/harness/trust-capabilities/1.0.0','dist/fixtures/harness/trust-capabilities/1.0.0']) copy(name);
     // These disposable passing-case fixtures test structural refusal only. They
     // are never written to the product tree or represented as native evidence.
-    const native = trustCapabilities.cells.map(old => {
+    const native = historical.map(old => {
       const id = old.id.replace('win32-', 'win32-26340-9767-');
       const cell = { ...old, id, platform: { ...old.platform, release: 'Windows 11 26H2 build 26340.9767' },
         evidence: { reference:`dist/harness/acceptance/${id}.json`,sha256:'',subjectSha256:'' } };
@@ -37,7 +39,7 @@ test('generator refuses duplicate native cells, wrong tuples and mismatched reco
       return {...tested,evidence:{...evidence,sha256:sha(bytes),subjectSha256:subject}};
     });
     const run = (cells, expected) => {
-      writeFileSync(join(root,'src/harness/trust-capabilities.mjs'),`export const trustCellRecords = Object.freeze(${JSON.stringify([...trustCapabilities.cells,...cells])});\n`);
+      writeFileSync(join(root,'src/harness/trust-capabilities.mjs'),`export const trustCellRecords = Object.freeze(${JSON.stringify([...historical,...cells])});\n`);
       const result = spawnSync(process.execPath,[join(root,'scripts/generate-trust-migration.mjs')],{cwd:root,encoding:'utf8',windowsHide:true,timeout:30000,maxBuffer:1048576});
       assert.notEqual(result.status,0, 'malformed native table must refuse');
       assert.match(result.stderr,expected);

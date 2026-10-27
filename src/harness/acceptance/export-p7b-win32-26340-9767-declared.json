@@ -1,0 +1,97 @@
+{
+  "schema": "aih.trust.acceptance.v1",
+  "cellId": "export-p7b-win32-26340-9767-declared",
+  "subjectSha256": "bd4c1b2e68cd2414c7a666dfbf191d88d4b325ea2e6f162f82053a8a6bfe2e54",
+  "cell": {
+    "id": "export-p7b-win32-26340-9767-declared",
+    "definitionId": "certificate-export",
+    "route": "export",
+    "target": null,
+    "platform": {
+      "os": "win32",
+      "release": "Windows 11 26H2 build 26340.9767",
+      "architecture": "x64"
+    },
+    "network": "declared",
+    "projection": "windows-effective-server-auth-v1",
+    "client": null,
+    "configurationProfile": "pkcs7-certificate-import-v1",
+    "probeProfile": "export-p7b-parse-v1",
+    "launchContext": "no-client"
+  },
+  "cases": [
+    {
+      "id": "p7b-custody-recorded",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
+    },
+    {
+      "id": "p7b-custom-store-import",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Windows Import-Certificate imported these exact P7B bytes into a disposable custom CurrentUser store on actual Windows 11 26H2 build 26340.9767 as a standard user; both fingerprints matched and the store was removed."
+    },
+    {
+      "id": "p7b-deterministic-bytes",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
+    },
+    {
+      "id": "p7b-independent-parse-set",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
+    },
+    {
+      "id": "p7b-public-api-write",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated full 1.2 contracts."
+    },
+    {
+      "id": "p7b-refresh-replace-reviewed",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
+    },
+    {
+      "id": "p7b-reject-key-material",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
+    },
+    {
+      "id": "p7b-reject-output-extension-mismatch",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "An output extension mismatch rejected before output effects."
+    },
+    {
+      "id": "p7b-reject-unsafe-path",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
+    },
+    {
+      "id": "p7b-removal-reconciled",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Managed public removal retired the output and protected provenance with its ordinary ownership."
+    },
+    {
+      "id": "p7b-serializer-failure-unavailable",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Fixed serializer backend loading failure returned unavailable without a substituted encoding."
+    }
+  ],
+  "limitations": [
+    "no-os-fullset-claim",
+    "no-native-client-claim",
+    "supplied-only-export",
+    "windows-os-discovery-incomplete",
+    "native-node-npm-unavailable"
+  ]
+}
