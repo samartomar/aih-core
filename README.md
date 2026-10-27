@@ -2739,6 +2739,11 @@ running that fixture from Node 26. This selects only the historical control;
 the current package and its tests continue to run on Node 26. Without that
 compatible historical runtime the fixture reports its failure; it does not
 rewrite historical source or infer a compatibility pass.
+For example, with Node 26 selected as `node`, run
+`AIH_TEST_LEGACY_NODE=/opt/node24/bin/node npm test` in a POSIX shell (set the
+same environment variable before `npm test` in PowerShell). The full CI matrix
+provisions historical Node 24.22.1, records its executable path, then selects
+Node 26 for the current package checks.
 
 Ordinary CI runs on pull requests and pushes to `main`, with superseded runs
 cancelled. Feature pushes do not duplicate PR checks. Documentation-only edits
