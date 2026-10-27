@@ -987,10 +987,11 @@ items it already holds. A complete result reports:
   and no binding observes a plugin location yet, so those are `unavailable`.
 - per item, the `inputs` still required: input values never reach inspection, so
   every declared input is still required.
-- `stale` per item and overall: `true` when the installed version is newer than
-  every observation proving the cell (`observedVersion` is the newest of them),
-  `false` only when a proving observation on this OS and architecture is not
-  older, and otherwise `'unchecked'`: the installed version is unknown, nothing
+- `stale` per item and overall: `true` when the installed version differs from
+  every proving observation, or every proving observation on this host platform
+  when it has any (`observedVersion` is the newest historical proving version).
+  `false` requires an exact proving observation on this OS and architecture,
+  and otherwise `'unchecked'`: the installed version is unknown, nothing
   proves the cell, or no proving observation was made on this platform.
 - `hostBlockers[]`: `executable-missing` (an `absent` executable),
   `input-required` (each declared input) and `dependency-missing` (a required

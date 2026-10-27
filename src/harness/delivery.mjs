@@ -494,6 +494,8 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
       let plan, notRendered;
       if (!isExcluded) {
         try {
+          if (installedVersion !== undefined && cell.support !== 'native')
+            unavailable('kind-not-native', '/item/kind', cell.reason);
           plan = deliveryPlan(bound, binding, cell.layout.roots.project ? 'project' : 'user', { support: cell.support });
         } catch (error) {
           if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error;

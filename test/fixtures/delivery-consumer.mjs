@@ -302,8 +302,20 @@ await check('compatibility uses the exact installed CLI version without borrowin
   for (const item of result.items) {
     assert.deepEqual([item.support, item.observed, item.observedOn], ['unconfirmed', 'none', null]);
     assert.match(item.reason, /Not observed for 0\.164\.0/);
+    assert.equal(item.notRendered.reason, 'kind-not-native');
+    assert.deepEqual(item.deliveredSize, { bytes: 0, chars: 0, alwaysLoaded: { bytes: 0, chars: 0 } });
   }
   assert.match(byId(result, 'github').permissionStep, /Still needs your OK in Codex CLI/);
+  const other = catalogItem({ id: 'other-review', kind: 'skill', files: SKILL_FILES, payload: { dirName: 'code-review' } });
+  const collisions = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.164.0',
+    items: [{ item: skill }, { item: other }] });
+  for (const item of collisions.items) assert.deepEqual(item.staticBlockers, [], 'refused plans do not create same-folder collisions');
+  const fallback = catalogItem({ id: 'fallback', kind: 'rule', files: { 'fallback.md': 'Fallback.\n' }, payload: { placement: 'entry-block' } });
+  const recovered = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.163.0',
+    items: [{ item: skill, fallback }] });
+  assert.equal(recovered.items[0].boundAs.viaFallback, true);
+  assert.equal(recovered.items[0].notRendered, undefined);
+  assert.ok(recovered.items[0].deliveredSize.bytes > 0, 'an exact native fallback still delivers');
   const invalid = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: 'latest', items: [] });
   assert.deepEqual([invalid.status, invalid.code, invalid.reason], ['refused', 'INPUT_INVALID', 'installed-version']);
 });
@@ -318,6 +330,15 @@ await check('selected CLI tuples render only observed kinds and keep every unobs
       const rendered = renderDelivery({ tool, binding, item: skill, scope: 'project', platform, installedVersion });
       const working = ['claude', 'copilot'].includes(tool) && os === 'windows' && arch === 'x64';
       assert.equal(rendered.status, working ? 'rendered' : 'refused', `${tool} ${installedVersion} ${os} ${arch}`);
+      const compatible = checkCompatibility({ tool, binding, platform, installedVersion, items: [{ item: skill }] });
+      if (binding) {
+        assert.equal(compatible.status, 'checked');
+        assert.equal(compatible.items[0].support, working ? 'native' : 'unconfirmed');
+        if (!working) {
+          assert.equal(compatible.items[0].notRendered.reason, rendered.reason);
+          assert.equal(compatible.items[0].deliveredSize.bytes, 0);
+        }
+      } else assert.equal(compatible.reason, rendered.reason);
       if (working) assert.ok(writes(rendered.recipe).some(path => path.endsWith('/SKILL.md')));
       else assert.equal(rendered.reason, binding ? 'kind-not-native' : 'tool-not-observed');
     }
@@ -339,6 +360,8 @@ await check('a matching CLI binding preserves pending approval and listed-only u
   assert.deepEqual([byId(result, 'github').support, byId(result, 'github').observed], ['native', 'registered']);
   assert.match(byId(result, 'github').permissionStep, /Still needs your OK/);
   assert.deepEqual([byId(result, agent.id).support, byId(result, agent.id).observed], ['unconfirmed', 'listed-only']);
+  assert.equal(byId(result, agent.id).notRendered.reason, 'kind-not-native');
+  assert.equal(byId(result, agent.id).deliveredSize.bytes, 0);
   const pending = renderDelivery({ ...query, item: github, scope: 'project' });
   assert.equal(pending.status, 'rendered');
   assert.equal(pending.recipe.operations.some(op => op.id === 'approve-server'), false);

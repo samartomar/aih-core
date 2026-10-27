@@ -114,7 +114,7 @@ await check('a missing executable gives executable-missing and the tool version 
   }
 });
 
-await check('an installed version newer than the observation is stale; read from files, never by running the tool', async () => {
+await check('an installed version without an exact proving observation is stale; read from files, never by running the tool', async () => {
   const project = folder('stale', 'home', 'project');
   const newer = installTool(folder('stale', 'newer'), '@anthropic-ai/claude-code', 'claude', '2.2.0');
   const tools = folder('stale', 'tools');
@@ -133,11 +133,9 @@ await check('an installed version newer than the observation is stale; read from
   const older = installTool(folder('stale', 'older'), '@anthropic-ai/claude-code', 'claude', '2.1.0');
   host({ home: folder('stale', 'home'), path: older });
   const current = await inspectToolHost({ tool: 'claude', project, items: [skill] });
-  // Not stale needs a proving observation on this platform; the shipped ones are Windows x64.
-  const notStale = here === 'windows-x64' ? false : 'unchecked';
-  assert.deepEqual([current.installedVersion.version, current.stale, current.items[0].stale], ['2.1.0', notStale, notStale]);
-  if (notStale === 'unchecked') assert.deepEqual(current.unchecked.filter(note => note.fact === 'stale'),
-    [{ fact: 'stale', item: { framework: 'example', itemId: 'review' }, reason: 'not-observed-on-platform' }]);
+  // An older version does not inherit a proving observation from a different version either.
+  assert.deepEqual([current.installedVersion.version, current.stale, current.items[0].stale], ['2.1.0', true, true]);
+  assert.deepEqual(current.unchecked.filter(note => note.fact === 'stale'), []);
   if (!windows) {
     host({ home: folder('stale', 'home'), path: linkTool(folder('stale', 'linked'), '@anthropic-ai/claude-code', 'claude', '2.3.1') });
     const linked = await inspectToolHost({ tool: 'claude', project, items: [skill] });
