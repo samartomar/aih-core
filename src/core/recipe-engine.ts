@@ -878,7 +878,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             return changingOwned || selectedAbsent || option === 'replace' ? 'replace-file' : 'conflict';
           };
           effect = decide(resolution);
-          const adoptable = same && before !== null && !managed;
+          // A file Core already installs for another selection, with exactly these bytes and unchanged since it was
+          // recorded (one notice copy several items require), gains this selection's claim: every requiring selection owns
+          // it, and removal keeps it until the last one goes. Nothing is written; a person's own file is never acquired.
+          const sharedCopy = op.kind === 'file.write' && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
+            custody !== undefined && descriptors.every(member => {
+              const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
+              return !!prior?.claims?.length && bytes !== null && prior.sha256 === sha256(bytes);
+            });
+          if (sharedCopy) ownerState = 'managed';
+          const adoptable = same && before !== null && !managed && !sharedCopy;
           if (effect === 'conflict' && decide('replace') !== 'conflict') choices.push('replace');
           if (effect === 'conflict' && adoptable && decide('adopt') !== 'conflict') choices.push('adopt');
           if (effect === 'already-satisfied' && adoptable && !resolution && !editConflict && !sharedChange && !overlap && !drift)
@@ -889,7 +898,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             const desired = memberBytes(member, after!);
             if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
           }
-          custodyOnly = same && (managed || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
+          custodyOnly = same && (managed || sharedCopy || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
           if (resolution === 'adopt' && !adoptable) throw new Error('resolution-invalid');
           // A reviewed replacement of a person's JSON value keeps that value in protected custody for restoration.
           if (resolution === 'replace' && op.kind === 'config.entries' && (op.format === 'json' || op.format === 'jsonc') && custody && !editConflict)

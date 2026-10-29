@@ -986,8 +986,13 @@ depend on order. Per item the result is:
     `scope-not-bound`.
   - **Requirers without their own folder:** agents, commands, rules and MCP servers
     keep no folder, and their tools read those folders as content (ECC's notices
-    include `AGENTS.md` and `README.md`). Such a requirer is blocked with
-    `dependency-missing` rather than shown as working.
+    include `AGENTS.md` and `README.md`). Their `notice` and `license` documents go
+    once per framework to the neutral notices folder, which no tool reads as content:
+    `<project>/.aih/notices/<framework>/<document>/`, or `<home>/.aih/notices/...`
+    in user scope. Compatibility plans and sizes that copy once. A document with
+    another purpose (for example `reference`) still has no place beside such an
+    item, so the item is blocked with `dependency-missing`. (Amendment 3.2.2, owner
+    decision of 29 October 2026.)
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
@@ -2010,10 +2015,26 @@ the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
   keep their per-scope rule and remain valid, with their earlier review formats.
 
 `requiredBy` is a `renderDelivery` input for a supporting `document`. It names the
-Catalog item that requires the document, and the document is rendered beside that
-item, inside its folder under the document's item id. Render it once per requiring
-item. Without `requiredBy` a supporting document is refused with `scope-not-bound`.
-An item that does not require it is refused with `required-by-mismatch`.
+Catalog item that requires the document. Render the document once per requiring item.
+
+- **A requirer with its own folder** (skill, hook): the document goes inside that
+  folder, under the document's item id. The recipe id is
+  `<tool>.<document>.beside.<requirer>`.
+- **A requirer without one:** a notice or licence goes to the neutral notices folder.
+  The recipe id is `<tool>.<document>.for.<requirer>`.
+- **Errors:** without `requiredBy`, a supporting document is refused with
+  `scope-not-bound`. An item that does not require it is refused with
+  `required-by-mismatch`.
+
+**Every requiring item owns the one copy.** Every such recipe writes the same files
+with the same bytes. When Core already installs a file for another selection, with
+exactly these bytes and unchanged since it was recorded, the new selection gains a
+claim on it. Nothing is written and no adopt choice is offered.
+- The inventory lists the file under every owning selection, so a removal preview can
+  say "Kept; also part of {name}".
+- Removing one requirer keeps the copy for the others (`keep-shared`).
+- Removing the last one removes it, confirmed gone.
+- A person's own file is never acquired this way.
 
 `grantApproval` is a `renderDelivery` input, not metadata: an approval is reviewed
 only through the operations it adds to the rendered recipe.
@@ -2615,6 +2636,13 @@ Run result 1.4 member checks ([samartomar/aih-core#99](https://github.com/samart
 These claims cover the members the run touched; use them instead of the confirmation steps above when the result carries `members`.
 
 ## Owned hook groups
+
+**Known limits of the Claude hook command template** (see *Observed tool bindings*):
+- `CLAUDE_PLUGIN_ROOT` now takes precedence over a user's own `ECC_PLUGIN_ROOT`.
+- ECC's `hook-flags.js` looks for `<pluginRoot>/ecc/setup.json`, which no item
+  delivers.
+- User scope and hook shells other than Claude Code's bash on Windows are not yet
+  observed.
 
 Recipe and execution-policy schema 1.1.0 add a `hook.group` operation for JSON and JSONC targets (TOML is unsupported). It manages one element of a shared array (for example a client's hook list) without owning the file: `container` is an object-key path to the array, `selector` (`path`, `value`) identifies the element, `groupId` names custody, and `group` is the literal element for `action: "set"` (`"remove"` deletes it). The selector value must appear in the group literal; neither `groupId` nor the selector is written to the target. Custody records the element's raw-span and canonical digests, so a neighbor edit, insertion or reorder never changes which element a fresh Prepare selects, while an edit to the owned element is a reviewed conflict (`owned-hook-edited`, `owned-hook-missing`, `hook-selector-ambiguous` and related reasons). A different managed group in the same array that has gone missing or ambiguous blocks the step as `hook-selector-overlap`, and the diagnostic names that group; no replace of the current group resolves it. Any edit to the target file between Prepare and Apply, a neighbor's included, makes Apply fail as `REVIEW_STALE` without writing. Reviewed `replace` resolutions use the operation's `details.hookGroup.targetBeforeSha256`. Several claims may share one group; it is deleted only when the last claim is removed, and its content cannot change while another claim retains it. A JSONC removal deletes only the targeted element and one separating comma; whitespace and comments outside that span stay as they were, and an edit that would move or delete an adjacent comment (or a container that is not an array) is reported as `hook-edit-unsafe` instead. An appended element is written as canonical JSON.
 

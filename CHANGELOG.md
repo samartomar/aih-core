@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.41 delivers the notices and licences of items without a folder of their
+own (single-file agents, commands, rules, MCP server entries) once per framework to
+`<project>/.aih/notices/<framework>/<document>/` (user scope:
+`<home>/.aih/notices/...`), per amendment 3.2.2.
+
+- Every requiring item owns the one copy. A selection writing a file Core already
+  installs for another selection, with the same unchanged bytes, gains a claim on it
+  instead of being offered to adopt it.
+- Removing one requirer keeps the copy (`keep-shared`); the last removes it, confirmed
+  gone.
+- Compatibility no longer blocks those items with `dependency-missing`. Documents with
+  other purposes (`reference`) still have no place beside them.
+
 Core 1.0.0-dev.40 renders Claude hook commands as `CLAUDE_PLUGIN_ROOT="{pluginRoot}"
 {command}`, where `{pluginRoot}` is the hook's item folder.
 
