@@ -172,7 +172,7 @@ test('the GitHub source is unchanged and a source description never selects auth
   assert.deepEqual([github.status, github.diagnostics[0].reason], ['blocked', 'network-failed'], 'GitHub stays online-only');
 });
 
-test('grouped Enterprise removal accepts a local organization source; the single-id form names only GitHub', async () => {
+test('both Enterprise removal forms accept a local organization source', async () => {
   offline();
   const target = project();
   const vibe = enterprisePolicy(document => { document.mode = 'vibe'; delete document.selections[0].organizationSelectionId; });
@@ -188,7 +188,8 @@ test('grouped Enterprise removal accepts a local organization source; the single
   assert.equal(existsSync(join(target, 'TEAM.md')), false);
   const single = await prepareManagedRemoval({ target: { project: target }, managementId: 'team-guidance', scope: 'project',
     mode: 'enterprise', organizationSource: source }, { logging: 'off' });
-  assert.deepEqual([single.disposition, single.diagnostics[0].reason], ['invalid', 'organization-source']);
+  assert.deepEqual([single.schema, single.disposition, single.diagnostics],
+    ['urn:aihq:core:managed-removal-preparation:1.0.0', 'absent', []]);
 });
 
 test('the CLI selects a local organization file offline and refuses mixing it with GitHub flags or Vibe', async () => {

@@ -59,8 +59,10 @@ export interface ManagedRemovalPreparationResult12 {
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const SCHEMA = 'urn:aihq:core:managed-removal-preparation:1.0.0' as const;
+const SCHEMA_11 = 'urn:aihq:core:managed-removal-preparation:1.1.0' as const;
 const SCHEMA_12 = 'urn:aihq:core:managed-removal-preparation:1.2.0' as const;
 const POLICY_14 = 'urn:aihq:core:execution-policy:1.4.0' as const;
+const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0' as const;
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0' as const;
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const diagnostic = (code: string, reason: string, message: string, guidance?: string): Diagnostic =>
@@ -68,15 +70,20 @@ const diagnostic = (code: string, reason: string, message: string, guidance?: st
 
 /** Removal never acquires material or accepts private inputs or evidence, even an empty map. */
 const forbiddenControls = (controls: HostControls): boolean => ['privateInputs', 'materialRoots', 'evidence'].some(name => Object.hasOwn(controls, name));
+const isLocalPolicySource = (source: unknown): boolean =>
+  !!source && typeof source === 'object' && (source as { provider?: unknown }).provider === 'local';
 /**
- * Enterprise needs exactly one valid organization source; Vibe accepts none. A local source needs a review that can name
- * it, which only the grouped form (execution policy 1.4.0) produces.
+ * Enterprise needs exactly one valid organization source; Vibe accepts none. Both removal forms admit the GitHub
+ * source and the caller-selected local file, read offline.
  */
-function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown, local: boolean): boolean {
+function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown): boolean {
   if ((mode === 'enterprise') !== (source !== undefined)) return false;
   if (mode === 'vibe') return true;
-  try { return validGitHubPolicySource(source) || local && validLocalPolicySource(source); } catch { return false; }
+  try { return validGitHubPolicySource(source) || validLocalPolicySource(source); } catch { return false; }
 }
+/** A local file needs the later review that names it; every other removal keeps its earlier policy identity. */
+const removalPolicySchema = (source: unknown, boundedConfig: boolean): ExecutionPolicy['schema'] =>
+  isLocalPolicySource(source) ? POLICY_14 : boundedConfig ? POLICY_12 : POLICY_11;
 /** Only cancellation, logging and organization authentication reach the inner cleanup Prepare. */
 const forwardedControls = (controls: HostControls): HostControls => ({ ...(controls.signal === undefined ? {} : { signal: controls.signal }),
   ...(controls.logging === undefined ? {} : { logging: controls.logging }),
@@ -113,7 +120,7 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   if (typeof request.managementId === 'string' && idPattern.test(request.managementId)) known.managementId = request.managementId;
   if (!project || !known.mode || !known.scope || !known.managementId || forbiddenControls(controls)) return invalid('request-shape');
   const { scope, mode, managementId } = known as Required<Pick<ManagedRemovalPreparationResult, 'scope' | 'mode' | 'managementId'>>;
-  if (!organizationSourceValid(mode, request.organizationSource, false)) return invalid('organization-source');
+  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', known, [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   if (!identityValid) return done('unavailable', known, [diagnostic('PREREQUISITE_UNAVAILABLE',
     'core-distribution-identity', 'The installed Core distribution identity could not be verified.')]);
@@ -183,7 +190,7 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   if (mode === 'enterprise' && custody.members === 0) return done('unavailable', known, [metadataOnly()]);
 
   const hasBoundedConfig = members.some(member => member.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(member.format));
-  const policy: ExecutionPolicy = { schema: hasBoundedConfig ? 'urn:aihq:core:execution-policy:1.2.0' : POLICY_11, mode, selections: [], removals: [{ managementId, scope }] };
+  const policy: ExecutionPolicy = { schema: removalPolicySchema(request.organizationSource, hasBoundedConfig), mode, selections: [], removals: [{ managementId, scope }] };
   const forwarded = forwardedControls(controls);
   const trustParticipant = trustImage && trustEntries.length ? custodyParticipant(trustImage, [], () => {
     if (!sameImage()) throw new Error('review-stale');
@@ -204,7 +211,8 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation,
-    ...(preparation.review?.schema === 'urn:aihq:core:prepared-work:1.4.0' ? { schema: 'urn:aihq:core:managed-removal-preparation:1.1.0' as const } : {}) });
+    ...(preparation.review?.schema === 'urn:aihq:core:prepared-work:1.4.0' ||
+        preparation.review?.schema === 'urn:aihq:core:prepared-work:1.6.0' ? { schema: SCHEMA_11 } : {}) });
 }
 
 const text = (value: unknown, bound: number): value is string => typeof value === 'string' && value.length > 0 && [...value].length <= bound;
@@ -254,7 +262,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
     if (forms.has(form) || forms.size && (form === 'whole' || forms.has('whole'))) return invalid('removal-conflict');
     seen.set(removal.managementId, forms.add(form));
   }
-  if (!organizationSourceValid(mode, request.organizationSource, true)) return invalid('organization-source');
+  if (!organizationSourceValid(mode, request.organizationSource)) return invalid('organization-source');
   if (controls.signal?.aborted) return done('cancelled', [diagnostic('CANCELLED', 'cancelled', 'Managed removal preparation was cancelled.')]);
   const unavailable = (reason: string, message: string, code = 'PREREQUISITE_UNAVAILABLE') => done('unavailable', [diagnostic(code, reason, message)]);
   if (!identityValid) return unavailable('core-distribution-identity', 'The installed Core distribution identity could not be verified.');

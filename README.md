@@ -2509,12 +2509,13 @@ publishes only that (`[REDACTED]` in place of the value); custody written before
 version carries no such record. The schema is
 `@aihq/core/schemas/managed-inventory-result/1.1.0.json`.
 
-`prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy 1.1 Prepare to the existing engine. `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.
+`prepareManagedRemoval({ target: { project }, managementId, scope, mode, organizationSource? }, controls?)` checks live custody and, for an eligible claim, delegates a cleanup-only policy Prepare to the existing engine (policy 1.1, 1.2 when relevant custody has bounded configuration, or 1.4.0 when the organization source is a local file). `mode: 'vibe'` is local maintenance; `mode: 'enterprise'` requires an independently selected organization source, from GitHub or a local file, and its lifecycle removal grant. The wrapper distinguishes `prepared`, `absent`, `retained`, `reconcile-required`, `unavailable`, `invalid` and `cancelled`. Only `prepared` carries an inner policy result, which has an opaque handle for the existing `apply` when the inner Prepare supplies a reviewable handle. A claimless legacy member needs reapplication of its original recipe or manual reconciliation; an Enterprise zero-member claim is refused until its admission gate supports metadata-only removal. Preflight-only dispositions write no routine history.
 
 When relevant custody contains INI, YAML or properties entries, the convenience helper uses policy
 1.2.0 and returns managed-removal-preparation 1.1.0 with prepared-work 1.4.0.
-Other removals retain the previous identities. All four new schema files are
-exported under their versioned `@aihq/core/schemas/...` paths.
+A local organization source uses policy 1.4.0 and returns managed-removal-preparation
+1.1.0 with prepared-work 1.6.0. Other removals retain the previous identities. All
+four new schema files are exported under their versioned `@aihq/core/schemas/...` paths.
 
 ### Removal preparation 1.2.0
 
@@ -2842,10 +2843,10 @@ policyId, helper: { id: 'local-policy-reader', package } }`. Apply reads the fil
 again; changed bytes or a different file are `REVIEW_STALE` with `changed:
 'policy'`, and nothing is written. Only execution policy 1.4.0 (prepared work
 1.6.0, run result 1.4.0) can name a local source; an older policy with one is
-`INPUT_INVALID / organization-source-local-review`. Grouped removal preparation
-1.2.0 accepts a local source too; the single-id removal form and `aih managed
-remove` name only GitHub. The source is caller-selected like the GitHub source;
-nothing chooses one from data.
+`INPUT_INVALID / organization-source-local-review`. Both removal preparation
+forms accept a local source; the single-id form returns managed-removal-preparation
+1.1.0 with prepared-work 1.6.0, while `aih managed remove` still names only GitHub.
+The source is caller-selected like the GitHub source; nothing chooses one from data.
 
 **Set membership in Prepare.** `organizationSetMembers` (Enterprise only;
 rejected for Vibe) supplies the Catalog-resolved members for the organization

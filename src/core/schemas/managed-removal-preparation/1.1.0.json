@@ -103,6 +103,9 @@
             },
             {
               "$ref": "urn:aihq:core:prepared-work:1.4.0"
+            },
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.6.0"
             }
           ]
         },
