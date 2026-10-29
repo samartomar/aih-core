@@ -53,14 +53,19 @@ test('every shipped hook event, entry file and entry pointer cites an observed l
 
 test('the citation guard refuses a hook event, entry file or pointer that no run record observed', () => {
   const claude = bindings.find(binding => binding.tool === 'claude');
-  // The 23 October run fired only SessionStart, and no session read a CLAUDE.md block.
+  // No run record shows a Notification hook firing, a block in GEMINI.md being read, or an @README.md pointer.
   const guessed = structuredClone(claude);
-  guessed.layouts.hook.hookEvents = { ...guessed.layouts.hook.hookEvents, PreToolUse: 'PreToolUse' };
-  guessed.entryFiles = ['CLAUDE.md'];
-  guessed.entryPointer = { file: 'CLAUDE.md', template: '@AGENTS.md' };
-  assert.deepEqual(uncited(guessed), ['hookEvents.PreToolUse', 'entryFiles.CLAUDE.md', 'entryPointer.CLAUDE.md']);
-  // A fired line counts only through an observation the binding carries: no observation, no citation.
+  guessed.layouts.hook.hookEvents = { ...guessed.layouts.hook.hookEvents, Notification: 'Notification' };
+  guessed.entryFiles = [...guessed.entryFiles, 'GEMINI.md'];
+  guessed.entryPointer = { file: 'CLAUDE.md', template: '@README.md' };
+  assert.deepEqual(uncited(guessed), ['hookEvents.Notification', 'entryFiles.GEMINI.md', 'entryPointer.CLAUDE.md']);
+  // A fired line counts only through an observation the binding carries: without the hook observations, nothing is cited.
   const detached = structuredClone(claude);
   detached.layouts.hook.observations = [];
-  assert.deepEqual(uncited(detached), ['hookEvents.SessionStart']);
+  assert.deepEqual(uncited(detached), [...Object.keys(claude.layouts.hook.hookEvents).map(event => `hookEvents.${event}`),
+    'entryFiles.CLAUDE.md', 'entryPointer.CLAUDE.md']);
+  // A pointer must name an entry file.
+  const stray = structuredClone(claude);
+  stray.entryFiles = [];
+  assert.deepEqual(uncited(stray), ['entryPointer.CLAUDE.md']);
 });

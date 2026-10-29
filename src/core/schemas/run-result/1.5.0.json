@@ -579,6 +579,11 @@
               "binding",
               "target-file"
             ]
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
           }
         },
         "required": [
@@ -605,6 +610,18 @@
                   "const": "binding-changed"
                 }
               }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "detail"
+              ]
+            },
+            "then": {
+              "required": [
+                "changed"
+              ]
             }
           }
         ]

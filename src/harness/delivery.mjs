@@ -63,7 +63,7 @@ function bindingFor(tool, binding) {
 }
 
 /**
- * The fields of a checked Catalog release 1.6 item that rendering and compatibility read. Both identities and the
+ * The fields of a checked Catalog release 1.6 or 1.7 item that rendering and compatibility read. Both identities and the
  * behaviour file are recomputed as Catalog's reader does, so the payload rendered is the one the identities name.
  */
 function readItem(item, path) {
@@ -82,16 +82,23 @@ function readItem(item, path) {
     invalid('item-invalid', `${path}/materials`, 'Expected exactly one behaviour file naming the publishing framework.');
   if (new Set(item.materials.map(member => member.id)).size !== item.materials.length)
     invalid('item-invalid', `${path}/materials`, 'Material ids are unique within an item.');
-  if (item.contentSha256 !== sha256Hex(lines(content)) || item.behaviourSha256 !== sha256Hex(lines([...content, ...behaviour])))
-    invalid('item-identity-mismatch', path, 'The item identities do not match its materials.');
   const inputs = isRecord(item.requirements) && isRecord(item.requirements.inputs) ? item.requirements.inputs : {};
   const dependencies = isRecord(item.dependencies) ? item.dependencies : {};
-  let behaviourText;
+  let behaviourValue, behaviourText;
   try {
-    behaviourText = `${canonicalJson(JSON.parse(JSON.stringify({ kind: item.kind, payload: item.payload ?? null, requirements: { inputs },
+    behaviourValue = JSON.parse(JSON.stringify({ kind: item.kind, payload: item.payload ?? null, requirements: { inputs },
       dependencies: { requires: dependencies.requires ?? [], optional: dependencies.optional ?? [], conflicts: dependencies.conflicts ?? [] },
-      executable: Object.fromEntries(content.map(member => [member.relPath, member.executable])) })))}\n`;
+      executable: Object.fromEntries(content.map(member => [member.relPath, member.executable])) }));
+    behaviourText = `${canonicalJson(behaviourValue)}\n`;
   } catch { invalid('item-invalid', path, 'The item behaviour is not plain JSON.'); }
+  const contentLines = lines(content);
+  // Release 1.7 items (each carries `role`) use the contract's behaviour identity: SHA-256 of the canonical JSON of
+  // { kind, payload, requirements, dependencies, materials: <the contentSha256 lines>, executable }. Frozen 1.6 items
+  // keep their line hash over the content and behaviour files.
+  const behaviourSha256 = Object.hasOwn(item, 'role') ? sha256Hex(canonicalJson({ ...behaviourValue, materials: contentLines }))
+    : sha256Hex(lines([...content, ...behaviour]));
+  if (item.contentSha256 !== sha256Hex(contentLines) || item.behaviourSha256 !== behaviourSha256)
+    invalid('item-identity-mismatch', path, 'The item identities do not match its materials.');
   if (sha256Hex(behaviourText) !== behaviour[0].sha256 || new TextEncoder().encode(behaviourText).length !== behaviour[0].byteLength)
     invalid('item-identity-mismatch', `${path}/payload`, 'The kind, payload, requirements, dependencies or executable state differ from the behaviour file.');
   const payload = isRecord(item.payload) ? item.payload : {};

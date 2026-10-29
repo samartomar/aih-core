@@ -726,6 +726,28 @@ times, command, tool calls and MCP server events), each list command result and
 each delivered cell (files with their SHA-256, recognised level and evidence),
 without local machine paths.
 
+**Claude hook events and entry file (29 October 2026).** A second Windows x64 run
+on Claude Code 2.1.312 is published as
+`@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json`. It used
+`env-redirect-outside-profile` with the project outside the user profile, and
+records `realProfilePathsTouched: []`.
+
+- **Hook events.** A canary hook registered on seven events fired on each of them:
+  `SessionStart`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` (a failing MCP
+  tool call and a failing command), `Stop`, `SessionEnd`, and `PreCompact` (after
+  `claude --continue -p /compact`). The Claude hook layout maps exactly these
+  events.
+- **Entry file.** The session quoted a token from a marked `aih:shared` block in
+  `CLAUDE.md` without reading any file, and a token from `AGENTS.md` imported by
+  `@AGENTS.md`.
+- **Pointer control.** A control session without that line did not see the
+  `AGENTS.md` token.
+
+So Claude's `entryFiles` is `["CLAUDE.md"]` and its `entryPointer` is `{ file:
+"CLAUDE.md", template: "@AGENTS.md" }`. An event or file no run record shows
+stays unmapped. A test requires every mapped hook event, entry file and entry
+pointer to cite its observed line in a published run record.
+
 **These are scoped claims.** Observations come from the existing
 `verifyNativeClient` route or a canary run with a published run record. They hold
 only for their tool version, OS, architecture and isolation, and they do not
@@ -2027,6 +2049,10 @@ Scan's `verifyItemRecord` rule against the selection's own bytes:
   for scanning, with the same bytes. The capture is checked against its own
   `captureSha256`.
 
+A selection that delivers no captured bytes (an item whose behaviour is only its
+payload) cannot be checked this way, so no record counts for it: it is
+`not-covered`.
+
 Scan's decision table then applies:
 
 - no record: `not-scanned`;
@@ -2043,9 +2069,11 @@ is `not-verified` with `why: "unchecked"`, or `"not-authenticated"` when its
 artifact's signature was refused.
 
 **Evidence for other bytes is never "authenticated".** In a 1.7.0 review and its run
-result, an artifact that authenticates but covers no selection's own bytes is
-reported as `{ scanId, status: "unverifiable", reason: "not-covered" }`. A real scan
-of other bytes, relabelled as an item, therefore shows `not-covered` everywhere.
+result, an artifact stays `authenticated` only when a record naming it passed the
+check against some selection's own bytes, with matched coverage. Any other artifact
+is reported as `{ scanId, status: "unverifiable", reason: "not-covered" }`. A real
+scan of other bytes, relabelled as an item, therefore shows `not-covered` everywhere.
+The run result reports the evidence Apply re-checked.
 
 **Release index.** `controls.index` takes the consumer's current index in the
 inventory's shape (`offered`, `revoked`, `superseded`). Prepare records each item's
@@ -2059,14 +2087,16 @@ Apply guard above, and then re-checks:
 - its scan state, from the evidence read again;
 - the binding Core now ships for its tool and kind.
 
-A refusal names `changed` from the owner's closed list only:
+A refusal names `changed` from the owner's closed list only. Its `detail` names
+what changed: the reviewed target path for `target-file`, or the selection's name
+for `index-status`, `scan-state` and a changed shipped binding.
 
 | `changed` | What changed since the preview |
 | --- | --- |
-| `policy` | The request or policy digest; for Enterprise, the organization revision, blob, content and declared target |
+| `policy` | The organization's policy: its revision, blob, content or declared target (Enterprise only) |
 | `index-status` | An item's status in the consumer's release index (including an index given at Prepare and not at Apply) |
 | `scan-state` | A selection's picked scan, coverage or summary |
-| `binding` | How the item is installed: the shipped binding digest, the recipe or its captured materials, or a private input |
+| `binding` | How the items are installed: the shipped binding digest, the request (recipes, selections, metadata), a recipe's captured materials, or a private input |
 | `target-file` | A reviewed target file, its path identity or home, or ownership, trust or session custody of a reviewed path |
 
 A recipe rendered for a binding digest Core no longer ships is already a

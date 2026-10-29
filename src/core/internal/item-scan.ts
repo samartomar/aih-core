@@ -18,7 +18,11 @@ export type ScanArtifact = { readable: false } |
   { readable: true; association: AssociationResult; entries: ReadonlyMap<string, CaptureEntry> };
 /** A material the selection delivers, as Core captured it. */
 export interface OwnMaterial { sha256: string; byteLength: number }
-export interface SelectionScan { scanId?: string; coverage?: ItemScanRecord['coverage']; scanState: ScanSummary }
+export interface SelectionScan {
+  scanId?: string; coverage?: ItemScanRecord['coverage']; scanState: ScanSummary;
+  /** Scan ids of every record that passed the check with matched coverage: the artifacts that cover this selection's bytes. */
+  covering: string[];
+}
 
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('report-shape');
@@ -74,7 +78,9 @@ export function recordCovers(scanRecord: ItemScanRecord, item: SelectionMetadata
 }
 
 const NONE = { error: 0, warning: 0, note: 0, unavailable: 0 };
-const empty = (state: ScanSummary['state']): SelectionScan => ({ scanState: { state, findings: { ...NONE }, suppressed: 0, scannedAt: null } });
+/** A summary with no picked record: nothing scanned, nothing readable, or nothing that covers the selection's bytes. */
+const emptyScan = (state: ScanSummary['state']): SelectionScan =>
+  ({ scanState: { state, findings: { ...NONE }, suppressed: 0, scannedAt: null }, covering: [] });
 const authenticated = (artifact: ScanArtifact) => artifact.readable && artifact.association.status === 'authenticated';
 /** Ranked by coverage, then authentication, then completion, then the newest scan: never by time alone. */
 function rank(a: { scanRecord: ItemScanRecord; artifact: ScanArtifact }, b: { scanRecord: ItemScanRecord; artifact: ScanArtifact }): number {
@@ -93,14 +99,18 @@ function rank(a: { scanRecord: ItemScanRecord; artifact: ScanArtifact }, b: { sc
  */
 export function selectionScan(item: SelectionMetadata['item'], records: readonly ItemScanRecord[] | undefined,
     own: readonly OwnMaterial[], artifacts: ReadonlyMap<string, ScanArtifact>): SelectionScan {
-  if (!records?.length) return empty('not-scanned');
+  if (!records?.length) return emptyScan('not-scanned');
+  // Core checks a record against the bytes the selection delivers. With none (an item whose behaviour is only its
+  // payload), Core cannot tell a relabelled record from a real one, so none counts.
+  if (!own.length) return emptyScan('not-covered');
   const readable = records.flatMap(scanRecord => {
     const artifact = artifacts.get(scanRecord.scanId);
     return artifact?.readable ? [{ scanRecord, artifact }] : [];
   });
-  if (!readable.length) return empty('unreadable');
+  if (!readable.length) return emptyScan('unreadable');
   const passing = readable.filter(entry => entry.artifact.readable && recordCovers(entry.scanRecord, item, own, entry.artifact.entries));
-  if (!passing.length) return empty('not-covered');
+  if (!passing.length) return emptyScan('not-covered');
+  const covering = [...new Set(passing.filter(entry => entry.scanRecord.coverage === 'matched').map(entry => entry.scanRecord.scanId))];
   const picked = [...passing].sort(rank)[0]!;
   const { scanRecord } = picked;
   const findings = { ...NONE };
@@ -110,7 +120,7 @@ export function selectionScan(item: SelectionMetadata['item'], records: readonly
     suppressed += detector.suppressed.reduce((total, entry) => total + entry.count, 0);
   }
   const summary = (state: ScanSummary['state'], why?: ScanSummary['why']): SelectionScan => ({ scanId: scanRecord.scanId,
-    coverage: scanRecord.coverage, scanState: { state, ...(why ? { why } : {}), findings, suppressed, scannedAt: scanRecord.createdAt } });
+    coverage: scanRecord.coverage, scanState: { state, ...(why ? { why } : {}), findings, suppressed, scannedAt: scanRecord.createdAt }, covering });
   if (scanRecord.coverage !== 'matched') return summary('not-covered');
   if (scanRecord.completion === 'partial') return summary('partial');
   const association = picked.artifact.readable ? picked.artifact.association : undefined;

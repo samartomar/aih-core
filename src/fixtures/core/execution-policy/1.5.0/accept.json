@@ -97,7 +97,7 @@
           "confidence": "inferred"
         }
       ],
-      "bindingDigest": "7cd16c3564361bd9fa71c895ffa5582ae9e0417e5f76bf0ae4df21b8a76cff6e",
+      "bindingDigest": "80f6809c461fd50d21ab920a30ae76d20879ff613ddd2c44e281a91051a5c924",
       "scanRecords": [
         {
           "schema": "urn:aihq:scan:item-record:1.0.0",

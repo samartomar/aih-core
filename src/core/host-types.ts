@@ -212,7 +212,7 @@ export interface RunMember {
  * Run result 1.4.0: a `REVIEW_STALE` diagnostic carries `changed` (with reason `binding-changed`) when a reviewed binding
  * changed, or reason `handle-unavailable` / `digest-mismatch`, which are not binding changes.
  */
-export interface RunDiagnostic extends Diagnostic { changed?: StaleBinding }
+export interface RunDiagnostic extends Diagnostic { changed?: StaleBinding; /** Run result 1.5.0: what changed, a reviewed target path or a selection name. */ detail?: string }
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {

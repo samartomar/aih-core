@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { apply, prepare } from '../dist/core/index.js';
-import { validatePolicy } from '../dist/core/contracts.js';
+import { deriveRecipeIdentity, validatePolicy } from '../dist/core/contracts.js';
+import { selectionScan } from '../dist/core/internal/item-scan.js';
 import { renderDelivery, toolBindings } from '../dist/harness/contracts.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-scan-state-'));
@@ -199,39 +200,96 @@ test('scan states follow Scan\'s decision table: not-scanned, unreadable, partia
 });
 
 test('every REVIEW_STALE change is named from the owner\'s closed list: policy, index-status, scan-state, binding, target-file', async () => {
-  const changed = async (mutate, { bindingDigest, prepareIndex, applyIndex } = {}) => {
+  const changed = async (mutate, { bindingDigest, prepareIndex, applyIndex, organization } = {}) => {
     const { work, catalog, project } = workspace();
     const artifact = scanArtifact({ 'SKILL.md': SKILL });
     const evidence = evidenceFor(work, [artifact]);
     const policy = policy15({ records: [itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL })], evidence, bindingDigest });
+    let organizationSource;
+    if (organization) {
+      // Enterprise: the organization permits this exact recipe, read from a local file a person can change.
+      const selection = policy.selections[0];
+      Object.assign(policy, { mode: 'enterprise' }); selection.organizationSelectionId = 'team-grill';
+      const { value } = await deriveRecipeIdentity({ recipe: selection.recipe.inline });
+      organizationSource = { provider: 'local', path: join(work, 'team-policy.json') };
+      writeFileSync(organizationSource.path, JSON.stringify(organization(value.recipeIdentity, 'permitted')));
+    }
     const evidenceControls = { acquire: true, trust: artifact.trust };
-    const prepared = await ask(policy, project, controls(catalog, { evidence: evidenceControls, ...(prepareIndex ? { index: prepareIndex } : {}) }));
+    const prepared = await prepare({ useCase: 'policy', policy, target: { project }, ...(organizationSource ? { organizationSource } : {}) },
+      controls(catalog, { evidence: evidenceControls, ...(prepareIndex ? { index: prepareIndex } : {}) }));
     assert.ok(prepared.prepared, JSON.stringify(prepared.diagnostics));
-    await mutate({ work, catalog, project, policy, evidence });
+    await mutate({ work, catalog, project, policy, evidence, organizationSource });
     const run = await apply(prepared.prepared, approve(prepared), controls(catalog, { evidence: evidenceControls, ...(applyIndex ? { index: applyIndex } : {}) }));
     conforms(run, 'urn:aihq:core:run-result:1.5.0');
     assert.equal(run.completion, 'rejected');
     const stale = run.diagnostics.filter(item => item.code === 'REVIEW_STALE');
     assert.equal(stale.length, 1, JSON.stringify(run.diagnostics));
-    return { changed: stale[0].changed, prepared, project };
+    return { changed: stale[0].changed, detail: stale[0].detail, prepared, project };
   };
   const nothing = async () => {};
-  assert.equal((await changed(({ policy }) => { policy.selections[0].name = 'Renamed'; })).changed, 'policy');
+  // Only the organization's policy is `policy`: a changed local organization document.
+  const organization = (recipeIdentity, obligation) => ({ schema: 'urn:aihq:core:organization-policy:1.2.0', id: 'team', selections: [
+    { selectionId: 'team-grill', recipeIdentity, scopes: ['project'], inputs: {}, obligation }] });
+  let identity;
+  const reworded = await changed(({ organizationSource }) => {
+    const document = JSON.parse(readFileSync(organizationSource.path, 'utf8'));
+    identity = document.selections[0].recipeIdentity;
+    writeFileSync(organizationSource.path, JSON.stringify(organization(identity, 'recommended')));
+  }, { organization });
+  assert.equal(reworded.changed, 'policy');
+  // The consumer's own request is how the items are installed, not an organization's policy.
+  assert.deepEqual(Object.values(await changed(({ policy }) => { policy.selections[0].name = 'Renamed'; })).slice(0, 2), ['binding', undefined]);
   const offered = { offered: [ref(grill)] };
-  assert.equal((await changed(nothing, { prepareIndex: offered, applyIndex: { ...offered, revoked: [{ framework: FRAMEWORK, itemId: grill.id }] } })).changed,
-    'index-status');
+  const revoked = await changed(nothing, { prepareIndex: offered, applyIndex: { ...offered, revoked: [{ framework: FRAMEWORK, itemId: grill.id }] } });
+  assert.deepEqual([revoked.changed, revoked.detail], ['index-status', 'Grill me']);
   assert.equal((await changed(nothing, { prepareIndex: offered })).changed, 'index-status', 'an index withdrawn at Apply is a change');
-  assert.equal((await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact({ 'SKILL.md': OTHER }).bytes))).changed, 'scan-state');
+  const rescanned = await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact({ 'SKILL.md': OTHER }).bytes));
+  assert.deepEqual([rescanned.changed, rescanned.detail], ['scan-state', 'Grill me']);
   const rebound = await changed(nothing, { bindingDigest: 'e'.repeat(64) });
-  assert.equal(rebound.changed, 'binding');
+  assert.deepEqual([rebound.changed, rebound.detail], ['binding', 'Grill me']);
   assert.ok(rebound.prepared.review.conflicts.some(item => item.reason === 'binding-changed'), 'the preview already says the recipe was rendered for another binding');
   assert.equal(review17(rebound.prepared).layout.bindingDigest, 'e'.repeat(64));
   // The captured material changed: how the item is installed changed.
   assert.equal((await changed(({ catalog }) => writeFileSync(join(catalog, grill.materials[0].packagePath), OTHER))).changed, 'binding');
-  assert.equal((await changed(({ project }) => {
+  const edited = await changed(({ project }) => {
     mkdirSync(join(project, '.claude', 'skills', 'grill-me'), { recursive: true });
     writeFileSync(join(project, '.claude', 'skills', 'grill-me', 'SKILL.md'), 'Mine.\n');
-  })).changed, 'target-file');
+  });
+  assert.equal(edited.changed, 'target-file');
+  assert.match(edited.detail, /grill-me[\\/]SKILL\.md$/, 'the Workbench can name the changed file');
+});
+
+test('evidence stays authenticated for every record that covers a selection, and only those', async () => {
+  const { work, catalog, project } = workspace();
+  const first = scanArtifact({ 'SKILL.md': SKILL }), second = scanArtifact({ 'SKILL.md': SKILL });
+  const trust = { keys: [...first.trust.keys, ...second.trust.keys], publishers: [] };
+  const run = async records => {
+    const prepared = await ask(policy15({ records, evidence: evidenceFor(work, [first, second]) }), project,
+      controls(catalog, { evidence: { acquire: true, trust } }));
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    return prepared.review;
+  };
+  // Both records cover the bytes; the newer is picked, and the older artifact is still truthfully authenticated.
+  const both = await run([itemRecord(first.scanId, grill, { 'SKILL.md': SKILL }),
+    itemRecord(second.scanId, grill, { 'SKILL.md': SKILL }, { createdAt: '2026-10-28T10:00:00Z' })]);
+  assert.equal(both.selections[0].scanId, second.scanId);
+  assert.deepEqual(both.evidence.map(item => item.status), ['authenticated', 'authenticated']);
+  // A picked record whose own coverage is mismatched keeps the selection not-covered and its artifact unauthenticated.
+  const mismatched = await run([{ ...itemRecord(first.scanId, grill, { 'SKILL.md': SKILL }), coverage: 'mismatched' }]);
+  assert.equal(mismatched.selections[0].scanState.state, 'not-covered');
+  assert.deepEqual(mismatched.evidence.map(item => [item.status, item.reason]), [['unverifiable', 'not-covered'], ['unverifiable', 'not-covered']]);
+});
+
+test('a selection that delivers no captured bytes cannot be checked, so no record counts for it', () => {
+  const artifact = new Map([['scan:sha256:' + '1'.repeat(64), { readable: true, association: { status: 'authenticated' },
+    entries: new Map([['other.json', { sha256: '2'.repeat(64), byteLength: 2, selected: true }]]) }]]);
+  const subject = ref(grill);
+  // A relabelled record for a payload-only item: right subject hashes, another server's payload.
+  const record = { ...itemRecord('scan:sha256:' + '1'.repeat(64), grill, {}), materials: [
+    { materialId: '#payload', relPath: '#payload', sha256: '3'.repeat(64), byteLength: 9, executable: false, captured: true }] };
+  const scan = selectionScan(subject, [record], [], artifact);
+  assert.deepEqual([scan.scanState.state, scan.scanId, scan.covering], ['not-covered', undefined, []]);
+  assert.equal(selectionScan(subject, undefined, [], artifact).scanState.state, 'not-scanned');
 });
 
 test('run result 1.5.0 admits only the owner\'s closed list; 1.4.0 keeps its published values', () => {

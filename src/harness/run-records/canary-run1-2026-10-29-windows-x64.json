@@ -1,0 +1,118 @@
+{
+  "record": "AIHQ canary run record",
+  "run": "canary-run1-2026-10-29-windows-x64",
+  "coreVersion": "1.0.0-dev.38",
+  "platform": {
+    "os": "windows",
+    "arch": "x64"
+  },
+  "levels": {
+    "delivered": "The file landed where Core put it.",
+    "registered": "The tool's own list showed it, or the session started it.",
+    "recognised": "The model used it in a real session; listed-only means the model saw only its name or description."
+  },
+  "sessions": [
+    {
+      "tool": "claude",
+      "toolVersion": "2.1.312",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-29T10:43:30.4089451Z",
+      "endedAt": "2026-10-29T10:43:44.1721025Z",
+      "exit": 0,
+      "command": "claude -p <prompt.run1.txt> --output-format stream-json --verbose --model sonnet --max-turns 8 --allowedTools 'mcp__canary-probe__canary_token mcp__canary-probe__canary_fail Bash(node -e \"process.exit(3)\")' --disallowedTools 'Read Grep Glob Edit Write MultiEdit NotebookEdit WebFetch WebSearch LS'",
+      "toolCalls": [
+        "ToolSearch",
+        "Bash",
+        "mcp__canary-probe__canary_token",
+        "mcp__canary-probe__canary_fail"
+      ],
+      "fileCalls": 0,
+      "hookLines": 11
+    },
+    {
+      "tool": "claude",
+      "toolVersion": "2.1.312",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-29T10:43:44.1842885Z",
+      "endedAt": "2026-10-29T10:44:02.0582240Z",
+      "exit": 0,
+      "command": "claude --continue -p /compact --output-format stream-json --verbose --model sonnet --max-turns 1",
+      "toolCalls": [],
+      "fileCalls": 0,
+      "hookLines": 14
+    },
+    {
+      "tool": "claude",
+      "toolVersion": "2.1.312",
+      "isolation": "env-redirect-outside-profile",
+      "startedAt": "2026-10-29T10:44:06.1800150Z",
+      "endedAt": "2026-10-29T10:44:13.2412164Z",
+      "exit": 0,
+      "command": "claude -p <prompt.run1.txt step 1> --output-format stream-json --verbose --model sonnet --max-turns 2",
+      "toolCalls": [],
+      "fileCalls": 0,
+      "hookLines": 3
+    }
+  ],
+  "listings": [],
+  "cells": [
+    {
+      "tool": "claude",
+      "kind": "hook",
+      "delivered": [
+        {
+          "root": "project",
+          "path": ".claude/hooks/canary-hook.mjs",
+          "sha256": "163e1070e2bee1180a9beb38cc8312691192725a5e651be85fad81b34c0915ac",
+          "bytes": 881
+        },
+        {
+          "root": "project",
+          "path": ".claude/settings.json",
+          "sha256": "9da76666a3e856a5416094c6aed46b6b0939166f977170ea44f9ad136785e0c8",
+          "bytes": 1059
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:31.356Z SessionStart",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:36.657Z PreToolUse",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:36.764Z PostToolUse",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:37.796Z PostToolUseFailure",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:42.974Z Stop",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:43.614Z SessionEnd",
+        "hook-fired.log: CANARY-HOOK-6098 2026-10-29T10:43:47.298Z PreCompact",
+        "hook stdout reached the model"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "entry-file",
+      "delivered": [
+        {
+          "root": "project",
+          "path": "CLAUDE.md",
+          "sha256": "5a8380d81c531cf6eb4d487b8e6ac0ba0c3deb6b2d45e98105a8845d42af46c9",
+          "bytes": 131
+        },
+        {
+          "root": "project",
+          "path": "AGENTS.md",
+          "sha256": "2d772d119bedce5f704a40fecf352eaa115d6eed4d4f662269025c425ac53073",
+          "bytes": 70
+        }
+      ],
+      "recognised": "recognised",
+      "evidence": [
+        "entry token in answer",
+        "entry-pointer: CLAUDE.md @AGENTS.md"
+      ]
+    }
+  ],
+  "realProfilePathsTouched": [],
+  "transcriptSha256": {
+    "A": "ed7dcd18026f1b5cedd716b2076c0a250c0eca8e63ff3bed0be71dbc18aa0a45",
+    "C": "3ad0b260813bd1fdb10e7d5499f002ed6f0d5877a8c550dd5a16a2aba20a86c5",
+    "D": "66d725ac2ca92b6460e0efe9661f53f3f76d41ea87b65d2357c7b65241ba1cf1"
+  }
+}

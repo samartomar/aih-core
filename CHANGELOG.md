@@ -17,9 +17,23 @@ Core 1.0.0-dev.38 adds execution policy 1.5.0, prepared work 1.7.0 and run resul
 - Apply also re-checks release-index status (`controls.index`), scan state and the
   shipped binding. `REVIEW_STALE` names `changed` from the owner's closed list:
   `policy`, `index-status`, `scan-state`, `binding` or `target-file`.
+  - Its `detail` names the changed target path or the selection.
+  - `policy` is reserved for the organization's policy. A change to the consumer's
+    own request is `binding`.
+- Rendering and compatibility recompute a release 1.7 item's `behaviourSha256` as the
+  contract states it: SHA-256 of the canonical JSON of `{ kind, payload,
+  requirements, dependencies, materials: <the contentSha256 lines>, executable }`.
+  Golden vectors cover payload-only, dependency-only and executable-bit changes.
+  Release 1.6 items keep their line hash. Catalog's matching change needs this Core.
 - Prepared work 1.6.0 and run result 1.4.0 are unchanged.
+- The Claude binding maps the hook events a 29 October Claude Code 2.1.312 run
+  observed firing: `SessionStart`, `PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, `PreCompact`, `Stop` and `SessionEnd`. It also writes the
+  Project basics block to `CLAUDE.md`, with an `@AGENTS.md` entry pointer. The run
+  record is published beside the bindings.
 - A guard test requires every mapped hook event, entry file and entry pointer to
-  cite an observed line in a published run record. The binding data is unchanged.
+  cite an observed line in a published run record.
+- Kiro's entry file is still unobserved and unmapped.
 
 Add display-only plugin-route guidance to `checkCompatibility`: given Catalog
 `nativeRoutes` lines by framework, `pluginRoutes` lists the routes naming the
