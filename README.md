@@ -2312,7 +2312,9 @@ Apply rechecks the release and material text read at Prepare like any captured
 material. `checkFileState` renders recipe-less selections the same way from a local
 release; an archive release is `remote-material-not-admitted` there. The policy
 byte bound stays 1,000,000: without inline recipes, Claude Code with ECC's default
-pick (246 items) or its full TypeScript profile (476 items) fits it. One-server
+pick (246 items, about 232,000 bytes) fits it, and so does its full TypeScript profile
+(476 items, about 491,000 bytes). The profile is still refused by the unchanged limit
+of 256 `origins` per selection: its ECC notices document is required by 475 items. One-server
 approval (`grantApproval`) and `projectFolder` are not recipe-less inputs yet: carry
 an inline recipe for them.
 

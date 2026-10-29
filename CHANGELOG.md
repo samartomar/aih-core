@@ -10,8 +10,10 @@ Core 1.0.0-dev.45: execution policy 1.6.0 accepts recipe-less item selections.
   release the policy names in `catalogReleases` through the existing material roots.
   The rendering is byte-identical to the inline recipe a consumer would carry.
 - Inline and referenced recipes keep working unchanged, in 1.5.0 and 1.6.0. The policy
-  byte bound and the binding digest check are unchanged; ECC's default pick and its
-  full TypeScript profile for Claude Code now fit the bound.
+  byte bound and the binding digest check are unchanged. ECC's default pick for Claude
+  Code (246 items) now fits the bound. Its full TypeScript profile (476 items) fits
+  the byte bound too, but the unchanged limit of 256 `origins` per selection still
+  refuses it, because its notices document is required by 475 items.
 
 Core 1.0.0-dev.44: removing a selection leaves the project as it was before install.
 
