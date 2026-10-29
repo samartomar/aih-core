@@ -76,15 +76,21 @@ test('an item whose required item is not selected, left out or has no place besi
   assert.deepEqual(codes(check([{ item: skill }, { item: notices, excluded: true }]), skill.id), ['excluded-but-required']);
   const together = check([{ item: skill }, { item: notices }]);
   assert.deepEqual([codes(together, skill.id), codes(together, notices.id)], [[], []], 'the notices sit inside the skill folder');
-  // On Codex the skill is unconfirmed and binds as its rule fallback, which keeps no folder: the notices have no place.
+  // On Codex the skill is unconfirmed and binds as its rule fallback, which keeps no folder: its notices go to the
+  // neutral notices folder, so nothing is blocked.
   const codex = toolBindings.find(binding => binding.tool === 'codex');
   const rule = ecc.find(entry => entry.kind === 'rule' && requires(entry, notices));
   const fallback = checkCompatibility({ tool: 'codex', binding: codex, platform: WINDOWS, items: [{ item: skill, fallback: rule }, { item: notices }] });
   assert.equal(fallback.items.find(row => row.item.itemId === skill.id).boundAs?.viaFallback, true);
-  assert.deepEqual([codes(fallback, skill.id), codes(fallback, notices.id)], [['dependency-missing'], ['scope-not-bound']]);
+  assert.deepEqual([codes(fallback, skill.id), codes(fallback, notices.id)], [[], []]);
+  // Rendering agrees: the notices render for the bound fallback rule into the neutral folder.
+  const rendered = renderDelivery({ tool: 'codex', item: notices, binding: codex, scope: 'project', requiredBy: rule });
+  assert.equal(rendered.status, 'rendered', JSON.stringify(rendered));
+  assert.ok(rendered.recipe.operations.filter(op => op.kind === 'file.write')
+    .every(op => op.target.segments.map(part => part.literal).join('/').startsWith('.aih/notices/ecc/ecc.notices/')));
 });
 
-test('the required notices render beside Claude hooks; an item they cannot sit beside is blocked by its dependency', () => {
+test('the required notices render beside Claude hooks and in the neutral folder for a rule', () => {
   const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
   const ecc = releases.find(release => release.name === 'release-ecc.content.json').items;
   const claude = toolBindings.find(binding => binding.tool === 'claude');
@@ -97,13 +103,48 @@ test('the required notices render beside Claude hooks; an item they cannot sit b
   // Without the requiring item there is no place to put a supporting document.
   const alone = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project' });
   assert.deepEqual([alone.status, alone.reason], ['refused', 'scope-not-bound']);
-  // A rule keeps no folder of its own in a tool that reads every Markdown file there as a rule: ECC's notices would
-  // become rules, so the rule is blocked by its dependency rather than shown as working.
+  // A rule keeps no folder of its own, so ECC's notices for it go to the neutral notices folder.
   const rule = ecc.find(entry => entry.kind === 'rule' && requires(entry, item(ecc, 'ecc.notices')));
   const compat = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [{ item: rule }, { item: item(ecc, 'ecc.notices') }] });
   const codes = id => compat.items.find(row => row.item.itemId === id).staticBlockers.map(blocker => blocker.code);
-  assert.deepEqual(codes(rule.id), ['dependency-missing']);
-  assert.deepEqual(codes('ecc.notices'), ['scope-not-bound'], 'with no requirer it can sit beside, the notices are not shown as working');
+  assert.deepEqual([codes(rule.id), codes('ecc.notices')], [[], []]);
   const mismatch = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: rule });
   assert.deepEqual([mismatch.status, mismatch.reason], ['refused', 'required-by-mismatch']);
+});
+
+test('notices for items without a folder of their own go once per framework to the neutral notices folder', () => {
+  const ecc = releases.find(release => release.name === 'release-ecc.content.json').items;
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const notices = ecc.find(entry => entry.id === 'ecc.notices');
+  const folderless = ['agent', 'command', 'rule', 'mcp-server'].map(kind => ecc.find(entry => entry.kind === kind && requires(entry, notices)));
+  const writes = rendered => rendered.recipe.operations.filter(op => op.kind === 'file.write')
+    .map(op => [op.target.root, op.target.segments.map(part => part.literal).join('/'), op.material]);
+  const placed = folderless.map(requirer => {
+    const rendered = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: requirer });
+    assert.equal(rendered.status, 'rendered', `${requirer.id}: ${JSON.stringify(rendered)}`);
+    assert.equal(rendered.recipe.id, `claude.ecc.notices.for.${requirer.id}`);
+    return writes(rendered);
+  });
+  // Every requirer renders the same one copy, which Core custody then shares among them.
+  for (const copy of placed) assert.deepEqual(copy, placed[0]);
+  assert.ok(placed[0].length > 0 && placed[0].every(([root, path]) => root === 'project' && path.startsWith('.aih/notices/ecc/ecc.notices/')),
+    JSON.stringify(placed[0]));
+  // User scope: Codex registers MCP servers in the user's home, so their notices go under the home's neutral folder.
+  const codex = toolBindings.find(binding => binding.tool === 'codex');
+  const server = folderless.find(entry => entry.kind === 'mcp-server');
+  const user = renderDelivery({ tool: 'codex', item: notices, binding: codex, scope: 'user', requiredBy: server });
+  assert.equal(user.status, 'rendered', JSON.stringify(user));
+  assert.ok(writes(user).every(([root, path]) => root === 'userHome' && path.startsWith('.aih/notices/ecc/ecc.notices/')), JSON.stringify(writes(user)));
+  // Compatibility plans and sizes the neutral copy once, however many items require it.
+  const one = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [{ item: folderless[0] }, { item: notices }] });
+  const all = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [...folderless.map(item => ({ item })), { item: notices }] });
+  const size = result => result.items.find(row => row.item.itemId === notices.id).deliveredSize.bytes;
+  assert.ok(size(one) > 0 && size(all) === size(one), `${size(one)} ${size(all)}`);
+  for (const requirer of folderless) assert.deepEqual(all.items.find(row => row.item.itemId === requirer.id).staticBlockers, [], requirer.id);
+  // Only notices and licences take the neutral folder: a reference document still has no place beside a folderless item.
+  const references = extensions.find(entry => entry.id === 'extensions.references');
+  const agent = extensions.find(entry => entry.kind === 'agent' && requires(entry, references));
+  const refused = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: agent });
+  assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound']);
 });

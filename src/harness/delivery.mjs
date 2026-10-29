@@ -152,6 +152,10 @@ const requiresOf = info => isRecord(info.item.dependencies) && Array.isArray(inf
 /** Whether `requirer` lists `document` in its `requires` (a reference without a framework names the requirer's own). */
 const requiresDocument = (requirer, document) => requiresOf(requirer).some(ref => ref.itemId === document.ref.itemId &&
   (ref.framework ?? requirer.ref.framework) === document.ref.framework);
+/** Document purposes delivered to the neutral notices folder for a requirer with no folder of its own. */
+const NEUTRAL_PURPOSES = new Set(['notice', 'license']);
+/** The neutral notices folder, under the project or the user's home: no tool reads it as content. */
+const NEUTRAL_FOLDER = ['.aih', 'notices'];
 /** The scope a cell delivers to when compatibility plans it without a request: the project where the binding names one. */
 const planScope = (binding, kind) => binding.layouts[kind].roots?.project ? 'project' : 'user';
 
@@ -228,9 +232,15 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
         'A supporting document is delivered beside the item that requires it; name that item in requiredBy.');
       if (!requiresDocument(requirer, info)) invalid('required-by-mismatch', '/requiredBy', 'requiredBy names an item that does not require this document.');
       const beside = deliveryPlan(requirer, binding, scope, { projectFolder });
-      if (!beside.folder) unavailable('scope-not-bound', '/requiredBy',
+      if (beside.folder) for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
+      // A requirer with no folder of its own (a single-file agent, command or rule, an MCP server entry) keeps its notices
+      // and licences in the neutral folder no tool reads as content: one copy per framework document and scope, which
+      // every requiring item owns.
+      else if (NEUTRAL_PURPOSES.has(payload.purpose)) {
+        plan.placement = 'neutral';
+        for (const member of documents) file(member, [...NEUTRAL_FOLDER, info.ref.framework, info.item.id, ...segmentsOf(member.relPath)]);
+      } else unavailable('scope-not-bound', '/requiredBy',
         `${binding.tool} keeps no folder of its own for a ${requirer.kind} item, so there is no place beside it that the tool would not read as content.`);
-      for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
     }
   } else {
     const root = needRoot();
@@ -347,7 +357,8 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     // One recipe per placement: a document rendered beside two items is two recipes, never one recipe that moves.
-    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.beside.${requirer.ref.itemId}` : `${binding.tool}.${info.ref.itemId}`;
+    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.placement === 'neutral' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
+      `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
     const materials = new Map(), operations = [], checks = [], inputs = {}, prerequisites = [];
     const writeIds = [];
@@ -631,14 +642,16 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     // blocker of its own, gives one a place.
     const assessed = new Map(ordered.filter(entry => !supportingDocument(entry.info)).map(entry => [entry, assess(entry)]));
     markCollisions([...assessed.values()]);
-    const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.bound === row.entry.info && row.result.staticBlockers.length === 0);
+    const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.result.staticBlockers.length === 0);
     // A supporting document is planned beside each such requiring item, exactly as renderDelivery places it.
     const planBeside = (document, support) => {
       const files = []; let refusal;
       for (const host of hosts) if (requiresDocument(host.bound, document)) {
         try {
           const plan = deliveryPlan(document, binding, planScope(binding, host.bound.kind), { support, requirer: host.bound });
-          files.push(...plan.files.map(file => ({ ...file, base: plan.base })));
+          // The neutral copy is one file per scope however many items require it; it is planned and sized once.
+          for (const file of plan.files) if (!files.some(known => known.base === plan.base && known.segments.join('/') === file.segments.join('/')))
+            files.push({ ...file, base: plan.base });
         } catch (error) { refusal = refusalOf(error); }
       }
       if (files.length === 0) throw new Refusal(refusal ?? { code: 'PREREQUISITE_UNAVAILABLE', reason: 'scope-not-bound', path: '/items',

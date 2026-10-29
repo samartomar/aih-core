@@ -863,8 +863,17 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             if (rescuedLines !== null && memberKey(member) === memberKey(descriptors[0]!)) return false;
             const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
             return prior && (prior.claims ?? []).some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope) && (bytes === null || prior.sha256 !== sha256(bytes)); });
+          // The Catalog item another claim installs: from this request's selections, else as recorded at install.
+          const claimItem = (claim: Claim) => policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item ??
+            stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.item ?? undefined;
+          const sameItem = (claim: Claim) => { const other = claimItem(claim);
+            return !!selection.item && !!other && other.framework === selection.item.framework && other.itemId === selection.item.itemId; };
+          // A claimant in this request that installs exactly this item version writes the same bytes, so it changes with us.
+          const changesTogether = (claim: Claim) => { const other = policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item;
+            return !!selection.item && !!other && canonicalJson(other) === canonicalJson(selection.item); };
           const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
-            return prior?.claims?.some(claim => claim.managementId !== selection.managementId || claim.scope !== selection.scope) && (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
+            return prior?.claims?.some(claim => (claim.managementId !== selection.managementId || claim.scope !== selection.scope) && !changesTogether(claim)) &&
+              (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
           let overlap = false;
           try { overlap = descriptors.some(member => Object.values(projected.members).some(owner => owner.descriptor && memberKey(owner.descriptor) !== memberKey(member) &&
             (overlappingMembers(member, owner.descriptor, before) || overlappingMembers(member, owner.descriptor, after)))); }
@@ -878,7 +887,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             return changingOwned || selectedAbsent || option === 'replace' ? 'replace-file' : 'conflict';
           };
           effect = decide(resolution);
-          const adoptable = same && before !== null && !managed;
+          // A file Core already installs for other selections of the same Catalog item, with exactly these bytes and
+          // unchanged since it was recorded, gains this selection's claim: every such selection owns it, and removal keeps
+          // it until the last one goes. Nothing is written; a person's own file or another item's is never acquired.
+          const sharedCopy = op.kind === 'file.write' && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
+            custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
+              const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
+              return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes);
+            });
+          if (sharedCopy) ownerState = 'managed';
+          const adoptable = same && before !== null && !managed && !sharedCopy;
           if (effect === 'conflict' && decide('replace') !== 'conflict') choices.push('replace');
           if (effect === 'conflict' && adoptable && decide('adopt') !== 'conflict') choices.push('adopt');
           if (effect === 'already-satisfied' && adoptable && !resolution && !editConflict && !sharedChange && !overlap && !drift)
@@ -889,7 +907,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             const desired = memberBytes(member, after!);
             if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
           }
-          custodyOnly = same && (managed || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
+          custodyOnly = same && (managed || sharedCopy || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
           if (resolution === 'adopt' && !adoptable) throw new Error('resolution-invalid');
           // A reviewed replacement of a person's JSON value keeps that value in protected custody for restoration.
           if (resolution === 'replace' && op.kind === 'config.entries' && (op.format === 'json' || op.format === 'jsonc') && custody && !editConflict)
