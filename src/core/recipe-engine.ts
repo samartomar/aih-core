@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
@@ -1879,11 +1879,26 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-  if (state && (result.schema === RESULT_14 || result.schema === RESULT_15)) {
+  // A removal reports what it did to the members it touched even under an older result identity; the same checks
+  // decide whether its recovery data may go. A failed, partial or kept removal keeps that data for inspection.
+  const removalRun = !!state && (state.request.policy.removals?.length ?? 0) > 0;
+  if (state && (result.schema === RESULT_14 || result.schema === RESULT_15 || removalRun)) {
     const members = memberReports(state, result);
-    // A truncated list could support a false claim, so an oversized one is withheld entirely.
-    if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
-    else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
+    if (result.schema === RESULT_14 || result.schema === RESULT_15) {
+      // A truncated list could support a false claim, so an oversized one is withheld entirely.
+      if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
+      else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
+    }
+    if (removalRun) {
+      const checked = members.filter(member => member.intent !== 'write');
+      const kept = state.steps.some(step => step.lifecycle && (step.kept || step.review.effects === 'conflict' || step.review.effects === 'unavailable' ||
+        step.ownerKey !== undefined && step.custody?.[step.ownerKey] !== null && step.custody?.[step.ownerKey] !== undefined));
+      const verified = checked.length > 0 && checked.every(member => member.check === 'absent' || member.check === 'present-matching');
+      if (result.completion === 'complete' && verified && !kept) {
+        try { protectState([`recovery/${runId}`]); rmSync(join(stateRoot(), 'recovery', runId), { recursive: true, force: true }); delete result.recovery; }
+        catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'recovery-cleanup', 'The removal succeeded but its recovery data could not be removed.')); }
+      }
+    }
   }
   // The evidence Apply re-checked is the evidence it reports; it is read again only when Apply stopped before the re-check.
   if (rechecked) result.evidence = coveredEvidence(rechecked.results, rechecked.scans);
