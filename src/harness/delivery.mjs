@@ -74,6 +74,7 @@ function readItem(item, path) {
   item.materials.forEach((member, index) => {
     if (!isRecord(member) || Object.hasOwn(member, 'path') || typeof member.id !== 'string' || !ID.test(member.id) ||
         !isSafeRelativePath(member.relPath) || !isSafeRelativePath(member.packagePath) || !SHA256_RE.test(member.sha256) ||
+        member.sourcePath != null && !isSafeRelativePath(member.sourcePath) ||
         !Number.isSafeInteger(member.byteLength) || member.byteLength < 0)
       invalid('item-invalid', `${path}/materials/${index}`, 'Expected a release 1.6 material with an id, paths, SHA-256 and byte length.');
     (member.role === 'behaviour' ? behaviour : content).push(member);
@@ -158,20 +159,25 @@ const NEUTRAL_PURPOSES = new Set(['notice', 'license']);
 const NEUTRAL_FOLDER = ['.aih', 'notices'];
 /** The neutral folder copy of an item's notices or licence: `.aih/notices/<framework>/<item>/`. */
 const neutralFolder = info => [...NEUTRAL_FOLDER, info.ref.framework, info.item.id];
-/** Catalog's id for the material that is the source's licence. */
-const LICENSE_MATERIAL = 'license';
+/** The source's licence: Catalog's `license` material, a licence file by name. */
+const isLicense = member => member.id === 'license' && /^(LICEN[CS]E|COPYING)(\.[A-Za-z]+)?$/i.test(baseName(member.relPath));
+/** The folder every reference keeps, in its source and as delivered: the one place a reference may be written. */
+const REFERENCE_FOLDER = 'references';
+/** A document delivered for the item that requires it, rather than into the project folder. */
+const supportingDocument = item => item.kind === 'document' && item.payload.placement !== 'project-folder';
 /**
  * Where a reference's files go for the item that reads it. That item's text names the reference by where both sit in
  * their shared source tree (`../../references/` from `skills/<name>/SKILL.md`; `references/<file>` from the source
  * root in agents and commands), so the reference keeps that place relative to the requirer as delivered: under the
  * folder that stands for the source root, the one holding the requirer's source folders (`.claude` for
- * `.claude/agents` and `.claude/skills`). A file at the source root (its licence) goes inside the reference's folder.
- * `requirerFiles` is null for a requirer that delivers nothing of its own.
+ * `.claude/agents` and `.claude/skills`). Any file at the source root (its licence) goes inside the reference's folder.
+ * The reference's folder must be `references/` directly under that root: a reference is never written anywhere else,
+ * such as a tool's settings or workflow folders.
  */
 function sourceRelativePlacements(binding, scope, info, documents, requirer, requirerFiles) {
   const noPlace = why => unavailable('scope-not-bound', '/requiredBy',
     `${requirer.item.id} reads ${info.item.id} by its place in their source tree, but ${why}.`);
-  const sourced = (requirerFiles ?? []).filter(({ member }) => member.id !== LICENSE_MATERIAL &&
+  const sourced = requirerFiles.filter(({ member }) => !isLicense(member) &&
     typeof member.sourceId === 'string' && typeof member.sourcePath === 'string' && segmentsOf(member.sourcePath).length > 1);
   if (sourced.length === 0) noPlace(`it delivers no file from a source folder`);
   // The source root as delivered: the same for every file the requirer delivers from a source folder.
@@ -191,7 +197,7 @@ function sourceRelativePlacements(binding, scope, info, documents, requirer, req
     while (length < shared.length && shared[length] === folder[length]) length += 1;
     return shared.slice(0, length);
   }, folders[0] ?? []);
-  if (common.length === 0) noPlace('the reference has no folder of its own in the source');
+  if (common.length !== 1 || common[0] !== REFERENCE_FOLDER) noPlace(`the reference does not sit in a ${REFERENCE_FOLDER}/ folder of its own at the source root`);
   const placements = documents.map(member => {
     const segments = segmentsOf(member.sourcePath);
     return { member, segments: [...prefix, ...(segments.length > 1 ? segments : [...common, ...segments])] };
@@ -235,7 +241,7 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
       const member = material(info, id, `${path}/payload/files/${index}`);
       // Catalog's `license` material is the source's licence. A single-file item keeps no folder for it, so it goes to
       // the neutral notices folder under the item's own id: one copy per item, owned and removed with it.
-      if (member.id === LICENSE_MATERIAL) file(member, [...neutralFolder(info), baseName(member.relPath)]);
+      if (isLicense(member)) file(member, [...neutralFolder(info), baseName(member.relPath)]);
       else file(member, [...root, baseName(member.relPath)]);
     });
   } else if (info.kind === 'rule') {
@@ -285,19 +291,18 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
       if (!requiresDocument(requirer, info)) invalid('required-by-mismatch', '/requiredBy', 'requiredBy names an item that does not require this document.');
       // A supporting document that requires another (references that require their notices) has no place of its own
       // until its own requirer is named: it gives no folder to sit beside and delivers no file of its own.
-      const requirerPlan = requirer.kind === 'document' && requirer.payload.placement !== 'project-folder' ? null :
-        deliveryPlan(requirer, binding, scope, { projectFolder });
+      const requirerPlan = supportingDocument(requirer) ? { files: [] } : deliveryPlan(requirer, binding, scope, { projectFolder });
       // A reference is read by the item that requires it, so it goes where that item's text names it.
       if (payload.purpose === 'reference') {
-        plan.placement = 'source';
-        for (const { member, segments } of sourceRelativePlacements(binding, scope, info, documents, requirer, requirerPlan?.files ?? null))
+        plan.copy = 'shared';
+        for (const { member, segments } of sourceRelativePlacements(binding, scope, info, documents, requirer, requirerPlan.files))
           file(member, segments);
-      } else if (requirerPlan?.folder) for (const member of documents) file(member, [...requirerPlan.folder, info.item.id, ...segmentsOf(member.relPath)]);
+      } else if (requirerPlan.folder) for (const member of documents) file(member, [...requirerPlan.folder, info.item.id, ...segmentsOf(member.relPath)]);
       // A requirer with no folder of its own (a single-file agent, command or rule, an MCP server entry) keeps its notices
       // and licences in the neutral folder no tool reads as content: one copy per framework document and scope, which
       // every requiring item owns.
       else if (NEUTRAL_PURPOSES.has(payload.purpose)) {
-        plan.placement = 'neutral';
+        plan.copy = 'shared';
         for (const member of documents) file(member, [...neutralFolder(info), ...segmentsOf(member.relPath)]);
       } else unavailable('scope-not-bound', '/requiredBy',
         `${binding.tool} keeps no folder of its own for a ${requirer.kind} item, so there is no place beside it that the tool would not read as content.`);
@@ -412,13 +417,13 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
       if (cell.support !== 'native') unavailable('kind-not-native', '/item/kind', cell.reason);
     }
     const requirer = requiredBy === undefined ? undefined : readItem(requiredBy, '/requiredBy');
-    if (requirer && !(info.kind === 'document' && info.payload.placement !== 'project-folder'))
+    if (requirer && !supportingDocument(info))
       invalid('required-by-unused', '/requiredBy', 'requiredBy names the item a supporting document is delivered beside; this item is not one.');
     const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     // One recipe per placement: a document rendered beside two items is two recipes, never one recipe that moves.
-    // `for` names a copy shared by every requirer (neutral or source-relative); `beside` one inside the requirer's folder.
-    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.placement === 'neutral' || plan.placement === 'source' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
+    // `for` names a copy every requirer shares (neutral or source-relative); `beside` one inside the requirer's folder.
+    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.copy === 'shared' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
       `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
     const materials = new Map(), operations = [], checks = [], inputs = {}, prerequisites = [];
@@ -635,7 +640,6 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     // excluded item is never used as another item's fallback.
     const excluded = new Set([...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)));
     const ordered = [...merged.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, entry]) => entry);
-    const supportingDocument = item => item.kind === 'document' && item.payload.placement !== 'project-folder';
     /** A delivery refusal, kept for its reason; anything else is not an answer about this item and is rethrown. */
     const refusalOf = error => {
       if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error;

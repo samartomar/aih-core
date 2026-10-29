@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { checkCompatibility, renderDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
+import { reidentified } from './catalog-item-fixture.mjs';
 
 const folder = new URL('../fixtures/catalog-1.7.0/', import.meta.url);
 const provenance = JSON.parse(readFileSync(new URL('provenance.json', folder), 'utf8'));
@@ -25,22 +26,8 @@ const requires = (requirer, document) => (requirer.dependencies?.requires ?? [])
 /** Text of each Markdown content material, as a consumer supplies it for marker blocks. */
 const contentsOf = item => Object.fromEntries(item.materials.filter(member => member.role === 'content' && texts[member.packagePath] !== undefined)
   .map(member => [member.id, texts[member.packagePath]]));
-const canonicalJson = value => Array.isArray(value) ? `[${value.map(canonicalJson).join(',')}]` : value && typeof value === 'object'
-  ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}` : JSON.stringify(value);
-const digest = value => createHash('sha256').update(value).digest('hex');
-/** A real item that also requires other items, with its behaviour file and identity recomputed as Catalog would. */
-function withRequires(item, requires) {
-  const dependencies = { requires, optional: item.dependencies.optional ?? [], conflicts: item.dependencies.conflicts ?? [] };
-  const content = item.materials.filter(member => member.role !== 'behaviour');
-  const behaviour = { kind: item.kind, payload: item.payload ?? null, requirements: { inputs: item.requirements?.inputs ?? {} }, dependencies,
-    executable: Object.fromEntries(content.map(member => [member.relPath, member.executable])) };
-  const lines = content.map(member => `${member.relPath}	${member.sha256}
-`).sort().join('');
-  const text = `${canonicalJson(behaviour)}
-`;
-  const materials = item.materials.map(member => member.role === 'behaviour' ? { ...member, sha256: digest(text), byteLength: Buffer.byteLength(text) } : member);
-  return { ...item, dependencies, materials, behaviourSha256: digest(canonicalJson({ ...behaviour, materials: lines })) };
-}
+/** A real item that also requires other items, still a valid item. */
+const withRequires = (item, requires) => reidentified(item, { dependencies: { ...item.dependencies, requires } });
 /** Every installed version a binding was observed on, plus the historical projection without a version. */
 const versionsOf = binding => [undefined, ...new Set(Object.values(binding.layouts).flatMap(layout => layout.observations.map(item => item.toolVersion)))];
 
@@ -223,16 +210,49 @@ test('a reference has no place for an item that does not keep its source folders
     const refused = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: reading(requirer) });
     assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound'], `${requirer.id}: ${JSON.stringify(refused)}`);
   }
-  // A reference from another source, or one whose place would fall inside a folder the tool reads as content, has none.
-  // (Source ids and paths are not part of an item's identities, so these are still valid items.)
+  // A reference from another source, or one outside a references/ folder at its source root, has none: it is never written
+  // into a tool's other folders (workflows, settings, skills). Source ids and paths are not part of an item's identities,
+  // so these are still valid items.
   const agent = extensions.find(entry => entry.kind === 'agent' && requires(entry, references));
   const moved = change => ({ ...references, materials: references.materials.map(member => member.role === 'content' ? change(member) : member) });
-  for (const [why, document] of [['another source', moved(member => ({ ...member, sourceId: 'elsewhere' }))],
-    ['a content folder', moved(member => ({ ...member, sourcePath: member.sourcePath.replace(/^references\//, 'skills/references/') }))]]) {
+  const elsewhere = folder => moved(member => ({ ...member, sourcePath: member.sourcePath.replace(/^references\//, `${folder}/`) }));
+  for (const [why, document, message] of [['another source', moved(member => ({ ...member, sourceId: 'elsewhere' })), /one source tree/],
+    ['a skill folder', elsewhere('skills/references'), /references\/ folder of its own/],
+    ['a workflow folder', elsewhere('workflows'), /references\/ folder of its own/],
+    ['a settings folder', elsewhere('settings'), /references\/ folder of its own/]]) {
     const refused = renderDelivery({ tool: 'claude', item: document, binding: claude, scope: 'project', requiredBy: agent });
     assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound'], `${why}: ${JSON.stringify(refused)}`);
-    assert.match(refused.message, why === 'another source' ? /one source tree/ : /reads as content/);
+    assert.match(refused.message, message, why);
   }
+  // A path that climbs out of its source is not a valid item at all.
+  const climbing = renderDelivery({ tool: 'claude', item: elsewhere('../references'), binding: claude, scope: 'project', requiredBy: agent });
+  assert.deepEqual([climbing.status, climbing.reason], ['refused', 'item-invalid'], JSON.stringify(climbing));
+});
+
+test('two reference documents that write one path are reported, not installed over each other', () => {
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const references = extensions.find(entry => entry.id === 'extensions.references');
+  const notices = extensions.find(entry => entry.id === 'extensions.notices');
+  const copy = { ...references, id: 'extensions.references-copy' };
+  const skill = extensions.find(entry => entry.id === 'extensions.skill.shipping-and-launch');
+  const both = withRequires(skill, [...skill.dependencies.requires, { itemId: copy.id }]);
+  const compat = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [both, references, copy, notices].map(item => ({ item })) });
+  for (const id of [references.id, copy.id])
+    assert.ok(compat.items.find(row => row.item.itemId === id).staticBlockers.some(blocker => blocker.code === 'same-folder'), id);
+});
+
+test("a material named license that is not a licence file stays with its item", () => {
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const agent = extensions.find(entry => entry.id === 'extensions.agent.code-reviewer');
+  // The agent's own Markdown carries the id `license`; its real licence another id.
+  const renamed = reidentified(agent, { payload: { ...agent.payload, files: ['license', 'licence-file'] },
+    materials: agent.materials.map(member => member.id === 'asset-1' ? { ...member, id: 'license' } : member.id === 'license' ? { ...member, id: 'licence-file' } : member) });
+  const rendered = renderDelivery({ tool: 'claude', item: renamed, binding: claude, scope: 'project' });
+  assert.equal(rendered.status, 'rendered', JSON.stringify(rendered));
+  const writes = rendered.recipe.operations.filter(op => op.kind === 'file.write').map(op => [op.material, op.target.segments.map(part => part.literal).join('/')]);
+  assert.deepEqual(writes.find(([material]) => material === 'license'), ['license', '.claude/agents/code-reviewer.md']);
 });
 
 test('an item with no location of its own is not blamed on the documents it requires', () => {

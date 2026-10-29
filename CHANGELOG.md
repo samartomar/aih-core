@@ -8,7 +8,8 @@ them, and gives single-file agents and commands a licence of their own.
 - A reference keeps its place relative to its requirer from their shared source tree,
   so Extensions' `../../references/` links resolve: `.claude/references/`,
   `.github/references/`, `.kiro/references/`, `.agents/references/`. One copy per tool
-  folder is shared by every requirer.
+  folder is shared by every requirer. A reference is written only to a `references/`
+  folder directly under the tool folder.
 - Notices required by a supporting document go to the neutral notices folder.
 - A single-file agent's or command's `license` material goes to
   `.aih/notices/<framework>/<item>/LICENSE` instead of the shared agents or commands

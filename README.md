@@ -998,17 +998,23 @@ depend on order. Per item the result is:
     relative to the requirer as delivered: under the folder that stands for the
     source root, the one holding the requirer's source folders. For example,
     `.claude/references/` sits beside `.claude/skills/` and `.claude/agents/`.
-    - A file at the source root (its licence) goes inside the reference's folder.
+    - Any file at the source root (such as its licence) goes inside the reference's folder.
+    - A reference is written only to a `references/` folder directly under that root.
+      A reference whose files sit anywhere else in its source has no place.
     - Skill links such as `../../references/<file>` from `skills/<name>/SKILL.md`
       resolve to the delivered file.
     - Agents and commands name `references/<file>` from the source root. In the
       delivery, that root is the tool folder, so the agent finds the file under
       `.claude/references/`, not under the project's own root.
     - The reference has no place, and the item is blocked with
-      `dependency-missing`, when the requirer does not keep its source folders (an
-      MCP server entry, a rule delivered flat), when the two come from different
-      sources, or when the place would fall inside a folder the tool reads as
-      content.
+      `dependency-missing`, in four cases:
+      - the requirer does not keep its source folders (an MCP server entry, a rule
+        delivered flat);
+      - the two come from different sources;
+      - the reference is not in a `references/` folder at the source root;
+      - the place would fall inside a content folder the binding names.
+    - Compatibility reports two documents that write one path as `same-folder`;
+      rendering one item does not see the other.
   - **A document that requires a document** (references that require their
     notices) gives no folder of its own; the notices go to the neutral folder.
   - An item that cannot be delivered itself is not blamed on what it requires: an
@@ -2049,7 +2055,11 @@ Catalog item that requires the document. Render the document once per requiring 
   the same copy.
 - **Errors:** without `requiredBy`, a supporting document is refused with
   `scope-not-bound`. An item that does not require it is refused with
-  `required-by-mismatch`.
+  `required-by-mismatch`. A document with no place for that requirer is refused
+  with `PREREQUISITE_UNAVAILABLE` / `scope-not-bound` at `/requiredBy`, and the
+  message says why. For a reference that means one of the four cases listed under
+  *References* above. For another document, it means the requirer keeps no folder
+  and the document is neither a notice nor a licence.
 
 **Every requiring item owns the one copy.** Every such recipe writes the same files
 with the same bytes. When Core already installs a file for other selections of the
