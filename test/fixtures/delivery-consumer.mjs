@@ -85,7 +85,11 @@ await check('skill and rule namespaces follow the layout namespace', async () =>
   assert.deepEqual(paths(prefix, skill), ['project/.claude/skills/quality-code-review/LICENSE', 'project/.claude/skills/quality-code-review/SKILL.md']);
   assert.deepEqual(paths(folder, rule), ['project/.claude/rules/quality/style.md'], 'a rule delivers its Markdown text');
   assert.deepEqual(paths(prefix, rule), ['project/.claude/rules/quality-style.md']);
-  assert.deepEqual(paths(bindingWith('claude'), rule), ['project/.claude/rules/style.md'], 'no layout namespace keeps the plain name');
+  // Claude Code's shipped rule layout keeps the namespace folder; a layout with no namespace keeps the plain name.
+  assert.deepEqual(paths(bindingWith('claude'), rule), ['project/.claude/rules/quality/style.md'], 'the shipped Claude rule layout nests');
+  const { digest: _digest, ...flat } = plain(toolBindings.find(item => item.tool === 'claude'));
+  delete flat.layouts.rule.namespace;
+  assert.deepEqual(paths({ ...flat, digest: sha256(canonical(flat)) }, rule), ['project/.claude/rules/style.md'], 'no layout namespace keeps the plain name');
   const escaping = catalogItem({ id: 'escape', kind: 'skill', files: SKILL_FILES, payload: { ...skill.payload, namespace: '../..' } });
   assert.deepEqual([renderDelivery({ tool: 'claude', item: escaping, binding: folder, scope: 'project' }).reason,
     renderDelivery({ tool: 'claude', item: escaping, binding: folder, scope: 'project' }).path], ['item-invalid', '/item/payload/namespace']);
