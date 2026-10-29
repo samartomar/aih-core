@@ -2,7 +2,7 @@
 // public entries only. One-server MCP approval: rendered, reviewed, applied, inventoried and removed.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { checkCompatibility, renderDelivery, toolBindings, validateToolBinding } from '@aihq/core/harness';
@@ -310,8 +310,8 @@ await check('object-keyed: grant writes one key, a later edit by the person is k
   assert.equal(JSON.parse(read(approvals)).mcpServerApprovals.github, 'ask');
   assert.deepEqual(removed.members.filter(member => member.pointer === '/mcpServerApprovals/github').map(member => [member.intent, member.outcome, member.check]),
     [['remove', 'kept', 'unchecked']], 'a conflicting removal is never attempted');
-  const registration = JSON.parse(read(join(root, '.mcp.json'))).mcpServers.github;
-  assert.deepEqual([registration.command, registration.args, registration.env.GITHUB_TOKEN], [undefined, undefined, undefined], 'the registration entries are removed');
+  // Core created .mcp.json for the registration, so it goes with the registration entries; the kept approval lives elsewhere.
+  assert.equal(existsSync(join(root, '.mcp.json')), false, 'the registration entries are removed, and with them the file Core created');
 
   const fresh = project('grant-object-remove');
   const freshApprovals = join(fresh, '.claude', 'approvals.json');
