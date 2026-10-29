@@ -157,6 +157,16 @@ export interface SelectionMetadata {
    * Core checks it against the selection's own captured materials and the scan artifact it names.
    */
   scanRecords?: ItemScanRecord[];
+  /**
+   * Execution policy 1.5.0, given with `scanRecords`: the item's own materials, content and behaviour files, at their
+   * release package paths (Scan's item descriptor). Core binds them to the bytes it captures, and a record must list
+   * exactly these, with these bytes, at these paths.
+   */
+  itemMaterials?: ItemMaterial[];
+}
+/** One of a Catalog item's own materials, as Scan's item descriptor names it. */
+export interface ItemMaterial {
+  materialId: string; relPath: string; path: string; sha256: string; byteLength: number; role: 'content' | 'behaviour';
 }
 /** Scan `urn:aihq:scan:item-record:1.0.0`, as the owner-finalized contract publishes it. */
 export interface ItemScanRecord {

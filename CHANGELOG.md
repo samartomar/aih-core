@@ -5,13 +5,14 @@
 Core 1.0.0-dev.38 adds execution policy 1.5.0, prepared work 1.7.0 and run result
 1.5.0.
 
-- A selection can carry its Scan item records and the binding digest its recipe was
-  rendered from.
+- A selection can carry its Scan item records, with the item's own materials at their
+  package paths, and the binding digest its recipe was rendered from.
 - The review names each item's framework, layout and scan state, and lists the items
   the request left out.
-- Core checks each record against the selection's own captured bytes and the
-  artifact's report capture before it counts. A relabelled record, a scan of other
-  bytes under this item's name, is `not-covered`.
+- Core checks each record against the item's own materials, the bytes it captured
+  and the artifact's report capture (Scan reports 1.0.0 and 2.0.0) before it counts.
+  A relabelled record is `not-covered`, including one for an item that shares every
+  content file and differs only in behaviour.
 - An artifact that covers no selection's bytes is never reported as `authenticated`.
 - Without a Scan trust policy, Core never gives `verified`.
 - Apply also re-checks release-index status (`controls.index`), scan state and the

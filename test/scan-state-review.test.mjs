@@ -32,6 +32,8 @@ const OTHER = '---\nname: other\ndescription: Something else\n---\nOther bytes.\
 /** Scan captures files at their release package paths; a record names them by item-relative path and material id. */
 const SKILL_PATH = 'release/items/grill-me/SKILL.md';
 
+/** Each test item's behaviour file bytes, which Scan captures beside its content. */
+const BEHAVIOUR_TEXT = new Map();
 /** A Catalog release item with one content file and its behaviour file (the consumer fixture's shape). */
 function catalogItem(id, files) {
   const content = Object.entries(files).map(([relPath, text], index) => ({ id: `m${index}`, relPath, sourcePath: relPath,
@@ -44,6 +46,7 @@ function catalogItem(id, files) {
   const behaviour = { id: 'behaviour', relPath: 'aih-behaviour.json', sourcePath: null, packagePath: `release/items/${id}/aih-behaviour.json`,
     sha256: sha256(behaviourText), byteLength: Buffer.byteLength(behaviourText), executable: false, sourceId: FRAMEWORK, role: 'behaviour' };
   const lines = members => members.map(member => `${member.relPath}\t${member.sha256}\n`).sort().join('');
+  BEHAVIOUR_TEXT.set(id, behaviourText);
   return { id, label: id, kind: 'skill', sourceIds: ['upstream'], targets: [], scopes: ['project'], inputs: {},
     recipe: { id, schema: 'urn:aihq:core:recipe:1.0.0', path: `release/recipes/${id}.json`, sha256: sha256(`${id}-recipe`), byteLength: 900 },
     materials: [...content, behaviour], dependencies, requirements, executable, payload,
@@ -51,14 +54,20 @@ function catalogItem(id, files) {
 }
 const grill = catalogItem('grill-me', { 'SKILL.md': SKILL });
 const ref = item => ({ framework: FRAMEWORK, itemId: item.id, contentSha256: item.contentSha256, behaviourSha256: item.behaviourSha256 });
+/** The item's own materials at their package paths, as the policy declares them beside its records. */
+const itemMaterials = item => item.materials.map(member => ({ materialId: member.id, relPath: member.relPath, path: member.packagePath,
+  sha256: member.sha256, byteLength: member.byteLength, role: member.role }));
+/** What a scan of grill-me's package captures: its SKILL.md (as given) and its behaviour file. */
+const grillCapture = text => ({ [SKILL_PATH]: text, ['release/items/grill-me/aih-behaviour.json']: BEHAVIOUR_TEXT.get('grill-me') });
 const claude = toolBindings.find(binding => binding.tool === 'claude');
 
-/** A Scan item record for `item` claiming `files` (relPath → text) were captured. */
+/** A Scan item record for `item`: its own materials, with content bytes as `files` (relPath → text) claims them. */
 const itemRecord = (scanId, item, files, extra = {}) => ({ schema: 'urn:aihq:scan:item-record:1.0.0', scanId, createdAt: '2026-10-28T09:00:00Z',
   evidenceKey: sha256(scanId), subject: { frameworkId: FRAMEWORK, itemId: item.id, contentSha256: item.contentSha256, behaviourSha256: item.behaviourSha256 },
-  authenticity: 'unchecked', materials: [...Object.entries(files).map(([relPath, text], index) => ({ materialId: `m${index}`, relPath,
-    sha256: sha256(text), byteLength: Buffer.byteLength(text), executable: false, captured: true })),
-  { materialId: '#payload', relPath: '#payload', sha256: item.behaviourSha256, byteLength: 64, executable: false, captured: true }],
+  authenticity: 'unchecked', materials: [...item.materials.map(member => {
+    const text = member.role === 'behaviour' ? BEHAVIOUR_TEXT.get(item.id) : files[member.relPath];
+    return { materialId: member.id, relPath: member.relPath, sha256: sha256(text), byteLength: Buffer.byteLength(text), executable: false, captured: true };
+  }), { materialId: '#payload', relPath: '#payload', sha256: item.behaviourSha256, byteLength: 64, executable: false, captured: true }],
   completion: 'complete', coverage: 'matched', severityProfile: 'aih-default',
   detectors: [{ id: 'secrets', version: '1.0.0', outcome: 'succeeded', coverage: 'matched', exclusions: [],
     findings: { error: 0, warning: 2, note: 1, unavailable: 0 }, suppressed: [{ rule: 'example-token', count: 3, reason: 'Documented example' }] }],
@@ -115,7 +124,7 @@ function policy15({ records, evidence, bindingDigest, excludedItems } = {}) {
   assert.equal(rendered.status, 'rendered', JSON.stringify(rendered));
   return { schema: POLICY_15, mode: 'vibe', selections: [{ id: 'grill', managementId: 'grill-managed', scope: 'project', configuration: {}, requires: [],
     recipe: { inline: rendered.recipe }, item: ref(grill), tool: 'claude', name: 'Grill me', kind: 'skill', origins: [{ reasonIncluded: 'chosen' }],
-    ...(records ? { scanRecords: records } : {}), ...(bindingDigest ? { bindingDigest } : {}) }],
+    ...(records ? { scanRecords: records, itemMaterials: itemMaterials(grill) } : {}), ...(bindingDigest ? { bindingDigest } : {}) }],
     ...(evidence ? { evidence } : {}), ...(excludedItems ? { excludedItems } : {}) };
 }
 const controls = (catalog, extra = {}) => ({ logging: 'off', materialRoots: { catalog }, ...extra });
@@ -134,7 +143,7 @@ const review17 = prepared => conforms(prepared.review, 'urn:aihq:core:prepared-w
 
 test('a checked record names the scan, its coverage and Scan summary; never "verified" without a trust policy', async () => {
   const { work, catalog, project } = workspace();
-  const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
+  const artifact = scanArtifact(grillCapture(SKILL));
   const policy = policy15({ records: [itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL })], evidence: evidenceFor(work, [artifact]),
     excludedItems: [{ framework: FRAMEWORK, itemId: 'git-guard' }] });
   assert.equal(validatePolicy(policy).valid, true, JSON.stringify(validatePolicy(policy)));
@@ -158,7 +167,7 @@ test('a checked record names the scan, its coverage and Scan summary; never "ver
 test('a real scan of other bytes, relabelled as this item, is not-covered and its evidence is never "authenticated"', async () => {
   const { work, catalog, project } = workspace();
   // The artifact is genuine and signed, but it captured OTHER.md, not grill-me's SKILL.md.
-  const artifact = scanArtifact({ [SKILL_PATH]: OTHER });
+  const artifact = scanArtifact(grillCapture(OTHER));
   const relabelled = itemRecord(artifact.scanId, grill, { 'SKILL.md': OTHER });
   // A record that lists grill-me's own bytes while the artifact captured others fails on the artifact side too.
   const misreported = itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL }, { createdAt: '2026-10-28T10:00:00Z' });
@@ -176,7 +185,7 @@ test('a real scan of other bytes, relabelled as this item, is not-covered and it
 
 test('scan states follow Scan\'s decision table: not-scanned, unreadable, partial, not-covered coverage and not-authenticated', async () => {
   const { work, catalog, project } = workspace();
-  const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
+  const artifact = scanArtifact(grillCapture(SKILL));
   const evidence = evidenceFor(work, [artifact]);
   const state = async (records, evidenceControls = { acquire: true, trust: artifact.trust }) => {
     const prepared = await ask(policy15({ records, evidence }), project, controls(catalog, { evidence: evidenceControls }));
@@ -204,7 +213,7 @@ test('scan states follow Scan\'s decision table: not-scanned, unreadable, partia
 test('every REVIEW_STALE change is named from the owner\'s closed list: policy, index-status, scan-state, binding, target-file', async () => {
   const changed = async (mutate, { bindingDigest, prepareIndex, applyIndex, organization } = {}) => {
     const { work, catalog, project } = workspace();
-    const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
+    const artifact = scanArtifact(grillCapture(SKILL));
     const evidence = evidenceFor(work, [artifact]);
     const policy = policy15({ records: [itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL })], evidence, bindingDigest });
     let organizationSource;
@@ -245,7 +254,7 @@ test('every REVIEW_STALE change is named from the owner\'s closed list: policy, 
   const revoked = await changed(nothing, { prepareIndex: offered, applyIndex: { ...offered, revoked: [{ framework: FRAMEWORK, itemId: grill.id }] } });
   assert.deepEqual([revoked.changed, revoked.detail], ['index-status', 'Grill me']);
   assert.equal((await changed(nothing, { prepareIndex: offered })).changed, 'index-status', 'an index withdrawn at Apply is a change');
-  const rescanned = await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact({ [SKILL_PATH]: OTHER }).bytes));
+  const rescanned = await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact(grillCapture(OTHER)).bytes));
   assert.deepEqual([rescanned.changed, rescanned.detail], ['scan-state', 'Grill me']);
   const rebound = await changed(nothing, { bindingDigest: 'e'.repeat(64) });
   assert.deepEqual([rebound.changed, rebound.detail], ['binding', 'Grill me']);
@@ -263,7 +272,7 @@ test('every REVIEW_STALE change is named from the owner\'s closed list: policy, 
 
 test('evidence stays authenticated for every record that covers a selection, and only those', async () => {
   const { work, catalog, project } = workspace();
-  const first = scanArtifact({ [SKILL_PATH]: SKILL }), second = scanArtifact({ [SKILL_PATH]: SKILL });
+  const first = scanArtifact(grillCapture(SKILL)), second = scanArtifact(grillCapture(SKILL));
   const trust = { keys: [...first.trust.keys, ...second.trust.keys], publishers: [] };
   const run = async records => {
     const prepared = await ask(policy15({ records, evidence: evidenceFor(work, [first, second]) }), project,
@@ -287,11 +296,11 @@ test('a selection that delivers no captured bytes cannot be checked, so no recor
     entries: new Map([['other.json', { sha256: '2'.repeat(64), byteLength: 2, selected: true }]]) }]]);
   const subject = ref(grill);
   // A relabelled record for a payload-only item: right subject hashes, another server's payload.
-  const record = { ...itemRecord('scan:sha256:' + '1'.repeat(64), grill, {}), materials: [
+  const record = { ...itemRecord('scan:sha256:' + '1'.repeat(64), grill, { 'SKILL.md': SKILL }), materials: [
     { materialId: '#payload', relPath: '#payload', sha256: '3'.repeat(64), byteLength: 9, executable: false, captured: true }] };
-  const scan = selectionScan(subject, [record], [], artifact);
+  const scan = selectionScan(subject, [record], itemMaterials(grill), [], artifact);
   assert.deepEqual([scan.scanState.state, scan.scanId, scan.covering], ['not-covered', undefined, []]);
-  assert.equal(selectionScan(subject, undefined, [], artifact).scanState.state, 'not-scanned');
+  assert.equal(selectionScan(subject, undefined, itemMaterials(grill), [], artifact).scanState.state, 'not-scanned');
 });
 
 test('run result 1.5.0 admits only the owner\'s closed list; 1.4.0 keeps its published values', () => {
@@ -314,11 +323,13 @@ test('real Scan records for Catalog 1.7 items count against the bytes Core deliv
     return new Map([[entry.value.scanId, { readable: true, association: { scanId: entry.value.scanId, status: 'unverifiable', reason: 'unsigned' }, entries }]]);
   };
   const subject = item => ({ framework: item.frameworkId, itemId: item.itemId, contentSha256: item.contentSha256, behaviourSha256: item.behaviourSha256 });
-  // What Core captures for the selection: the item's content materials at their package paths.
+  // The item's own materials at their package paths, and what Core captures for the selection: its content materials.
+  const declared = item => item.materials.map(material => ({ materialId: material.materialId, relPath: material.relPath,
+    path: material.capturePath, sha256: material.sha256, byteLength: material.byteLength, role: material.role }));
   const own = item => item.materials.filter(material => material.role === 'content')
     .map(material => ({ id: material.materialId, path: material.capturePath, sha256: material.sha256, byteLength: material.byteLength }));
   for (const entry of cases) {
-    const scan = selectionScan(subject(entry.item), [entry.value], own(entry.item), await read(entry));
+    const scan = selectionScan(subject(entry.item), [entry.value], declared(entry.item), own(entry.item), await read(entry));
     // Scan's decision table: a matched record is partial when its scan was partial, else not-verified (unsigned here).
     const expected = entry.value.coverage !== 'matched' ? ['not-covered', undefined] :
       entry.value.completion === 'partial' ? ['partial', undefined] : ['not-verified', 'not-authenticated'];
@@ -326,7 +337,17 @@ test('real Scan records for Catalog 1.7 items count against the bytes Core deliv
       [entry.value.scanId, entry.value.coverage, ...expected], entry.name);
   }
   // Another item's real record, relabelled with this item's identity, never counts.
-  const [grillMe, gitGuard] = cases;
+  const [grillMe, gitGuard, clickhouse, cloudflare] = cases;
   const relabelled = { ...gitGuard.value, subject: grillMe.value.subject };
-  assert.equal(selectionScan(subject(grillMe.item), [relabelled], own(grillMe.item), await read(gitGuard)).scanState.state, 'not-covered');
+  assert.equal(selectionScan(subject(grillMe.item), [relabelled], declared(grillMe.item), own(grillMe.item), await read(gitGuard)).scanState.state,
+    'not-covered');
+  // Two MCP servers share every content file and differ only in behaviour: one's record never counts for the other.
+  assert.deepEqual(own(clickhouse.item), own(cloudflare.item), 'the shared-content case this guards');
+  const borrowed = { ...clickhouse.value, subject: cloudflare.value.subject };
+  assert.equal(selectionScan(subject(cloudflare.item), [borrowed], declared(cloudflare.item), own(cloudflare.item), await read(clickhouse))
+    .scanState.state, 'not-covered');
+  // A record that leaves out the behaviour file does not cover the item either.
+  const partialList = { ...clickhouse.value, materials: clickhouse.value.materials.filter(material => material.materialId !== 'behaviour') };
+  assert.equal(selectionScan(subject(clickhouse.item), [partialList], declared(clickhouse.item), own(clickhouse.item), await read(clickhouse))
+    .scanState.state, 'not-covered');
 });

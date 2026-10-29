@@ -216,7 +216,7 @@ function selectionScans(policy: ExecutionPolicy, owned: ReadonlyMap<string, OwnM
   const scans = new Map<string, SelectionScan>();
   for (const selection of policy.selections) {
     if (selection.item === undefined) continue;
-    scans.set(selection.id, selectionScan(selection.item, selection.scanRecords, owned.get(selection.id) ?? [], artifacts));
+    scans.set(selection.id, selectionScan(selection.item, selection.scanRecords, selection.itemMaterials ?? [], owned.get(selection.id) ?? [], artifacts));
   }
   return scans;
 }
@@ -342,7 +342,7 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       ...(capturedMissing ? { reason: `executable-missing:${capturedMissing}` } : {}) } };
 }
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
-    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly { id: string; path: string; sha256: string; byteLength: number }[];
+    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly OwnMaterial[];
       readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
   if ('reference' in selection.recipe) {
     const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });

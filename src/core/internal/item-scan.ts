@@ -7,7 +7,7 @@ import { canonicalBytes, sha256, strictParse } from '../evidence/json.js';
 import { artifactLimits } from '../evidence/validation.js';
 import type { AssociationResult } from '../evidence/types.js';
 import type { ScanSummary } from '../host-types.js';
-import type { ItemScanRecord, SelectionMetadata } from '../types.js';
+import type { ItemMaterial, ItemScanRecord, SelectionMetadata } from '../types.js';
 
 /** The payload pseudo-material: covered by the record's `behaviourSha256` subject, never a captured file. */
 const PAYLOAD = '#payload';
@@ -16,8 +16,9 @@ interface CaptureEntry { sha256: string; byteLength: number; selected: boolean }
 /** An artifact named by a record: unreadable, or its authentication and the files its report captured. */
 export type ScanArtifact = { readable: false } |
   { readable: true; association: AssociationResult; entries: ReadonlyMap<string, CaptureEntry> };
+interface Bytes { sha256: string; byteLength: number }
 /** A material the selection delivers, as Core captured it: its Catalog material id and package path. */
-export interface OwnMaterial { id: string; path: string; sha256: string; byteLength: number }
+export interface OwnMaterial extends Bytes { id: string; path: string }
 export interface SelectionScan {
   scanId?: string; coverage?: ItemScanRecord['coverage']; scanState: ScanSummary;
   /** Scan ids of every record that passed the check with matched coverage: the artifacts that cover this selection's bytes. */
@@ -59,28 +60,34 @@ export async function artifactEntries(bytes: Uint8Array): Promise<ReadonlyMap<st
 }
 
 /**
- * Scan's `verifyItemRecord` as Core can apply it. The subject is this item. Every material the selection delivers is the
- * record's material of the same id, captured with the same bytes, and the artifact's capture holds those bytes, selected
- * for scanning, at the package path Core read them from (a record's `relPath` is item-relative; the capture is keyed by
- * package path). Any other captured file the record lists (the behaviour file) is a selected capture entry with the same
- * bytes. A relabelled record (another item's bytes under this item's name) fails.
+ * Scan's `verifyItemRecord` as Core can apply it, against the item's own materials (`declared`: the Catalog item's
+ * content and behaviour files at their package paths, as Scan's item descriptor names them). The subject is this item.
+ * Every material the selection delivers is the declared material of the same id, path and bytes, so the declaration is
+ * bound to what Core captured. The record lists exactly the declared materials (beside `#payload`), each captured with the
+ * declared bytes, and the artifact's capture holds those bytes, selected for scanning, at the declared package path (a
+ * record's `relPath` is item-relative). A relabelled record fails, including one for an item that shares every content
+ * file and differs only in behaviour.
  */
-export function recordCovers(scanRecord: ItemScanRecord, item: SelectionMetadata['item'], own: readonly OwnMaterial[],
-    entries: ReadonlyMap<string, CaptureEntry>): boolean {
+export function recordCovers(scanRecord: ItemScanRecord, item: SelectionMetadata['item'], declared: readonly ItemMaterial[],
+    own: readonly OwnMaterial[], entries: ReadonlyMap<string, CaptureEntry>): boolean {
   const { subject } = scanRecord;
   if (subject.frameworkId !== item.framework || subject.itemId !== item.itemId ||
       subject.contentSha256 !== item.contentSha256 || subject.behaviourSha256 !== item.behaviourSha256) return false;
-  const files = scanRecord.materials.filter(material => material.materialId !== PAYLOAD);
-  const same = (a: OwnMaterial | CaptureEntry, b: { sha256: string; byteLength: number }) => a.sha256 === b.sha256 && a.byteLength === b.byteLength;
-  for (const material of own) {
-    const listed = files.find(entry => entry.materialId === material.id);
-    const entry = entries.get(material.path);
-    if (!listed?.captured || !same(material, listed) || !entry?.selected || !same(entry, listed)) return false;
-  }
-  const delivered = new Set(own.map(material => material.id));
-  return files.every(listed => !listed.captured || delivered.has(listed.materialId) ||
-    [...entries.values()].some(entry => entry.selected && same(entry, listed)));
+  const byId = new Map(declared.map(material => [material.materialId, material]));
+  if (!own.every(material => {
+    const named = byId.get(material.id);
+    return named !== undefined && named.path === material.path && sameBytes(named, material);
+  })) return false;
+  const listed = scanRecord.materials.filter(material => material.materialId !== PAYLOAD);
+  if (listed.length !== declared.length || new Set(listed.map(material => material.materialId)).size !== listed.length) return false;
+  return listed.every(material => {
+    const named = byId.get(material.materialId);
+    const captured = named && entries.get(named.path);
+    return material.captured && named !== undefined && sameBytes(named, material) && captured !== undefined && captured.selected &&
+      sameBytes(captured, material);
+  });
 }
+const sameBytes = (a: Bytes, b: Bytes): boolean => a.sha256 === b.sha256 && a.byteLength === b.byteLength;
 
 const NONE = { error: 0, warning: 0, note: 0, unavailable: 0 };
 /** A summary with no picked record: nothing scanned, nothing readable, or nothing that covers the selection's bytes. */
@@ -103,7 +110,7 @@ function rank(a: { scanRecord: ItemScanRecord; artifact: ScanArtifact }, b: { sc
  * `not-verified` with `unchecked`, or `not-authenticated` when its artifact's signature was refused.
  */
 export function selectionScan(item: SelectionMetadata['item'], records: readonly ItemScanRecord[] | undefined,
-    own: readonly OwnMaterial[], artifacts: ReadonlyMap<string, ScanArtifact>): SelectionScan {
+    declared: readonly ItemMaterial[], own: readonly OwnMaterial[], artifacts: ReadonlyMap<string, ScanArtifact>): SelectionScan {
   if (!records?.length) return emptyScan('not-scanned');
   // Core checks a record against the bytes the selection delivers. With none (an item whose behaviour is only its
   // payload), Core cannot tell a relabelled record from a real one, so none counts.
@@ -113,7 +120,7 @@ export function selectionScan(item: SelectionMetadata['item'], records: readonly
     return artifact?.readable ? [{ scanRecord, artifact }] : [];
   });
   if (!readable.length) return emptyScan('unreadable');
-  const passing = readable.filter(entry => entry.artifact.readable && recordCovers(entry.scanRecord, item, own, entry.artifact.entries));
+  const passing = readable.filter(entry => entry.artifact.readable && recordCovers(entry.scanRecord, item, declared, own, entry.artifact.entries));
   if (!passing.length) return emptyScan('not-covered');
   const covering = [...new Set(passing.filter(entry => entry.scanRecord.coverage === 'matched').map(entry => entry.scanRecord.scanId))];
   const picked = [...passing].sort(rank)[0]!;

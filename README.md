@@ -2023,6 +2023,9 @@ fields to a selection that names an `item`:
 
 - **`scanRecords`**: the item's Catalog `items[].scan[]` records and supplements, as
   Scan `urn:aihq:scan:item-record:1.0.0` records (at most 16).
+- **`itemMaterials`**: given with `scanRecords`, the item's own materials (content and
+  behaviour files) as Scan's item descriptor names them: `{ materialId, relPath, path,
+  sha256, byteLength, role }`, where `path` is the release package path.
 - **`bindingDigest`**: the tool binding digest the recipe was rendered from.
 
 A 1.5.0 policy prepares `urn:aihq:core:prepared-work:1.7.0`. Each item selection also
@@ -2043,13 +2046,17 @@ names, from the policy's `evidence` with `controls.evidence.acquire`. It then ap
 Scan's `verifyItemRecord` rule against the selection's own bytes:
 
 - the record's subject is this item, with both hashes;
-- every material the selection delivers is the record's material with the same
-  Catalog material id, captured with the same SHA-256 and length;
+- every material the selection delivers is the declared `itemMaterials` entry with
+  the same id, package path and bytes, which binds the declaration to the bytes Core
+  captured;
+- the record lists exactly the declared materials, beside `#payload`. Each is captured
+  with the declared bytes;
 - the artifact's report capture holds those bytes, selected for scanning, at the
-  package path Core read them from. A record's `relPath` is item-relative, while
-  the capture is keyed by package path;
-- any other captured file the record lists (the behaviour file) is a selected capture
-  entry with the same bytes.
+  declared package path. A record's `relPath` is item-relative, while the capture is
+  keyed by package path.
+
+So one item's record never counts for another, even when the two share every content
+file and differ only in their behaviour file.
 
 The capture is checked against its own `captureSha256`. Scan reports 1.0.0 and 2.0.0
 are both read.

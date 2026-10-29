@@ -1,5 +1,5 @@
 {
- "description": "Scan item records for real Catalog 1.7 items, with the scan report each was derived from. Copied unchanged from aih-scan schemas/item-record/1.0.0.fixtures.json (accept cases) so Core checks real records, not only its own test records.",
+ "description": "Scan item records for real Catalog 1.7 items, with the scan report each was derived from. Copied unchanged from the accept cases of aih-scan schemas/item-record/1.0.0.fixtures.json (samartomar/aih-scan#148) so Core checks real records, not only its own test records.",
  "cases": [
   {
    "name": "extensions.matt.grill-me",

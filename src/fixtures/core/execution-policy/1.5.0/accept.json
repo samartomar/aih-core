@@ -155,6 +155,16 @@
             }
           ]
         }
+      ],
+      "itemMaterials": [
+        {
+          "materialId": "m0",
+          "relPath": "TEAM.md",
+          "path": "release/items/team-guidance/TEAM.md",
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "byteLength": 40,
+          "role": "content"
+        }
       ]
     }
   ],
