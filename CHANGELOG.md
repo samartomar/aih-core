@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.38 adds execution policy 1.5.0, prepared work 1.7.0 and run result
+1.5.0.
+
+- A selection can carry its Scan item records and the binding digest its recipe was
+  rendered from.
+- The review names each item's framework, layout and scan state, and lists the items
+  the request left out.
+- Core checks each record against the selection's own captured bytes and the
+  artifact's report capture before it counts. A relabelled record, a scan of other
+  bytes under this item's name, is `not-covered`.
+- An artifact that covers no selection's bytes is never reported as `authenticated`.
+- Without a Scan trust policy, Core never gives `verified`.
+- Apply also re-checks release-index status (`controls.index`), scan state and the
+  shipped binding. `REVIEW_STALE` names `changed` from the owner's closed list:
+  `policy`, `index-status`, `scan-state`, `binding` or `target-file`.
+- Prepared work 1.6.0 and run result 1.4.0 are unchanged.
+- A guard test requires every mapped hook event, entry file and entry pointer to
+  cite an observed line in a published run record. The binding data is unchanged.
+
 Add display-only plugin-route guidance to `checkCompatibility`: given Catalog
 `nativeRoutes` lines by framework, `pluginRoutes` lists the routes naming the
 tool by its registry label (`listed`, `not-listed`, `not-supplied`). Routes are

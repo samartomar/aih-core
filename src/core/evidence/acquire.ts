@@ -105,16 +105,22 @@ async function readHttps(location: string, signal: AbortSignal, deadline: number
 }
 
 export async function associateEvidence(input: AssociateEvidenceInput, controls: AssociateEvidenceControls = {}): Promise<AssociationResult> {
+  return (await acquireEvidence(input, controls)).result;
+}
+/** The association result plus the acquired artifact bytes, for a reader that checks what the artifact covers. */
+export async function acquireEvidence(input: AssociateEvidenceInput, controls: AssociateEvidenceControls = {}):
+    Promise<{ result: AssociationResult; bytes?: Uint8Array }> {
+  const finished = (result: AssociationResult, bytes?: Uint8Array) => ({ result, ...(bytes ? { bytes } : {}) });
   let scanId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let acquiring = false;
   try {
     const supplied = object(input, [], ['association', 'acquire', 'trust']);
-    if (supplied.association === undefined) return { status: 'skipped', reason: 'not-supplied' };
+    if (supplied.association === undefined) return finished({ status: 'skipped', reason: 'not-supplied' });
     const association = associationFor(supplied.association);
     scanId = association.scanId;
     if (supplied.acquire !== undefined && typeof supplied.acquire !== 'boolean') invalid();
-    if (supplied.acquire !== true) return { scanId, status: 'skipped', reason: 'not-requested' };
+    if (supplied.acquire !== true) return finished({ scanId, status: 'skipped', reason: 'not-requested' });
     const selectedControls = object(controls, [], ['signal', 'authentication']);
     if (selectedControls.signal !== undefined && !(selectedControls.signal instanceof AbortSignal)) invalid();
     let bearer: string | undefined;
@@ -138,12 +144,12 @@ export async function associateEvidence(input: AssociateEvidenceInput, controls:
     acquiring = true;
     const bytes = association.location.kind === 'file' ? readFile(association.location.path, signal, deadline) :
       await readHttps(association.location.url, signal, deadline, bearer);
-    return await authenticateEvidence({ bytes, expectedScanId: scanId, trust });
+    return finished(await authenticateEvidence({ bytes, expectedScanId: scanId, trust }), bytes);
   } catch (error) {
     const reason = error instanceof ArtifactError ? error.reason :
       error instanceof Error && 'code' in error && error.code === 'resource-limit' ? 'resource-limit' :
       acquiring ? 'unavailable' : 'malformed';
-    return { ...(scanId ? { scanId } : {}), status: 'unverifiable',
-      reason };
+    return finished({ ...(scanId ? { scanId } : {}), status: 'unverifiable',
+      reason });
   } finally { if (timer !== undefined) clearTimeout(timer); }
 }

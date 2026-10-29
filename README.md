@@ -93,6 +93,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/execution-policy/1.4.0.json` | Execution-policy 1.4.0 JSON Schema (descriptive Catalog selection metadata, `excludedItems`) |
 | `@aihq/core/schemas/recipe/1.4.0.json` | Recipe 1.4.0 JSON Schema (adds `config.member` and one-server `approval`) |
 | `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding and checking each touched member |
+| `@aihq/core/schemas/execution-policy/1.5.0.json`, `prepared-work/1.7.0.json`, `run-result/1.5.0.json` | Policy carrying Scan item records and the rendering binding; review naming each item's framework, layout and checked scan state and the items left out; run result naming a change from the owner's closed list |
 | `@aihq/core/schemas/managed-inventory-result/1.1.0.json` | Managed inventory naming each installed selection, its origins, members and their states |
 | `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
@@ -1989,10 +1990,87 @@ Apply guard still runs. A refusal because a reviewed binding changed is
 
 A lost or consumed handle is `REVIEW_STALE` with reason `handle-unavailable`, and
 an authorization naming another digest has reason `digest-mismatch`; neither is a
-binding change. Prepare again and approve the new review. New or changed scan
-evidence and Catalog index status are never part of a held review, so they never
-make it stale; Core does not read index status, and the consumer surfaces an index
-revocation when it next prepares.
+binding change. Prepare again and approve the new review. For a 1.6.0 review, new
+or changed scan evidence and Catalog index status are never part of the held review,
+so they never make it stale. Prepared work 1.7.0 (below) re-checks both.
+
+### Scan state and the owner's stale list (execution policy 1.5.0)
+
+`urn:aihq:core:execution-policy:1.5.0` keeps every 1.4.0 field and adds two optional
+fields to a selection that names an `item`:
+
+- **`scanRecords`**: the item's Catalog `items[].scan[]` records and supplements, as
+  Scan `urn:aihq:scan:item-record:1.0.0` records (at most 16).
+- **`bindingDigest`**: the tool binding digest the recipe was rendered from.
+
+A 1.5.0 policy prepares `urn:aihq:core:prepared-work:1.7.0`. Each item selection also
+names `framework` (the Catalog framework id) and `layout: { bindingDigest, support,
+observed }`, the shipped cell for its tool and kind. It also carries its scan state:
+
+```ts
+{ scanId?, coverage?,                 // only when a record passed Core's check (below)
+  scanState: { state: "verified" | "not-verified" | "partial" | "not-covered" | "not-scanned" | "unreadable",
+               why?, findings: { error, warning, note, unavailable }, suppressed, scannedAt } }
+```
+
+The review also lists `excluded: { item: { framework, itemId }, reason:
+"excluded-in-request" }[]` from the policy's `excludedItems`.
+
+**A record is a claim until Core checks it.** Core reads the scan artifact the record
+names, from the policy's `evidence` with `controls.evidence.acquire`. It then applies
+Scan's `verifyItemRecord` rule against the selection's own bytes:
+
+- the record's subject is this item, with both hashes;
+- every material the selection delivers appears in the record, captured with the
+  same SHA-256 and length;
+- every captured file the record lists is in the artifact's report capture, selected
+  for scanning, with the same bytes. The capture is checked against its own
+  `captureSha256`.
+
+Scan's decision table then applies:
+
+- no record: `not-scanned`;
+- no record whose artifact could be read: `unreadable`;
+- no record passing the check: `not-covered`;
+- a picked record that is not `matched`: `not-covered`;
+- a partial picked record: `partial`.
+
+Records are ranked by coverage, authentication, completion and then time, never by
+time alone.
+
+Core accepts no Scan trust policy yet. So it never gives `verified`: a checked record
+is `not-verified` with `why: "unchecked"`, or `"not-authenticated"` when its
+artifact's signature was refused.
+
+**Evidence for other bytes is never "authenticated".** In a 1.7.0 review and its run
+result, an artifact that authenticates but covers no selection's own bytes is
+reported as `{ scanId, status: "unverifiable", reason: "not-covered" }`. A real scan
+of other bytes, relabelled as an item, therefore shows `not-covered` everywhere.
+
+**Release index.** `controls.index` takes the consumer's current index in the
+inventory's shape (`offered`, `revoked`, `superseded`). Prepare records each item's
+status in it; without an index the status is `unknown`. Core never reads an index
+itself.
+
+`apply` for a 1.7.0 review returns `urn:aihq:core:run-result:1.5.0`. It runs every
+Apply guard above, and then re-checks:
+
+- each item's index status, from that call's `controls.index`;
+- its scan state, from the evidence read again;
+- the binding Core now ships for its tool and kind.
+
+A refusal names `changed` from the owner's closed list only:
+
+| `changed` | What changed since the preview |
+| --- | --- |
+| `policy` | The request or policy digest; for Enterprise, the organization revision, blob, content and declared target |
+| `index-status` | An item's status in the consumer's release index (including an index given at Prepare and not at Apply) |
+| `scan-state` | A selection's picked scan, coverage or summary |
+| `binding` | How the item is installed: the shipped binding digest, the recipe or its captured materials, or a private input |
+| `target-file` | A reviewed target file, its path identity or home, or ownership, trust or session custody of a reviewed path |
+
+A recipe rendered for a binding digest Core no longer ships is already a
+`binding-changed` conflict in the preview, and Apply refuses it as `binding`.
 
 ### Post-apply member checks
 

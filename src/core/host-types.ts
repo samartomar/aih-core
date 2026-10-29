@@ -35,6 +35,12 @@ export interface HostControls {
   authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
   /** Explicit optional evidence acquisition and independently selected trust. Defaults to no acquisition. */
   evidence?: { acquire?: boolean; trust?: AuthenticationTrust; authentication?: AssociateEvidenceControls['authentication'] };
+  /**
+   * Prepared work 1.7.0: the consumer's current release index, in the inventory's shape. Prepare records each named
+   * item's status in it and Apply compares that status again; without an index the status is `unknown`. Core never
+   * reads a Catalog or index itself.
+   */
+  index?: import('./internal/release-index.js').ManagedInventoryIndex;
 }
 export interface Authorization {
   reviewDigest: string;
@@ -84,9 +90,30 @@ export interface PreparedSelection extends Partial<SelectionMetadata> {
   inputs: string[];
   /** Delivered files and marker-block text; `alwaysLoaded` needs a kind. Absent when the selection's material was unavailable. */
   deliveredSize?: ReviewSize & { alwaysLoaded?: ReviewSize };
+  /** Prepared work 1.7.0, with item metadata: the item's Catalog framework id. */
+  framework?: string;
+  /** Prepared work 1.7.0, with item metadata: the binding cell the recipe was rendered from and its proof level. */
+  layout?: { bindingDigest: string; support: 'native' | 'none' | 'unconfirmed';
+    observed: 'recognised' | 'registered' | 'listed-only' | 'delivered' | 'none' };
+  /** Prepared work 1.7.0: the picked record, present only when a record passed Core's check against this selection's bytes. */
+  scanId?: string;
+  coverage?: 'matched' | 'mismatched' | 'unavailable' | 'invalid';
+  /** Prepared work 1.7.0, with item metadata: Scan's card summary, computed by Core from the checked record. */
+  scanState?: ScanSummary;
 }
-/** The reviewed binding a `REVIEW_STALE` diagnostic names in run result 1.4.0. */
-export type StaleBinding = 'policy' | 'recipe' | 'target-file' | 'ownership' | 'input' | 'host' | 'trust';
+/** Scan `urn:aihq:scan:item-summary:1.0.0`, following Scan's decision table. */
+export interface ScanSummary {
+  state: 'verified' | 'not-verified' | 'partial' | 'not-covered' | 'not-scanned' | 'unreadable';
+  why?: 'not-authenticated' | 'unchecked' | 'offline' | 'revoked' | 'detector-missing' | 'profile-not-allowed' | 'future-dated' | 'older-than-policy';
+  findings: { error: number; warning: number; note: number; unavailable: number };
+  suppressed: number; scannedAt: string | null;
+}
+/**
+ * The reviewed binding a `REVIEW_STALE` diagnostic names. Run result 1.4.0 uses the first seven; run result 1.5.0 uses
+ * the owner's closed list: `policy`, `index-status`, `scan-state`, `binding` and `target-file`.
+ */
+export type StaleBinding = 'policy' | 'recipe' | 'target-file' | 'ownership' | 'input' | 'host' | 'trust' |
+  'index-status' | 'scan-state' | 'binding';
 export interface HookGroupReview {
   container: string[]; groupId: string; selector: { path: (string | number)[]; valueSha256: string }; action: 'set' | 'remove';
   matchedIndex: number | null; memberBeforeSha256: string | null; memberAfterSha256: string | null;
@@ -110,14 +137,16 @@ export interface OrganizationObligationsReview {
   advisory: (OrganizationAdvisoryResult & { scope: 'project' | 'user' })[];
 }
 export interface PreparedReview {
-  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0' | 'urn:aihq:core:prepared-work:1.5.0' | 'urn:aihq:core:prepared-work:1.6.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
+  schema: 'urn:aihq:core:prepared-work:1.0.0' | 'urn:aihq:core:prepared-work:1.1.0' | 'urn:aihq:core:prepared-work:1.2.0' | 'urn:aihq:core:prepared-work:1.3.0' | 'urn:aihq:core:prepared-work:1.4.0' | 'urn:aihq:core:prepared-work:1.5.0' | 'urn:aihq:core:prepared-work:1.6.0' | 'urn:aihq:core:prepared-work:1.7.0'; useCase: 'policy' | 'repair' | 'certificate-export'; mode: 'vibe' | 'enterprise' | 'standalone';
   target: { scope: 'project' | 'user'; project: string };
   inputs: { policySha256: string; package: { name: string; version: string }; organization?: OrganizationBinding } |
     { sourceSha256: string; certificates: string[]; candidateKind?: 'system-ca' | 'extra-ca';
       helperSha256: string; package: { name: string; version: string } } | TrustInputs | MacosPreparedInputs;
   operations: ReviewOperation[];
-  /** Prepared work 1.6.0 only. */
+  /** Prepared work 1.6.0 and 1.7.0 only. */
   selections?: PreparedSelection[];
+  /** Prepared work 1.7.0 only: the items the request left out; none of them is selected, by any route. */
+  excluded?: { item: import('./types.js').CatalogItemRef; reason: 'excluded-in-request' }[];
   observations: { id: string; reason: string }[];
   conflicts: Diagnostic[]; omissions: Diagnostic[];
   effectiveOptions: { logging: Effective<'on' | 'off'>; inputs: Record<string, { origin: 'default' | 'explicit' | 'private' }> };
@@ -187,7 +216,7 @@ export interface RunDiagnostic extends Diagnostic { changed?: StaleBinding }
 export interface CheckResult { id: string; operationId: string; status: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string;
   effectsUncertain?: boolean; terminationUnconfirmed?: boolean }
 export interface RunResult {
-  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0' | 'urn:aihq:core:run-result:1.3.0' | 'urn:aihq:core:run-result:1.4.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
+  schema: 'urn:aihq:core:run-result:1.0.0' | 'urn:aihq:core:run-result:1.1.0' | 'urn:aihq:core:run-result:1.2.0' | 'urn:aihq:core:run-result:1.3.0' | 'urn:aihq:core:run-result:1.4.0' | 'urn:aihq:core:run-result:1.5.0'; runId: string; useCase: 'policy' | 'repair' | 'certificate-export';
   completion: 'complete' | 'incomplete' | 'cancelled' | 'rejected';
   inputs?: PreparedReview['inputs'];
   /** `reviewDigest` names the prepared work 1.6.0 review this run applied. */

@@ -201,8 +201,8 @@ test('every produced prepared-work and run-result format is dispatched; unknown,
   const produced = contractSupport.contracts.filter(item => item.role !== 'accepts' && /:(?:prepared-work|run-result):/.test(item.id)).map(item => item.id).sort();
   assert.deepEqual(produced, ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0', 'urn:aihq:core:prepared-work:1.2.0',
     'urn:aihq:core:prepared-work:1.3.0', 'urn:aihq:core:prepared-work:1.4.0', 'urn:aihq:core:prepared-work:1.5.0', 'urn:aihq:core:prepared-work:1.6.0',
-    'urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0', 'urn:aihq:core:run-result:1.2.0', 'urn:aihq:core:run-result:1.3.0',
-    'urn:aihq:core:run-result:1.4.0'],
+    'urn:aihq:core:prepared-work:1.7.0', 'urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0', 'urn:aihq:core:run-result:1.2.0',
+    'urn:aihq:core:run-result:1.3.0', 'urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:1.5.0'],
     'a newly produced family must be added to support dispatch and this test');
   assert.deepEqual([...Object.keys(preparedWorkValidators), ...Object.keys(runResultValidators)].sort(), produced,
     'support dispatch covers exactly the produced prepared-work and run-result formats');
@@ -219,6 +219,8 @@ test('every produced prepared-work and run-result format is dispatched; unknown,
   refused({ kind: 'prepare', result: wrap({ ...trust('prepared-work-1.2-ready'), schema: 'urn:aihq:core:prepared-work:1.5.0' }) }, 'INPUT_INVALID');
   refused({ kind: 'prepare', result: wrap({ ...trust('prepared-work-1.2-ready'), schema: 'urn:aihq:core:prepared-work:1.6.0' }) }, 'INPUT_INVALID');
   refused({ kind: 'run', result: { ...run, schema: 'urn:aihq:core:run-result:1.4.0' } }, 'INPUT_INVALID');
+  refused({ kind: 'prepare', result: wrap({ ...trust('prepared-work-1.2-ready'), schema: 'urn:aihq:core:prepared-work:1.7.0' }) }, 'INPUT_INVALID');
+  refused({ kind: 'run', result: { ...run, schema: 'urn:aihq:core:run-result:1.5.0' } }, 'INPUT_INVALID');
   refused({ kind: 'run', result: { ...run, extra: sentinel } }, 'INPUT_INVALID');
   refused({ kind: 'run', result: { ...run, schema: 12 } }, 'INPUT_INVALID');
   refused({ kind: 'run', result: (({ schema, ...rest }) => rest)(run) }, 'INPUT_INVALID');

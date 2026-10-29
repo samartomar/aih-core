@@ -235,7 +235,7 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     message: 'The policy has an invalid dependency, scope or input value.' });
   try { dependencyOrder(policy.selections); } catch (error) { invalid((error as Error).message, '/selections'); }
   const managers = new Set<string>();
-  const current = policy.schema === 'urn:aihq:core:execution-policy:1.4.0';
+  const current = policy.schema === 'urn:aihq:core:execution-policy:1.4.0' || policy.schema === 'urn:aihq:core:execution-policy:1.5.0';
   // Execution policy 1.4.0 names one selection per management id; older policies keep per-scope ids.
   const managementIds = new Set<string>();
   const excluded = new Set<string>();
