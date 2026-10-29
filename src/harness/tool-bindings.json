@@ -2,7 +2,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "claude",
-    "digest": "a457a03c1ce03b7790beb92ed0e0d9f0e3a1f0e96c174ef580ab23220f98c7d8",
+    "digest": "72c045a91db2b2d3872994f63fc07a9994ade50f39977a21e06bfdfbcbb44df7",
     "layouts": {
       "skill": {
         "support": "native",
@@ -159,7 +159,7 @@
             "os": "windows",
             "arch": "x64",
             "isolation": "env-redirect-outside-profile",
-            "runRecordDigest": "db0b16f01229c30c3a13d322e3a97537cb78b52bf5d562df5e79529be506a273",
+            "runRecordDigest": "ce6f66426f91dcac6a76f30c9669d8087784fa8b4775b70b233e1b5079c112f6",
             "delivered": "delivered",
             "registered": "registered",
             "recognised": "recognised"

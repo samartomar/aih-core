@@ -19,7 +19,8 @@ const commandOf = item => {
 
 test('every real Claude hook command sets CLAUDE_PLUGIN_ROOT to its own item folder', () => {
   assert.equal(claude.layouts.hook.commandTemplate, 'CLAUDE_PLUGIN_ROOT="{pluginRoot}" {command}');
-  assert.ok(hooks.length >= 28, `${hooks.length} real hooks`);
+  assert.deepEqual(Object.fromEntries(['ecc', 'extensions', 'superpowers'].map(family =>
+    [family, hooks.filter(item => item.id.startsWith(`${family}.`)).length])), { ecc: 24, extensions: 3, superpowers: 1 });
   for (const item of hooks) {
     const itemDir = `\${CLAUDE_PROJECT_DIR}/.claude/hooks/${item.id}`;
     const command = commandOf(item);
@@ -30,16 +31,20 @@ test('every real Claude hook command sets CLAUDE_PLUGIN_ROOT to its own item fol
   }
 });
 
-test('the hooks that read CLAUDE_PLUGIN_ROOT resolve the same item folder without it', () => {
-  // ECC's runners fall back to the folder two levels above scripts/hooks/; Superpowers' script to the folder above
-  // hooks/. Both are the item folder Core delivers the materials into, which is what {pluginRoot} names.
+test('the hooks that read CLAUDE_PLUGIN_ROOT see their own item folder, and no item supplies the config it adds', () => {
+  // ECC's runners fall back to the folder two levels above scripts/hooks/, and Superpowers' script to the folder above
+  // hooks/: both are the item folder Core delivers the materials into, which is what {pluginRoot} names. Extensions
+  // hooks never read the variable.
   const levelsUp = { ecc: ['scripts/hooks/', 2], superpowers: ['hooks/', 1] };
   for (const item of hooks) {
     const family = item.id.split('.')[0];
+    assert.ok(['ecc', 'extensions', 'superpowers'].includes(family), `${item.id}: a hook family this test has not checked`);
+    if (family === 'extensions') continue;
     const script = item.materials.find(member => member.id === item.payload.command.script).relPath;
-    if (family === 'extensions') continue; // Extensions hooks never read CLAUDE_PLUGIN_ROOT.
     const [prefix, depth] = levelsUp[family];
     assert.ok(script.startsWith(prefix) && script.split('/').length === depth + 1, `${item.id}: ${script}`);
   }
-  assert.deepEqual([...new Set(hooks.map(item => item.id.split('.')[0]))].sort(), ['ecc', 'extensions', 'superpowers']);
+  // ECC's scripts/lib/hook-flags.js has no fallback of its own: with the variable set it also looks for
+  // <pluginRoot>/ecc/setup.json. No item delivers that file, so its hooks read no extra configuration.
+  for (const item of hooks) assert.ok(!item.materials.some(member => member.relPath.startsWith('ecc/')), item.id);
 });

@@ -16,9 +16,12 @@ const bindings = JSON.parse(readFileSync(new URL('../../src/harness/tool-binding
 /** `hook-fired.log: <token> <time> <event>`, as the canary hook appends it. */
 const FIRED = /^hook-fired\.log: \S+ \S+ (\S+)$/;
 /** `entry-pointer: <file> <template>`: the pointer's import reached the model in the same session. */
+const POINTER = /^entry-pointer: (\S+) (.+)$/;
 /** `command-template: <template>`: hooks rendered through this template ran and their output reached the model. */
 const TEMPLATE = /^command-template: (.+)$/;
-const POINTER = /^entry-pointer: (\S+) (.+)$/;
+/** Whether a rendered command begins with the template's text before `{command}`, any placeholder filled. */
+const rendersThrough = (template, command) => new RegExp(`^${template.split('{command}')[0]
+  .replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^"]+')}`).test(command);
 
 /** Run-record cells for the binding's tool, reached only through observations the binding itself carries. */
 function citedCells(binding, kinds) {
@@ -48,7 +51,9 @@ export function uncited(binding) {
   // A hook command template changes every rendered hook command, so it too must have been observed working.
   const template = binding.layouts.hook.commandTemplate;
   if (template !== undefined && !hookCells.some(cell => cell.recognised === 'recognised' &&
-      cell.evidence.some(line => TEMPLATE.exec(line)?.[1] === template))) missing.push('hook.commandTemplate');
+      cell.evidence.some(line => TEMPLATE.exec(line)?.[1] === template) &&
+      Array.isArray(cell.renderedCommand) && cell.renderedCommand.length > 0 &&
+      cell.renderedCommand.every(command => rendersThrough(template, command)))) missing.push('hook.commandTemplate');
   return missing;
 }
 

@@ -14,14 +14,14 @@ import run1Record from '@aihq/core/harness/run-records/canary-run1-2026-10-29-wi
 import run2bRecord from '@aihq/core/harness/run-records/canary-run2b-2026-10-29-windows-x64.json' with { type: 'json' };
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
-const RUN_RECORD = createHash('sha256')
-  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json')))).digest('hex');
-const RUN1_RECORD = createHash('sha256')
-  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json')))).digest('hex');
+/** The SHA-256 of a published run record's bytes, which observations cite. */
+const recordDigest = name => createHash('sha256')
+  .update(readFileSync(new URL(import.meta.resolve(`@aihq/core/harness/run-records/${name}.json`)))).digest('hex');
+const RUN_RECORD = recordDigest('canary-2026-10-23-windows-x64');
+const RUN1_RECORD = recordDigest('canary-run1-2026-10-29-windows-x64');
 /** The 29 October run observed only Claude hooks (and the entry file, which is not a binding cell). */
 const isRun1 = item => item.runRecordDigest === RUN1_RECORD;
-const RUN2B_RECORD = createHash('sha256')
-  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-run2b-2026-10-29-windows-x64.json')))).digest('hex');
+const RUN2B_RECORD = recordDigest('canary-run2b-2026-10-29-windows-x64');
 /** The 29 October product proof: three real hooks installed through Core and observed with the hook command template. */
 const isRun2b = item => item.runRecordDigest === RUN2B_RECORD;
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];

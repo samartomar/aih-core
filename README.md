@@ -756,15 +756,21 @@ is the hook's own item folder (`{itemDir}`). It is published as
   top-level `additionalContext` that Claude Code does not inject.
 - **What changes.** With it, the script prints `hookSpecificOutput`, which reaches
   the model.
-- **Effect on other hooks.** ECC's runners resolve the same folder from their own
-  location, and Extensions hooks do not read the variable.
+- **Effect on other hooks.**
+  - ECC's runners resolve the same folder from their own location.
+  - ECC's `scripts/lib/hook-flags.js` now also looks for `<pluginRoot>/ecc/setup.json`.
+    No item delivers that file.
+  - The variable now takes precedence over a user's own `ECC_PLUGIN_ROOT`.
+  - Extensions hooks do not read the variable.
 - **The run.** Claude Code 2.1.312 on Windows x64, `env-redirect-outside-profile`.
   The three hooks were installed through the packed Workbench path:
   - Extensions git-guard denied a force push;
   - ECC pre:config-protection blocked an edit to `.eslintrc.json`;
   - the model quoted the Superpowers bootstrap context.
 
-  Each was registered and recognised.
+  Each was registered and recognised. The run covered project scope on Windows
+  with Claude Code's bash hook shell. User scope and other platforms are not yet
+  observed.
 
 A test requires every mapped hook event, entry file, entry pointer and hook
 command template to cite its observed line in a published run record.

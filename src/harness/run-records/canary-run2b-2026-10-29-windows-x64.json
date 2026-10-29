@@ -359,12 +359,13 @@
       "registered": "registered",
       "recognised": "recognised",
       "evidence": [
-        "CLAUDE_PLUGIN_ROOT unset: the script printed top-level additionalContext",
+        "the SessionStart hook_response printed hookSpecificOutput.additionalContext",
         "the model quoted \"You have superpowers.\" (the phrase is not in the prompt)",
         "hook system events in S: 2",
         "command-template: CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
       ]
     }
   ],
-  "realProfilePathsTouched": []
+  "realProfilePathsTouched": [],
+  "realProfileCheck": "after the run: no ~/.claude/projects entry, ~/.claude.json text or ~/.aih file names the throwaway project"
 }
