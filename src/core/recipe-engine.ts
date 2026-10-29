@@ -1880,17 +1880,15 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-  // A removal reports what it did to the members it touched even under an older result identity; the same checks
-  // decide whether its recovery data may go. A failed, partial or kept removal keeps that data for inspection.
-  const removalRun = !!state && (state.request.policy.removals?.length ?? 0) > 0;
-  if (state && (result.schema === RESULT_14 || result.schema === RESULT_15 || removalRun)) {
+  // Run results 1.4 and 1.5 report the members a run touched. A removal under them is also verified from those
+  // checks, and the same checks decide whether its recovery data may go; a failed, partial or kept removal keeps
+  // that data for inspection. Older identities carry no member checks and keep their documented cleanup behaviour.
+  if (state && (result.schema === RESULT_14 || result.schema === RESULT_15)) {
     const members = memberReports(state, result);
-    if (result.schema === RESULT_14 || result.schema === RESULT_15) {
-      // A truncated list could support a false claim, so an oversized one is withheld entirely.
-      if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
-      else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
-    }
-    if (removalRun) {
+    // A truncated list could support a false claim, so an oversized one is withheld entirely.
+    if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
+    else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
+    if ((state.request.policy.removals?.length ?? 0) > 0) {
       // A cleanup operation is verified from the disk it left: the owned path is absent, or the value it kept or
       // restored is present and matching. This replaces Apply's default "no supplied check" for cleanup steps.
       for (const operation of result.operations) {
