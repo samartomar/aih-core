@@ -1,0 +1,1 @@
+{"dependencies":{"conflicts":[],"optional":[],"requires":[{"itemId":"superpowers.notices"}]},"executable":{"LICENSE":false,"SKILL.md":false,"plan-document-reviewer-prompt.md":false},"kind":"skill","payload":{"dirName":"writing-plans","invocation":"model-allowed","invocationBasis":"frontmatter: disable-model-invocation absent"},"requirements":{"inputs":{}}}

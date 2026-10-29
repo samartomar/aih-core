@@ -1,0 +1,1 @@
+{"dependencies":{"conflicts":[],"optional":[],"requires":[{"itemId":"superpowers.notices"}]},"executable":{"LICENSE":false,"SKILL.md":false},"kind":"skill","payload":{"dirName":"receiving-code-review","invocation":"model-allowed","invocationBasis":"frontmatter: disable-model-invocation absent"},"requirements":{"inputs":{}}}

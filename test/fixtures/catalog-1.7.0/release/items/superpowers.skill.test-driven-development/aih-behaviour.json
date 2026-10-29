@@ -1,0 +1,1 @@
+{"dependencies":{"conflicts":[],"optional":[],"requires":[{"itemId":"superpowers.notices"}]},"executable":{"LICENSE":false,"SKILL.md":false,"writing-good-tests.md":false},"kind":"skill","payload":{"dirName":"test-driven-development","invocation":"model-allowed","invocationBasis":"frontmatter: disable-model-invocation absent"},"requirements":{"inputs":{}}}
