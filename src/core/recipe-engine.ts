@@ -1890,6 +1890,19 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
     }
     if (removalRun) {
+      // A cleanup operation is verified from the disk it left: the owned path is absent, or the value it kept or
+      // restored is present and matching. This replaces Apply's default "no supplied check" for cleanup steps.
+      for (const operation of result.operations) {
+        const checked = members.filter(member => member.operationId === operation.id && member.intent !== 'write');
+        if (!checked.length) continue;
+        if (checked.every(member => member.check === 'absent' || member.check === 'present-matching'))
+          operation.verification = { status: 'passed', reason: 'member-checked' };
+        else if (checked.some(member => member.check === 'present-different'))
+          operation.verification = { status: 'failed', reason: 'member-changed' };
+        else operation.verification = { status: 'unverified', reason: 'member-unchecked' };
+      }
+      if (result.completion === 'complete' && result.operations.some(operation => operation.verification.status === 'failed'))
+        result.completion = 'incomplete';
       const checked = members.filter(member => member.intent !== 'write');
       const kept = state.steps.some(step => step.lifecycle && (step.kept || step.review.effects === 'conflict' || step.review.effects === 'unavailable' ||
         step.ownerKey !== undefined && step.custody?.[step.ownerKey] !== null && step.custody?.[step.ownerKey] !== undefined));
