@@ -2,7 +2,7 @@
 // reads the exact bytes, changes at most one element span (plus the single
 // comma that element needs) and refuses rather than reassigning a comment or
 // formatting a neighbor. Nothing here executes a hook or interprets its fields.
-import { applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, type Node } from 'jsonc-parser';
+import { applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, type FormattingOptions, type Node } from 'jsonc-parser';
 import { canonicalJson } from './canonical.js';
 import { sha256 } from './host-files.js';
 import { decode, fail, parsedObject } from './recipe-editors.js';
@@ -82,15 +82,32 @@ function target(format: Format, before: Buffer | null, container: string[]): { t
   return { text, array: containerNode(parsedObject(text, format), container) };
 }
 
-/** Appends one group, creating only the missing object path and array. */
+/**
+ * The person's own layout, so an edit to their file reads like the rest of it: the first indented line gives the
+ * indentation unit (tabs or N spaces) and any CRLF the line ending. A file written on one line is edited without
+ * formatting, so a minified file stays minified.
+ */
+function layoutOf(text: string): FormattingOptions | undefined {
+  if (!/[\r\n]/.test(text.trimEnd())) return undefined;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const indent = /\n([ \t]+)\S/.exec(text)?.[1];
+  return indent?.startsWith('\t') ? { insertSpaces: false, tabSize: 1, eol } : { insertSpaces: true, tabSize: indent?.length ?? 2, eol };
+}
+/** jsonc-parser writes `"key": value` for a new property; an unformatted (one-line) edit drops that one space. */
+const unspaced = (text: string, formattingOptions: FormattingOptions | undefined, path: string[], value: unknown) => {
+  const edits = modify(text, path, value, { formattingOptions });
+  return formattingOptions ? edits : edits.map(edit => ({ ...edit, content: edit.content.replace(/^(,?"(?:[^"\\]|\\.)*"): /, '$1:') }));
+};
+
+/** Appends one group, creating only the missing object path and array, in the file's own layout. */
 export function appendHookGroup(format: Format, before: Buffer | null, container: string[], group: JsonObject): Buffer {
   const { text, array } = target(format, before, container);
   if (!array) {
     const base = before === null ? '{}\n' : text;
     if (before === null) parsedObject(base, format);
-    const eol = base.includes('\r\n') ? '\r\n' : '\n';
+    const layout = before === null ? { insertSpaces: true, tabSize: 2, eol: '\n' } : layoutOf(base);
     let edited: string;
-    try { edited = applyEdits(base, modify(base, container, [JSON.parse(render(group))], { formattingOptions: { insertSpaces: true, tabSize: 2, eol } })); }
+    try { edited = applyEdits(base, unspaced(base, layout, container, [JSON.parse(render(group))])); }
     catch { return unsafe(); }
     parsedObject(edited, format);
     return Buffer.from(edited, 'utf8');
@@ -129,12 +146,11 @@ export function missingContainers(format: Format, before: Buffer | null, contain
 /** Removes only the listed containers while they are empty; the deepest first, so an emptied parent goes too. */
 export function pruneEmptyContainers(format: Format, bytes: Buffer, paths: string[][]): Buffer {
   let text = decode(bytes);
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
   for (const path of [...paths].sort((a, b) => b.length - a.length)) {
     let node: Node | undefined;
     try { node = findNodeAtLocation(parsedObject(text, format), path); } catch { continue; }
     if (!node || !(node.type === 'array' || node.type === 'object') || node.children?.length) continue;
-    text = applyEdits(text, modify(text, path, undefined, { formattingOptions: { insertSpaces: true, tabSize: 2, eol } }));
+    text = applyEdits(text, modify(text, path, undefined, { formattingOptions: layoutOf(text) }));
   }
   return Buffer.from(text, 'utf8');
 }
