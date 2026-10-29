@@ -33,8 +33,41 @@ test('the result-claims table covers every published status value', () => {
   assert.ok(expected.some(([field]) => field === 'members[].check'), 'run result 1.4 member values are published');
   assert.equal(runs.length > 0 && removals.length > 0, true);
   for (const [field, value] of expected) assert.ok(row(field, value), `missing ${field} ${value}`);
-  assert.ok(rows.some(cells => cells[0] === '`verification.status`' && cells[1] === '`unverified`, reason `no-supplied-check`'),
-    'missing no-supplied-check row');
+  for (const value of ['`unverified`, reason `no-supplied-check`', '`passed`, reason `member-checked`', '`failed`, reason `member-changed`',
+    '`unverified`, reason `member-unchecked`'])
+    assert.ok(rows.some(cells => cells[0] === '`verification.status`' && cells[1] === value), `missing ${value} row`);
+});
+
+test('cleanup verification from member checks is limited to run result 1.4 and 1.5', () => {
+  const exact = value => rows.find(cells => cells[0] === '`verification.status`' && cells[1] === value);
+  const checked = exact('`passed`, reason `member-checked`');
+  assert.match(checked[2], /run result 1\.4 or 1\.5/);
+  assert.match(checked[2], /`absent`/);
+  assert.match(exact('`failed`, reason `member-changed`')[2], /`present-different`/);
+  assert.match(exact('`passed`')[2], /supplied/);
+  const unchecked = exact('`unverified`, reason `no-supplied-check`');
+  assert.match(unchecked[2], /run results 1\.0 to 1\.3/);
+  assert.doesNotMatch(unchecked[2], /Convenience removals and generated lifecycle cleanup carry no supplied checks\./);
+  assert.match(row('completion', 'incomplete')[2], /`member-changed`/);
+});
+
+test('the recovery paragraphs say when a removal deletes its own recovery data', () => {
+  const lf = readme.replace(/\r\n/g, '\n');
+  const start = lf.indexOf('\n## State and recovery\n');
+  const state = lf.slice(start, lf.indexOf('\n## ', start + 1));
+  assert.ok(start > 0);
+  assert.doesNotMatch(state, /There is no automatic history expiry or cleanup\./);
+  assert.match(state, /deletes its own recovery folder/);
+  assert.match(state, /drops `recovery` from its result/);
+  assert.match(state, /run results 1\.0 to 1\.3/);
+  assert.match(state, /Install runs and every other removal keep their recovery data/);
+});
+
+test('the changelog opens with the package version', () => {
+  const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  const changelog = readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  assert.equal(/^Core (\S+?):/m.exec(changelog)?.[1], version);
+  assert.match(changelog, /member-checked/);
 });
 
 test('each row states what it establishes and what may and may not be claimed', () => {
@@ -48,6 +81,8 @@ test('each row states what it establishes and what may and may not be claimed', 
 
 test('the section explains confirming an unverified removal and the run result 1.4 member claims', () => {
   assert.match(section, /applied removal is not by itself "removed"/);
+  assert.match(section, /Under run results 1\.0 to 1\.3 a removal operation stays `unverified` \(reason `no-supplied-check`\)/);
+  assert.match(section, /Under run result 1\.4 or 1\.5, Apply checks each cleanup operation's members on disk/);
   assert.match(section, /listManagedSelections/);
   assert.match(section, /prepareManagedRemoval/);
   assert.match(section, /https:\/\/github\.com\/samartomar\/aih-core\/issues\/99/);
