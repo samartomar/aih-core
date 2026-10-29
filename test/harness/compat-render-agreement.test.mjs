@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import { checkCompatibility, renderDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
 
 const folder = new URL('../fixtures/catalog-1.7.0/', import.meta.url);
@@ -24,6 +25,22 @@ const requires = (requirer, document) => (requirer.dependencies?.requires ?? [])
 /** Text of each Markdown content material, as a consumer supplies it for marker blocks. */
 const contentsOf = item => Object.fromEntries(item.materials.filter(member => member.role === 'content' && texts[member.packagePath] !== undefined)
   .map(member => [member.id, texts[member.packagePath]]));
+const canonicalJson = value => Array.isArray(value) ? `[${value.map(canonicalJson).join(',')}]` : value && typeof value === 'object'
+  ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}` : JSON.stringify(value);
+const digest = value => createHash('sha256').update(value).digest('hex');
+/** A real item that also requires other items, with its behaviour file and identity recomputed as Catalog would. */
+function withRequires(item, requires) {
+  const dependencies = { requires, optional: item.dependencies.optional ?? [], conflicts: item.dependencies.conflicts ?? [] };
+  const content = item.materials.filter(member => member.role !== 'behaviour');
+  const behaviour = { kind: item.kind, payload: item.payload ?? null, requirements: { inputs: item.requirements?.inputs ?? {} }, dependencies,
+    executable: Object.fromEntries(content.map(member => [member.relPath, member.executable])) };
+  const lines = content.map(member => `${member.relPath}	${member.sha256}
+`).sort().join('');
+  const text = `${canonicalJson(behaviour)}
+`;
+  const materials = item.materials.map(member => member.role === 'behaviour' ? { ...member, sha256: digest(text), byteLength: Buffer.byteLength(text) } : member);
+  return { ...item, dependencies, materials, behaviourSha256: digest(canonicalJson({ ...behaviour, materials: lines })) };
+}
 /** Every installed version a binding was observed on, plus the historical projection without a version. */
 const versionsOf = binding => [undefined, ...new Set(Object.values(binding.layouts).flatMap(layout => layout.observations.map(item => item.toolVersion)))];
 
@@ -48,7 +65,8 @@ test('every item compatibility reports native with no blocker renders, for every
         ...(requiredBy ? { requiredBy } : {}) });
       if (item.kind === 'document' && item.payload.placement !== 'project-folder') {
         // Beside each requiring item that is installed as itself with no blocker: each one is a place for it.
-        const hosts = items.filter(entry => requires(entry, item) && rows.get(entry.id).staticBlockers.length === 0 && !rows.get(entry.id).boundAs);
+        const hosts = items.filter(entry => requires(entry, item) && rows.get(entry.id).staticBlockers.length === 0 && !rows.get(entry.id).notRendered &&
+          !rows.get(entry.id).boundAs);
         assert.ok(hosts.length > 0, `${at} ${item.id} is working only beside a requiring item`);
         for (const host of hosts) {
           const result = render(host, scopeOf(binding, host.kind));
@@ -142,9 +160,80 @@ test('notices for items without a folder of their own go once per framework to t
   const size = result => result.items.find(row => row.item.itemId === notices.id).deliveredSize.bytes;
   assert.ok(size(one) > 0 && size(all) === size(one), `${size(one)} ${size(all)}`);
   for (const requirer of folderless) assert.deepEqual(all.items.find(row => row.item.itemId === requirer.id).staticBlockers, [], requirer.id);
-  // Only notices and licences take the neutral folder: a reference document still has no place beside a folderless item.
+  // Only notices and licences take the neutral folder: a reference goes where the item that reads it links it.
   const references = extensions.find(entry => entry.id === 'extensions.references');
   const agent = extensions.find(entry => entry.kind === 'agent' && requires(entry, references));
-  const refused = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: agent });
-  assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound']);
+  const read = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: agent });
+  assert.ok(writes(read).every(([, path]) => !path.startsWith('.aih/')), JSON.stringify(writes(read)));
+});
+
+test('a reference goes where the items that read it link it, once per tool folder, for agents, commands and skills', () => {
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const references = extensions.find(entry => entry.id === 'extensions.references');
+  const notices = extensions.find(entry => entry.id === 'extensions.notices');
+  const writes = rendered => rendered.recipe.operations.filter(op => op.kind === 'file.write').map(op => op.target.segments.map(part => part.literal).join('/'));
+  const requirersOf = kind => extensions.filter(entry => entry.kind === kind && requires(entry, references));
+  const skill = extensions.find(entry => entry.id === 'extensions.skill.shipping-and-launch');
+  for (const [tool, folder] of [['claude', '.claude'], ['codex', '.agents'], ['kiro', '.kiro'], ['copilot', '.github'], ['antigravity', '.agents']]) {
+    const binding = toolBindings.find(entry => entry.tool === tool);
+    const requirers = [skill, ...['agent', 'command'].flatMap(kind => binding.layouts[kind].roots?.project ? requirersOf(kind) : [])];
+    const placed = requirers.map(requirer => {
+      const rendered = renderDelivery({ tool, item: references, binding, scope: 'project', requiredBy: requirer });
+      assert.equal(rendered.status, 'rendered', `${tool} ${requirer.id}: ${JSON.stringify(rendered)}`);
+      assert.equal(rendered.recipe.id, `${tool}.extensions.references.for.${requirer.id}`);
+      return writes(rendered);
+    });
+    // The same copy for every requirer, which Core custody shares among them, with the licence inside its folder.
+    for (const copy of placed) assert.deepEqual(copy, placed[0]);
+    assert.deepEqual(placed[0], references.payload.files.map(id => references.materials.find(member => member.id === id))
+      .map(member => `${folder}/references/${member.relPath.split('/').at(-1)}`), tool);
+    // The skill's own link resolves to the delivered file: from skills/<name>/SKILL.md, ../../references/<file>.
+    const own = renderDelivery({ tool, item: skill, binding, scope: 'project' });
+    const skillFile = writes(own).find(path => path.endsWith('/SKILL.md'));
+    const linked = posix.normalize(posix.join(posix.dirname(skillFile), '../../references/definition-of-done.md'));
+    assert.ok(placed[0].includes(linked), `${tool}: ${linked}`);
+  }
+  // A reference that requires its notices: the notices go to the neutral folder, and neither is blocked.
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const forReferences = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: references });
+  assert.equal(forReferences.status, 'rendered', JSON.stringify(forReferences));
+  assert.ok(writes(forReferences).every(path => path.startsWith('.aih/notices/extensions/extensions.notices/')));
+  const one = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [{ item: skill }, { item: references }, { item: notices }] });
+  const all = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: extensions.map(item => ({ item })) });
+  for (const result of [one, all]) for (const row of result.items)
+    assert.ok(!row.staticBlockers.some(blocker => blocker.code === 'dependency-missing'), `${row.item.itemId}: ${JSON.stringify(row.staticBlockers)}`);
+  // Compatibility plans and sizes the one copy once, however many items require it.
+  const size = result => result.items.find(row => row.item.itemId === references.id).deliveredSize.bytes;
+  assert.ok(size(one) > 0 && size(all) === size(one), `${size(one)} ${size(all)}`);
+});
+
+test('a reference has no place for an item that does not keep its source folders', () => {
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const ecc = releases.find(release => release.name === 'release-ecc.content.json').items;
+  const references = extensions.find(entry => entry.id === 'extensions.references');
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const reading = requirer => withRequires(requirer, [...requirer.dependencies.requires, { framework: 'extensions', itemId: references.id }]);
+  // An MCP server entry delivers no file of its own, so there is nothing its links could be relative to; a rule from
+  // rules/<language>/ is delivered flat into the rules folder, so its links would not resolve either.
+  const server = ecc.find(entry => entry.kind === 'mcp-server');
+  const rule = ecc.find(entry => entry.kind === 'rule' && entry.materials.some(member => /^rules\/[^/]+\/[^/]+\.md$/.test(member.sourcePath ?? '')));
+  for (const requirer of [server, rule]) {
+    const refused = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: reading(requirer) });
+    assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound'], `${requirer.id}: ${JSON.stringify(refused)}`);
+  }
+});
+
+test('an item with no location of its own is not blamed on the documents it requires', () => {
+  const ecc = releases.find(release => release.name === 'release-ecc.content.json').items;
+  const kiro = toolBindings.find(binding => binding.tool === 'kiro');
+  const notices = ecc.find(entry => entry.id === 'ecc.notices');
+  const servers = ecc.filter(entry => entry.kind === 'mcp-server' && requires(entry, notices));
+  const compat = checkCompatibility({ tool: 'kiro', binding: kiro, platform: WINDOWS, items: [...servers, notices].map(item => ({ item })) });
+  assert.ok(servers.length > 0);
+  for (const server of servers) {
+    const row = compat.items.find(entry => entry.item.itemId === server.id);
+    assert.deepEqual(row.staticBlockers, [], server.id);
+    assert.equal(row.notRendered?.reason, 'scope-not-bound', server.id);
+    assert.match(row.notRendered.detail, /location for mcp-server items/, server.id);
+  }
 });

@@ -156,6 +156,35 @@ const requiresDocument = (requirer, document) => requiresOf(requirer).some(ref =
 const NEUTRAL_PURPOSES = new Set(['notice', 'license']);
 /** The neutral notices folder, under the project or the user's home: no tool reads it as content. */
 const NEUTRAL_FOLDER = ['.aih', 'notices'];
+/**
+ * Where a reference sits for the item that reads it. Its text links the reference relative to where both sit in their
+ * shared source tree (`../../references/` from `skills/<name>/SKILL.md`), so the reference keeps that place relative to
+ * the requirer as delivered: under the folder that holds the requirer's source folders. A file at the source root (its
+ * licence) goes inside the reference's own folder.
+ */
+function sourceRelative(info, documents, requirer, requirerPlan) {
+  const refuse = why => unavailable('scope-not-bound', '/requiredBy', `${requirer.item.id} reads ${info.item.id} through links relative to their source folders, but ${why}.`);
+  const anchor = requirerPlan.files.find(({ member }) => typeof member.sourcePath === 'string' && segmentsOf(member.sourcePath).length > 1);
+  if (!anchor) refuse(`${asDelivered(requirerPlan)} delivers none of its files from a source folder`);
+  const source = segmentsOf(anchor.member.sourcePath).slice(0, -1), placed = anchor.segments.slice(0, -1);
+  const prefix = placed.slice(0, placed.length - source.length);
+  if (prefix.length === 0 || placed.slice(prefix.length).join('/') !== source.join('/'))
+    refuse(`${asDelivered(requirerPlan)} does not keep its source folders`);
+  if (documents.some(member => member.sourceId !== anchor.member.sourceId || typeof member.sourcePath !== 'string'))
+    refuse('they do not come from one source tree');
+  const folders = documents.map(member => segmentsOf(member.sourcePath).slice(0, -1)).filter(folder => folder.length > 0);
+  const common = folders.reduce((shared, folder) => {
+    let length = 0;
+    while (length < shared.length && shared[length] === folder[length]) length += 1;
+    return shared.slice(0, length);
+  }, folders[0] ?? []);
+  if (common.length === 0) refuse('the reference has no folder of its own in the source');
+  return documents.map(member => {
+    const segments = segmentsOf(member.sourcePath);
+    return { member, segments: [...prefix, ...(segments.length > 1 ? segments : [...common, ...segments])] };
+  });
+}
+const asDelivered = plan => `the ${plan.kind} item as delivered`;
 /** The scope a cell delivers to when compatibility plans it without a request: the project where the binding names one. */
 const planScope = (binding, kind) => binding.layouts[kind].roots?.project ? 'project' : 'user';
 
@@ -231,8 +260,15 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
       if (!requirer) unavailable('scope-not-bound', `${path}/kind`,
         'A supporting document is delivered beside the item that requires it; name that item in requiredBy.');
       if (!requiresDocument(requirer, info)) invalid('required-by-mismatch', '/requiredBy', 'requiredBy names an item that does not require this document.');
-      const beside = deliveryPlan(requirer, binding, scope, { projectFolder });
-      if (beside.folder) for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
+      // A supporting document that requires another (references that require their notices) has no place of its own
+      // until its own requirer is named, so it gives no folder to sit beside.
+      const beside = requirer.kind === 'document' && requirer.payload.placement !== 'project-folder' ? { kind: requirer.kind, files: [] } :
+        deliveryPlan(requirer, binding, scope, { projectFolder });
+      // A reference is read by the item that requires it, so it goes where that item's text links it.
+      if (payload.purpose === 'reference') {
+        plan.placement = 'source';
+        for (const { member, segments } of sourceRelative(info, documents, requirer, beside)) file(member, segments);
+      } else if (beside.folder) for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
       // A requirer with no folder of its own (a single-file agent, command or rule, an MCP server entry) keeps its notices
       // and licences in the neutral folder no tool reads as content: one copy per framework document and scope, which
       // every requiring item owns.
@@ -357,7 +393,7 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     // One recipe per placement: a document rendered beside two items is two recipes, never one recipe that moves.
-    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.placement === 'neutral' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
+    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.placement ? 'for' : 'beside'}.${requirer.ref.itemId}` :
       `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
     const materials = new Map(), operations = [], checks = [], inputs = {}, prerequisites = [];
@@ -642,14 +678,15 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     // blocker of its own, gives one a place.
     const assessed = new Map(ordered.filter(entry => !supportingDocument(entry.info)).map(entry => [entry, assess(entry)]));
     markCollisions([...assessed.values()]);
-    const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.result.staticBlockers.length === 0);
+    const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.result.staticBlockers.length === 0 && !row.result.notRendered);
     // A supporting document is planned beside each such requiring item, exactly as renderDelivery places it.
     const planBeside = (document, support) => {
       const files = []; let refusal;
       for (const host of hosts) if (requiresDocument(host.bound, document)) {
         try {
           const plan = deliveryPlan(document, binding, planScope(binding, host.bound.kind), { support, requirer: host.bound });
-          // The neutral copy is one file per scope however many items require it; it is planned and sized once.
+          // A shared copy (neutral or source-relative) is one file per scope however many items require it; it is
+          // planned and sized once.
           for (const file of plan.files) if (!files.some(known => known.base === plan.base && known.segments.join('/') === file.segments.join('/')))
             files.push({ ...file, base: plan.base });
         } catch (error) { refusal = refusalOf(error); }
@@ -665,7 +702,9 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     const byRef = new Map(results.map(row => [refKey(row.entry.info.ref), row]));
     for (const row of results) {
       if (row.result.excluded) continue;
-      const own = row.result.staticBlockers.length > 0;
+      // An item that cannot be delivered itself already names why (a blocker, or notRendered for an unconfirmed cell);
+      // its supporting documents are not blamed for it.
+      const own = row.result.staticBlockers.length > 0 || row.result.notRendered !== undefined;
       for (const ref of requiresOf(row.bound)) {
         const required = byRef.get(refKey({ framework: ref.framework ?? row.bound.ref.framework, itemId: ref.itemId }));
         if (!required) row.result.staticBlockers.push({ code: 'dependency-missing', detail: `It requires ${ref.itemId}, which is not selected.` });
