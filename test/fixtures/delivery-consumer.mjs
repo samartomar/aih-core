@@ -145,7 +145,8 @@ await check('a hook renders its scripts and one hook group whose command names t
   assert.deepEqual(recipe.prerequisites, [{ kind: 'executable', name: 'node' }]);
   const group = recipe.operations.find(op => op.kind === 'hook.group');
   const dir = '${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start';
-  const command = `node "${dir}/hooks/start.mjs" "--project" "\${CLAUDE_PROJECT_DIR}" "--home=\${HOME}" "${dir}/data" "${dir}" "${dir}/hooks/config.json"`;
+  // Claude's binding sets CLAUDE_PLUGIN_ROOT to the item folder ({pluginRoot}), observed on 29 October 2026.
+  const command = `CLAUDE_PLUGIN_ROOT="${dir}" node "${dir}/hooks/start.mjs" "--project" "\${CLAUDE_PROJECT_DIR}" "--home=\${HOME}" "${dir}/data" "${dir}" "${dir}/hooks/config.json"`;
   assert.deepEqual({ target: targetPath(group.target), format: group.format, container: group.container, selector: group.selector,
     group: group.group, requires: group.requires }, {
     target: 'project/.claude/settings.json', format: 'json', container: ['hooks', 'SessionStart'],
@@ -159,11 +160,12 @@ await check('each named interpreter is used, a program may run instead, and a sh
   for (const interpreter of ['node', 'bash', 'python', 'pwsh']) {
     const group = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', interpreter }), binding, scope: 'project' })
       .recipe.operations.find(op => op.kind === 'hook.group');
-    assert.equal(group.selector.value, `${interpreter} "\${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start/hooks/start.mjs"`);
+    assert.equal(group.selector.value,
+      `CLAUDE_PLUGIN_ROOT="\${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start" ${interpreter} "\${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start/hooks/start.mjs"`);
   }
   const program = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', program: 'uv', args: ['run', { material: 'm0' }] }), binding, scope: 'project' });
   assert.equal(program.recipe.operations.find(op => op.kind === 'hook.group').selector.value,
-    '"uv" "run" "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start/hooks/start.mjs"');
+    'CLAUDE_PLUGIN_ROOT="${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start" "uv" "run" "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start/hooks/start.mjs"');
   const shebang = renderDelivery({ tool: 'claude', item: hook({ script: 'm0' }), binding, scope: 'project' });
   assert.deepEqual([shebang.status, shebang.reason], ['refused', 'interpreter-required']);
   const unknown = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', interpreter: 'node', args: ['{workspaceRoot}'] }), binding, scope: 'project' });
@@ -602,7 +604,7 @@ await check('review regressions: verified behaviour, escaped paths, explicit run
   const odd = catalogItem({ id: 'odd', kind: 'hook', files: { 'run$(id)"{x}.mjs': 'x\n' },
     payload: { event: 'SessionStart', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } });
   assert.equal(renderDelivery({ tool: 'claude', item: odd, binding, scope: 'project' }).recipe.operations.find(op => op.kind === 'hook.group')
-    .selector.value, 'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/odd/run\\$(id)\\"{x}.mjs"');
+    .selector.value, 'CLAUDE_PLUGIN_ROOT="${CLAUDE_PROJECT_DIR}/.claude/hooks/odd" node "${CLAUDE_PROJECT_DIR}/.claude/hooks/odd/run\\$(id)\\"{x}.mjs"');
   const both = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', interpreter: 'node', program: 'uv' }), binding, scope: 'project' });
   assert.deepEqual([both.status, both.reason], ['refused', 'hook-command-ambiguous']);
   const dropped = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', program: 'uv', args: ['run'] }), binding, scope: 'project' });

@@ -17,6 +17,11 @@ const bindings = JSON.parse(readFileSync(new URL('../../src/harness/tool-binding
 const FIRED = /^hook-fired\.log: \S+ \S+ (\S+)$/;
 /** `entry-pointer: <file> <template>`: the pointer's import reached the model in the same session. */
 const POINTER = /^entry-pointer: (\S+) (.+)$/;
+/** `command-template: <template>`: hooks rendered through this template ran and their output reached the model. */
+const TEMPLATE = /^command-template: (.+)$/;
+/** Whether a rendered command begins with the template's text before `{command}`, any placeholder filled. */
+const rendersThrough = (template, command) => new RegExp(`^${template.split('{command}')[0]
+  .replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '[^"]+')}`).test(command);
 
 /** Run-record cells for the binding's tool, reached only through observations the binding itself carries. */
 function citedCells(binding, kinds) {
@@ -43,6 +48,12 @@ export function uncited(binding) {
     }));
     if (!pointed || !binding.entryFiles.includes(file)) missing.push(`entryPointer.${file}`);
   }
+  // A hook command template changes every rendered hook command, so it too must have been observed working.
+  const template = binding.layouts.hook.commandTemplate;
+  if (template !== undefined && !hookCells.some(cell => cell.recognised === 'recognised' &&
+      cell.evidence.some(line => TEMPLATE.exec(line)?.[1] === template) &&
+      Array.isArray(cell.renderedCommand) && cell.renderedCommand.length > 0 &&
+      cell.renderedCommand.every(command => rendersThrough(template, command)))) missing.push('hook.commandTemplate');
   return missing;
 }
 
@@ -58,12 +69,13 @@ test('the citation guard refuses a hook event, entry file or pointer that no run
   guessed.layouts.hook.hookEvents = { ...guessed.layouts.hook.hookEvents, Notification: 'Notification' };
   guessed.entryFiles = [...guessed.entryFiles, 'GEMINI.md'];
   guessed.entryPointer = { file: 'CLAUDE.md', template: '@README.md' };
-  assert.deepEqual(uncited(guessed), ['hookEvents.Notification', 'entryFiles.GEMINI.md', 'entryPointer.CLAUDE.md']);
+  guessed.layouts.hook.commandTemplate = 'NODE_OPTIONS="" {command}';
+  assert.deepEqual(uncited(guessed), ['hookEvents.Notification', 'entryFiles.GEMINI.md', 'entryPointer.CLAUDE.md', 'hook.commandTemplate']);
   // A fired line counts only through an observation the binding carries: without the hook observations, nothing is cited.
   const detached = structuredClone(claude);
   detached.layouts.hook.observations = [];
   assert.deepEqual(uncited(detached), [...Object.keys(claude.layouts.hook.hookEvents).map(event => `hookEvents.${event}`),
-    'entryFiles.CLAUDE.md', 'entryPointer.CLAUDE.md']);
+    'entryFiles.CLAUDE.md', 'entryPointer.CLAUDE.md', 'hook.commandTemplate']);
   // A pointer must name an entry file.
   const stray = structuredClone(claude);
   stray.entryFiles = [];
