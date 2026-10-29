@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { renderDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
+import { canonicalJson } from './catalog-item-fixture.mjs';
 
 const vectors = JSON.parse(readFileSync(new URL('../fixtures/item-identity-1.7.0-vectors.json', import.meta.url), 'utf8'));
 const sha256 = value => createHash('sha256').update(value).digest('hex');
@@ -18,9 +19,7 @@ function item(input, identities, { role = 'choosable' } = {}) {
     executable: input.executable[relPath], sourceId: 'upstream', role: 'content' }));
   // The behaviour file stays a material: its bytes are the item's canonical behaviour without the content lines.
   const { materials: _lines, ...behaviourValue } = JSON.parse(vectors.cases.find(entry => entry.input === input).canonical);
-  const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : value && typeof value === 'object'
-    ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}` : JSON.stringify(value);
-  const text = `${canonical(behaviourValue)}\n`;
+  const text = `${canonicalJson(behaviourValue)}\n`;
   const behaviour = { id: 'behaviour', relPath: 'aih-behaviour.json', packagePath: 'release/items/guard/aih-behaviour.json',
     sha256: sha256(text), byteLength: Buffer.byteLength(text), executable: false, sourceId: 'example-framework', role: 'behaviour' };
   return { id: 'guard', label: 'guard', kind: input.kind, ...(role ? { role } : {}), sourceIds: ['upstream'], targets: [], scopes: ['project'],

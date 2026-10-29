@@ -868,7 +868,10 @@ length.
   `contents: { [materialId]: text }`; the text must match that material's
   SHA-256 and length (`content-required`, `content-mismatch`). A
   `placement: 'project-folder'` rule goes into `projectFolder` (default
-  `ai-coding`). Agents and commands deliver their `payload.files`; they are
+  `ai-coding`). Agents and commands deliver their `payload.files`. Their own
+  licence (Catalog's `license` material) goes to the neutral notices folder under
+  the item's id, `.aih/notices/<framework>/<item>/LICENSE`, so no two items write
+  one licence file. Agents and commands are
   refused with `native-only-kind` where the binding records the tool not reading
   that kind or names no location for it. An MCP server delivers its registration
   under `register.container` and `payload.key`. An input-backed `env` or `headers`
@@ -989,9 +992,34 @@ depend on order. Per item the result is:
     include `AGENTS.md` and `README.md`). Their `notice` and `license` documents go
     once per framework to the neutral notices folder, which no tool reads as content:
     `<project>/.aih/notices/<framework>/<document>/`, or `<home>/.aih/notices/...`
-    in user scope. Compatibility plans and sizes that copy once. A document with
-    another purpose (for example `reference`) still has no place beside such an
-    item, so the item is blocked with `dependency-missing`.
+    in user scope. Compatibility plans and sizes that copy once.
+  - **References:** a `reference` document is read by the item that requires it,
+    which names it by where both sit in their source tree. It keeps that place
+    relative to the requirer as delivered: under the folder that stands for the
+    source root, the one holding the requirer's source folders. For example,
+    `.claude/references/` sits beside `.claude/skills/` and `.claude/agents/`.
+    - Any file at the source root (such as its licence) goes inside the reference's folder.
+    - A reference is written only to a `references/` folder directly under that root.
+      A reference whose files sit anywhere else in its source has no place.
+    - Skill links such as `../../references/<file>` from `skills/<name>/SKILL.md`
+      resolve to the delivered file.
+    - Agents and commands name `references/<file>` from the source root. In the
+      delivery, that root is the tool folder, so the agent finds the file under
+      `.claude/references/`, not under the project's own root.
+    - The reference has no place, and the item is blocked with
+      `dependency-missing`, in four cases:
+      - the requirer does not keep its source folders (an MCP server entry, a rule
+        delivered flat);
+      - the two come from different sources;
+      - the reference is not in a `references/` folder at the source root;
+      - the place would fall inside a content folder the binding names.
+    - Compatibility reports two documents that write one path as `same-folder`;
+      rendering one item does not see the other.
+  - **A document that requires a document** (references that require their
+    notices) gives no folder of its own; the notices go to the neutral folder.
+  - An item that cannot be delivered itself is not blamed on what it requires: an
+    unconfirmed cell with no location reports that in `notRendered`, and its
+    supporting documents are not checked for it.
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
@@ -2021,9 +2049,17 @@ Catalog item that requires the document. Render the document once per requiring 
   `<tool>.<document>.beside.<requirer>`.
 - **A requirer without one:** a notice or licence goes to the neutral notices folder.
   The recipe id is `<tool>.<document>.for.<requirer>`.
+- **A reference**, for any requirer: it goes where the requirer's text links it,
+  relative to their shared source tree. The recipe id is
+  `<tool>.<document>.for.<requirer>`, and every requirer in one tool folder writes
+  the same copy.
 - **Errors:** without `requiredBy`, a supporting document is refused with
   `scope-not-bound`. An item that does not require it is refused with
-  `required-by-mismatch`.
+  `required-by-mismatch`. A document with no place for that requirer is refused
+  with `PREREQUISITE_UNAVAILABLE` / `scope-not-bound` at `/requiredBy`, and the
+  message says why. For a reference that means one of the four cases listed under
+  *References* above. For another document, it means the requirer keeps no folder
+  and the document is neither a notice nor a licence.
 
 **Every requiring item owns the one copy.** Every such recipe writes the same files
 with the same bytes. When Core already installs a file for other selections of the

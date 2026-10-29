@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.42 places `reference` documents where the items that read them link
+them, and gives single-file agents and commands a licence of their own.
+
+- A reference keeps its place relative to its requirer from their shared source tree,
+  so Extensions' `../../references/` links resolve: `.claude/references/`,
+  `.github/references/`, `.kiro/references/`, `.agents/references/`. One copy per tool
+  folder is shared by every requirer. A reference is written only to a `references/`
+  folder directly under the tool folder.
+- Notices required by a supporting document go to the neutral notices folder.
+- A single-file agent's or command's `license` material goes to
+  `.aih/notices/<framework>/<item>/LICENSE` instead of the shared agents or commands
+  folder, where every item wrote the same path.
+- Compatibility no longer blames an item that has no location of its own on the
+  documents it requires (Kiro's MCP servers report the missing location in
+  `notRendered`), and an item that cannot be rendered is no longer counted as a place
+  for a supporting document.
+
 Core 1.0.0-dev.41 delivers the notices and licences of items without a folder of their
 own (single-file agents, commands, rules, MCP server entries) once per framework to
 `<project>/.aih/notices/<framework>/<document>/` (user scope:
