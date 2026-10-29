@@ -89,6 +89,25 @@ export const setRequest = (pack, framework, setId, options) => {
 export const rootRequest = (pack, framework, itemId) => ({ releaseSha256: pack.releases[framework].sha256, itemId, scope: 'project', configuration: {} });
 
 /**
+ * The values a person enters for an item's required inputs that have no default: ordinary ones go in the selection's
+ * configuration, sensitive ones only in the live request. Only the `${NAME}` reference is ever written.
+ */
+function filledIn(item, sensitive) {
+  // Only an input the server's registration references becomes a recipe input.
+  const referenced = new Set(['env', 'headers'].flatMap(field => Object.values(item.payload?.[field] ?? {}))
+    .filter(value => value && typeof value.input === 'string').map(value => value.input));
+  return Object.fromEntries(Object.entries(item.requirements?.inputs ?? {})
+    .filter(([name, spec]) => referenced.has(name) && spec.required && spec.default === undefined && !!spec.sensitive === sensitive)
+    .map(([name]) => [name, `example-${name.toLowerCase()}`]));
+}
+/** The sensitive input values for a composed policy's selections, as `controls.privateInputs`. */
+export function privateInputsFor(pack, policy) {
+  return Object.fromEntries(policy.selections.map(selection => [selection.id,
+    filledIn(pack.releases[selection.item.framework].items.get(selection.item.itemId), true)])
+    .filter(([, values]) => Object.keys(values).length > 0));
+}
+
+/**
  * An execution policy for the tool, composed as the Workbench composes it from Catalog's resolution. `recipeless`
  * names each item instead of carrying its rendered recipe, in execution policy 1.6.0 with the releases it reads.
  */
@@ -116,7 +135,7 @@ export function composePolicy(pack, { sets = [], roots = [], tool = 'claude', re
         return itemOf(other);
       }) : [];
     const base = { id: selection.id, managementId: `${selection.scope}--aihq.catalog--${item.id}`, scope: selection.scope,
-      configuration: selection.configuration, ...metadata, bindingDigest: binding.digest,
+      configuration: { ...selection.configuration, ...filledIn(item, false) }, ...metadata, bindingDigest: binding.digest,
       ...(item.scan?.length ? { scanRecords: structuredClone(item.scan), itemMaterials: item.materials.map(material => ({ materialId: material.id,
         relPath: material.relPath, path: material.packagePath, sha256: material.sha256, byteLength: material.byteLength, role: material.role })) } : {}),
       requires: validation.requiresBySelectionId[selection.id] ?? [] };

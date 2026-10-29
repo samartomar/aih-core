@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { apply, prepare } from '../dist/core/index.js';
 import { parsePolicy, validatePolicy } from '../dist/core/contracts.js';
-import { canonical, catalogPack, composePolicy, eccDefault, eccFullTypescript, policyBytes, sha256 } from './fixtures/catalog-pack.mjs';
+import { canonical, catalogPack, composePolicy, eccDefault, eccFullTypescript, policyBytes, privateInputsFor, sha256 } from './fixtures/catalog-pack.mjs';
 
 const POLICY_BOUND = 1_000_000;
 const pack = await catalogPack();
@@ -22,7 +22,7 @@ after(() => {
   rmSync(scratch, { recursive: true, force: true });
   if (pack.folder) rmSync(pack.folder, { recursive: true, force: true });
 });
-const controls = () => ({ logging: 'off', materialRoots: { catalog: pack.root } });
+const controls = privateInputs => ({ logging: 'off', materialRoots: { catalog: pack.root }, ...(privateInputs ? { privateInputs } : {}) });
 const approve = prepared => ({ approved: true, origin: 'automation', reviewDigest: prepared.review.reviewDigest });
 const project = name => { const folder = join(scratch, name); mkdirSync(folder); return realpathSync(folder); };
 /** Every file member the runs wrote, by project-relative path, with the bytes now at that path. */
@@ -36,7 +36,7 @@ const receipts = (runs, folder) => runs.flatMap(run => run.members).map(member =
 const picks = skip ? {} : { default246: composePolicy(pack, { sets: eccDefault(pack), recipeless: true }),
   full476: composePolicy(pack, { sets: eccFullTypescript(pack), recipeless: true }) };
 
-test('the ECC default pick and full TypeScript profile fit the policy bound with recipe-less selections', { skip }, () => {
+test('the ECC default pick and full TypeScript profile fit the policy byte bound with recipe-less selections', { skip }, () => {
   const counts = { default246: 246, full476: 476 };
   const sizes = {};
   for (const [name, policy] of Object.entries(picks)) {
@@ -45,11 +45,17 @@ test('the ECC default pick and full TypeScript profile fit the policy bound with
     sizes[name] = bytes;
     console.log(`${name}: ${policy.selections.length} recipe-less selections, ${bytes} policy bytes (bound ${POLICY_BOUND})`);
     assert.ok(bytes < POLICY_BOUND, `${name} is ${bytes} bytes`);
-    // The bound is Core's own: the serialized policy parses, and the policy object validates.
-    const parsed = parsePolicy(JSON.stringify(policy) + '\n');
-    assert.equal(parsed.valid, true, JSON.stringify(parsed.diagnostics));
-    assert.equal(validatePolicy(policy).valid, true);
   }
+  // The bound is Core's own: the serialized default pick parses and validates.
+  const parsed = parsePolicy(JSON.stringify(picks.default246) + '\n');
+  assert.equal(parsed.valid, true, JSON.stringify(parsed.diagnostics));
+  assert.equal(validatePolicy(picks.default246).valid, true);
+  // The full profile fits the byte bound, but its one ECC notices selection is required by all 475 other items, and
+  // execution policy 1.5.0's limit of 256 origins per selection, unchanged in 1.6.0, refuses it there and only there.
+  const notices = picks.full476.selections.findIndex(selection => selection.item.itemId === 'ecc.notices');
+  console.log(`full476: ecc.notices carries ${picks.full476.selections[notices].origins.length} origins (schema limit 256)`);
+  assert.deepEqual(validatePolicy(picks.full476).diagnostics.map(item => [item.reason, item.path]),
+    [['maxItems', `/selections/${notices}/origins`]]);
   // The inline form of the same pick is what the bound refused.
   const inline = composePolicy(pack, { sets: eccDefault(pack), recipeless: false });
   console.log(`default246 inline: ${policyBytes(inline)} policy bytes`);
@@ -61,9 +67,11 @@ test('the ECC default pick and full TypeScript profile fit the policy bound with
 test('the 246-item recipe-less policy applies into a disposable project and writes what the inline form writes', { skip, timeout: 600_000 }, async () => {
   const recipeless = picks.default246;
   const folder = project('recipeless');
-  const prepared = await prepare({ useCase: 'policy', policy: recipeless, target: { project: folder } }, controls());
+  const secrets = privateInputsFor(pack, recipeless);
+  assert.ok(Object.keys(secrets).length > 0, 'a server in the pick needs a sensitive value');
+  const prepared = await prepare({ useCase: 'policy', policy: recipeless, target: { project: folder } }, controls(secrets));
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
-  const run = await apply(prepared.prepared, approve(prepared), controls());
+  const run = await apply(prepared.prepared, approve(prepared), controls(secrets));
   assert.equal(run.completion, 'complete', JSON.stringify(run.diagnostics));
   // The inline form is over the policy bound, so it is applied as consecutive policies under the bound, in dependency
   // order; a requirement on an earlier policy's selection is already installed when the later one applies.
@@ -84,9 +92,10 @@ test('the 246-item recipe-less policy applies into a disposable project and writ
   for (const chunk of chunks) {
     const inChunk = new Set(chunk.map(selection => selection.id));
     const policy = { ...inline, selections: chunk.map(selection => ({ ...selection, requires: selection.requires.filter(id => inChunk.has(id)) })) };
-    const step = await prepare({ useCase: 'policy', policy, target: { project: target } }, controls());
+    const chunkSecrets = Object.fromEntries(Object.entries(secrets).filter(([id]) => inChunk.has(id)));
+    const step = await prepare({ useCase: 'policy', policy, target: { project: target } }, controls(chunkSecrets));
     assert.equal(step.status, 'ready', JSON.stringify(step.diagnostics));
-    const ran = await apply(step.prepared, approve(step), controls());
+    const ran = await apply(step.prepared, approve(step), controls(chunkSecrets));
     assert.equal(ran.completion, 'complete', JSON.stringify(ran.diagnostics));
     runs.push(ran);
   }
