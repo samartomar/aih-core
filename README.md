@@ -2321,8 +2321,11 @@ Core applies an approval only where no choice was made yet:
   there is none to write back). When the person has since changed that approval,
   removal keeps their edit: the review reports the member as a `STATE_CONFLICT`
   (`managed-content-changed`) and the run result as `kept`; removal preparation
-  1.2.0 lists it as `keep-changed` instead. A file Core created only to hold the
-  location stays behind as an empty object.
+  1.2.0 lists it as `keep-changed` instead. A JSON or JSONC file Core created for a
+  `config.entries` approval of a selection that carries item metadata is removed with
+  the last entry once only empty containers are left and no other Core member lives
+  in it; otherwise a file Core created only to hold the location stays behind as an
+  empty object.
 
 Only the approval file Core writes is read: an approval or denial the tool records
 elsewhere (for example in the user's own state) is not seen.

@@ -1216,6 +1216,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             // Removing a shared block never removes the entry file: when the block was the file's only
             // content the file stays behind empty, and the person's other text always survives.
             if (after === null && shared) after = Buffer.alloc(0);
+            // A JSON entry in a file Core created takes the file with it, as an owned hook group does, once only
+            // empty containers are left and no other Core member lives in that file.
+            if (after !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') &&
+              createdFiles.has(`${root}:${descriptor.path}`) && !hasJsonContent(after) && !Object.entries(projectedMembers(root)).some(([other, member]) =>
+                other !== key && member.descriptor !== undefined && samePath(member.descriptor.path, descriptor.path))) after = null;
           }
         }
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }

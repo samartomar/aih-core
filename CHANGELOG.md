@@ -19,6 +19,9 @@ Core 1.0.0-dev.44: removing a selection leaves the project as it was before inst
 - A complete, verified removal under run result 1.4 or 1.5 that kept nothing deletes
   its own recovery folder and drops `recovery` from its result. Every other run keeps
   its recovery data.
+- The same applies to a JSON or JSONC `config.entries` entry in a file Core created for
+  a selection with item metadata: removing the last such entry removes the file once
+  only empty containers are left and no other Core member lives in it.
 - Hook-group receipts record `createdFile` and `createdContainers`, which moves those
   receipts to ownership 1.6.0.
 
