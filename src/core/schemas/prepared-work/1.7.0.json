@@ -664,15 +664,24 @@
                     "state": {
                       "const": "not-verified"
                     }
-                  }
+                  },
+                  "required": [
+                    "state"
+                  ]
                 },
                 "then": {
+                  "properties": {
+                    "why": {}
+                  },
                   "required": [
                     "why"
                   ]
                 },
                 "else": {
                   "not": {
+                    "properties": {
+                      "why": {}
+                    },
                     "required": [
                       "why"
                     ]

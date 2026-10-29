@@ -125,7 +125,7 @@ await check('an installed version without an exact proving observation is stale;
   assert.deepEqual(result.installedVersion, { state: 'known', version: '2.2.0', source: 'package-manifest' });
   assert.equal(result.stale, true);
   assert.deepEqual(result.items.map(item => [item.observedVersion, item.stale]),
-    [['2.1.308', true], [undefined, 'unchecked'], ['2.1.308', true]], 'an unproven agent cell is neither stale nor current');
+    [['2.1.308', true], [undefined, 'unchecked'], ['2.1.312', true]], 'an unproven agent cell is neither stale nor current; the hook cell was last seen on 2.1.312');
   assert.deepEqual(result.unchecked.filter(note => note.fact === 'stale'),
     [{ fact: 'stale', item: { framework: 'example', itemId: 'planner' }, reason: 'cell-not-proven' }]);
   assert.deepEqual(result.items[2].executables, [{ name: 'node', state: 'present' }]);

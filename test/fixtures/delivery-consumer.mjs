@@ -619,12 +619,10 @@ await check('review regressions: verified behaviour, escaped paths, explicit run
   assert.deepEqual(claude.items.map(entry => [entry.item.itemId, entry.notRendered?.reason, entry.deliveredSize.bytes > 0]),
     [['session-start', 'interpreter-required', false], ['shared', undefined, true]], 'Claude reads a shared block in CLAUDE.md');
   const shared = renderDelivery({ tool: 'claude', item: entryBlock, binding: bindingWith('claude'), scope: 'project',
-    contents: Object.fromEntries(entryBlock.materials.filter(member => member.role === 'content').map(member => [member.id, 'Shared.
-'])) });
+    contents: Object.fromEntries(entryBlock.materials.filter(member => member.role === 'content').map(member => [member.id, 'Shared.\n'])) });
   assert.equal(shared.status, 'rendered', JSON.stringify(shared));
   assert.deepEqual(shared.recipe.operations.filter(op => op.kind === 'text.block').map(op => [op.target.segments.map(part => part.literal).join('/'),
-    op.startMarker, op.content.literal]), [['CLAUDE.md', '<!-- BEGIN aih:shared -->', 'Shared.
-'],
+    op.startMarker, op.content.literal]), [['CLAUDE.md', '<!-- BEGIN aih:shared -->', 'Shared.\n'],
     ['CLAUDE.md', '<!-- BEGIN aih:shared:pointer -->', '@AGENTS.md']], 'the block and the observed @AGENTS.md pointer, both in CLAUDE.md');
   const codex = compat('codex', WINDOWS, [{ item: twoTexts, sets: [{ framework: FRAMEWORK, setId: 'pair', setSha256: '3'.repeat(64) }] }]);
   assert.deepEqual([codex.items[0].notRendered.reason, codex.sets[0].fit], ['rule-text-ambiguous', 'none']);

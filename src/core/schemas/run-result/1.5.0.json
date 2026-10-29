@@ -614,11 +614,17 @@
           },
           {
             "if": {
+              "properties": {
+                "detail": {}
+              },
               "required": [
                 "detail"
               ]
             },
             "then": {
+              "properties": {
+                "changed": {}
+              },
               "required": [
                 "changed"
               ]
