@@ -113,6 +113,32 @@ export function appendHookGroup(format: Format, before: Buffer | null, container
     splice(text, end, end, `,${leading}${render(group)}`);
 }
 
+/** The object/array prefixes of `container` absent from `before`; each is one Core will create. */
+export function missingContainers(format: Format, before: Buffer | null, container: string[]): string[][] {
+  const text = before === null ? '{}' : decode(before);
+  let root: Node;
+  try { root = parsedObject(text, format); } catch { return []; }
+  const missing: string[][] = [];
+  for (let length = 1; length <= container.length; length++) {
+    const path = container.slice(0, length);
+    if (!findNodeAtLocation(root, path)) missing.push(path);
+  }
+  return missing;
+}
+
+/** Removes only the listed containers while they are empty; the deepest first, so an emptied parent goes too. */
+export function pruneEmptyContainers(format: Format, bytes: Buffer, paths: string[][]): Buffer {
+  let text = decode(bytes);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  for (const path of [...paths].sort((a, b) => b.length - a.length)) {
+    let node: Node | undefined;
+    try { node = findNodeAtLocation(parsedObject(text, format), path); } catch { continue; }
+    if (!node || !(node.type === 'array' || node.type === 'object') || node.children?.length) continue;
+    text = applyEdits(text, modify(text, path, undefined, { formattingOptions: { insertSpaces: true, tabSize: 2, eol } }));
+  }
+  return Buffer.from(text, 'utf8');
+}
+
 function element(format: Format, before: Buffer, container: string[], index: number): { text: string; array: Node; children: Node[]; node: Node } {
   const text = decode(before);
   const array = containerNode(parsedObject(text, format), container);

@@ -31,6 +31,7 @@ import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
+import { missingContainers, pruneEmptyContainers } from './internal/hook-group.js';
 import { USER_NOTES_FILE, extractBlockBody, personLinesInside, sharedBlockRole } from './internal/shared-blocks.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
@@ -378,6 +379,16 @@ export function transaction(root: string, directoryCreated?: (path: string) => v
     }
   };
 }
+/** Does this JSON/JSONC document hold any value beyond empty objects and arrays? */
+function hasJsonContent(bytes: Buffer): boolean {
+  const errors: ParseError[] = [];
+  const value = parseJsonc(bytes.toString('utf8'), errors, { allowTrailingComma: true }) as Json | undefined;
+  if (errors.length) return true;
+  const empty = (item: Json | undefined): boolean => item === null || item === undefined ? true :
+    Array.isArray(item) ? item.every(empty) : typeof item === 'object' ? Object.values(item as Record<string, Json | undefined>).every(empty) : false;
+  return !empty(value);
+}
+
 function stageRecovery(runId: string, steps: PreparedStep[], project: string): string {
   const base = `recovery/${runId}`;
   pathPins(join(stateRoot(), base));
@@ -689,7 +700,17 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               try { if (decideWith(option).effect !== 'conflict') choices.push(option); }
               catch (error) { if (!(error instanceof Error) || error.message !== 'resolution-invalid') throw error; }
             }
-            effect = decision.effect; after = decision.after; custody = { [hookKey]: decision.custody }; custodyOnly = decision.custodyOnly;
+            effect = decision.effect; after = decision.after;
+            // A file and JSON containers this run creates are remembered so the last removal can take them
+            // away; a later group in the same file inherits them from the earlier owner.
+            const sameFile = Object.values(projected.members).filter(member => member.descriptor?.path === path);
+            const fileCreated = selection.item !== undefined &&
+              (initialBefore === null || sameFile.some(member => member.createdFile === true));
+            const createdPaths = selection.item === undefined ? [] : [...new Map([...sameFile.flatMap(member => member.createdContainers ?? []),
+              ...missingContainers(op.format, initialBefore ?? null, op.container)].map(item => [JSON.stringify(item), item])).values()];
+            custody = { [hookKey]: decision.custody === null ? null : { ...decision.custody,
+              ...(fileCreated ? { createdFile: true as const } : {}), ...(createdPaths.length ? { createdContainers: createdPaths } : {}) } };
+            custodyOnly = decision.custodyOnly;
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;
             if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
@@ -779,8 +800,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             custody = Object.fromEntries(descriptors.map(member => {
               const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
               const tomlTable = createdTables && member.kind === 'entry' ? createdTableCustody(member, createdTables, prior, projected.members) : undefined;
+              const fileCreated = selection.item !== undefined &&
+                (initialBefore === null || Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.createdFile === true));
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 ...(approval ? { approval: { tool: approval.tool } } : {}), ...(member.kind === 'member' && (createdContainer || prior?.createdContainer) ? { createdContainer: true as const } : {}),
+                ...(fileCreated ? { createdFile: true as const } : {}),
                 ...(sharedContent !== null && sharedContent.length <= 65536 ? { sharedContent } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
@@ -1089,6 +1113,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const graphIds = [...new Set([...priorDependencies.keys(), ...[...priorDependencies.values()].flat()])];
     const removalOrder = dependencyOrder(graphIds.map(id => ({ id, requires: [...priorDependencies].filter(([, required]) => required.includes(id)).map(([parent]) => parent) })));
     const rank = new Map(removalOrder.map((item, index) => [item.id, index]));
+    // Containers and files an install created belong to the target path, not one member: collect them from every
+    // receipt so the last owned group can remove them even when earlier groups were already removed.
+    const createdFiles = new Set<string>(); const createdContainers = new Map<string, string[][]>();
+    for (const [root, stored] of ownership) if (effectRoot(root)) for (const owner of Object.values(stored.value.members)) {
+      const descriptor = owner.descriptor; if (!descriptor) continue;
+      const id = `${root}:${descriptor.path}`;
+      if (owner.createdFile) createdFiles.add(id);
+      if (owner.createdContainers?.length) {
+        const paths = [...new Map([...(createdContainers.get(id) ?? []), ...owner.createdContainers].map(item => [JSON.stringify(item), item])).values()];
+        createdContainers.set(id, paths);
+      }
+    }
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
     members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
@@ -1184,6 +1220,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
+        const fileId = `${root}:${descriptor.path}`;
+        if (matching && !remaining.length && after !== null) {
+          const pruned = createdContainers.has(fileId) ? pruneEmptyContainers((descriptor as HookDescriptor).format, after, createdContainers.get(fileId)!) : after;
+          if (createdFiles.has(fileId) && !hasJsonContent(pruned)) { after = null; effect = 'remove-file'; }
+          else if (!pruned.equals(after)) { after = pruned; effect = before !== null && after.equals(before) ? 'already-satisfied' : 'replace-file'; }
+        }
         if (!matching && cleanup) kept = { action: 'keep-changed', reason: hookDecision.reason ?? 'managed-content-changed' };
         else if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
