@@ -2,7 +2,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "claude",
-    "digest": "80f6809c461fd50d21ab920a30ae76d20879ff613ddd2c44e281a91051a5c924",
+    "digest": "acb5e4cce260dcb37b7899f7269983bcc56403dc26a877739b4a724f7f41fabf",
     "layouts": {
       "skill": {
         "support": "native",
@@ -176,7 +176,8 @@
         },
         "hookProtocols": [
           "claude-code-hooks"
-        ]
+        ],
+        "commandTemplate": "CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
       },
       "mcp-server": {
         "support": "native",
