@@ -2,7 +2,7 @@
 // AIH created it and added only its own hook groups, and the person's exact bytes when it was already there.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply, prepareManagedRemoval } from '../dist/core/index.js';
 import { sandbox } from './hook-group-fixture.mjs';
@@ -55,3 +55,29 @@ test('a settings.json the person already had is restored to its exact pre-instal
   assert.equal(s.read('.claude/settings.json'), original, 'exact bytes, including the person\'s own hook group');
   assert.deepEqual(fileTree(s.project), before);
 });
+
+// Inserting the hook groups keeps the person's own layout: indentation, line endings and minified or pretty style.
+const mine = { theme: 'dark', permissions: { allow: ['Bash(ls)'] } };
+const layouts = {
+  'tab-indented': { render: value => `${JSON.stringify(value, null, '\t')}\n` },
+  '4-space': { render: value => `${JSON.stringify(value, null, 4)}\n` },
+  CRLF: { render: value => `${JSON.stringify(value, null, 2).replace(/\n/g, '\r\n')}\r\n` },
+  minified: { render: value => JSON.stringify(value) },
+};
+for (const [name, { render }] of Object.entries(layouts)) {
+  test(`a ${name} settings.json keeps its layout through install and returns byte-exact on removal`, async () => {
+    assertVendoredRelease();
+    const s = open(), original = render(mine);
+    s.write('.claude/settings.json', original);
+    const before = fileTree(s.project);
+    const { selections } = await installReal(s);
+    const installed = readFileSync(settings(s), 'utf8');
+    const value = JSON.parse(installed);
+    assert.deepEqual(Object.keys(value), ['theme', 'permissions', 'hooks']);
+    assert.deepEqual(Object.keys(value.hooks), ['SessionStart', 'PreToolUse']);
+    assert.equal(installed, render(value), 'the installed file is written in the person\'s layout');
+    await removeAll(s, selections);
+    assert.equal(readFileSync(settings(s), 'utf8'), original, 'exact bytes after removal');
+    assert.deepEqual(fileTree(s.project), before);
+  });
+}
