@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.40 renders Claude hook commands as `CLAUDE_PLUGIN_ROOT="{pluginRoot}"
+{command}`, where `{pluginRoot}` is the hook's item folder.
+
+- **Superpowers:** its bootstrap now reaches the model in Claude Code; without the
+  variable, Claude Code ignored its output.
+- **Other hooks:** ECC hooks resolve the same folder as before, and Extensions hooks
+  do not read the variable.
+- **Observation:** a native run on Claude Code 2.1.312 observed all three real hooks
+  working. Its run record is published, and the binding cites it.
+- **Guard test:** the citation test now also requires a hook command template to cite
+  an observed line.
+
 Core 1.0.0-dev.39 delivers a required document beside the item that requires it.
 
 - `renderDelivery({ ..., requiredBy })` renders a supporting licence, notice or

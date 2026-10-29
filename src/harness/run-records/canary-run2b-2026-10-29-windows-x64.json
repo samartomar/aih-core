@@ -1,0 +1,370 @@
+{
+  "record": "AIHQ native product proof run record",
+  "run": "run2b-plugin-root-2026-10-29-windows-x64",
+  "platform": {
+    "os": "windows",
+    "arch": "x64"
+  },
+  "isolation": "env-redirect-outside-profile",
+  "packs": {
+    "core": "@aihq/core 1.0.0-dev.40 candidate from samartomar/aih-core 1dba5ea",
+    "catalog": "@aihq/catalog 0.1.0 from samartomar/aih-catalog 1b774e3d"
+  },
+  "installPath": "Catalog resolveSelections -> Harness renderDelivery (requiredBy for notices) -> Core prepare/apply, execution policy 1.5.0",
+  "install": {
+    "status": "ready",
+    "completion": "complete",
+    "resolved": [
+      "superpowers.hook.session-start",
+      "superpowers.notices",
+      "ecc.hook.pre-config-protection",
+      "ecc.notices",
+      "extensions.hook.git-guard",
+      "extensions.notices"
+    ]
+  },
+  "toolVersion": "2.1.312",
+  "sessions": [
+    {
+      "name": "G",
+      "command": "claude -p <prompt G> --output-format stream-json --verbose --model sonnet --max-turns 6 --allowedTools 'Bash(git push --force origin main)' --disallowedTools 'Grep Glob Write MultiEdit NotebookEdit WebFetch WebSearch LS Read Edit'",
+      "startedAt": "2026-10-29T14:47:25.9118047Z",
+      "endedAt": "2026-10-29T14:47:31.3651244Z",
+      "exit": 0,
+      "toolCalls": [
+        "Bash"
+      ],
+      "transcriptSha256": "f91cbacb1c88af90395a1a122291be64f9145adaea1e1ede08fa768b9c590c14"
+    },
+    {
+      "name": "E",
+      "command": "claude -p <prompt E> --output-format stream-json --verbose --model sonnet --max-turns 6 --allowedTools 'Read Edit' --disallowedTools 'Grep Glob Write MultiEdit NotebookEdit WebFetch WebSearch LS Bash'",
+      "startedAt": "2026-10-29T14:47:31.3752777Z",
+      "endedAt": "2026-10-29T14:47:40.7881076Z",
+      "exit": 0,
+      "toolCalls": [
+        "Read",
+        "Edit"
+      ],
+      "transcriptSha256": "20c6ca390ef4680fcec05c6fb469b9a0c8ef84330bbbb99c666d7781a75ab321"
+    },
+    {
+      "name": "S",
+      "command": "claude -p <prompt S> --output-format stream-json --verbose --model sonnet --max-turns 6 --allowedTools '' --disallowedTools 'Grep Glob Write MultiEdit NotebookEdit WebFetch WebSearch LS Bash Read Edit'",
+      "startedAt": "2026-10-29T14:47:40.7897497Z",
+      "endedAt": "2026-10-29T14:47:44.8780248Z",
+      "exit": 0,
+      "toolCalls": [],
+      "transcriptSha256": "3a1cf27a3251b6f91710488c291973a0fbb2cfb90f43ed9627061538713aa85d"
+    }
+  ],
+  "cells": [
+    {
+      "tool": "claude",
+      "kind": "hook",
+      "item": "extensions.hook.git-guard",
+      "renderedCommand": [
+        "CLAUDE_PLUGIN_ROOT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/extensions.hook.git-guard\" node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/extensions.hook.git-guard/hooks/git-guard.mjs\""
+      ],
+      "delivered": [
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/extensions.notices/NOTICE.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/extensions.notices/licenses/addyosmani-agent-skills.LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/extensions.notices/licenses/mattpocock-skills.LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/extensions.notices/vendor.lock.json",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/extensions.notices/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/hooks/git-guard.mjs",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/hooks/lib/git-context.mjs",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/hooks/lib/git-policy.mjs",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/hooks/lib/shell.mjs",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/extensions.hook.git-guard/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        }
+      ],
+      "registered": "registered",
+      "recognised": "recognised",
+      "evidence": [
+        "transcript contains \"aih-extensions git-guard:\"",
+        "Bash call: \"git push --force origin main\"",
+        "remote refs after the session: [] (before: [])",
+        "command-template: CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "hook",
+      "item": "ecc.hook.pre-config-protection",
+      "renderedCommand": [
+        "CLAUDE_PLUGIN_ROOT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/ecc.hook.pre-config-protection\" node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/ecc.hook.pre-config-protection/scripts/hooks/run-with-flags.js\" \"pre:config-protection\" \"${CLAUDE_PROJECT_DIR}/.claude/hooks/ecc.hook.pre-config-protection/scripts/hooks/config-protection.js\" \"standard,strict\""
+      ],
+      "delivered": [
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/ecc.notices/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/ecc.notices/AGENTS.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/ecc.notices/plugin.json",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/ecc.notices/README.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/scripts/hooks/run-with-flags.js",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/scripts/hooks/config-protection.js",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/scripts/hooks/pretooluse-visible-output.js",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/scripts/lib/hook-flags.js",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/ecc.hook.pre-config-protection/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        }
+      ],
+      "registered": "registered",
+      "recognised": "recognised",
+      "evidence": [
+        "transcript contains \"BLOCKED: Modifying .eslintrc.json is not allowed.\"",
+        "Edit call: attempted (tool error)",
+        ".eslintrc.json sha256 before ad95913e7bcdd820280fee1288c57229555ee6863bdeb58bd41fc297f3c98026, after ad95913e7bcdd820280fee1288c57229555ee6863bdeb58bd41fc297f3c98026: unchanged",
+        "command-template: CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
+      ]
+    },
+    {
+      "tool": "claude",
+      "kind": "hook",
+      "item": "superpowers.hook.session-start",
+      "renderedCommand": [
+        "CLAUDE_PLUGIN_ROOT=\"${CLAUDE_PROJECT_DIR}/.claude/hooks/superpowers.hook.session-start\" bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/superpowers.hook.session-start/hooks/run-hook.cmd\" \"session-start\""
+      ],
+      "delivered": [
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/superpowers.notices/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/superpowers.notices/README.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/superpowers.notices/RELEASE-NOTES.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/LICENSE",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/gemini-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/hermes-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/muse-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/pi-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/hooks/run-hook.cmd",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/hooks/session-start",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/SKILL.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/antigravity-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/claude-code-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/hooks/superpowers.hook.session-start/skills/using-superpowers/references/codex-tools.md",
+          "kind": "file",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        },
+        {
+          "path": ".claude/settings.json",
+          "kind": "hook-group-member",
+          "outcome": "written",
+          "check": "present-matching"
+        }
+      ],
+      "registered": "registered",
+      "recognised": "recognised",
+      "evidence": [
+        "CLAUDE_PLUGIN_ROOT unset: the script printed top-level additionalContext",
+        "the model quoted \"You have superpowers.\" (the phrase is not in the prompt)",
+        "hook system events in S: 2",
+        "command-template: CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
+      ]
+    }
+  ],
+  "realProfilePathsTouched": []
+}

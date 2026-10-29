@@ -1,7 +1,7 @@
 {
   "schema": "urn:aihq:harness:tool-binding:1.0.0",
   "tool": "claude",
-  "digest": "80f6809c461fd50d21ab920a30ae76d20879ff613ddd2c44e281a91051a5c924",
+  "digest": "a457a03c1ce03b7790beb92ed0e0d9f0e3a1f0e96c174ef580ab23220f98c7d8",
   "layouts": {
     "skill": {
       "support": "native",
@@ -150,6 +150,18 @@
           "delivered": "delivered",
           "registered": "not-checked",
           "recognised": "recognised"
+        },
+        {
+          "toolVersion": "2.1.312",
+          "observedAt": "2026-10-29T14:47:25.911Z",
+          "coreVersion": "1.0.0-dev.40",
+          "os": "windows",
+          "arch": "x64",
+          "isolation": "env-redirect-outside-profile",
+          "runRecordDigest": "db0b16f01229c30c3a13d322e3a97537cb78b52bf5d562df5e79529be506a273",
+          "delivered": "delivered",
+          "registered": "registered",
+          "recognised": "recognised"
         }
       ],
       "roots": {
@@ -175,7 +187,8 @@
       },
       "hookProtocols": [
         "claude-code-hooks"
-      ]
+      ],
+      "commandTemplate": "CLAUDE_PLUGIN_ROOT=\"{pluginRoot}\" {command}"
     },
     "mcp-server": {
       "support": "native",

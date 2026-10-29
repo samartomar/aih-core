@@ -11,6 +11,7 @@ import refuseBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/refuse
 import supportCases from '@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json' with { type: 'json' };
 import runRecord from '@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json' with { type: 'json' };
 import run1Record from '@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json' with { type: 'json' };
+import run2bRecord from '@aihq/core/harness/run-records/canary-run2b-2026-10-29-windows-x64.json' with { type: 'json' };
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
 const RUN_RECORD = createHash('sha256')
@@ -19,6 +20,10 @@ const RUN1_RECORD = createHash('sha256')
   .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json')))).digest('hex');
 /** The 29 October run observed only Claude hooks (and the entry file, which is not a binding cell). */
 const isRun1 = item => item.runRecordDigest === RUN1_RECORD;
+const RUN2B_RECORD = createHash('sha256')
+  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-run2b-2026-10-29-windows-x64.json')))).digest('hex');
+/** The 29 October product proof: three real hooks installed through Core and observed with the hook command template. */
+const isRun2b = item => item.runRecordDigest === RUN2B_RECORD;
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
 const WINDOWS = { os: 'windows', arch: 'x64' };
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -75,6 +80,11 @@ check('the 23 October 2026 Windows observations are seeded with scope and run re
         ['claude', 'hook', 'windows', 'x64', '1.0.0-dev.38', '2.1.312', 'env-redirect-outside-profile', 'recognised']);
       continue;
     }
+    if (isRun2b(item)) {
+      assert.deepEqual([binding.tool, kind, item.os, item.arch, item.coreVersion, item.toolVersion, item.isolation, item.recognised],
+        ['claude', 'hook', 'windows', 'x64', '1.0.0-dev.40', '2.1.312', 'env-redirect-outside-profile', 'recognised']);
+      continue;
+    }
     assert.deepEqual([item.os, item.arch, item.runRecordDigest, item.coreVersion], ['windows', 'x64', RUN_RECORD, '1.0.0-dev.37']);
     assert.ok(item.observedAt.startsWith('2026-10-23T'), item.observedAt);
     // Model-free list commands ran on the host, inside the user profile; they are kept but never count.
@@ -111,6 +121,15 @@ check('every observation names the published run record and claims no more than 
       assert.ok(run1Record.sessions[0].startedAt.startsWith(item.observedAt.slice(0, 23)), item.observedAt);
       assert.equal(item.recognised, run1Record.cells.find(entry => entry.tool === binding.tool && entry.kind === kind).recognised);
       assert.equal(item.registered, 'not-checked');
+      continue;
+    }
+    if (isRun2b(item)) {
+      // Every hook the session ran (registered) also reached the model (recognised); the record shows each.
+      assert.deepEqual(run2bRecord.realProfilePathsTouched, []);
+      assert.ok(run2bRecord.sessions[0].startedAt.startsWith(item.observedAt.slice(0, 23)), item.observedAt);
+      assert.deepEqual(run2bRecord.cells.map(cell => [cell.kind, cell.registered, cell.recognised]),
+        [['hook', 'registered', 'recognised'], ['hook', 'registered', 'recognised'], ['hook', 'registered', 'recognised']]);
+      assert.deepEqual([item.registered, item.recognised], ['registered', 'recognised']);
       continue;
     }
     assert.equal(item.runRecordDigest, RUN_RECORD);

@@ -186,7 +186,8 @@ await check('selections carry descriptive metadata with every qualified origin, 
   const hookEntry = selections[1];
   const group = operations.find(op => op.kind === 'hook.group');
   assert.deepEqual(hookEntry.hookCommands, [group.details.hookGroup.desiredGroup.hooks[0].command], 'the hook command is shown verbatim');
-  assert.match(hookEntry.hookCommands[0], /^node "\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/session-start\/hooks\/start\.mjs" "\$\{CLAUDE_PROJECT_DIR\}"$/);
+  assert.match(hookEntry.hookCommands[0],
+    /^CLAUDE_PLUGIN_ROOT="\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/session-start" node "\$\{CLAUDE_PROJECT_DIR\}\/\.claude\/hooks\/session-start\/hooks\/start\.mjs" "\$\{CLAUDE_PROJECT_DIR\}"$/);
   assert.deepEqual(hookEntry.deliveredSize, { bytes: Buffer.byteLength(HOOK_FILES['hooks/start.mjs']), chars: HOOK_FILES['hooks/start.mjs'].length,
     alwaysLoaded: { bytes: 0, chars: 0 } });
   const server = selections[2];
