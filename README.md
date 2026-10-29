@@ -871,7 +871,7 @@ length.
   `ai-coding`). Agents and commands deliver their `payload.files`. Their own
   licence (Catalog's `license` material) goes to the neutral notices folder under
   the item's id, `.aih/notices/<framework>/<item>/LICENSE`, so no two items write
-  one licence file. They are
+  one licence file. Agents and commands are
   refused with `native-only-kind` where the binding records the tool not reading
   that kind or names no location for it. An MCP server delivers its registration
   under `register.container` and `payload.key`. An input-backed `env` or `headers`
@@ -994,14 +994,21 @@ depend on order. Per item the result is:
     `<project>/.aih/notices/<framework>/<document>/`, or `<home>/.aih/notices/...`
     in user scope. Compatibility plans and sizes that copy once.
   - **References:** a `reference` document is read by the item that requires it,
-    through links relative to where both sit in their source tree (Extensions'
-    skills link `../../references/`). It keeps that place relative to the
-    requirer as delivered: under the folder that holds the requirer's source
-    folders, for example `.claude/references/` beside `.claude/skills/` and
-    `.claude/agents/`. A file at the source root (its licence) goes inside the
-    reference's folder. Where the requirer does not keep its source folders (an
-    MCP server entry, a rule delivered flat), the reference has no place and the
-    item is blocked with `dependency-missing`.
+    which names it by where both sit in their source tree. It keeps that place
+    relative to the requirer as delivered: under the folder that stands for the
+    source root, the one holding the requirer's source folders. For example,
+    `.claude/references/` sits beside `.claude/skills/` and `.claude/agents/`.
+    - A file at the source root (its licence) goes inside the reference's folder.
+    - Skill links such as `../../references/<file>` from `skills/<name>/SKILL.md`
+      resolve to the delivered file.
+    - Agents and commands name `references/<file>` from the source root. In the
+      delivery, that root is the tool folder, so the agent finds the file under
+      `.claude/references/`, not under the project's own root.
+    - The reference has no place, and the item is blocked with
+      `dependency-missing`, when the requirer does not keep its source folders (an
+      MCP server entry, a rule delivered flat), when the two come from different
+      sources, or when the place would fall inside a folder the tool reads as
+      content.
   - **A document that requires a document** (references that require their
     notices) gives no folder of its own; the notices go to the neutral folder.
   - An item that cannot be delivered itself is not blamed on what it requires: an

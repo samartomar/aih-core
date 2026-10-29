@@ -187,6 +187,8 @@ test('a reference goes where the items that read it link it, once per tool folde
     for (const copy of placed) assert.deepEqual(copy, placed[0]);
     assert.deepEqual(placed[0], references.payload.files.map(id => references.materials.find(member => member.id === id))
       .map(member => `${folder}/references/${member.relPath.split('/').at(-1)}`), tool);
+    // Agents and commands name references/<file> from the source root, which the tool folder stands for.
+    if (binding.layouts.agent.roots?.project) assert.ok(placed[0].includes(`${posix.dirname(binding.layouts.agent.roots.project)}/references/performance-checklist.md`));
     // The skill's own link resolves to the delivered file: from skills/<name>/SKILL.md, ../../references/<file>.
     const own = renderDelivery({ tool, item: skill, binding, scope: 'project' });
     const skillFile = writes(own).find(path => path.endsWith('/SKILL.md'));
@@ -221,6 +223,16 @@ test('a reference has no place for an item that does not keep its source folders
     const refused = renderDelivery({ tool: 'claude', item: references, binding: claude, scope: 'project', requiredBy: reading(requirer) });
     assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound'], `${requirer.id}: ${JSON.stringify(refused)}`);
   }
+  // A reference from another source, or one whose place would fall inside a folder the tool reads as content, has none.
+  // (Source ids and paths are not part of an item's identities, so these are still valid items.)
+  const agent = extensions.find(entry => entry.kind === 'agent' && requires(entry, references));
+  const moved = change => ({ ...references, materials: references.materials.map(member => member.role === 'content' ? change(member) : member) });
+  for (const [why, document] of [['another source', moved(member => ({ ...member, sourceId: 'elsewhere' }))],
+    ['a content folder', moved(member => ({ ...member, sourcePath: member.sourcePath.replace(/^references\//, 'skills/references/') }))]]) {
+    const refused = renderDelivery({ tool: 'claude', item: document, binding: claude, scope: 'project', requiredBy: agent });
+    assert.deepEqual([refused.status, refused.reason], ['refused', 'scope-not-bound'], `${why}: ${JSON.stringify(refused)}`);
+    assert.match(refused.message, why === 'another source' ? /one source tree/ : /reads as content/);
+  }
 });
 
 test('an item with no location of its own is not blamed on the documents it requires', () => {
@@ -234,7 +246,7 @@ test('an item with no location of its own is not blamed on the documents it requ
     const row = compat.items.find(entry => entry.item.itemId === server.id);
     assert.deepEqual(row.staticBlockers, [], server.id);
     assert.equal(row.notRendered?.reason, 'scope-not-bound', server.id);
-    assert.match(row.notRendered.detail, /location for mcp-server items/, server.id);
+    assert.equal(row.notRendered.detail, 'The binding names no location for mcp-server items in either scope.', server.id);
   }
 });
 
