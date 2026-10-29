@@ -636,6 +636,30 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
       prior.excluded ||= entry.excluded === true; prior.required ||= entry.required === true;
       for (const set of entry.sets ?? []) prior.sets.set(setKey(set), set);
     });
+    // A variant of an item that is also picked (ECC's Kiro edition of a main skill) that would be written to the main
+    // edition's place is never installed with it: the variant is left out, with the reason, and the main edition is
+    // installed. A variant delivered elsewhere (an MCP server under its own key) installs beside it; picked alone, a
+    // variant is delivered as itself.
+    const places = info => {
+      try {
+        const plan = deliveryPlan(info, binding, planScope(binding, info.kind));
+        return new Set([...(plan.folder ? [plan.folder] : plan.files.map(file => file.segments)), ...plan.blocks.map(block => block.segments)]
+          .map(segments => `${plan.base}/${segments.join('/')}`));
+      } catch { return new Set(); }
+    };
+    for (const entry of merged.values()) {
+      const variantOf = entry.info.item.variantOf;
+      if (entry.excluded || !isRecord(variantOf) || typeof variantOf.itemId !== 'string') continue;
+      const main = merged.get(refKey({ framework: variantOf.framework ?? entry.info.ref.framework, itemId: variantOf.itemId }));
+      if (!main || main.excluded) continue;
+      const mainPlaces = places(main.info);
+      if (![...places(entry.info)].some(place => mainPlaces.has(place))) continue;
+      const hinted = Array.isArray(entry.info.item.hints?.tools) && entry.info.item.hints.tools.length === 1 ? selectTool(entry.info.item.hints.tools[0]) : undefined;
+      const name = typeof main.info.item.name === 'string' ? main.info.item.name : main.info.ref.itemId;
+      entry.excluded = true;
+      entry.leftOut = { reason: 'variant-of-selected', detail: `${hinted?.tool ? `${hinted.tool.label} version` : 'Another version'} of ${name}. ` +
+        `${name} is picked, so this version is left out.` };
+    }
     // Membership is Catalog's: an excluded entry never binds, neither as itself nor through its fallback, and an
     // excluded item is never used as another item's fallback.
     const excluded = new Set([...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)));
@@ -680,7 +704,8 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
       }
       return { entry, bound, plan, result: {
         item: entry.info.ref, support: cell.support, reason: cell.reason, observed: cell.observed, observedOn: cell.observedOn,
-        ...(boundAs ? { boundAs } : {}), ...(isExcluded ? { excluded: true } : {}), ...(notRendered ? { notRendered } : {}),
+        ...(boundAs ? { boundAs } : {}), ...(isExcluded ? { excluded: true } : {}), ...(entry.leftOut ? { leftOut: entry.leftOut } : {}),
+        ...(notRendered ? { notRendered } : {}),
         ...(cell.layout.register?.permissionStep && !isExcluded ?
           { permissionStep: permissionNotice(selectTool(binding.tool).tool.label, cell.layout.register.permissionStep) } : {}),
         deliveredSize: plan ? deliveredSize(bound, plan) : emptySize(), staticBlockers } };

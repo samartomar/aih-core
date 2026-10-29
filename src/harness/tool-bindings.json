@@ -2,7 +2,7 @@
   {
     "schema": "urn:aihq:harness:tool-binding:1.0.0",
     "tool": "claude",
-    "digest": "72c045a91db2b2d3872994f63fc07a9994ade50f39977a21e06bfdfbcbb44df7",
+    "digest": "3a4b13d5f9263fa9f4aee089c8e4e1d5ae7fe895b43f18bbc81e25dcdac6b9e2",
     "layouts": {
       "skill": {
         "support": "native",
@@ -105,7 +105,7 @@
       },
       "rule": {
         "support": "native",
-        "reason": "Recognised: the model used the rule.",
+        "reason": "Recognised: the model used the rule. Rules kept in a namespace folder are not yet observed.",
         "observations": [
           {
             "toolVersion": "2.1.308",
@@ -122,7 +122,8 @@
         ],
         "roots": {
           "project": ".claude/rules"
-        }
+        },
+        "namespace": "folder"
       },
       "hook": {
         "support": "native",
