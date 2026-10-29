@@ -934,16 +934,28 @@ depend on order. Per item the result is:
 - **Static blockers.** `protocol-not-spoken` (hook protocol or event the binding
   does not map), `required-but-unsupported` (a `required` item whose cell is
   `none` on this platform), `native-only-kind` (an agent or command the tool does
-  not read on this platform or has no location for) and `same-folder` (two
+  not read on this platform or has no location for), `same-folder` (two
   different items writing one skill or hook folder, or one file; a fallback that
-  is also a member writes the same place).
+  is also a member writes the same place) and `dependency-missing` (a selected
+  supporting document the item requires cannot be delivered beside it).
 - **Agreement with rendering.** Where `renderDelivery` would refuse the bound
-  item for another reason (for example `scope-not-bound` for a document or an
-  entry block the binding has no place for, `interpreter-required`,
-  `rule-text-ambiguous`), `notRendered` names it and the item delivers nothing.
-  `support` stays the cell's observed support; `notRendered` and any static
-  blocker override it, so read all three before showing an item as working. A
-  malformed item still refuses the whole check.
+  item for any other reason (for example `scope-not-bound` for an entry block the
+  binding has no place for, `interpreter-required`, `rule-text-ambiguous`), that
+  reason is also a static blocker, and `notRendered` names it. So an item reported
+  `support: native` with no static blocker renders: a test checks this for every
+  shipped binding and every real Catalog 1.7.0 content. `support` stays the cell's
+  observed support. A malformed item still refuses the whole check.
+- **Documents.** A `document` with `placement: project-folder` (Project basics)
+  goes to the project folder. Any other document (licences, notices, references)
+  is delivered beside the item that requires it: inside that item's own folder,
+  under the document's item id. Compatibility plans it beside each requiring item
+  in the request and reports the combined size.
+  - **No requiring item in the request:** the document is blocked with
+    `scope-not-bound`.
+  - **Requirers without their own folder:** agents, commands, rules and MCP servers
+    keep no folder, and their tools read those folders as content (ECC's notices
+    include `AGENTS.md` and `README.md`). Such a requirer is blocked with
+    `dependency-missing` rather than shown as working.
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
@@ -1964,6 +1976,12 @@ the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
 - **One selection per management id.** Two selections with the same `managementId`
   are invalid (`duplicate-management-id`) even in different scopes. Older policies
   keep their per-scope rule and remain valid, with their earlier review formats.
+
+`requiredBy` is a `renderDelivery` input for a supporting `document`. It names the
+Catalog item that requires the document, and the document is rendered beside that
+item, inside its folder under the document's item id. Render it once per requiring
+item. Without `requiredBy` a supporting document is refused with `scope-not-bound`.
+An item that does not require it is refused with `required-by-mismatch`.
 
 `grantApproval` is a `renderDelivery` input, not metadata: an approval is reviewed
 only through the operations it adds to the rendered recipe.
@@ -3043,7 +3061,10 @@ package, preserves every archive entry's bytes and metadata except the Linux
 facility's executable mode, refuses to overwrite an existing artifact, and
 reports the final archive's SHA-256 and integrity. Use this command on all
 producer platforms; raw `npm pack` can preserve missing executable bits from a
-Windows producer. See the [Linux packaging checks](docs/native-linux-verification.md#build-records-and-development-checks).
+Windows producer. Pack from a real `npm ci` install: npm bundles the bundled
+dependencies' own dependencies (such as `@sigstore/core`) only from installed
+files, so the command refuses a missing or linked `node_modules` (a symlink or
+Windows junction to another checkout's). See the [Linux packaging checks](docs/native-linux-verification.md#build-records-and-development-checks).
 
 Linux native verification pins exact runtime bytes. After distro updates change a
 pinned library, verification refuses with `isolation-unobserved`; see

@@ -21,3 +21,5 @@ src/harness/native/linux/facility -text
 test/fixtures/linux-runtime-recapture/*.json text eol=lf
 # Filled claim examples are compared byte for byte with their projections.
 examples/reporting/claims/*.json text eol=lf
+# Vendored Catalog contents are checked against their recorded SHA-256.
+test/fixtures/catalog-1.7.0/*.json text eol=lf

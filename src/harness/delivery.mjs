@@ -151,7 +151,15 @@ function hookRunner(info) {
  * facts. Shared by rendering and the static check so both describe the same delivery. `support` is the cell's
  * support where it is read (the platform's in the static check).
  */
-function deliveryPlan(info, binding, scope, { projectFolder, support } = {}) {
+/** Whether `requirer` lists `document` in its `requires` (a reference without a framework names the requirer's own). */
+function requiresDocument(requirer, document) {
+  const requires = isRecord(requirer.item.dependencies) && Array.isArray(requirer.item.dependencies.requires) ? requirer.item.dependencies.requires : [];
+  return requires.some(ref => isRecord(ref) && ref.itemId === document.ref.itemId && (ref.framework ?? requirer.ref.framework) === document.ref.framework);
+}
+/** The scope a cell delivers to when compatibility plans it without a request: the project where the binding names one. */
+const planScope = (binding, kind) => binding.layouts[kind].roots?.project ? 'project' : 'user';
+
+function deliveryPlan(info, binding, scope, { projectFolder, support, requirer } = {}) {
   const layout = binding.layouts[info.kind], { payload, path } = info;
   if (NATIVE_ONLY.has(info.kind) && ((support ?? layout.support) === 'none' || (!layout.roots.project && !layout.roots.user)))
     unavailable('native-only-kind', `${path}/kind`, `${binding.tool} does not read ${info.kind} items; they are delivered only where read natively.`);
@@ -206,6 +214,23 @@ function deliveryPlan(info, binding, scope, { projectFolder, support } = {}) {
     for (const member of info.content) file(member, [...plan.folder, ...segmentsOf(member.relPath)]);
   } else if (info.kind === 'mcp-server') {
     needRoot();
+  } else if (info.kind === 'document') {
+    const documents = Array.isArray(payload.files) && payload.files.length > 0 ?
+      payload.files.map((id, index) => material(info, id, `${path}/payload/files/${index}`)) : info.content;
+    if (payload.placement === 'project-folder') {
+      if (scope !== 'project') unavailable('scope-not-bound', `${path}/payload/placement`, 'A project-folder document is delivered only to a project.');
+      for (const member of documents) file(member, [...segmentsOf(projectFolder ?? 'ai-coding'), ...segmentsOf(member.relPath)]);
+    } else {
+      // Delivered beside what requires it: inside the requiring item's own folder, under the document's item id, so the
+      // tool never reads a notice or reference as a skill, rule, agent or command of its own.
+      if (!requirer) unavailable('scope-not-bound', `${path}/kind`,
+        'A supporting document is delivered beside the item that requires it; name that item in requiredBy.');
+      if (!requiresDocument(requirer, info)) invalid('required-by-mismatch', '/requiredBy', 'requiredBy names an item that does not require this document.');
+      const beside = deliveryPlan(requirer, binding, scope, { projectFolder });
+      if (!beside.folder) unavailable('scope-not-bound', '/requiredBy',
+        `${binding.tool} keeps no folder of its own for a ${requirer.kind} item, so there is no place beside it that the tool would not read as content.`);
+      for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
+    }
   } else {
     const root = needRoot();
     for (const member of info.content) file(member, [...root, ...segmentsOf(member.relPath)]);
@@ -283,7 +308,7 @@ function approvalOperation(binding, register, plan, scope, key) {
  * public deriveRecipeIdentity, binds both item identities and the binding digest. Rendering never grants authority:
  * the recipe is ordinary execution-policy content that Enterprise organization policy governs in full.
  */
-export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts, platform, installedVersion } = {}) {
+export function renderDelivery({ tool, item, binding, scope, projectFolder, grantApproval, contents, projectFacts, platform, installedVersion, requiredBy } = {}) {
   return guarded(() => {
     bindingFor(tool, binding);
     if (scope !== 'project' && scope !== 'user') invalid('scope', '/scope', 'Expected project or user.');
@@ -315,7 +340,8 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
       const cell = cellOn(binding, info.kind, platform, installedVersion);
       if (cell.support !== 'native') unavailable('kind-not-native', '/item/kind', cell.reason);
     }
-    const plan = deliveryPlan(info, binding, scope, { projectFolder });
+    const requirer = requiredBy === undefined ? undefined : readItem(requiredBy, '/requiredBy');
+    const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     const recipeId = `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
@@ -533,6 +559,18 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
     // excluded item is never used as another item's fallback.
     const excluded = new Set([...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)));
     const ordered = [...merged.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, entry]) => entry);
+    const beside = document => document.kind === 'document' && document.payload.placement !== 'project-folder';
+    // A supporting document is planned beside each requiring item in the request, as renderDelivery places it.
+    const planBeside = (document, support) => {
+      const placed = []; let refusal;
+      for (const requirer of ordered) if (!excluded.has(refKey(requirer.info.ref)) && requiresDocument(requirer.info, document)) {
+        try { placed.push(deliveryPlan(document, binding, planScope(binding, requirer.info.kind), { support, requirer: requirer.info })); }
+        catch (error) { if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error; refusal = error; }
+      }
+      if (placed.length === 0) throw refusal ?? new Refusal({ code: 'PREREQUISITE_UNAVAILABLE', reason: 'scope-not-bound', path: '/items',
+        message: 'A supporting document is delivered beside the item that requires it; no requiring item is selected.' });
+      return { ...placed[0], files: placed.flatMap(plan => plan.files) };
+    };
     const results = ordered.map(entry => {
       const own = cellOn(binding, entry.info.kind, platform, installedVersion);
       const isExcluded = excluded.has(refKey(entry.info.ref));
@@ -551,12 +589,14 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
         try {
           if (installedVersion !== undefined && cell.support !== 'native')
             unavailable('kind-not-native', '/item/kind', cell.reason);
-          plan = deliveryPlan(bound, binding, cell.layout.roots.project ? 'project' : 'user', { support: cell.support });
+          plan = beside(bound) ? planBeside(bound, cell.support) :
+            deliveryPlan(bound, binding, bound.kind === 'document' ? 'project' : planScope(binding, bound.kind), { support: cell.support });
         } catch (error) {
           if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error;
           const { reason, message } = error.refusal;
-          if (STATIC_BLOCKERS.has(reason)) staticBlockers.push({ code: reason, detail: message });
-          else notRendered = { reason, detail: message };
+          // Anything rendering would refuse blocks the item: support alone never reads as working.
+          if (!STATIC_BLOCKERS.has(reason)) notRendered = { reason, detail: message };
+          staticBlockers.push({ code: reason, detail: message });
         }
         if (entry.required && cell.support === 'none') staticBlockers.push({ code: 'required-but-unsupported',
           detail: `A required ${bound.kind} item is not supported by ${binding.tool} on ${platform.os} ${platform.arch}.` });
@@ -568,6 +608,17 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
           { permissionStep: permissionNotice(selectTool(binding.tool).tool.label, cell.layout.register.permissionStep) } : {}),
         deliveredSize: plan ? deliveredSize(bound, plan) : emptySize(), staticBlockers } };
     });
+    // An item whose required supporting document is selected but cannot sit beside it cannot be installed with it.
+    const documents = results.filter(row => !row.result.excluded && beside(row.bound));
+    for (const row of results) if (!row.result.excluded) for (const document of documents) {
+      if (!requiresDocument(row.entry.info, document.bound)) continue;
+      try { deliveryPlan(document.bound, binding, planScope(binding, row.entry.info.kind), { requirer: row.entry.info }); }
+      catch (error) {
+        if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error;
+        row.result.staticBlockers.push({ code: 'dependency-missing',
+          detail: `${document.bound.ref.itemId} cannot be delivered beside it: ${error.refusal.message}` });
+      }
+    }
     // Two different items writing one folder (a skill or hook folder) or one file. Items bound to the same item,
     // such as a fallback that is also a member, write the same place and do not collide.
     const writers = new Map();

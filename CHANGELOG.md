@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.39 delivers a required document beside the item that requires it.
+
+- `renderDelivery({ ..., requiredBy })` renders a supporting licence, notice or
+  reference document inside the requiring item's own folder (skills and hooks),
+  under the document's item id. Project basics documents go to the project folder.
+- Compatibility plans documents the same way. A requiring item its document cannot
+  sit beside (an agent, command, rule or MCP server, whose folders the tool reads
+  as content) is blocked with `dependency-missing`.
+- Every rendering refusal is now also a static blocker, so `support: native` with
+  no blocker means it renders. A test checks this against every shipped binding and
+  every real Catalog 1.7.0 content (vendored from Catalog 1b774e3d).
+- `npm run pack:distribution` refuses a missing or linked `node_modules`, which
+  would pack without transitive bundled dependencies such as `@sigstore/core`.
+
 Core 1.0.0-dev.38 adds execution policy 1.5.0, prepared work 1.7.0 and run result
 1.5.0.
 
