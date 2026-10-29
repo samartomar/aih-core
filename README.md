@@ -936,20 +936,25 @@ depend on order. Per item the result is:
   `none` on this platform), `native-only-kind` (an agent or command the tool does
   not read on this platform or has no location for), `same-folder` (two
   different items writing one skill or hook folder, or one file; a fallback that
-  is also a member writes the same place) and `dependency-missing` (a selected
-  supporting document the item requires cannot be delivered beside it).
+  is also a member writes the same place), `dependency-missing` (an item the item
+  requires is not in the request, or a supporting document it requires cannot be
+  delivered beside it) and `excluded-but-required` (an item it requires is left
+  out).
 - **Agreement with rendering.** Where `renderDelivery` would refuse the bound
   item for any other reason (for example `scope-not-bound` for an entry block the
-  binding has no place for, `interpreter-required`, `rule-text-ambiguous`), that
-  reason is also a static blocker, and `notRendered` names it. So an item reported
-  `support: native` with no static blocker renders: a test checks this for every
-  shipped binding and every real Catalog 1.7.0 content. `support` stays the cell's
+  binding has no place for, `interpreter-required`, `rule-text-ambiguous`),
+  `notRendered` names it. For a native cell that reason is also a static blocker,
+  so an item reported `support: native` with no static blocker renders. A test
+  checks this for every shipped binding, at every observed tool version, against
+  every real Catalog 1.7.0 content. An unconfirmed cell keeps only `notRendered`:
+  it is neither shown as working nor as "doesn't work". `support` stays the cell's
   observed support. A malformed item still refuses the whole check.
 - **Documents.** A `document` with `placement: project-folder` (Project basics)
   goes to the project folder. Any other document (licences, notices, references)
   is delivered beside the item that requires it: inside that item's own folder,
   under the document's item id. Compatibility plans it beside each requiring item
-  in the request and reports the combined size.
+  in the request that is installed as itself (not through a fallback) with no
+  blocker of its own, and reports the combined size.
   - **No requiring item in the request:** the document is blocked with
     `scope-not-bound`.
   - **Requirers without their own folder:** agents, commands, rules and MCP servers

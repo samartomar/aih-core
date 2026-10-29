@@ -51,13 +51,13 @@ export declare function renderDelivery(request: {
 
 /** The named blockers, plus the reason of any other rendering refusal (`scope-not-bound`, `interpreter-required`, ...). */
 export type StaticBlockerCode = 'protocol-not-spoken' | 'required-but-unsupported' | 'native-only-kind' | 'same-folder' | 'dependency-missing' |
-  (string & {});
+  'excluded-but-required' | (string & {});
 export interface Size { bytes: number; chars: number }
 export interface ItemCompatibility {
   item: ItemRef; support: BindingSupport; reason: string; observed: ObservedLevel;
   observedOn: { toolVersion: string; os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64'; observedAt: string } | null;
   boundAs?: { kind: BindingKind; item: ItemRef; viaFallback: true }; excluded?: true; permissionStep?: string;
-  /** Why renderDelivery would refuse this item for the binding; the same reason is also a static blocker. */
+  /** Why renderDelivery would refuse this item; for a native cell the same reason is also a static blocker. */
   notRendered?: { reason: string; detail: string };
   deliveredSize: Size & { alwaysLoaded: Size };
   staticBlockers: { code: StaticBlockerCode; detail: string }[];

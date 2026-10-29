@@ -435,17 +435,14 @@ await check('compatibility uses the exact installed CLI version without borrowin
     assert.deepEqual([item.support, item.observed, item.observedOn], ['unconfirmed', 'none', null]);
     assert.match(item.reason, /Not observed for 0\.164\.0/);
     assert.equal(item.notRendered.reason, 'kind-not-native');
-    assert.deepEqual(item.staticBlockers.map(blocker => blocker.code), ['kind-not-native'], 'what rendering refuses also blocks');
+    assert.deepEqual(item.staticBlockers, [], 'an unconfirmed cell is never shown as "doesn\'t work"');
     assert.deepEqual(item.deliveredSize, { bytes: 0, chars: 0, alwaysLoaded: { bytes: 0, chars: 0 } });
   }
   assert.match(byId(result, 'github').permissionStep, /Still needs your OK in Codex CLI/);
   const other = catalogItem({ id: 'other-review', kind: 'skill', files: SKILL_FILES, payload: { dirName: 'code-review' } });
   const collisions = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.164.0',
     items: [{ item: skill }, { item: other }] });
-  for (const item of collisions.items) {
-    assert.deepEqual(item.staticBlockers.map(blocker => blocker.code), ['kind-not-native'], 'a refusal blocks the item');
-    assert.ok(!item.staticBlockers.some(blocker => blocker.code === 'same-folder'), 'refused plans do not create same-folder collisions');
-  }
+  for (const item of collisions.items) assert.deepEqual(item.staticBlockers, [], 'refused plans do not create same-folder collisions');
   const fallback = catalogItem({ id: 'fallback', kind: 'rule', files: { 'fallback.md': 'Fallback.\n' }, payload: { placement: 'entry-block' } });
   const recovered = checkCompatibility({ tool: 'codex', binding, platform: WINDOWS, installedVersion: '0.163.0',
     items: [{ item: skill, fallback }] });

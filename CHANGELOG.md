@@ -10,9 +10,14 @@ Core 1.0.0-dev.39 delivers a required document beside the item that requires it.
 - Compatibility plans documents the same way. A requiring item its document cannot
   sit beside (an agent, command, rule or MCP server, whose folders the tool reads
   as content) is blocked with `dependency-missing`.
-- Every rendering refusal is now also a static blocker, so `support: native` with
-  no blocker means it renders. A test checks this against every shipped binding and
-  every real Catalog 1.7.0 content (vendored from Catalog 1b774e3d).
+- For a native cell, every rendering refusal is now also a static blocker, so
+  `support: native` with no blocker means it renders. A test checks this for every
+  shipped binding at every observed tool version, against every real Catalog 1.7.0
+  content (vendored from Catalog 1b774e3d). Unconfirmed cells keep only
+  `notRendered`.
+- An item whose required item is not in the request is blocked with
+  `dependency-missing`, and one whose required item is left out is blocked with
+  `excluded-but-required`.
 - `npm run pack:distribution` refuses a missing or linked `node_modules`, which
   would pack without transitive bundled dependencies such as `@sigstore/core`.
 

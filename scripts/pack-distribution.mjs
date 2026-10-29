@@ -20,7 +20,7 @@ assert.ok(process.env.npm_execpath, 'Run through npm run pack:distribution');
 // npm bundles the bundled dependencies' own dependencies (such as @sigstore/core) only from a real install; a linked
 // node_modules (a symlink or Windows junction to another checkout's) packs without them.
 const modules = (() => { try { return lstatSync(join(root, 'node_modules')); } catch { return undefined; } })();
-assert.ok(modules?.isDirectory() && !modules.isSymbolicLink(),
+assert.ok(modules?.isDirectory(),
   'Pack from a real `npm ci` install: node_modules is missing or linked, so bundled dependencies would be incomplete.');
 const destination = resolve(args[1] ?? root);
 const member = 'package/dist/harness/native/linux/facility';
