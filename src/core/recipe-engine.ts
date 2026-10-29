@@ -342,7 +342,7 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       ...(capturedMissing ? { reason: `executable-missing:${capturedMissing}` } : {}) } };
 }
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
-    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly { sha256: string; byteLength: number }[];
+    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly { id: string; path: string; sha256: string; byteLength: number }[];
       readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
   if ('reference' in selection.recipe) {
     const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });
@@ -590,7 +590,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       }
       const recipeIdentity = `sha256:${digest(recipeIdentityDescriptor(recipeSha256, recipe.materials))}`;
       const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[],
-        own: material.materials.map(({ sha256: digest, byteLength }) => ({ sha256: digest, byteLength })) };
+        own: material.materials.map(({ id, path, sha256: digest, byteLength }) => ({ id, path, sha256: digest, byteLength })) };
       selectionFacts.set(selection.id, facts);
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,

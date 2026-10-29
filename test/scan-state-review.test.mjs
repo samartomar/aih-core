@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { apply, prepare } from '../dist/core/index.js';
 import { deriveRecipeIdentity, validatePolicy } from '../dist/core/contracts.js';
-import { selectionScan } from '../dist/core/internal/item-scan.js';
+import { artifactEntries, selectionScan } from '../dist/core/internal/item-scan.js';
 import { renderDelivery, toolBindings } from '../dist/harness/contracts.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-scan-state-'));
@@ -29,6 +29,8 @@ const FRAMEWORK = 'example-framework';
 const POLICY_15 = 'urn:aihq:core:execution-policy:1.5.0';
 const SKILL = '---\nname: grill-me\ndescription: Ask hard questions\n---\nGrill the plan.\n';
 const OTHER = '---\nname: other\ndescription: Something else\n---\nOther bytes.\n';
+/** Scan captures files at their release package paths; a record names them by item-relative path and material id. */
+const SKILL_PATH = 'release/items/grill-me/SKILL.md';
 
 /** A Catalog release item with one content file and its behaviour file (the consumer fixture's shape). */
 function catalogItem(id, files) {
@@ -132,7 +134,7 @@ const review17 = prepared => conforms(prepared.review, 'urn:aihq:core:prepared-w
 
 test('a checked record names the scan, its coverage and Scan summary; never "verified" without a trust policy', async () => {
   const { work, catalog, project } = workspace();
-  const artifact = scanArtifact({ 'SKILL.md': SKILL });
+  const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
   const policy = policy15({ records: [itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL })], evidence: evidenceFor(work, [artifact]),
     excludedItems: [{ framework: FRAMEWORK, itemId: 'git-guard' }] });
   assert.equal(validatePolicy(policy).valid, true, JSON.stringify(validatePolicy(policy)));
@@ -156,7 +158,7 @@ test('a checked record names the scan, its coverage and Scan summary; never "ver
 test('a real scan of other bytes, relabelled as this item, is not-covered and its evidence is never "authenticated"', async () => {
   const { work, catalog, project } = workspace();
   // The artifact is genuine and signed, but it captured OTHER.md, not grill-me's SKILL.md.
-  const artifact = scanArtifact({ 'SKILL.md': OTHER });
+  const artifact = scanArtifact({ [SKILL_PATH]: OTHER });
   const relabelled = itemRecord(artifact.scanId, grill, { 'SKILL.md': OTHER });
   // A record that lists grill-me's own bytes while the artifact captured others fails on the artifact side too.
   const misreported = itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL }, { createdAt: '2026-10-28T10:00:00Z' });
@@ -174,7 +176,7 @@ test('a real scan of other bytes, relabelled as this item, is not-covered and it
 
 test('scan states follow Scan\'s decision table: not-scanned, unreadable, partial, not-covered coverage and not-authenticated', async () => {
   const { work, catalog, project } = workspace();
-  const artifact = scanArtifact({ 'SKILL.md': SKILL });
+  const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
   const evidence = evidenceFor(work, [artifact]);
   const state = async (records, evidenceControls = { acquire: true, trust: artifact.trust }) => {
     const prepared = await ask(policy15({ records, evidence }), project, controls(catalog, { evidence: evidenceControls }));
@@ -202,7 +204,7 @@ test('scan states follow Scan\'s decision table: not-scanned, unreadable, partia
 test('every REVIEW_STALE change is named from the owner\'s closed list: policy, index-status, scan-state, binding, target-file', async () => {
   const changed = async (mutate, { bindingDigest, prepareIndex, applyIndex, organization } = {}) => {
     const { work, catalog, project } = workspace();
-    const artifact = scanArtifact({ 'SKILL.md': SKILL });
+    const artifact = scanArtifact({ [SKILL_PATH]: SKILL });
     const evidence = evidenceFor(work, [artifact]);
     const policy = policy15({ records: [itemRecord(artifact.scanId, grill, { 'SKILL.md': SKILL })], evidence, bindingDigest });
     let organizationSource;
@@ -243,7 +245,7 @@ test('every REVIEW_STALE change is named from the owner\'s closed list: policy, 
   const revoked = await changed(nothing, { prepareIndex: offered, applyIndex: { ...offered, revoked: [{ framework: FRAMEWORK, itemId: grill.id }] } });
   assert.deepEqual([revoked.changed, revoked.detail], ['index-status', 'Grill me']);
   assert.equal((await changed(nothing, { prepareIndex: offered })).changed, 'index-status', 'an index withdrawn at Apply is a change');
-  const rescanned = await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact({ 'SKILL.md': OTHER }).bytes));
+  const rescanned = await changed(({ evidence }) => writeFileSync(evidence[0].location.path, scanArtifact({ [SKILL_PATH]: OTHER }).bytes));
   assert.deepEqual([rescanned.changed, rescanned.detail], ['scan-state', 'Grill me']);
   const rebound = await changed(nothing, { bindingDigest: 'e'.repeat(64) });
   assert.deepEqual([rebound.changed, rebound.detail], ['binding', 'Grill me']);
@@ -261,7 +263,7 @@ test('every REVIEW_STALE change is named from the owner\'s closed list: policy, 
 
 test('evidence stays authenticated for every record that covers a selection, and only those', async () => {
   const { work, catalog, project } = workspace();
-  const first = scanArtifact({ 'SKILL.md': SKILL }), second = scanArtifact({ 'SKILL.md': SKILL });
+  const first = scanArtifact({ [SKILL_PATH]: SKILL }), second = scanArtifact({ [SKILL_PATH]: SKILL });
   const trust = { keys: [...first.trust.keys, ...second.trust.keys], publishers: [] };
   const run = async records => {
     const prepared = await ask(policy15({ records, evidence: evidenceFor(work, [first, second]) }), project,
@@ -297,4 +299,34 @@ test('run result 1.5.0 admits only the owner\'s closed list; 1.4.0 keeps its pub
   ).properties.diagnostics.items.properties.changed.enum;
   assert.deepEqual(values('1.5.0'), ['policy', 'index-status', 'scan-state', 'binding', 'target-file']);
   assert.deepEqual(values('1.4.0'), ['policy', 'recipe', 'target-file', 'ownership', 'input', 'host', 'trust']);
+});
+
+test('real Scan records for Catalog 1.7 items count against the bytes Core delivers, and never for another item', async () => {
+  const { cases } = JSON.parse(readFileSync(new URL('./fixtures/scan-item-records.json', import.meta.url), 'utf8'));
+  assert.deepEqual(cases.map(entry => entry.name), ['extensions.matt.grill-me', 'extensions.hook.git-guard', 'ecc.mcp.clickhouse', 'ecc.mcp.cloudflare-docs']);
+  // Each record's report, carried unsigned: the bytes are Scan's, the authenticity is not claimed.
+  const read = async entry => {
+    const report = Buffer.from(canonical(entry.report));
+    const artifact = { schema: 'urn:aihq:scan:artifact:1.0.0', scanId: entry.value.scanId, report: { schema: entry.report.schema,
+      mediaType: 'application/json', sha256: sha256(report), byteLength: report.length, bytesBase64: report.toString('base64') }, annexes: [] };
+    const entries = await artifactEntries(Buffer.from(canonical(artifact)));
+    assert.ok(entries, entry.name);
+    return new Map([[entry.value.scanId, { readable: true, association: { scanId: entry.value.scanId, status: 'unverifiable', reason: 'unsigned' }, entries }]]);
+  };
+  const subject = item => ({ framework: item.frameworkId, itemId: item.itemId, contentSha256: item.contentSha256, behaviourSha256: item.behaviourSha256 });
+  // What Core captures for the selection: the item's content materials at their package paths.
+  const own = item => item.materials.filter(material => material.role === 'content')
+    .map(material => ({ id: material.materialId, path: material.capturePath, sha256: material.sha256, byteLength: material.byteLength }));
+  for (const entry of cases) {
+    const scan = selectionScan(subject(entry.item), [entry.value], own(entry.item), await read(entry));
+    // Scan's decision table: a matched record is partial when its scan was partial, else not-verified (unsigned here).
+    const expected = entry.value.coverage !== 'matched' ? ['not-covered', undefined] :
+      entry.value.completion === 'partial' ? ['partial', undefined] : ['not-verified', 'not-authenticated'];
+    assert.deepEqual([scan.scanId, scan.coverage, scan.scanState.state, scan.scanState.why],
+      [entry.value.scanId, entry.value.coverage, ...expected], entry.name);
+  }
+  // Another item's real record, relabelled with this item's identity, never counts.
+  const [grillMe, gitGuard] = cases;
+  const relabelled = { ...gitGuard.value, subject: grillMe.value.subject };
+  assert.equal(selectionScan(subject(grillMe.item), [relabelled], own(grillMe.item), await read(gitGuard)).scanState.state, 'not-covered');
 });

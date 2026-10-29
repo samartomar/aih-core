@@ -2043,11 +2043,16 @@ names, from the policy's `evidence` with `controls.evidence.acquire`. It then ap
 Scan's `verifyItemRecord` rule against the selection's own bytes:
 
 - the record's subject is this item, with both hashes;
-- every material the selection delivers appears in the record, captured with the
-  same SHA-256 and length;
-- every captured file the record lists is in the artifact's report capture, selected
-  for scanning, with the same bytes. The capture is checked against its own
-  `captureSha256`.
+- every material the selection delivers is the record's material with the same
+  Catalog material id, captured with the same SHA-256 and length;
+- the artifact's report capture holds those bytes, selected for scanning, at the
+  package path Core read them from. A record's `relPath` is item-relative, while
+  the capture is keyed by package path;
+- any other captured file the record lists (the behaviour file) is a selected capture
+  entry with the same bytes.
+
+The capture is checked against its own `captureSha256`. Scan reports 1.0.0 and 2.0.0
+are both read.
 
 A selection that delivers no captured bytes (an item whose behaviour is only its
 payload) cannot be checked this way, so no record counts for it: it is

@@ -16,8 +16,8 @@ interface CaptureEntry { sha256: string; byteLength: number; selected: boolean }
 /** An artifact named by a record: unreadable, or its authentication and the files its report captured. */
 export type ScanArtifact = { readable: false } |
   { readable: true; association: AssociationResult; entries: ReadonlyMap<string, CaptureEntry> };
-/** A material the selection delivers, as Core captured it. */
-export interface OwnMaterial { sha256: string; byteLength: number }
+/** A material the selection delivers, as Core captured it: its Catalog material id and package path. */
+export interface OwnMaterial { id: string; path: string; sha256: string; byteLength: number }
 export interface SelectionScan {
   scanId?: string; coverage?: ItemScanRecord['coverage']; scanState: ScanSummary;
   /** Scan ids of every record that passed the check with matched coverage: the artifacts that cover this selection's bytes. */
@@ -36,7 +36,8 @@ export async function artifactEntries(bytes: Uint8Array): Promise<ReadonlyMap<st
   try {
     const { reportBytes } = await validateArtifact(bytes);
     const report = record(strictParse(reportBytes, 'report', artifactLimits.report));
-    if (report.schema !== 'urn:aihq:scan:report:1.0.0') return undefined;
+    // Scan reports 1.0.0 and 2.0.0 carry the same capture and selection; Core reads nothing else from them.
+    if (report.schema !== 'urn:aihq:scan:report:1.0.0' && report.schema !== 'urn:aihq:scan:report:2.0.0') return undefined;
     const capture = record(record(report.source).capture);
     const domain = { 'aih-source-capture-1': 'aih.scan.capture.v1', 'aih-source-capture-2': 'aih.scan.capture.v2' }[String(capture.profile)];
     if (!domain || !Array.isArray(capture.entries) ||
@@ -58,9 +59,11 @@ export async function artifactEntries(bytes: Uint8Array): Promise<ReadonlyMap<st
 }
 
 /**
- * Scan's `verifyItemRecord` as Core can apply it: the subject is this item, every material the selection delivers is
- * one the record captured with the same bytes, and every captured file the record lists is in the artifact's capture,
- * selected for scanning, with the same bytes. A relabelled record (another item's bytes under this item's name) fails.
+ * Scan's `verifyItemRecord` as Core can apply it. The subject is this item. Every material the selection delivers is the
+ * record's material of the same id, captured with the same bytes, and the artifact's capture holds those bytes, selected
+ * for scanning, at the package path Core read them from (a record's `relPath` is item-relative; the capture is keyed by
+ * package path). Any other captured file the record lists (the behaviour file) is a selected capture entry with the same
+ * bytes. A relabelled record (another item's bytes under this item's name) fails.
  */
 export function recordCovers(scanRecord: ItemScanRecord, item: SelectionMetadata['item'], own: readonly OwnMaterial[],
     entries: ReadonlyMap<string, CaptureEntry>): boolean {
@@ -68,13 +71,15 @@ export function recordCovers(scanRecord: ItemScanRecord, item: SelectionMetadata
   if (subject.frameworkId !== item.framework || subject.itemId !== item.itemId ||
       subject.contentSha256 !== item.contentSha256 || subject.behaviourSha256 !== item.behaviourSha256) return false;
   const files = scanRecord.materials.filter(material => material.materialId !== PAYLOAD);
-  if (!own.every(material => files.some(listed => listed.captured && listed.sha256 === material.sha256 &&
-    listed.byteLength === material.byteLength))) return false;
-  return files.every(listed => {
-    if (!listed.captured) return true;
-    const entry = entries.get(listed.relPath);
-    return entry !== undefined && entry.selected && entry.sha256 === listed.sha256 && entry.byteLength === listed.byteLength;
-  });
+  const same = (a: OwnMaterial | CaptureEntry, b: { sha256: string; byteLength: number }) => a.sha256 === b.sha256 && a.byteLength === b.byteLength;
+  for (const material of own) {
+    const listed = files.find(entry => entry.materialId === material.id);
+    const entry = entries.get(material.path);
+    if (!listed?.captured || !same(material, listed) || !entry?.selected || !same(entry, listed)) return false;
+  }
+  const delivered = new Set(own.map(material => material.id));
+  return files.every(listed => !listed.captured || delivered.has(listed.materialId) ||
+    [...entries.values()].some(entry => entry.selected && same(entry, listed)));
 }
 
 const NONE = { error: 0, warning: 0, note: 0, unavailable: 0 };
