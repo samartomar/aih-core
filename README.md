@@ -2308,6 +2308,10 @@ shipped binding for `tool`:
   two entries for one framework are `duplicate-catalog-release`. Its configuration is
   checked against the rendered recipe's inputs at Prepare.
 
+In Enterprise, Prepare reads the organization's authority first, so a refused,
+unavailable or invalid organization source is reported before any release is fetched
+or read. The release and marker-block text count against the same per-policy capture
+limit as the recipes' materials, and only the text a marker block needs is read.
 Apply rechecks the release and material text read at Prepare like any captured
 material. `checkFileState` renders recipe-less selections the same way from a local
 release; an archive release is `remote-material-not-admitted` there. The policy

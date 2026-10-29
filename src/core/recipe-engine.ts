@@ -492,16 +492,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       ('tool' in organizationTarget ? organizationTarget.tool.id : organizationTarget.client) as NativeClientId;
     const targetFacts: OrganizationTargetFacts | undefined = organizationTarget === undefined ? undefined :
       { client: targetClient, ...(organizationTarget.repository === undefined ? {} : { repository: organizationTarget.repository }) };
-    // Execution policy 1.6.0: Core renders each recipe-less selection from its shipped binding and named Catalog release;
-    // every later step sees the rendered recipe as it would an inline one.
-    const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, controls.signal);
-    if (rendering.diagnostics.length) { result.diagnostics = rendering.diagnostics; return finish(); }
+    // Recipes the policy carries are declared now; recipe-less ones after the authority read renders them (below).
     const captureBudget = createMaterialCaptureBudget();
     for (const { recipe } of policy.selections) {
-      if ('reference' in recipe!) captureBudget.declareReference(recipe.reference);
-      else captureBudget.declareInline(recipe!.inline.materials);
+      if (recipe === undefined) continue;
+      if ('reference' in recipe) captureBudget.declareReference(recipe.reference);
+      else captureBudget.declareInline(recipe.inline.materials);
     }
-    captureBudget.seal();
     const resolutions = clone(request.resolutions ?? []);
     if (!Array.isArray(resolutions) || new Set(resolutions.map(item => `${item.selectionId}/${item.operationId}`)).size !== resolutions.length)
       throw new Error('resolution-invalid');
@@ -516,8 +513,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     for (const [selectionId, values] of Object.entries(privateInputs)) {
       const selection = policy.selections.find(item => item.id === selectionId);
       if (!selection || !values || typeof values !== 'object' || Array.isArray(values)) throw new Error('private-input-unknown');
-      const recipe = selection.recipe!;
-      if ('inline' in recipe) for (const name of Object.keys(values))
+      const recipe = selection.recipe;
+      if (recipe !== undefined && 'inline' in recipe) for (const name of Object.keys(values))
         if (!Object.hasOwn(recipe.inline.inputs, name) || !recipe.inline.inputs[name]?.sensitive)
           throw new Error('private-input-unknown');
     }
@@ -538,6 +535,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!parsed.valid || !parsed.document) { result.diagnostics = parsed.diagnostics; return finish(); }
       organization = { read, document: parsed.document, membership: new SetMembership(setMembers) };
     }
+    // Execution policy 1.6.0: Core renders each recipe-less selection from its shipped binding and named Catalog release,
+    // only now that any authority has been read. Its reads count against the same budget; every later step sees the
+    // rendered recipe as it would an inline one.
+    const recipeless = policy.selections.filter(selection => selection.recipe === undefined);
+    const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, captureBudget, controls.signal);
+    if (rendering.diagnostics.length) { result.diagnostics = rendering.diagnostics; return finish(); }
+    for (const selection of recipeless) {
+      const recipe = (selection.recipe as { inline: Recipe }).inline;
+      captureBudget.declareInline(recipe.materials);
+      for (const name of Object.keys(privateInputs[selection.id] ?? {}))
+        if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
+    }
+    captureBudget.seal();
     const admissions: AdmissionSelection[] = [];
     let obligations: OrganizationObligationsReview | undefined;
     const steps: PreparedStep[] = [];

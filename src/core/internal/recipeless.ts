@@ -4,7 +4,7 @@
 // through the same material sources and roots as recipe materials and verified by SHA-256 and length.
 import { renderDelivery, deliveryMaterialRoot, type CatalogItem, type DeliveryRefusal, type RenderedDelivery } from '../../harness/delivery.mjs';
 import { toolBindings, type ToolBinding } from '../../harness/tool-binding.mjs';
-import { captureInlineMaterials, type InlineMaterialDescriptor } from './material.js';
+import { captureInlineMaterials, type InlineMaterialDescriptor, type MaterialCaptureBudget } from './material.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
 import { codeUnitCompare } from './canonical.js';
 import type { Diagnostic, ExecutionPolicy, Recipe, Selection } from '../types.js';
@@ -47,9 +47,11 @@ const refusal = (code: Diagnostic['code'], reason: string, path: string, message
 /**
  * Renders every recipe-less selection of a policy in place, from the releases it names. Returns the diagnostics that
  * refuse the policy, and the captures Apply rechecks so the release and material text read here cannot change unseen.
+ * Every capture is charged to `budget` before it is sealed, so rendering and the recipes share one per-policy bound.
+ * Prepare calls this only after any organization authority read.
  */
-export async function renderRecipelessSelections(policy: ExecutionPolicy, roots: Record<string, string>, signal?: AbortSignal):
-    Promise<{ diagnostics: Diagnostic[]; captures: Recheck[] }> {
+export async function renderRecipelessSelections(policy: ExecutionPolicy, roots: Record<string, string>,
+    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ diagnostics: Diagnostic[]; captures: Recheck[] }> {
   const pending = policy.selections.map((selection, index) => ({ selection, index })).filter(({ selection }) => selection.recipe === undefined);
   if (!pending.length) return { diagnostics: [], captures: [] };
   // Requiring items are read too: a supporting document is rendered beside each one.
@@ -65,6 +67,7 @@ export async function renderRecipelessSelections(policy: ExecutionPolicy, roots:
   const descriptors: InlineMaterialDescriptor[] = references.map(release => ({ id: `catalog-release.${release.framework}`,
     source: release.source, path: release.path, sha256: release.sha256, byteLength: release.byteLength }))
     .sort((a, b) => codeUnitCompare(a.id, b.id));
+  budget.chargeInline(descriptors);
   const captured = await captureInlineMaterials(descriptors, roots, signal === undefined ? {} : { signal });
   const captures: Recheck[] = [captured];
   const diagnostics: Diagnostic[] = [];
@@ -117,18 +120,20 @@ export async function renderRecipelessSelections(policy: ExecutionPolicy, roots:
     const binding = toolBindings.find(candidate => candidate.tool === selection.tool);
     const render = (contents?: Record<string, string>) =>
       renderSelectionRecipe({ tool: selection.tool!, binding, item, scope: selection.scope, ...(contents ? { contents } : {}), requiredBy });
+    // A marker block carries its material's text: read from the Catalog root only the materials rendering asks for,
+    // each once. A block's material is never also a written recipe material, so nothing is captured twice.
+    const contents: Record<string, string> = {};
     let rendered = render();
-    if (rendered.status !== 'rendered' && rendered.reason === 'content-required') {
-      // A marker block carries its material's text: read the item's content materials from the Catalog root.
-      const members = item.materials.filter(member => member.role !== 'behaviour')
-        .map(member => ({ id: member.id, source: { kind: 'local' as const, input: deliveryMaterialRoot }, path: member.packagePath,
-          sha256: member.sha256, byteLength: member.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
-      const text = await captureInlineMaterials(members, roots, signal === undefined ? {} : { signal });
+    while (rendered.status !== 'rendered' && rendered.reason === 'content-required') {
+      const id = rendered.path?.startsWith('/contents/') ? rendered.path.slice('/contents/'.length) : undefined;
+      const member = item.materials.find(candidate => candidate.id === id && candidate.role !== 'behaviour');
+      if (!member || Object.hasOwn(contents, member.id)) break;
+      const wanted = [{ id: member.id, source: { kind: 'local' as const, input: deliveryMaterialRoot }, path: member.packagePath,
+        sha256: member.sha256, byteLength: member.byteLength }];
+      budget.chargeInline(wanted);
+      const text = await captureInlineMaterials(wanted, roots, signal === undefined ? {} : { signal });
       captures.push(text);
-      const contents: Record<string, string> = {};
-      for (const member of members) {
-        try { contents[member.id] = new TextDecoder('utf-8', { fatal: true }).decode(text.readMaterial(member.id)); } catch { /* Not text: never a block. */ }
-      }
+      try { contents[member.id] = new TextDecoder('utf-8', { fatal: true }).decode(text.readMaterial(member.id)); } catch { break; }
       rendered = render(contents);
     }
     if (rendered.status !== 'rendered') {

@@ -210,7 +210,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     // locally readable Catalog release; remote material is not admitted here.
     if (policy.selections.some(selection => selection.recipe === undefined)) {
       if ((policy.catalogReleases ?? []).some(release => release.source.kind !== 'local')) throw new Error('remote-material-not-admitted');
-      const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, controls.signal);
+      const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, createMaterialCaptureBudget(), controls.signal);
       if (rendering.diagnostics.length) return failWith('validation', rendering.diagnostics.map(item =>
         item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
     }
