@@ -991,8 +991,7 @@ depend on order. Per item the result is:
     `<project>/.aih/notices/<framework>/<document>/`, or `<home>/.aih/notices/...`
     in user scope. Compatibility plans and sizes that copy once. A document with
     another purpose (for example `reference`) still has no place beside such an
-    item, so the item is blocked with `dependency-missing`. (Amendment 3.2.2, owner
-    decision of 29 October 2026.)
+    item, so the item is blocked with `dependency-missing`.
 - **Fallbacks.** Where the item's own cell is not native and its fallback's cell
   is, the item binds as the fallback and `boundAs` reports it, with the
   fallback's support, size and blockers. A fallback is never used for an
@@ -2027,14 +2026,18 @@ Catalog item that requires the document. Render the document once per requiring 
   `required-by-mismatch`.
 
 **Every requiring item owns the one copy.** Every such recipe writes the same files
-with the same bytes. When Core already installs a file for another selection, with
-exactly these bytes and unchanged since it was recorded, the new selection gains a
-claim on it. Nothing is written and no adopt choice is offered.
-- The inventory lists the file under every owning selection, so a removal preview can
-  say "Kept; also part of {name}".
+with the same bytes. When Core already installs a file for other selections of the
+same Catalog item, with exactly these bytes and unchanged since it was recorded, the
+new selection gains a claim on it. Nothing is written and no adopt choice is offered.
+- The inventory lists the file under every owning selection: the document selection
+  rendered for each requirer. The selection whose `requires` names it gives the
+  requirer, so a removal preview can say "Kept; also part of {name}".
 - Removing one requirer keeps the copy for the others (`keep-shared`).
 - Removing the last one removes it, confirmed gone.
-- A person's own file is never acquired this way.
+- A person's own file, or one another item installed, is never acquired this way.
+- When the document changes, update every selection that owns the copy in one
+  request. Updating only some of them is a `conflict`, because the others still
+  own the old bytes.
 
 `grantApproval` is a `renderDelivery` input, not metadata: an approval is reviewed
 only through the operations it adds to the rendered recipe.

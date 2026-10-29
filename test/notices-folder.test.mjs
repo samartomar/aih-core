@@ -1,4 +1,4 @@
-// Amendment 3.2.2 (owner decision, 29 October 2026): a notice required by items without a folder of their own is installed
+// A notice required by items without a folder of their own is installed
 // once per framework in <project>/.aih/notices/<framework>/<document>/, owned by every requiring item. Removing one
 // requirer keeps the copy for the others; removing the last removes it, confirmed gone.
 import { test, afterEach } from 'node:test';
@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare, prepareManagedRemoval, prepareUpdate } from '../dist/core/index.js';
 import { removalClaims } from '../dist/core/contracts.js';
 import { renderDelivery, toolBindings } from '../dist/harness/contracts.mjs';
 import { sandbox } from './hook-group-fixture.mjs';
@@ -39,7 +39,7 @@ const rule = (id, text) => catalogItem({ id, kind: 'rule', payload: { applyTo: [
 const style = rule('style', '# Style\n'), naming = rule('naming', '# Naming\n');
 
 /** One rule and its notices, rendered as the Workbench renders them: the notices once beside (here: for) each rule. */
-function selectionsFor(requirer) {
+function selectionsFor(requirer, document = notices) {
   const describe = (entry, rendered, id, requires) => {
     assert.equal(rendered.status, 'rendered', JSON.stringify(rendered));
     return { id, managementId: id, scope: 'project', configuration: {}, requires, recipe: { inline: rendered.recipe },
@@ -48,7 +48,7 @@ function selectionsFor(requirer) {
   };
   const noticesId = `notices--${requirer.item.id}`;
   return [describe(requirer, renderDelivery({ tool: 'claude', item: requirer.item, binding: claude, scope: 'project' }), requirer.item.id, [noticesId]),
-    describe(notices, renderDelivery({ tool: 'claude', item: notices.item, binding: claude, scope: 'project', requiredBy: requirer.item }), noticesId, [])];
+    describe(document, renderDelivery({ tool: 'claude', item: document.item, binding: claude, scope: 'project', requiredBy: requirer.item }), noticesId, [])];
 }
 const approve = review => ({ reviewDigest: review.reviewDigest, approved: true, origin: 'automation' });
 
@@ -117,7 +117,44 @@ test('a requirer installed later joins the existing copy as an owner instead of 
   const later = await install(naming);
   const joined = later.review.operations.filter(op => op.id.startsWith('notices--naming/'));
   assert.deepEqual([...new Set(joined.map(op => `${op.effects}/${op.ownership}`))], ['already-satisfied/managed'], 'nothing written, no adopt choice');
+  // Another item writing the same bytes there gains no claim: it is offered to adopt the file instead.
+  const [, copy] = selectionsFor(naming);
+  const other = { ...copy, id: 'copy', managementId: 'copy', item: { ...copy.item, itemId: 'notices-copy' } };
+  const offered = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections: [other] },
+    target: { project: s.project } }, controls);
+  assert.ok(offered.review.operations.every(op => op.ownership !== 'managed'), JSON.stringify(offered.review.operations));
   const removal = await prepareManagedRemoval({ target: { project: s.project }, scope: 'project',
     removals: [{ managementId: 'style' }, { managementId: 'notices--style' }] }, { logging: 'off' });
   assert.deepEqual([...new Set(removal.removals.find(entry => entry.managementId === 'notices--style').members.map(member => member.action))], ['keep-shared']);
+});
+
+test('an upstream change to the shared copy updates it when every requirer updates together', async () => {
+  const s = sandbox('aih-notices-update-'); live.push(s);
+  const write = (root, entries) => { for (const entry of entries) for (const member of entry.content) {
+    mkdirSync(dirname(join(root, member.packagePath)), { recursive: true });
+    writeFileSync(join(root, member.packagePath), member.text);
+  } };
+  const install = async (catalog, selections) => {
+    const controls = { logging: 'off', materialRoots: { catalog } };
+    const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections },
+      target: { project: s.project } }, controls);
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+    assert.equal((await apply(prepared.prepared, approve(prepared.review), controls)).completion, 'complete', JSON.stringify(prepared.review.operations));
+    return prepared;
+  };
+  write(join(s.root, 'v1'), [notices, style, naming]);
+  await install(join(s.root, 'v1'), [...selectionsFor(style), ...selectionsFor(naming)]);
+  const updated = catalogItem({ id: 'notices', kind: 'document', payload: { files: ['m0', 'm1'], purpose: 'notice' },
+    files: { LICENSE: 'MIT\n', 'NOTICE.md': '# Notices, updated\n' } });
+  write(join(s.root, 'v2'), [updated, style, naming]);
+  const controls = { logging: 'off', materialRoots: { catalog: join(s.root, 'v2') } };
+  const replacements = [...selectionsFor(style, updated), ...selectionsFor(naming, updated)].filter(selection => selection.kind === 'document');
+  // Changing the copy under a requirer that is not updating stays a conflict.
+  const alone = await prepareUpdate({ target: { project: s.project }, scope: 'project', updates: [{ managementId: replacements[0].managementId, replacement: replacements[0] }] }, controls);
+  assert.notEqual(alone.preparation?.status, 'ready');
+  const result = await prepareUpdate({ target: { project: s.project }, scope: 'project',
+    updates: replacements.map(replacement => ({ managementId: replacement.managementId, replacement })) }, controls);
+  assert.equal(result.preparation?.status, 'ready', JSON.stringify(result.preparation?.diagnostics ?? result));
+  assert.equal((await apply(result.preparation.prepared, approve(result.preparation.review), controls)).completion, 'complete');
+  assert.equal(readFileSync(join(s.project, '.aih', 'notices', FRAMEWORK, 'notices', 'NOTICE.md'), 'utf8'), '# Notices, updated\n');
 });

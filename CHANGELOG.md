@@ -5,11 +5,13 @@
 Core 1.0.0-dev.41 delivers the notices and licences of items without a folder of their
 own (single-file agents, commands, rules, MCP server entries) once per framework to
 `<project>/.aih/notices/<framework>/<document>/` (user scope:
-`<home>/.aih/notices/...`), per amendment 3.2.2.
+`<home>/.aih/notices/...`).
 
 - Every requiring item owns the one copy. A selection writing a file Core already
-  installs for another selection, with the same unchanged bytes, gains a claim on it
-  instead of being offered to adopt it.
+  installs for another selection of the same Catalog item, with the same unchanged
+  bytes, gains a claim on it instead of being offered to adopt it.
+- When the document changes, updating every owning selection in one request replaces
+  the copy; updating only some of them stays a conflict.
 - Removing one requirer keeps the copy (`keep-shared`); the last removes it, confirmed
   gone.
 - Compatibility no longer blocks those items with `dependency-missing`. Documents with

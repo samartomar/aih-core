@@ -235,9 +235,9 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
       if (beside.folder) for (const member of documents) file(member, [...beside.folder, info.item.id, ...segmentsOf(member.relPath)]);
       // A requirer with no folder of its own (a single-file agent, command or rule, an MCP server entry) keeps its notices
       // and licences in the neutral folder no tool reads as content: one copy per framework document and scope, which
-      // every requiring item owns (amendment 3.2.2, owner decision of 29 October 2026).
+      // every requiring item owns.
       else if (NEUTRAL_PURPOSES.has(payload.purpose)) {
-        plan.neutral = true;
+        plan.placement = 'neutral';
         for (const member of documents) file(member, [...NEUTRAL_FOLDER, info.ref.framework, info.item.id, ...segmentsOf(member.relPath)]);
       } else unavailable('scope-not-bound', '/requiredBy',
         `${binding.tool} keeps no folder of its own for a ${requirer.kind} item, so there is no place beside it that the tool would not read as content.`);
@@ -357,7 +357,7 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     // One recipe per placement: a document rendered beside two items is two recipes, never one recipe that moves.
-    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.neutral ? 'for' : 'beside'}.${requirer.ref.itemId}` :
+    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.placement === 'neutral' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
       `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
     const materials = new Map(), operations = [], checks = [], inputs = {}, prerequisites = [];

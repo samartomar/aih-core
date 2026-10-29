@@ -83,6 +83,11 @@ test('an item whose required item is not selected, left out or has no place besi
   const fallback = checkCompatibility({ tool: 'codex', binding: codex, platform: WINDOWS, items: [{ item: skill, fallback: rule }, { item: notices }] });
   assert.equal(fallback.items.find(row => row.item.itemId === skill.id).boundAs?.viaFallback, true);
   assert.deepEqual([codes(fallback, skill.id), codes(fallback, notices.id)], [[], []]);
+  // Rendering agrees: the notices render for the bound fallback rule into the neutral folder.
+  const rendered = renderDelivery({ tool: 'codex', item: notices, binding: codex, scope: 'project', requiredBy: rule });
+  assert.equal(rendered.status, 'rendered', JSON.stringify(rendered));
+  assert.ok(rendered.recipe.operations.filter(op => op.kind === 'file.write')
+    .every(op => op.target.segments.map(part => part.literal).join('/').startsWith('.aih/notices/ecc/ecc.notices/')));
 });
 
 test('the required notices render beside Claude hooks and in the neutral folder for a rule', () => {
@@ -98,7 +103,7 @@ test('the required notices render beside Claude hooks and in the neutral folder 
   // Without the requiring item there is no place to put a supporting document.
   const alone = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project' });
   assert.deepEqual([alone.status, alone.reason], ['refused', 'scope-not-bound']);
-  // A rule keeps no folder of its own, so ECC's notices for it go to the neutral notices folder (amendment 3.2.2).
+  // A rule keeps no folder of its own, so ECC's notices for it go to the neutral notices folder.
   const rule = ecc.find(entry => entry.kind === 'rule' && requires(entry, item(ecc, 'ecc.notices')));
   const compat = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: [{ item: rule }, { item: item(ecc, 'ecc.notices') }] });
   const codes = id => compat.items.find(row => row.item.itemId === id).staticBlockers.map(blocker => blocker.code);
