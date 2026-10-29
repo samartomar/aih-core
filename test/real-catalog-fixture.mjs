@@ -1,6 +1,6 @@
-// The real Catalog 1.7.0 Superpowers set (16 items) with its notices, and AIH-Extensions' git-guard with its
-// notices: the 19 items the Workbench installs for the first product journey. Materials are the released package
-// bytes at their published package paths; nothing here is a hand-built stand-in for an item or its content.
+// Five real Catalog 1.7.0 items from the Workbench's first product journey: Superpowers' session-start hook and one
+// skill from its set, with their notices, and AIH-Extensions' git-guard hook with its notices. Materials are the
+// released package bytes at their published package paths; nothing here is a hand-built stand-in for an item or its content.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -48,9 +48,11 @@ function selection(itemId, requiredById) {
     tool: 'claude', name: item.name, kind: item.kind, origins };
 }
 
-/** The 19 real selections: Superpowers' 16 set members and notices, git-guard and its notices. */
+const fromSet = ['superpowers.skill.verification-before-completion', 'superpowers.hook.session-start'];
+/** The 5 real selections: a Superpowers skill and session-start hook with their notices, git-guard and its notices. */
 export function realSelections({ described = true } = {}) {
-  const ids = [...set.members.map(member => member.item.itemId), 'superpowers.notices', 'extensions.hook.git-guard', 'extensions.notices'];
+  assert.ok(fromSet.every(id => set.members.some(member => member.item.itemId === id)), 'both are Superpowers set members');
+  const ids = [...fromSet, 'superpowers.notices', 'extensions.hook.git-guard', 'extensions.notices'];
   for (const id of ids) {
     const item = items.get(id);
     assert.ok(item, id);
