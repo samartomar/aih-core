@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.45: execution policy 1.6.0 accepts recipe-less item selections.
+
+- A selection may name its Catalog item, tool, scope, configuration, requirements,
+  origins and `bindingDigest` without a `recipe`. Core renders the recipe at Prepare
+  from its shipped binding through `renderDelivery`, reading the item from the Catalog
+  release the policy names in `catalogReleases` through the existing material roots.
+  The rendering is byte-identical to the inline recipe a consumer would carry.
+- Inline and referenced recipes keep working unchanged, in 1.5.0 and 1.6.0. The policy
+  byte bound and the binding digest check are unchanged; ECC's default pick and its
+  full TypeScript profile for Claude Code now fit the bound.
+
 Core 1.0.0-dev.44: removing a selection leaves the project as it was before install.
 
 - Removing the last hook group from a `settings.json` Core created deletes the file

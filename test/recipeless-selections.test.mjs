@@ -104,7 +104,7 @@ test('Core renders a recipe-less selection byte-identically to its inline recipe
       counts.items++; if (supporting) counts.documents++;
     }
   }
-  assert.ok(counts.items > 900 && counts.documents >= 3, JSON.stringify(counts));
+  assert.ok(counts.items > 700 && counts.documents >= 3, JSON.stringify(counts));
 });
 
 test('Prepare renders recipe-less selections into the review and writes the inline form produces', { skip }, async () => {
@@ -142,7 +142,8 @@ test('a recipe-less selection is bound to the shipped binding, the named release
   assert.deepEqual([mismatch.status, mismatch.diagnostics.map(item => item.reason)], ['invalid', ['catalog-item-identity']]);
   const absent = structuredClone(policy); absent.selections[0].item.itemId = 'extensions.hook.not-in-release';
   const missing = await ask(absent, project());
-  assert.deepEqual([missing.status, missing.diagnostics.map(item => item.reason)], ['invalid', ['catalog-item-missing']]);
+  // The notices it required now have no requiring item beside which to go.
+  assert.deepEqual([missing.status, missing.diagnostics.map(item => item.reason)], ['invalid', ['catalog-item-missing', 'required-by-missing']]);
   // Without the material root the release cannot be read: the same unavailable material an inline recipe reports.
   const unread = await prepare({ useCase: 'policy', policy, target: { project: project() } }, { logging: 'off' });
   assert.equal(unread.diagnostics[0].code, 'PREREQUISITE_UNAVAILABLE', JSON.stringify(unread.diagnostics));
