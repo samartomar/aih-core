@@ -11,7 +11,7 @@ import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type Re
 import { localPolicySourceLabel } from '../harness/local-policy.mjs';
 import { contentFactsOf, SetMembership } from './internal/organization-content.js';
 import { selectTool } from '../harness/tool-registry.mjs';
-import { bindingPermissionNotice, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
+import { bindingLayout, bindingPermissionNotice, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
 import { isNativeClient } from './internal/policy-validation.js';
 import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
@@ -37,8 +37,10 @@ import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
-import { readPolicyEvidence } from './internal/policy-evidence.js';
-import type { EvidenceAssociation } from './evidence/types.js';
+import { readEvidence, readPolicyEvidence } from './internal/policy-evidence.js';
+import { selectionScan, type OwnMaterial, type ScanArtifact, type SelectionScan } from './internal/item-scan.js';
+import { releaseIndexStatus, validIndex, type ReleaseIndexStatus } from './internal/release-index.js';
+import type { AssociationResult, EvidenceAssociation } from './evidence/types.js';
 import type { NativeClientId } from './internal/native-clients.js';
 import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
 import type { Authorization, CheckResult, RunMember, Effective, HostControls, OperationSelection, OrganizationBinding, OrganizationObligationsReview, PolicyRequest, PreparationResult, PreparedHandle, PreparedReview, PreparedSelection, ResolutionInput, ReviewCheck, ReviewOperation, RunResult, StaleBinding } from './host-types.js';
@@ -96,6 +98,11 @@ interface PreparedState {
   /** Declared target bound with the organization; Apply rejects a request that no longer declares exactly this. */
   organizationTarget?: OrganizationTargetDeclaration;
   evidence?: EvidenceAssociation[];
+  /**
+   * Prepared work 1.7.0: what Apply checks again. The bytes each item selection delivers, to re-check its scan records,
+   * and each item's status in the consumer's release index at Prepare.
+   */
+  rechecks?: { own: Map<string, OwnMaterial[]>; indexStatus: Record<string, ReleaseIndexStatus> };
 }
 // Authority read outcome that is not a successful read; carried as a precise diagnostic.
 class AuthorityFailure extends Error {
@@ -126,19 +133,51 @@ const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 // Internal adapter input: never accepted through public request or host controls.
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
 const POLICY_14 = 'urn:aihq:core:execution-policy:1.4.0';
+const POLICY_15 = 'urn:aihq:core:execution-policy:1.5.0';
 const POLICY_13 = 'urn:aihq:core:execution-policy:1.3.0';
 const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0';
 const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
 const PREPARED_15 = 'urn:aihq:core:prepared-work:1.5.0' as const;
 const PREPARED_16 = 'urn:aihq:core:prepared-work:1.6.0' as const;
+const PREPARED_17 = 'urn:aihq:core:prepared-work:1.7.0' as const;
 const RESULT_14 = 'urn:aihq:core:run-result:1.4.0' as const;
+const RESULT_15 = 'urn:aihq:core:run-result:1.5.0' as const;
 /** The run result 1.4.0 schema's bound on `members`. */
 const MEMBER_REPORT_LIMIT = 65536;
 /** A reviewed binding that no longer holds at Apply; prepared work 1.6.0 reports which one. */
 class ReviewStale extends Error {
-  constructor(readonly changed: StaleBinding) { super('review-stale'); }
+  /** `detail` names what changed (a reviewed target, or a selection's name); run result 1.5.0 reports it. */
+  constructor(readonly changed: StaleBinding, readonly detail?: string) { super('review-stale'); }
 }
-const stale = (changed: StaleBinding): ReviewStale => new ReviewStale(changed);
+const stale = (changed: StaleBinding, detail?: string): ReviewStale => new ReviewStale(changed, detail);
+/**
+ * Run result 1.5.0's closed list for each Apply guard: a changed recipe or private input changes how the item is
+ * installed (`binding`); host, ownership and trust custody guard the reviewed target files.
+ */
+const OWNER_STALE: Readonly<Record<StaleBinding, StaleBinding>> = Object.freeze({ policy: 'policy', 'index-status': 'index-status',
+  'scan-state': 'scan-state', binding: 'binding', 'target-file': 'target-file', recipe: 'binding', input: 'binding',
+  host: 'target-file', ownership: 'target-file', trust: 'target-file' });
+/**
+ * Prepared work 1.7.0's Apply re-check beyond the files: each item's release-index status from the consumer's index now,
+ * its scan state from the evidence read again, and the binding Core now ships for its tool and kind.
+ */
+async function recheckReview(state: PreparedState, controls: HostControls): Promise<{ results: AssociationResult[]; scans: Map<string, SelectionScan> }> {
+  const { policy } = state.request;
+  const items = (state.review.selections ?? []).filter(selection => selection.layout !== undefined);
+  const statuses = indexStatuses(policy, controls.index);
+  for (const selection of items)
+    if (statuses[selection.selectionId] !== state.rechecks!.indexStatus[selection.selectionId]) throw stale('index-status', selection.name);
+  const read = await readEvidence(state.evidence, controls.evidence, controls.signal);
+  const scans = selectionScans(policy, state.rechecks!.own, read.artifacts);
+  for (const selection of items) {
+    const now = scans.get(selection.selectionId)!;
+    if (canonicalJson({ scanId: now.scanId ?? null, coverage: now.coverage ?? null, scanState: now.scanState }) !==
+        canonicalJson({ scanId: selection.scanId ?? null, coverage: selection.coverage ?? null, scanState: selection.scanState })) throw stale('scan-state', selection.name);
+  }
+  for (const selection of items)
+    if (bindingLayout(selection.tool!, selection.kind!)?.bindingDigest !== selection.layout!.bindingDigest) throw stale('binding', selection.name);
+  return { results: read.results, scans };
+}
 /** Custody guards that refuse because trust or session custody now claims a reviewed path; recovery and permission states pass through. */
 const TRUST_CLAIMS = new Set(['new-custody-legacy-request', 'trust-custody-conflict', 'session-ownership-conflict']);
 const POLICY_11 = 'urn:aihq:core:execution-policy:1.1.0';
@@ -168,6 +207,33 @@ function hookConflict(decision: HookDecision, groupId: string, path: string, pri
   return { code: 'STATE_CONFLICT', reason, message: hookConflictMessage(safeText(groupId, privateValues), decision.neighbor === undefined ? undefined : safeText(decision.neighbor, privateValues)),
     path: safeText(path, privateValues), guidance: hookGuidanceText(reason) };
 }
+/**
+ * Prepared work 1.7.0: each item selection's scan state from its records, checked against the bytes this preparation
+ * captured for it. A selection whose material was unavailable has no bytes to check, so no record can count for it.
+ */
+function selectionScans(policy: ExecutionPolicy, owned: ReadonlyMap<string, OwnMaterial[]>,
+    artifacts: ReadonlyMap<string, ScanArtifact>): Map<string, SelectionScan> {
+  const scans = new Map<string, SelectionScan>();
+  for (const selection of policy.selections) {
+    if (selection.item === undefined) continue;
+    scans.set(selection.id, selectionScan(selection.item, selection.scanRecords, selection.itemMaterials ?? [], owned.get(selection.id) ?? [], artifacts));
+  }
+  return scans;
+}
+/**
+ * An authenticated artifact counts only when a record naming it passed the check against some selection's own bytes with
+ * matched coverage; any other is never reported as authenticated.
+ */
+function coveredEvidence(results: AssociationResult[], scans: ReadonlyMap<string, SelectionScan>): AssociationResult[] {
+  const covering = new Set([...scans.values()].flatMap(scan => scan.covering));
+  return results.map(result => result.status === 'authenticated' && !covering.has(result.scanId!) ?
+    { scanId: result.scanId!, status: 'unverifiable', reason: 'not-covered' } : result);
+}
+/** Each item selection's status in the consumer's release index, as the inventory derives it; `unknown` without one. */
+function indexStatuses(policy: ExecutionPolicy, index: HostControls['index']): Record<string, ReleaseIndexStatus> {
+  return Object.fromEntries(policy.selections.flatMap(selection => selection.item === undefined ? [] :
+    [[selection.id, releaseIndexStatus(selection.item, index)]]));
+}
 const handles = new WeakMap<PreparedHandle, PreparedState>();
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T): T => cloneJsonValueStructureV1(value, 'request', 32);
@@ -184,7 +250,8 @@ export function dataObject(value: unknown, keys: string[]): void {
   }
 }
 export function validateControls(controls: HostControls): void {
-  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots', 'authentication', 'evidence']);
+  dataObject(controls, ['signal', 'logging', 'privateInputs', 'materialRoots', 'authentication', 'evidence', 'index']);
+  if (controls.index !== undefined && !validIndex(clone(controls.index))) throw new Error('release-index');
   if (controls.logging !== undefined && !['on', 'off'].includes(controls.logging)) throw new Error('logging');
   if (controls.signal !== undefined && !(controls.signal instanceof AbortSignal)) throw new Error('signal');
   if (controls.authentication !== undefined) {
@@ -275,7 +342,8 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       ...(capturedMissing ? { reason: `executable-missing:${capturedMissing}` } : {}) } };
 }
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
-    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
+    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly OwnMaterial[];
+      readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
   if ('reference' in selection.recipe) {
     const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });
     const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
@@ -375,9 +443,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-set-members-vibe', 'A Vibe policy does not accept organization set membership.')];
       return finish();
     }
-    if (isLocalSource(request.organizationSource) && policy.schema !== POLICY_14) {
+    if (isLocalSource(request.organizationSource) && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-local-review',
-        'A local organization source needs execution policy 1.4.0, whose review names the file.')];
+        'A local organization source needs execution policy 1.4.0 or 1.5.0, whose review names the file.')];
       return finish();
     }
     let organizationTarget: OrganizationTargetDeclaration | undefined;
@@ -467,9 +535,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
     const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
-    const namesSelections = policy.schema === POLICY_14;
+    const namesSelections = policy.schema === POLICY_14 || policy.schema === POLICY_15;
+    // Prepared work 1.7.0 adds each item's framework, layout and checked scan state, and the items left out.
+    const checksScans = policy.schema === POLICY_15;
     // Prepared work 1.6.0: what each selection delivers, measured from the bytes this preparation computed.
-    const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[] }>();
+    const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[]; own: OwnMaterial[] }>();
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
       let captured: Awaited<ReturnType<typeof captureSelection>>;
@@ -519,7 +589,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         inputs[`${selection.id}/${name}`] = { origin: spec.sensitive ? 'private' : Object.hasOwn(selection.configuration, name) ? 'explicit' : 'default' };
       }
       const recipeIdentity = `sha256:${digest(recipeIdentityDescriptor(recipeSha256, recipe.materials))}`;
-      const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[] };
+      const facts = { inputs: Object.keys(bound).sort(codeUnitCompare), delivered: [] as DeliveredEntry[], hookCommands: [] as string[],
+        own: material.materials.map(({ id, path, sha256: digest, byteLength }) => ({ id, path, sha256: digest, byteLength })) };
       selectionFacts.set(selection.id, facts);
       if (organization) admissions.push({ id: selection.id, organizationSelectionId: selection.organizationSelectionId!, scope: selection.scope,
         recipeIdentity, inputs: recipe.inputs, configuration: selection.configuration,
@@ -1038,7 +1109,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
-      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14) {
+      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
           message: 'Bounded configuration custody requires execution-policy 1.2.0 for cleanup.', encountered: policy.schema, supported: [POLICY_12] }];
         return finish();
@@ -1056,7 +1127,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let kept: PreparedStep['kept'];
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
-        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14) {
+        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
           result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
             encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
           return finish();
@@ -1225,7 +1296,23 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     preflightOwnershipCapacity(steps, ownership, selectionUpdates, itemUpdates);
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
-    const evidence = await readPolicyEvidence(policy.evidence, controls.evidence, controls.signal);
+    const read = await readEvidence(policy.evidence, controls.evidence, controls.signal);
+    // Prepared work 1.7.0: each item's scan state, its release-index status and the binding its recipe was rendered from.
+    const owned = new Map([...selectionFacts].map(([id, facts]) => [id, facts.own]));
+    const scans = checksScans ? selectionScans(policy, owned, read.artifacts) : new Map<string, SelectionScan>();
+    const evidence = checksScans ? coveredEvidence(read.results, scans) : read.results;
+    const indexStatus = checksScans ? indexStatuses(policy, controls.index) : undefined;
+    const layouts = new Map<string, NonNullable<PreparedSelection['layout']>>();
+    if (checksScans) for (const selection of policy.selections) {
+      if (selection.item === undefined) continue;
+      const shipped = bindingLayout(selection.tool!, selection.kind!);
+      if (!shipped) throw new Error('unknown-tool');
+      // The review names the binding the recipe was rendered from; one Core no longer ships is a conflict here and stale at Apply.
+      layouts.set(selection.id, { ...shipped, bindingDigest: selection.bindingDigest ?? shipped.bindingDigest });
+      if (selection.bindingDigest !== undefined && selection.bindingDigest !== shipped.bindingDigest)
+        conflicts.push(diagnostic('STATE_CONFLICT', 'binding-changed',
+          `${safeText(selection.name!, privateValues)} was rendered for another binding of ${safeText(selection.tool!, privateValues)}; render it again.`));
+    }
     const selections: PreparedSelection[] | undefined = namesSelections ? policy.selections.map(selection => {
       const facts = selectionFacts.get(selection.id);
       // The server no longer waits for the person's OK when this review writes its approval or finds it already given;
@@ -1238,6 +1325,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(source === undefined ? {} : { materialSource: source }),
         ...(selection.item === undefined ? {} : { item: clone(selection.item), tool: selection.tool!, name: safeText(selection.name!, privateValues),
           kind: selection.kind!, origins: clone(selection.origins!) }),
+        ...(checksScans && selection.item !== undefined ? { framework: selection.item.framework, layout: layouts.get(selection.id)!,
+          ...(({ scanId, coverage, scanState }) => clone({ ...(scanId ? { scanId, coverage } : {}), scanState }))(scans.get(selection.id)!) } : {}),
         ...(selection.projectFacts === undefined ? {} : { projectFacts: selection.projectFacts.map(fact => ({ ...fact, value: safeText(fact.value, privateValues) })) }),
         ...(facts?.hookCommands.length ? { hookCommands: facts.hookCommands } : {}),
         ...(step === undefined ? {} : { permissionStep: step }),
@@ -1245,13 +1334,16 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         // Unavailable material delivers nothing this preparation could measure.
         ...(facts ? { deliveredSize: selectionDeliveredSize(selection.kind, facts.delivered) } : {}) };
     }) : undefined;
-    const base = { schema: namesSelections ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
+    const base = { schema: checksScans ? PREPARED_17 : namesSelections ? PREPARED_16 : obligations ? PREPARED_15 : policy.schema === POLICY_12 || policy.schema === POLICY_13 ? PREPARED_14 : policy.schema === POLICY_11 ? PREPARED_11 : PREPARED_10, useCase: 'policy' as const, mode: organization ? 'enterprise' as const : 'vibe' as const,
       target: { scope: 'project' as const, project }, inputs: { policySha256: digest(policy), package: contractSupport.package,
         ...(organization ? { organization: clone('resolvedCommit' in organization.read ? { source: organization.read.source,
           resolvedCommit: organization.read.resolvedCommit, blobId: organization.read.blobId, contentDigest: organization.read.contentDigest,
           policyId: organization.document.id, helper: organization.read.helper } : { source: localPolicySourceLabel(organization.read.source),
           contentDigest: organization.read.contentDigest, policyId: organization.document.id, helper: organization.read.helper }) as unknown as OrganizationBinding } : {}) },
-      operations: steps.map(step => step.review), ...(selections ? { selections } : {}), observations, conflicts, omissions, evidence,
+      operations: steps.map(step => step.review), ...(selections ? { selections } : {}),
+      ...(checksScans ? { excluded: (policy.excludedItems ?? []).map(item => ({ item: { framework: item.framework, itemId: item.itemId },
+        reason: 'excluded-in-request' as const })) } : {}),
+      observations, conflicts, omissions, evidence,
       effectiveOptions: { logging: loggingOption(controls), inputs },
       ...(obligations ? { organizationObligations: obligations } : {}) };
     for (const step of steps) if (step.root && step.path && step.review.effects === 'remove-file') {
@@ -1285,6 +1377,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
         privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
+        ...(checksScans ? { rechecks: { own: owned, indexStatus: indexStatus! } } : {}),
         ...(organization ? { organization: clone({ source: organization.read.source, contentDigest: organization.read.contentDigest,
           ...('resolvedCommit' in organization.read ? { resolvedCommit: organization.read.resolvedCommit, blobId: organization.read.blobId } : {}) }) } : {}),
         ...(organizationTarget ? { organizationTarget } : {}) });
@@ -1367,14 +1460,18 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
   const unlocks: (() => void)[] = []; const releases: (() => void)[] = [];
   // Prepared work 1.6.0 reviews name the changed binding; older reviews keep their original diagnostics.
   let reportsChangedBinding = false;
+  // Prepared work 1.7.0 reviews name it from the owner's closed list (run result 1.5.0).
+  let ownerList = false;
+  let rechecked: Awaited<ReturnType<typeof recheckReview>> | undefined;
   try {
     validateControls(controls); result.effectiveOptions.logging = loggingOption(controls);
     await yieldToHost();
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
-    reportsChangedBinding = state.review.schema === PREPARED_16;
-    result.schema = reportsChangedBinding ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
+    reportsChangedBinding = state.review.schema === PREPARED_16 || state.review.schema === PREPARED_17;
+    ownerList = state.review.schema === PREPARED_17;
+    result.schema = ownerList ? RESULT_15 : reportsChangedBinding ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
     result.diagnostics.push(...state.review.omissions);
     result.operations = state.steps.map(step => ({ id: step.review.id, application: 'not-attempted',
@@ -1406,13 +1503,16 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const held = state;
     const assertInputs = () => {
       if (!holds(() => homedir() === held.home && pinsMatch(held.bindings))) throw stale('host');
-      if (!holds(() => digest(clone(held.request)) === held.requestDigest)) throw stale('policy');
+      // The request (recipes, selections, metadata) is not an organization's policy: run result 1.5.0 reports it as how
+      // the items are installed; earlier results keep `policy`.
+      if (!holds(() => digest(clone(held.request)) === held.requestDigest)) throw stale(ownerList ? 'binding' : 'policy');
       if (!holds(() => digest(clone(held.privateInputs ?? {})) === held.privateDigest)) throw stale('input');
       if (held.inventory && !holds(() => canonicalJson([...held.inventory!].sort()) === canonicalJson(ownershipInventory().entries.sort()))) throw stale('ownership');
     };
     assertInputs();
     await state.trustParticipant?.recheck();
     for (const capture of state.captures) if (!await capture.recheck()) throw stale('recipe');
+    if (state.rechecks) rechecked = await recheckReview(state, controls);
     const assertStep = (step: PreparedStep, initial = false) => {
       if (!step.path || !step.root) return;
       try { guardTrustMember(step.root,step.path,state?.trustParticipant?.allows(step.root,step.path) ?? false, state?.trustParticipant?.macosSession === true); }
@@ -1427,7 +1527,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       if (!pinsOkay || live.state === 'unreadable' ||
           (live.state === 'absent' ? null : sha256(live.bytes)) !== ((initial ? step.initialBefore : step.before) ? sha256((initial ? step.initialBefore : step.before)!) : null))
-        throw stale('target-file');
+        throw stale('target-file', step.review.details.target);
     };
     for (const step of state.steps) assertStep(step, true);
     for (const [root, ownership] of state.ownership)
@@ -1710,7 +1810,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
     result.diagnostics.push(authority ? authority.detail : reportsChangedBinding && error instanceof ReviewStale ?
-      { ...diagnostic(code, 'binding-changed', 'A reviewed binding changed after preparation.'), changed: error.changed } :
+      { ...diagnostic(code, 'binding-changed', 'A reviewed binding changed after preparation.'),
+        changed: ownerList ? OWNER_STALE[error.changed] : error.changed, ...(ownerList && error.detail ? { detail: error.detail } : {}) } :
       diagnostic(code, safeReason, 'The run could not complete the requested work.'));
     result.followUp.push('Inspect the reported outcomes, prepare again and approve the new review before further changes.');
     try { state?.trustParticipant?.finish(result); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED','trust-custody-pending','Protected trust recovery remains pending.')); }
@@ -1718,13 +1819,18 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
-  if (state && result.schema === RESULT_14) {
+  if (state && (result.schema === RESULT_14 || result.schema === RESULT_15)) {
     const members = memberReports(state, result);
     // A truncated list could support a false claim, so an oversized one is withheld entirely.
     if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
     else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
   }
-  if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
+  // The evidence Apply re-checked is the evidence it reports; it is read again only when Apply stopped before the re-check.
+  if (rechecked) result.evidence = coveredEvidence(rechecked.results, rechecked.scans);
+  else if (state?.rechecks) {
+    const read = await readEvidence(state.evidence, controls.evidence, controls.signal);
+    result.evidence = coveredEvidence(read.results, selectionScans(state.request.policy, state.rechecks.own, read.artifacts));
+  } else if (state) result.evidence = await readPolicyEvidence(state.evidence, controls.evidence, controls.signal);
   result.record = writeHistory(runId, historySafe(result, state?.project, bearerSecrets(controls)), result.effectiveOptions.logging.value);
   if (result.record.status === 'failed') result.diagnostics.push(diagnostic('PREREQUISITE_UNAVAILABLE', result.record.reason,
     'Routine history could not be saved; the returned outcomes remain available.'));

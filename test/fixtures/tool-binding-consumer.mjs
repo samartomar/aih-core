@@ -10,10 +10,15 @@ import acceptBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/accept
 import refuseBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/refuse.json' with { type: 'json' };
 import supportCases from '@aihq/core/fixtures/harness/tool-binding/1.0.0/support-cases.json' with { type: 'json' };
 import runRecord from '@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json' with { type: 'json' };
+import run1Record from '@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json' with { type: 'json' };
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
 const RUN_RECORD = createHash('sha256')
   .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-2026-10-23-windows-x64.json')))).digest('hex');
+const RUN1_RECORD = createHash('sha256')
+  .update(readFileSync(new URL(import.meta.resolve('@aihq/core/harness/run-records/canary-run1-2026-10-29-windows-x64.json')))).digest('hex');
+/** The 29 October run observed only Claude hooks (and the entry file, which is not a binding cell). */
+const isRun1 = item => item.runRecordDigest === RUN1_RECORD;
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
 const WINDOWS = { os: 'windows', arch: 'x64' };
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -65,6 +70,11 @@ check('the 23 October 2026 Windows observations are seeded with scope and run re
   const isolation = { claude: 'env-redirect-outside-profile', codex: 'env-redirect-outside-profile',
     copilot: 'env-redirect-outside-profile', kiro: 'sandbox', antigravity: 'sandbox' };
   for (const binding of toolBindings) for (const kind of KINDS) for (const item of binding.layouts[kind].observations) {
+    if (isRun1(item)) {
+      assert.deepEqual([binding.tool, kind, item.os, item.arch, item.coreVersion, item.toolVersion, item.isolation, item.recognised],
+        ['claude', 'hook', 'windows', 'x64', '1.0.0-dev.38', '2.1.312', 'env-redirect-outside-profile', 'recognised']);
+      continue;
+    }
     assert.deepEqual([item.os, item.arch, item.runRecordDigest, item.coreVersion], ['windows', 'x64', RUN_RECORD, '1.0.0-dev.37']);
     assert.ok(item.observedAt.startsWith('2026-10-23T'), item.observedAt);
     // Model-free list commands ran on the host, inside the user profile; they are kept but never count.
@@ -94,6 +104,15 @@ check('every observation names the published run record and claims no more than 
   assert.equal(runRecord.coreVersion, '1.0.0-dev.37');
   const session = tool => runRecord.sessions.find(item => item.tool === tool);
   for (const binding of toolBindings) for (const kind of KINDS) for (const item of binding.layouts[kind].observations) {
+    if (isRun1(item)) {
+      // The 29 October record: session A started at the observation time; its hook cell shows the level claimed.
+      assert.equal(run1Record.run, 'canary-run1-2026-10-29-windows-x64');
+      assert.deepEqual(run1Record.realProfilePathsTouched, []);
+      assert.ok(run1Record.sessions[0].startedAt.startsWith(item.observedAt.slice(0, 23)), item.observedAt);
+      assert.equal(item.recognised, run1Record.cells.find(entry => entry.tool === binding.tool && entry.kind === kind).recognised);
+      assert.equal(item.registered, 'not-checked');
+      continue;
+    }
     assert.equal(item.runRecordDigest, RUN_RECORD);
     if (item.isolation === 'env-redirect-inside-profile') {
       const listing = runRecord.listings.find(entry => entry.tool === binding.tool && entry.kind === kind);

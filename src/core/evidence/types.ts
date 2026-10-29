@@ -74,7 +74,9 @@ export type AssociationReason =
   | "unknown-producer"
   | "untrusted-key"
   | "invalid-signature"
-  | "resource-limit";
+  | "resource-limit"
+  /** Prepared work 1.7.0 and run result 1.5.0: the artifact covers no selection's own bytes, so it is not reported as authenticated. */
+  | "not-covered";
 export interface AssociationResult {
   scanId?: string;
   status: "skipped" | "authenticated" | "unverifiable";

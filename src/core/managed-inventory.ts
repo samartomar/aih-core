@@ -13,6 +13,7 @@ import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } fr
 import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
 import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
+import { releaseIndexStatus, validIndex, type ManagedInventoryIndex } from './internal/release-index.js';
 import { validateOrganizationPolicy } from './contracts.js';
 import { contentEntries, contentFactsOf, matchContent, SetMembership } from './internal/organization-content.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
@@ -38,14 +39,7 @@ export interface ManagedInventoryRequest {
    */
   organization?: { document: OrganizationPolicy; setMembers?: OrganizationSetMembers[] };
 }
-/** Consumer-supplied index and supersession data; Core never reads a Catalog itself. */
-export interface ManagedInventoryIndex {
-  /** Every item version the index currently offers. */
-  offered: SelectionMetadata['item'][];
-  /** Revoked items; identities, when given, narrow the revocation to that exact version. */
-  revoked?: (CatalogItemRef & { contentSha256?: string; behaviourSha256?: string })[];
-  superseded?: { item: CatalogItemRef; by: CatalogItemRef }[];
-}
+export type { ManagedInventoryIndex } from './internal/release-index.js';
 export interface ManagedInventoryControls { signal?: AbortSignal; budgetMs?: number }
 export interface ManagedInventorySelection {
   managementId: string;
@@ -323,37 +317,6 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   }
 }
 
-const isHex = (value: unknown): boolean => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const isId = (value: unknown): boolean => typeof value === 'string' && value.length > 0 && value.length <= 128;
-const isRef = (value: unknown, identities: 'required' | 'optional' | 'none'): boolean => {
-  const keys = ['framework', 'itemId', ...(identities === 'required' ? ['contentSha256', 'behaviourSha256'] : [])];
-  const optional = identities === 'optional' ? ['contentSha256', 'behaviourSha256'] : [];
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return keys.every(key => Object.hasOwn(record, key)) && Object.keys(record).every(key => keys.includes(key) || optional.includes(key)) &&
-    isId(record.framework) && isId(record.itemId) && [...keys, ...optional].slice(2).every(key => record[key] === undefined || isHex(record[key]));
-};
-function validIndex(value: unknown): value is ManagedInventoryIndex {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const index = value as Record<string, unknown>;
-  const list = (entry: unknown, check: (item: unknown) => boolean) => Array.isArray(entry) && entry.length <= 65536 && entry.every(check);
-  return Object.keys(index).every(key => ['offered', 'revoked', 'superseded'].includes(key)) && list(index.offered, item => isRef(item, 'required')) &&
-    (index.revoked === undefined || list(index.revoked, item => isRef(item, 'optional'))) &&
-    (index.superseded === undefined || list(index.superseded, item => !!item && typeof item === 'object' && !Array.isArray(item) &&
-      Object.keys(item).length === 2 && isRef((item as { item: unknown }).item, 'none') && isRef((item as { by: unknown }).by, 'none')));
-}
-
-const same = (a: CatalogItemRef, b: CatalogItemRef) => a.framework === b.framework && a.itemId === b.itemId;
-/** Derived only from the consumer's index; without an index or a recorded identity the state is unknown. */
-function updateState(item: SelectionMetadata['item'] | null, index: ManagedInventoryIndex | undefined): ManagedInventorySelection11['updateState'] {
-  if (!item || !index) return 'unknown';
-  if (index.revoked?.some(entry => same(entry, item) && (entry.contentSha256 === undefined || entry.contentSha256 === item.contentSha256) &&
-    (entry.behaviourSha256 === undefined || entry.behaviourSha256 === item.behaviourSha256))) return 'revoked';
-  if (index.superseded?.some(entry => same(entry.item, item))) return 'superseded';
-  const offered = index.offered.filter(entry => same(entry, item));
-  if (!offered.length) return 'no-longer-offered';
-  return offered.some(entry => entry.contentSha256 === item.contentSha256 && entry.behaviourSha256 === item.behaviourSha256) ? 'current' : 'update-available';
-}
 const STRENGTH = ['required', 'recommended', 'permitted'] as const;
 /**
  * Enterprise admission of the recorded recipe identity, with any organization 1.2.0 content entry matching the recorded
@@ -427,7 +390,7 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
     };
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
       origins: facts?.origins ?? [], ...(facts?.projectFacts ? { projectFacts: clone(facts.projectFacts) } : {}),
-      ...(source ? { materialSource: { ...source } } : {}), members, updateState: updateState(facts?.item ?? null, request.index),
+      ...(source ? { materialSource: { ...source } } : {}), members, updateState: releaseIndexStatus(facts?.item ?? null, request.index),
       ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
         new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ?? null },
         new SetMembership(request.organization.setMembers)) } : {}),

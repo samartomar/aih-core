@@ -28,8 +28,8 @@ test('packed public contracts load every declared fixture and check without Node
     copyFileSync(new URL('./fixtures/package-support-consumer.mjs',import.meta.url),join(consumer,'check.mjs'));
     const receipt = JSON.parse(run(['check.mjs']).trim());
     assert.equal(receipt.status,'passed');
-    assert.equal(receipt.contracts,63);
-    assert.equal(receipt.fixtures,111);
+    assert.equal(receipt.contracts,66);
+    assert.equal(receipt.fixtures,116);
     const browser = await build({absWorkingDir:consumer,stdin:{resolveDir:consumer,contents:`
       import {checkContracts,contractSupport,validatePackageSupport} from '@aihq/core/contracts';
       const make = (name,role,fixtures=[]) => ({schema:'urn:aihq:package-support:1.1.0',package:{name,version:'0.1.0'},contracts:[{id:'example',role,versions:['1.0.0'],schemaExport:'example/schema',fixtures}],entries:[]});

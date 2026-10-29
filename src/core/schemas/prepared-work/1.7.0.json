@@ -1,0 +1,1531 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:prepared-work:1.7.0",
+  "title": "Core prepared work naming each selection's item, framework, layout and checked scan state, and the items left out",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "useCase",
+    "mode",
+    "target",
+    "inputs",
+    "operations",
+    "selections",
+    "observations",
+    "conflicts",
+    "omissions",
+    "effectiveOptions",
+    "reviewDigest",
+    "excluded"
+  ],
+  "properties": {
+    "evidence": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "scanId": {
+            "type": "string",
+            "pattern": "^scan:sha256:[a-f0-9]{64}$"
+          },
+          "status": {
+            "enum": [
+              "skipped",
+              "authenticated",
+              "unverifiable"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "not-supplied",
+              "not-requested",
+              "unavailable",
+              "unsupported-artifact",
+              "malformed",
+              "id-mismatch",
+              "byte-mismatch",
+              "unsigned",
+              "unknown-producer",
+              "untrusted-key",
+              "invalid-signature",
+              "resource-limit",
+              "not-covered"
+            ]
+          },
+          "producerIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "keyId": {
+            "type": "string",
+            "pattern": "^ed25519:[a-f0-9]{64}$"
+          },
+          "reportRead": {
+            "enum": [
+              "supported",
+              "unsupported",
+              "not-requested"
+            ]
+          }
+        }
+      }
+    },
+    "schema": {
+      "const": "urn:aihq:core:prepared-work:1.7.0"
+    },
+    "useCase": {
+      "const": "policy"
+    },
+    "mode": {
+      "enum": [
+        "vibe",
+        "enterprise"
+      ]
+    },
+    "target": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/target"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policySha256",
+        "package"
+      ],
+      "properties": {
+        "policySha256": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/policySha256"
+        },
+        "package": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+        },
+        "organization": {
+          "oneOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/organization"
+            },
+            {
+              "$ref": "#/$defs/localOrganization"
+            }
+          ]
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "file.write",
+              "config.entries",
+              "config.member",
+              "text.block",
+              "file.remove",
+              "process.run",
+              "hook.group"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "effects": {
+            "enum": [
+              "create-file",
+              "replace-file",
+              "remove-file",
+              "already-satisfied",
+              "conflict",
+              "opaque-process",
+              "unavailable"
+            ]
+          },
+          "ownership": {
+            "enum": [
+              "managed",
+              "unowned"
+            ]
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                },
+                "details": {
+                  "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/reviewDetails"
+                },
+                "kind": {
+                  "enum": [
+                    "file.sha256",
+                    "process.exit"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "purpose",
+                "kind",
+                "details"
+              ]
+            }
+          },
+          "details": {
+            "$ref": "#/$defs/reviewDetails"
+          },
+          "selectionId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "purpose",
+          "kind",
+          "scope",
+          "effects",
+          "ownership",
+          "requires",
+          "checks",
+          "details",
+          "selectionId"
+        ],
+        "if": {
+          "properties": {
+            "kind": {
+              "const": "hook.group"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "then": {
+          "properties": {
+            "details": {
+              "type": "object",
+              "properties": {
+                "hookGroup": {}
+              },
+              "required": [
+                "hookGroup"
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "details": {
+              "not": {
+                "type": "object",
+                "properties": {
+                  "hookGroup": {}
+                },
+                "required": [
+                  "hookGroup"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "selections": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selectionId",
+          "managementId",
+          "scope",
+          "inputs"
+        ],
+        "dependentRequired": {
+          "item": [
+            "tool",
+            "name",
+            "kind",
+            "origins",
+            "framework",
+            "layout",
+            "scanState"
+          ],
+          "tool": [
+            "item",
+            "name",
+            "kind",
+            "origins",
+            "framework",
+            "layout",
+            "scanState"
+          ],
+          "name": [
+            "item",
+            "tool",
+            "kind",
+            "origins",
+            "framework",
+            "layout",
+            "scanState"
+          ],
+          "kind": [
+            "item",
+            "tool",
+            "name",
+            "origins",
+            "framework",
+            "layout",
+            "scanState"
+          ],
+          "origins": [
+            "item",
+            "tool",
+            "name",
+            "kind",
+            "framework",
+            "layout",
+            "scanState"
+          ],
+          "framework": [
+            "item",
+            "tool",
+            "name",
+            "kind",
+            "origins",
+            "layout",
+            "scanState"
+          ],
+          "layout": [
+            "item",
+            "tool",
+            "name",
+            "kind",
+            "origins",
+            "framework",
+            "scanState"
+          ],
+          "scanState": [
+            "item",
+            "tool",
+            "name",
+            "kind",
+            "origins",
+            "framework",
+            "layout"
+          ],
+          "scanId": [
+            "scanState",
+            "coverage"
+          ],
+          "coverage": [
+            "scanState",
+            "scanId"
+          ]
+        },
+        "properties": {
+          "selectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "managementId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "user"
+            ]
+          },
+          "item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "framework",
+              "itemId",
+              "contentSha256",
+              "behaviourSha256"
+            ],
+            "properties": {
+              "framework": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "itemId": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "contentSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "behaviourSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "kind": {
+            "enum": [
+              "skill",
+              "agent",
+              "command",
+              "rule",
+              "hook",
+              "mcp-server",
+              "document"
+            ]
+          },
+          "origins": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/$defs/origin"
+            }
+          },
+          "projectFacts": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "field",
+                "value",
+                "confidence"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "confidence": {
+                  "enum": [
+                    "detected",
+                    "inferred"
+                  ]
+                }
+              }
+            }
+          },
+          "hookCommands": {
+            "type": "array",
+            "maxItems": 8192,
+            "items": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "permissionStep": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "inputs": {
+            "type": "array",
+            "maxItems": 256,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "deliveredSize": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bytes",
+              "chars"
+            ],
+            "properties": {
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "alwaysLoaded": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "bytes",
+                  "chars"
+                ],
+                "properties": {
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "chars": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "materialSource": {
+            "$ref": "#/$defs/gitProvenance"
+          },
+          "framework": {
+            "$ref": "#/$defs/catalogId"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bindingDigest",
+              "support",
+              "observed"
+            ],
+            "properties": {
+              "bindingDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "support": {
+                "enum": [
+                  "native",
+                  "none",
+                  "unconfirmed"
+                ]
+              },
+              "observed": {
+                "enum": [
+                  "recognised",
+                  "registered",
+                  "listed-only",
+                  "delivered",
+                  "none"
+                ]
+              }
+            }
+          },
+          "scanId": {
+            "type": "string",
+            "pattern": "^scan:sha256:[a-f0-9]{64}$"
+          },
+          "coverage": {
+            "enum": [
+              "matched",
+              "mismatched",
+              "unavailable",
+              "invalid"
+            ]
+          },
+          "scanState": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "findings",
+              "suppressed",
+              "scannedAt"
+            ],
+            "properties": {
+              "state": {
+                "enum": [
+                  "verified",
+                  "not-verified",
+                  "partial",
+                  "not-covered",
+                  "not-scanned",
+                  "unreadable"
+                ]
+              },
+              "why": {
+                "enum": [
+                  "not-authenticated",
+                  "unchecked",
+                  "offline",
+                  "revoked",
+                  "detector-missing",
+                  "profile-not-allowed",
+                  "future-dated",
+                  "older-than-policy"
+                ]
+              },
+              "findings": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "error",
+                  "warning",
+                  "note",
+                  "unavailable"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "warning": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "note": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unavailable": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "suppressed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "scannedAt": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 40
+                  }
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "not-verified"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "why": {}
+                  },
+                  "required": [
+                    "why"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "properties": {
+                      "why": {}
+                    },
+                    "required": [
+                      "why"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "observations": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/observations"
+    },
+    "conflicts": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/conflicts"
+    },
+    "omissions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/omissions"
+    },
+    "effectiveOptions": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/effectiveOptions"
+    },
+    "reviewDigest": {
+      "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/reviewDigest"
+    },
+    "organizationObligations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "fulfillment",
+        "advisory"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "basis",
+            "client"
+          ],
+          "properties": {
+            "basis": {
+              "const": "declared"
+            },
+            "client": {
+              "enum": [
+                "claude",
+                "codex",
+                "cursor",
+                "gemini",
+                "copilot",
+                "windsurf",
+                "opencode",
+                "kimi",
+                "kiro",
+                "antigravity",
+                "zed"
+              ]
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "fulfillment": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "fulfilled",
+                  "not-fulfilled",
+                  "unknown",
+                  "unavailable"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              },
+              "content": {
+                "$ref": "#/$defs/organizationContent"
+              }
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "recipeIdentity": {}
+                },
+                "required": [
+                  "recipeIdentity"
+                ]
+              },
+              {
+                "properties": {
+                  "content": {}
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            ]
+          }
+        },
+        "advisory": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope",
+              "selectionId",
+              "applicability",
+              "unknown",
+              "status",
+              "selections"
+            ],
+            "properties": {
+              "scope": {
+                "enum": [
+                  "project",
+                  "user"
+                ]
+              },
+              "selectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "recipeIdentity": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "applicability": {
+                "enum": [
+                  "applies",
+                  "unknown"
+                ]
+              },
+              "unknown": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "client",
+                    "repository"
+                  ]
+                }
+              },
+              "status": {
+                "enum": [
+                  "taken",
+                  "not-taken",
+                  "unavailable"
+                ]
+              },
+              "selections": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                },
+                "maxItems": 4096
+              },
+              "content": {
+                "$ref": "#/$defs/organizationContent"
+              }
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "recipeIdentity": {}
+                },
+                "required": [
+                  "recipeIdentity"
+                ]
+              },
+              {
+                "properties": {
+                  "content": {}
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "excluded": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item",
+          "reason"
+        ],
+        "properties": {
+          "item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "framework",
+              "itemId"
+            ],
+            "properties": {
+              "framework": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "itemId": {
+                "$ref": "#/$defs/catalogId"
+              }
+            }
+          },
+          "reason": {
+            "const": "excluded-in-request"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "enterprise"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "policySha256": {},
+              "organization": {}
+            },
+            "required": [
+              "policySha256",
+              "organization"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "not": {
+              "properties": {
+                "organization": {}
+              },
+              "required": [
+                "organization"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "catalogId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "chosen"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded",
+            "set"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "in-set"
+            },
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "framework",
+                "setId",
+                "setSha256"
+              ],
+              "properties": {
+                "framework": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "setId": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "setSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "options": {
+              "type": "object",
+              "maxProperties": 64,
+              "propertyNames": {
+                "$ref": "#/$defs/catalogId"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "$ref": "#/$defs/catalogId"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reasonIncluded",
+            "requiredBy"
+          ],
+          "properties": {
+            "reasonIncluded": {
+              "const": "required-by"
+            },
+            "requiredBy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "itemId"
+              ],
+              "properties": {
+                "framework": {
+                  "$ref": "#/$defs/catalogId"
+                },
+                "itemId": {
+                  "$ref": "#/$defs/catalogId"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "reviewDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "executable": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "stdinProtected": {
+          "type": "boolean"
+        },
+        "material": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/effectiveInteger"
+        },
+        "maxOutputBytes": {
+          "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/$defs/effectiveInteger"
+        },
+        "declaredEffects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "materialSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "materialBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executableSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedExitCodes": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "format": {
+          "enum": [
+            "json",
+            "jsonc",
+            "toml",
+            "ini",
+            "yaml",
+            "properties"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "action": {
+                "enum": [
+                  "set",
+                  "remove"
+                ]
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "action"
+            ]
+          }
+        },
+        "blockId": {
+          "type": "string"
+        },
+        "startMarker": {
+          "type": "string"
+        },
+        "endMarker": {
+          "type": "string"
+        },
+        "blockAction": {
+          "enum": [
+            "set",
+            "remove"
+          ]
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "hookGroup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container",
+            "groupId",
+            "selector",
+            "action",
+            "matchedIndex",
+            "memberBeforeSha256",
+            "memberAfterSha256",
+            "targetBeforeSha256",
+            "desiredGroup"
+          ],
+          "properties": {
+            "container": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "groupId": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "valueSha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    ]
+                  }
+                },
+                "valueSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "action": {
+              "enum": [
+                "set",
+                "remove"
+              ]
+            },
+            "matchedIndex": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "memberBeforeSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "memberAfterSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "targetBeforeSha256": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "desiredGroup": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "member": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container",
+            "action"
+          ],
+          "properties": {
+            "container": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "action": {
+              "enum": [
+                "add",
+                "remove"
+              ]
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool"
+          ],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      },
+      "required": []
+    },
+    "gitProvenance": {
+      "description": "Where a git-sourced selection came from: the exact GitHub repository and 40-hex commit, and identity owner/repo@commit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "commit",
+        "identity"
+      ],
+      "properties": {
+        "kind": {
+          "const": "git"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}$)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]$)[A-Za-z0-9._-]{1,100}$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}@)(?![A-Za-z0-9._-]*\\.[Gg][Ii][Tt]@)[A-Za-z0-9._-]{1,100}@[a-f0-9]{40}$"
+        }
+      }
+    },
+    "localOrganization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "contentDigest",
+        "policyId",
+        "helper"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "fileName"
+          ],
+          "properties": {
+            "provider": {
+              "const": "local"
+            },
+            "fileName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "contentDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "helper": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "package"
+          ],
+          "properties": {
+            "id": {
+              "const": "local-policy-reader"
+            },
+            "package": {
+              "$ref": "urn:aihq:core:prepared-work:1.4.0#/$defs/policy/properties/inputs/properties/package"
+            }
+          }
+        }
+      }
+    },
+    "organizationContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "kind": {
+          "enum": [
+            "skill",
+            "agent",
+            "command",
+            "rule",
+            "hook",
+            "mcp-server",
+            "document"
+          ]
+        },
+        "item": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "framework",
+            "itemId"
+          ],
+          "properties": {
+            "framework": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "itemId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            }
+          }
+        },
+        "framework": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "framework",
+            "setId",
+            "setSha256"
+          ],
+          "properties": {
+            "framework": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "setId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "setSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

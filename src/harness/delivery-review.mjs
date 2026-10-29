@@ -3,6 +3,7 @@
 // be delivered rather than what a consumer claims.
 import { toolBindings } from './tool-binding-data.mjs';
 import { selectTool } from './tool-registry.mjs';
+import { deriveCellSupport } from './tool-binding.mjs';
 
 const decoder = new TextDecoder('utf-8');
 /** Catalog's measure: UTF-8 bytes and UTF-16 code units of the lossily decoded text. */
@@ -57,6 +58,18 @@ export function selectionDeliveredSize(kind, delivered) {
 export function hookGroupCommands(group) {
   const hooks = group && typeof group === 'object' && !Array.isArray(group) ? group.hooks : undefined;
   return Array.isArray(hooks) ? hooks.flatMap(hook => hook && typeof hook === 'object' && typeof hook.command === 'string' ? [hook.command] : []) : [];
+}
+
+/**
+ * Prepared work 1.7.0: the shipped binding's digest for the tool and the cell's support and proof level for the kind,
+ * derived from its observations. Undefined for a tool the binding table does not have.
+ */
+export function bindingLayout(tool, kind) {
+  const binding = toolBindings.find(item => item.tool === tool);
+  const layout = binding?.layouts[kind];
+  if (!layout) return undefined;
+  const { support, observed } = deriveCellSupport({ kind, observations: layout.observations });
+  return { bindingDigest: binding.digest, support, observed };
 }
 
 /** The step the user still takes in the tool before an item of this kind is usable, from the shipped binding. */

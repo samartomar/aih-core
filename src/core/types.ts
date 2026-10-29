@@ -150,6 +150,38 @@ export interface SelectionMetadata {
   origins: InclusionOrigin[];
   /** Project facts the consumer reviewed for this selection; rendered guidance shows them as detected or inferred. */
   projectFacts?: ProjectFact[];
+  /** Execution policy 1.5.0: the digest of the tool binding the recipe was rendered from. */
+  bindingDigest?: string;
+  /**
+   * Execution policy 1.5.0: Catalog `items[].scan[]` and supplements, as Scan item records. A record is a claim until
+   * Core checks it against the selection's own captured materials and the scan artifact it names.
+   */
+  scanRecords?: ItemScanRecord[];
+  /**
+   * Execution policy 1.5.0, given with `scanRecords`: the item's own materials, content and behaviour files, at their
+   * release package paths (Scan's item descriptor). Core binds them to the bytes it captures, and a record must list
+   * exactly these, with these bytes, at these paths.
+   */
+  itemMaterials?: ItemMaterial[];
+}
+/** One of a Catalog item's own materials, as Scan's item descriptor names it. */
+export interface ItemMaterial {
+  materialId: string; relPath: string; path: string; sha256: string; byteLength: number; role: 'content' | 'behaviour';
+}
+/** Scan `urn:aihq:scan:item-record:1.0.0`, as the owner-finalized contract publishes it. */
+export interface ItemScanRecord {
+  schema?: 'urn:aihq:scan:item-record:1.0.0';
+  scanId: string; createdAt: string; evidenceKey: string;
+  subject: { frameworkId: string; itemId: string; contentSha256: string; behaviourSha256: string };
+  authenticity: 'unchecked';
+  materials: { materialId: string; relPath: string; sha256: string; byteLength: number; executable: boolean; captured: boolean }[];
+  completion: 'complete' | 'partial';
+  coverage: 'matched' | 'mismatched' | 'unavailable' | 'invalid';
+  severityProfile: string;
+  detectors: { id: string; version: string; outcome: 'succeeded' | 'failed' | 'refused' | 'cancelled';
+    coverage: 'matched' | 'mismatched' | 'unavailable' | 'invalid'; exclusions: string[];
+    findings: { error: number; warning: number; note: number; unavailable: number };
+    suppressed: { rule: string; count: number; reason: string }[]; findingRefs?: string[] }[];
 }
 export interface Selection extends Partial<SelectionMetadata> {
   id: string;
@@ -162,7 +194,7 @@ export interface Selection extends Partial<SelectionMetadata> {
 }
 export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0' | 'urn:aihq:core:execution-policy:1.2.0' |
-    'urn:aihq:core:execution-policy:1.3.0' | 'urn:aihq:core:execution-policy:1.4.0';
+    'urn:aihq:core:execution-policy:1.3.0' | 'urn:aihq:core:execution-policy:1.4.0' | 'urn:aihq:core:execution-policy:1.5.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
   /** Execution policy 1.4.0: items left out by framework and item id; a selection naming one makes the policy invalid. */

@@ -181,8 +181,15 @@ await check('the binding commandTemplate wraps the command and a hook the bindin
   const badTemplate = renderDelivery({ tool: 'claude', item: hook({ script: 'm0', interpreter: 'node' }),
     binding: bindingWith('claude', { hook: { commandTemplate: '{shell} {command}' } }), scope: 'project' });
   assert.deepEqual([badTemplate.status, badTemplate.reason], ['refused', 'command-template-invalid']);
-  const otherEvent = renderDelivery({ tool: 'claude', item: catalogItem({ id: 'guard', kind: 'hook', files: HOOK_FILES,
-    payload: { event: 'PreToolUse', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } }),
+  // Run 1 (29 October 2026) observed PreToolUse firing, so it is mapped and registered under its own event.
+  const preToolUse = renderDelivery({ tool: 'claude', item: catalogItem({ id: 'guard', kind: 'hook', files: HOOK_FILES,
+    payload: { event: 'PreToolUse', matcher: 'Bash', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } }),
+  binding: bindingWith('claude'), scope: 'project' });
+  assert.equal(preToolUse.status, 'rendered', JSON.stringify(preToolUse));
+  assert.deepEqual(preToolUse.recipe.operations.find(op => op.kind === 'hook.group').container, ['hooks', 'PreToolUse']);
+  // An event no run record shows firing stays unmapped.
+  const otherEvent = renderDelivery({ tool: 'claude', item: catalogItem({ id: 'notify', kind: 'hook', files: HOOK_FILES,
+    payload: { event: 'Notification', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } }),
   binding: bindingWith('claude'), scope: 'project' });
   assert.deepEqual([otherEvent.status, otherEvent.reason], ['refused', 'protocol-not-spoken']);
   const unspoken = renderDelivery({ tool: 'codex', item: hook({ script: 'm0', interpreter: 'node' }), binding: bindingWith('codex'), scope: 'project' });
@@ -502,7 +509,7 @@ await check('static blockers: native-only-kind, protocol-not-spoken, required-bu
   assert.deepEqual([claudeAgent.support, codes(claudeAgent)], ['unconfirmed', []], 'listed only is unconfirmed, not refused');
   const guard = catalogItem({ id: 'guard', kind: 'hook', files: HOOK_FILES,
     payload: { event: 'PreToolUse', protocol: 'claude-code-hooks', command: { script: 'm0', interpreter: 'node' } } });
-  assert.deepEqual(codes(byId(compat('claude', WINDOWS, [{ item: guard }]), 'guard')), ['protocol-not-spoken']);
+  assert.deepEqual(codes(byId(compat('claude', WINDOWS, [{ item: guard }]), 'guard')), [], 'PreToolUse is an observed Claude hook event');
   // A cell observed as not taking the item: the tool started but did not register the server.
   const refusing = bindingWith('claude', { 'mcp-server': { support: 'none', reason: 'Not registered.',
     observations: toolBindings[0].layouts['mcp-server'].observations.map(item => ({ ...plain(item), registered: 'not-registered', recognised: 'not-run' })) } });
@@ -609,8 +616,14 @@ await check('review regressions: verified behaviour, escaped paths, explicit run
     payload: { applyTo: ['**'], applyToBasis: 'authored', placement: 'entry-block' } });
   const twoTexts = catalogItem({ id: 'pair', kind: 'rule', files: { 'a.md': 'A.\n', 'b.md': 'B.\n' }, payload: { applyTo: ['**'], applyToBasis: 'authored' } });
   const claude = compat('claude', WINDOWS, [{ item: shebang }, { item: entryBlock }]);
-  assert.deepEqual(claude.items.map(entry => [entry.item.itemId, entry.notRendered?.reason, entry.deliveredSize.bytes]),
-    [['session-start', 'interpreter-required', 0], ['shared', 'scope-not-bound', 0]]);
+  assert.deepEqual(claude.items.map(entry => [entry.item.itemId, entry.notRendered?.reason, entry.deliveredSize.bytes > 0]),
+    [['session-start', 'interpreter-required', false], ['shared', undefined, true]], 'Claude reads a shared block in CLAUDE.md');
+  const shared = renderDelivery({ tool: 'claude', item: entryBlock, binding: bindingWith('claude'), scope: 'project',
+    contents: Object.fromEntries(entryBlock.materials.filter(member => member.role === 'content').map(member => [member.id, 'Shared.\n'])) });
+  assert.equal(shared.status, 'rendered', JSON.stringify(shared));
+  assert.deepEqual(shared.recipe.operations.filter(op => op.kind === 'text.block').map(op => [op.target.segments.map(part => part.literal).join('/'),
+    op.startMarker, op.content.literal]), [['CLAUDE.md', '<!-- BEGIN aih:shared -->', 'Shared.\n'],
+    ['CLAUDE.md', '<!-- BEGIN aih:shared:pointer -->', '@AGENTS.md']], 'the block and the observed @AGENTS.md pointer, both in CLAUDE.md');
   const codex = compat('codex', WINDOWS, [{ item: twoTexts, sets: [{ framework: FRAMEWORK, setId: 'pair', setSha256: '3'.repeat(64) }] }]);
   assert.deepEqual([codex.items[0].notRendered.reason, codex.sets[0].fit], ['rule-text-ambiguous', 'none']);
   // A fallback that is also its own member writes the same place: no same-folder collision.

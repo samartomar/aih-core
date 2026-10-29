@@ -3,7 +3,7 @@
 export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, OperationBase, FileOperation, ConfigEntrySet,
   ConfigEntryRemove, ConfigOperation, ConfigMemberOperation, ApprovalMarker, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
   HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
-  InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance, Prerequisite, Recipe, Selection, SelectionMetadata, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationTargetFact,
+  InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance, Prerequisite, Recipe, Selection, SelectionMetadata, ItemScanRecord, ItemMaterial, InclusionOrigin, CatalogItemRef, ExecutionPolicy, OrganizationTargetFact,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
   OrganizationFulfillmentResult } from './types.js';
 export { verifyNativeClient } from './native-verification.js';
@@ -14,7 +14,7 @@ export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRe
 export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effective, RecordStatus, ReviewOperation,
   HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
   ResolutionInput, OperationSelection, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource,
-  PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic, RunMember } from './host-types.js';
+  PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic, RunMember, ScanSummary } from './host-types.js';
 export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
   AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';

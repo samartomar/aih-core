@@ -458,7 +458,7 @@ test('invalid requests fail before any target read with safe diagnostics', async
     const unsupportedResult = await check({ policy: unsupported, target: { project: dir } });
     assert.equal(unsupportedResult.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
     assert.equal(unsupportedResult.diagnostics[0].encountered, 'urn:aihq:core:execution-policy:99.0.0');
-    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0', 'urn:aihq:core:execution-policy:1.2.0', 'urn:aihq:core:execution-policy:1.3.0', 'urn:aihq:core:execution-policy:1.4.0']);
+    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0', 'urn:aihq:core:execution-policy:1.2.0', 'urn:aihq:core:execution-policy:1.3.0', 'urn:aihq:core:execution-policy:1.4.0', 'urn:aihq:core:execution-policy:1.5.0']);
   } finally { fs.openSync = original; syncBuiltinESMExports(); }
   assert.equal(opened.filter(path => path.startsWith(dir)).length, 0,
     `invalid requests read no targets: ${opened.join(', ')}`);
