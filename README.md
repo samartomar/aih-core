@@ -860,7 +860,10 @@ length.
   `roots.user` (`scope-not-bound` when the binding names none). A skill folder is
   `payload.dirName`. Rule and skill names follow the layout's `namespace` with the
   item's `payload.namespace`: `folder` nests `<namespace>/<name>`, `prefix` names
-  `<namespace>-<name>`, and no layout namespace keeps the plain name. A rule
+  `<namespace>-<name>`, and no layout namespace keeps the plain name. Claude Code's
+  rule layout uses `folder`, so ECC's language rules keep their namespace:
+  `.claude/rules/typescript/coding-style.md`. Its `reason` says rules in a namespace
+  folder are not yet observed natively. A rule
   delivers its Markdown materials; where the tool reads rules from an entry file
   (`AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`), or for
   `placement: 'entry-block'`, the rule is one marker block
@@ -1026,6 +1029,23 @@ depend on order. Per item the result is:
   excluded item, never when the fallback is itself excluded, and never for or as
   an agent or command. An excluded item is reported with `excluded: true`, its own
   cell and no delivery.
+- **Variants.** An item with `variantOf` is left out when its main edition is also
+  picked and the two would be written to the same place (ECC's Kiro edition of a
+  skill, same folder name). The variant is reported with `excluded: true` and
+  `leftOut: { reason: 'variant-of-selected', detail }`, never as a blocker. The
+  detail reads "{tool} version of {name}. {name} is picked, so this version is left
+  out.", where `{tool}` is the label of the item's single `hints.tools` entry.
+  Without that entry, `{tool} version` reads "Another version". Pass the variant
+  in `excludedItems`; Core's review then lists it as excluded, with Core's reason
+  `excluded-in-request`, not the `leftOut` detail. The main edition is installed.
+  A variant is never left out in these cases:
+  - it is `required`;
+  - its main edition is itself a variant (a chain or a cycle);
+  - its main edition would not install (a blocker, or not rendered).
+
+  In each of these the clash shows as `same-folder`. The result never depends on
+  the order of the items. A variant picked alone, or one delivered elsewhere (an
+  MCP server under its own key), installs as itself.
 - **Sizes.** `bytes` are the delivered materials' byte lengths and `chars`
   Catalog's measured characters (the byte length when unmeasured).
   `alwaysLoaded` is what the tool reads every session: Catalog's measured `name`

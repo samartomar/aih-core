@@ -57,6 +57,8 @@ export interface ItemCompatibility {
   item: ItemRef; support: BindingSupport; reason: string; observed: ObservedLevel;
   observedOn: { toolVersion: string; os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64'; observedAt: string } | null;
   boundAs?: { kind: BindingKind; item: ItemRef; viaFallback: true }; excluded?: true; permissionStep?: string;
+  /** Why compatibility itself left a picked item out: a variant whose main edition is also picked. */
+  leftOut?: { reason: 'variant-of-selected'; detail: string };
   /** Why renderDelivery would refuse this item; for a native cell the same reason is also a static blocker. */
   notRendered?: { reason: string; detail: string };
   deliveredSize: Size & { alwaysLoaded: Size };

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.43: no two items installed together for Claude Code write one path.
+
+- Claude Code's rule layout keeps a rule's namespace as a folder, so ECC's language
+  rules no longer share one file. For example, `.claude/rules/typescript/coding-style.md`
+  and `.claude/rules/common/coding-style.md` are now separate. Loading from a
+  namespace folder is not yet observed natively, and the layout's `reason` says so.
+- `checkCompatibility` leaves a variant out when its main edition is also picked and
+  both would be written to one place. The variant is reported with `excluded: true`
+  and `leftOut: { reason: 'variant-of-selected', detail }`, not as a blocker.
+
 Core 1.0.0-dev.42 places `reference` documents where the items that read them link
 them, and gives single-file agents and commands a licence of their own.
 
