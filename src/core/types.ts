@@ -190,13 +190,29 @@ export interface Selection extends Partial<SelectionMetadata> {
   configuration: Record<string, Json>;
   requires: string[];
   organizationSelectionId?: string;
-  recipe: { inline: Recipe } | { reference: MaterialRecipeReference };
+  /**
+   * The recipe Core runs. Execution policy 1.6.0 may omit it for an item selection, which then names its `item`,
+   * `tool` and `bindingDigest`; Core renders the recipe at Prepare from its shipped binding and the item in the
+   * `catalogReleases` document for the item's framework.
+   */
+  recipe?: { inline: Recipe } | { reference: MaterialRecipeReference };
+}
+/** Execution policy 1.6.0: a Catalog release content document, read like a recipe material and verified by digest. */
+export interface CatalogReleaseReference {
+  framework: string;
+  source: MaterialSource;
+  path: string;
+  sha256: string;
+  byteLength: number;
 }
 export interface ExecutionPolicy {
   schema: 'urn:aihq:core:execution-policy:1.0.0' | 'urn:aihq:core:execution-policy:1.1.0' | 'urn:aihq:core:execution-policy:1.2.0' |
-    'urn:aihq:core:execution-policy:1.3.0' | 'urn:aihq:core:execution-policy:1.4.0' | 'urn:aihq:core:execution-policy:1.5.0';
+    'urn:aihq:core:execution-policy:1.3.0' | 'urn:aihq:core:execution-policy:1.4.0' | 'urn:aihq:core:execution-policy:1.5.0' |
+    'urn:aihq:core:execution-policy:1.6.0';
   mode: 'vibe' | 'enterprise';
   selections: Selection[];
+  /** Execution policy 1.6.0: the Catalog releases recipe-less selections are rendered from, one per framework. */
+  catalogReleases?: CatalogReleaseReference[];
   /** Execution policy 1.4.0: items left out by framework and item id; a selection naming one makes the policy invalid. */
   excludedItems?: CatalogItemRef[];
   /** Optional assessment references; never execution authority or a findings gate. */

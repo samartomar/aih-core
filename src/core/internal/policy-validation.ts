@@ -235,7 +235,8 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     message: 'The policy has an invalid dependency, scope or input value.' });
   try { dependencyOrder(policy.selections); } catch (error) { invalid((error as Error).message, '/selections'); }
   const managers = new Set<string>();
-  const current = policy.schema === 'urn:aihq:core:execution-policy:1.4.0' || policy.schema === 'urn:aihq:core:execution-policy:1.5.0';
+  const current = policy.schema === 'urn:aihq:core:execution-policy:1.4.0' || policy.schema === 'urn:aihq:core:execution-policy:1.5.0' ||
+    policy.schema === 'urn:aihq:core:execution-policy:1.6.0';
   // Execution policy 1.4.0 names one selection per management id; older policies keep per-scope ids.
   const managementIds = new Set<string>();
   const excluded = new Set<string>();
@@ -243,6 +244,12 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
     const key = canonicalJson([item.framework, item.itemId]);
     if (excluded.has(key)) invalid('duplicate-excluded-item', `/excludedItems/${index}`);
     excluded.add(key);
+  }
+  // Execution policy 1.6.0: one Catalog release per framework, which each recipe-less selection's item is read from.
+  const releases = new Set<string>();
+  for (const [index, release] of (policy.catalogReleases ?? []).entries()) {
+    if (releases.has(release.framework)) invalid('duplicate-catalog-release', `/catalogReleases/${index}`);
+    releases.add(release.framework);
   }
   policy.selections.forEach((selection, index) => {
     const base = `/selections/${index}`;
@@ -259,6 +266,11 @@ export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
       if (selection.organizationSelectionId === undefined) invalid('organization-selection-required', `${base}/organizationSelectionId`);
     } else if (selection.organizationSelectionId !== undefined) {
       invalid('organization-selection-vibe', `${base}/organizationSelectionId`);
+    }
+    if (selection.recipe === undefined) {
+      // Core renders the recipe at Prepare; its inputs are checked against the rendered recipe there.
+      if (!releases.has(selection.item!.framework)) invalid('catalog-release-missing', `${base}/item`);
+      return;
     }
     if (!('inline' in selection.recipe)) {
       // Only exact git identity is admitted; the named reason says which part moves or is unproven.

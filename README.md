@@ -94,6 +94,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/recipe/1.4.0.json` | Recipe 1.4.0 JSON Schema (adds `config.member` and one-server `approval`) |
 | `@aihq/core/schemas/prepared-work/1.6.0.json`, `run-result/1.4.0.json` | Review naming each selection, and the policy run result naming a changed review binding and checking each touched member |
 | `@aihq/core/schemas/execution-policy/1.5.0.json`, `prepared-work/1.7.0.json`, `run-result/1.5.0.json` | Policy carrying Scan item records and the rendering binding; review naming each item's framework, layout and checked scan state and the items left out; run result naming a change from the owner's closed list |
+| `@aihq/core/schemas/execution-policy/1.6.0.json` | Policy whose item selections may name their Catalog item instead of carrying a recipe, with the Catalog releases Core renders them from |
 | `@aihq/core/schemas/managed-inventory-result/1.1.0.json` | Managed inventory naming each installed selection, its origins, members and their states |
 | `@aihq/core/schemas/package-support/1.0.0.json`, `1.1.0.json` | Package support declaration JSON Schemas |
 | `@aihq/core/harness/schemas/repair/1.0.0.json` | One portable repair definition JSON Schema |
@@ -2267,6 +2268,59 @@ redaction recorded at install. A run touching more members than the schema's
 supports no member claim. The portable
 `runMemberClaims(result)` from `@aihq/core/contracts` applies the
 [claim rules](#what-each-result-status-lets-you-claim): `confirmedOnDisk` and `removed`.
+
+### Recipe-less item selections (execution policy 1.6.0)
+
+`urn:aihq:core:execution-policy:1.6.0` keeps every 1.5.0 field, and every 1.5.0
+selection, inline or referenced recipe included, is still valid in it. An item
+selection may instead leave out `recipe`. It then names its `item`, `tool`,
+`name`, `kind`, `origins` and `bindingDigest`, with `scope`, `configuration` and
+`requires` as before, and Core renders the recipe at Prepare. The policy names
+the Catalog releases it is rendered from:
+
+```ts
+catalogReleases: { framework, source: { kind: 'local', input } | { kind: 'archive', url, sha256, byteLength },
+  path, sha256, byteLength }[]   // a Catalog release content document; one per framework
+```
+
+Prepare reads each release a recipe-less selection needs through the same material
+sources and `controls.materialRoots` as recipe materials, and checks its SHA-256 and
+length (`member-identity-mismatch`; an unreadable root or file is
+`PREREQUISITE_UNAVAILABLE` as for any material). It then renders the selection
+through [`renderDelivery`](#render-one-item-as-an-ordinary-recipe) with Core's
+shipped binding for `tool`:
+
+- **The same recipe an inline selection carries.** A supporting `document` is
+  rendered beside each item that its `required-by` origins name, in their order,
+  with each rendering's operation and check ids suffixed by its position, as a
+  consumer combines them. A marker block's text is read from the item's materials
+  under the `catalog` root. The rendered recipe is byte-identical to the inline one,
+  so the review, writes and receipts are the same.
+- **Bound to the item and the binding.** The release must carry the item with both
+  identities and the named kind (`catalog-item-missing`, `catalog-item-identity`);
+  a requiring item must also be a selection of the policy (`required-by-missing`).
+  `bindingDigest` is checked against the shipped binding exactly as for an inline
+  recipe: another digest is a `binding-changed` conflict, and Apply refuses it as
+  `binding`. A rendering refusal (`kind-not-native`, `scope-not-bound`, ...) refuses
+  the policy with that reason at the selection's path.
+- **Validation.** A selection without `recipe` must name `item` and `bindingDigest`,
+  and its framework must have a `catalogReleases` entry (`catalog-release-missing`);
+  two entries for one framework are `duplicate-catalog-release`. Its configuration is
+  checked against the rendered recipe's inputs at Prepare.
+
+In Enterprise, Prepare reads the organization's authority first, so a refused,
+unavailable or invalid organization source is reported before any release is fetched
+or read. The release and marker-block text count against the same per-policy capture
+limit as the recipes' materials, and only the text a marker block needs is read.
+Apply rechecks the release and material text read at Prepare like any captured
+material. `checkFileState` renders recipe-less selections the same way from a local
+release; an archive release is `remote-material-not-admitted` there. The policy
+byte bound stays 1,000,000: without inline recipes, Claude Code with ECC's default
+pick (246 items, about 232,000 bytes) fits it, and so does its full TypeScript profile
+(476 items, about 491,000 bytes). The profile is still refused by the unchanged limit
+of 256 `origins` per selection: its ECC notices document is required by 475 items. One-server
+approval (`grantApproval`) and `projectFolder` are not recipe-less inputs yet: carry
+an inline recipe for them.
 
 ## Allow one MCP server
 

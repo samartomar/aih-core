@@ -12,6 +12,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
 import { renderConfigEntries, renderConfigMember, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
 import { bindHookGroup } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
+import { renderRecipelessSelections } from './internal/recipeless.js';
 import { foldHookGroup } from './internal/hook-prepare.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
 import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
@@ -205,25 +206,34 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     if (!validation.valid) return failWith('validation', validation.diagnostics.map(item =>
       item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
     const policy = cloneJsonValueStructureV1(request.policy, 'request', 32);
+    // Execution policy 1.6.0: a recipe-less selection is checked against the recipe Prepare renders for it, from a
+    // locally readable Catalog release; remote material is not admitted here.
+    if (policy.selections.some(selection => selection.recipe === undefined)) {
+      if ((policy.catalogReleases ?? []).some(release => release.source.kind !== 'local')) throw new Error('remote-material-not-admitted');
+      const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, createMaterialCaptureBudget(), controls.signal);
+      if (rendering.diagnostics.length) return failWith('validation', rendering.diagnostics.map(item =>
+        item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
+    }
     for (const selectionId of Object.keys(privateInputs))
       if (!policy.selections.some(item => item.id === selectionId)) throw new Error('private-input-unknown');
     // Every check that needs no I/O precedes cancellation: strict material
     // descriptors (including archive sources), input binding and authored paths.
     const inlineBindings = new Map<string, Bound>();
     for (const selection of policy.selections) {
+      const selected = selection.recipe!;
       try {
         const declared = createMaterialCaptureBudget();
-        if ('reference' in selection.recipe) declared.declareReference(selection.recipe.reference);
-        else declared.declareInline(selection.recipe.inline.materials);
+        if ('reference' in selected) declared.declareReference(selected.reference);
+        else declared.declareInline(selected.inline.materials);
       } catch (error) {
         // The byte total is checked after every descriptor rule, so an oversized but
         // otherwise valid declaration is reported as limit-exceeded during admission.
         if (!(error instanceof MaterialCaptureError && error.reason === 'captured-byte-limit'))
           throw new Error(error instanceof MaterialCaptureError && SAFE_REASON.test(error.reason) ? error.reason : 'material-invalid');
       }
-      if (!('inline' in selection.recipe)) continue;
-      const bound = bindInputs(selection, selection.recipe.inline, privateInputs[selection.id]);
-      admitAuthoredSlots(selection.recipe.inline, bound);
+      if (!('inline' in selected)) continue;
+      const bound = bindInputs(selection, selected.inline, privateInputs[selection.id]);
+      admitAuthoredSlots(selected.inline, bound);
       inlineBindings.set(selection.id, bound);
     }
     const privateValues = Object.values(privateInputs).flatMap(values => Object.values(values)).map(String);
@@ -290,8 +300,9 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         selectionOpIds.set(selection.id, []);
         admitted.add(selection.id);
       };
-      if ('reference' in selection.recipe) {
-        const reference = selection.recipe.reference;
+      const selected = selection.recipe!;
+      if ('reference' in selected) {
+        const reference = selected.reference;
         if (reference.source.kind !== 'local') { unread('remote-material-not-admitted'); continue; }
         if (!fitsTotal(referenceDeclaredBytes(reference))) { unread('limit-exceeded'); continue; }
         let captured: Awaited<ReturnType<typeof captureRecipeReference>>;
@@ -323,7 +334,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
         if (canonicalJson(declared) !== canonicalJson(acquired)) throw new Error('material-closure');
         readMaterial = id => captured.readMaterial(id);
       } else {
-        recipe = selection.recipe.inline;
+        recipe = selected.inline;
         const sourceGroups = new Map<string, InlineMaterialDescriptor[]>();
         for (const member of recipe.materials as InlineMaterialDescriptor[]) {
           if (member.source.kind === 'archive') {
@@ -369,7 +380,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       const selectionKey = sha256(`${selection.scope === 'user' ? userHomeRoot() : project}\u0000${selection.scope}\u0000${selection.managementId}`);
       // One retained copy per captured source file and pin, however many operations or alias IDs use it.
       const members: { id: string; path: string; sha256: string; source?: InlineMaterialDescriptor['source'] }[] =
-        'reference' in selection.recipe ? selection.recipe.reference.materials : recipe.materials as InlineMaterialDescriptor[];
+        'reference' in selected ? selected.reference.materials : recipe.materials as InlineMaterialDescriptor[];
       const identities = new Map(members.map(item => [item.id,
         `${item.source === undefined ? '' : item.source.kind === 'archive' ? item.source.url : item.source.input}\u0000${item.path}\u0000${item.sha256}`]));
       const materialBuffers = new Map<string, Buffer | undefined>();

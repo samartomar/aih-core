@@ -70,6 +70,16 @@ export class MaterialCaptureBudget {
     const checked = checkedInlineMaterials(materials);
     this.declare(inlineDeclaration(checked.materials), checked.bytes);
   }
+  /**
+   * Charges a capture made before sealing (a Catalog release or marker-block text read to render a recipe-less
+   * selection) to the same per-policy total the recipes declared afterwards share.
+   */
+  chargeInline(materials: unknown): void {
+    const checked = checkedInlineMaterials(materials);
+    if (this.sealed) fail('capture-budget-sealed');
+    if (checked.bytes > MATERIAL_LIMITS.capturedBytes - this.total) fail('captured-byte-limit');
+    this.total += checked.bytes;
+  }
   seal(): void { if (this.sealed) fail('capture-budget-sealed'); this.sealed = true; }
   claimReference(reference: CheckedReference): void { this.claim(referenceDeclaration(reference)); }
   claimInline(materials: CheckedInline): void { this.claim(inlineDeclaration(materials)); }

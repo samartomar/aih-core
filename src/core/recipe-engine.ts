@@ -41,6 +41,7 @@ import { readRegularFile } from './internal/fsxn.js';
 import { readEvidence, readPolicyEvidence } from './internal/policy-evidence.js';
 import { selectionScan, type OwnMaterial, type ScanArtifact, type SelectionScan } from './internal/item-scan.js';
 import { releaseIndexStatus, validIndex, type ReleaseIndexStatus } from './internal/release-index.js';
+import { renderRecipelessSelections } from './internal/recipeless.js';
 import type { AssociationResult, EvidenceAssociation } from './evidence/types.js';
 import type { NativeClientId } from './internal/native-clients.js';
 import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
@@ -135,6 +136,7 @@ const UNMATCHED_RECIPE_IDENTITY = `sha256:${'0'.repeat(64)}`;
 interface CapturedUnavailableInvocations { operations: Record<string, string>; checks: Record<string, string> }
 const POLICY_14 = 'urn:aihq:core:execution-policy:1.4.0';
 const POLICY_15 = 'urn:aihq:core:execution-policy:1.5.0';
+const POLICY_16 = 'urn:aihq:core:execution-policy:1.6.0';
 const POLICY_13 = 'urn:aihq:core:execution-policy:1.3.0';
 const POLICY_12 = 'urn:aihq:core:execution-policy:1.2.0';
 const PREPARED_14 = 'urn:aihq:core:prepared-work:1.4.0' as const;
@@ -345,8 +347,10 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
     budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly OwnMaterial[];
       readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
-  if ('reference' in selection.recipe) {
-    const captured = await captureRecipeReference(selection.recipe.reference, roots, { signal, budget });
+  // A recipe-less selection was rendered before any capture.
+  const selected = selection.recipe!;
+  if ('reference' in selected) {
+    const captured = await captureRecipeReference(selected.reference, roots, { signal, budget });
     const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
     if (!validateRecipe(recipe).valid) throw new Error('recipe-invalid');
     const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
@@ -354,7 +358,7 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
     if (canonicalJson(declared) !== canonicalJson(acquired)) throw new Error('material-closure');
     return { recipe, recipeSha256: captured.recipeSha256, material: captured };
   }
-  const recipe = selection.recipe.inline;
+  const recipe = selected.inline;
   if (recipe.materials.some(item => !('source' in item))) throw new Error('material-source-missing');
   const captured = await captureInlineMaterials(recipe.materials.filter(item => 'source' in item), roots, { signal, budget });
   return { recipe, recipeSha256: digest(recipe), material: captured };
@@ -454,9 +458,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-set-members-vibe', 'A Vibe policy does not accept organization set membership.')];
       return finish();
     }
-    if (isLocalSource(request.organizationSource) && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
+    if (isLocalSource(request.organizationSource) && policy.schema !== POLICY_14 && policy.schema !== POLICY_15 && policy.schema !== POLICY_16) {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-local-review',
-        'A local organization source needs execution policy 1.4.0 or 1.5.0, whose review names the file.')];
+        'A local organization source needs execution policy 1.4.0 or later, whose review names the file.')];
       return finish();
     }
     let organizationTarget: OrganizationTargetDeclaration | undefined;
@@ -488,12 +492,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       ('tool' in organizationTarget ? organizationTarget.tool.id : organizationTarget.client) as NativeClientId;
     const targetFacts: OrganizationTargetFacts | undefined = organizationTarget === undefined ? undefined :
       { client: targetClient, ...(organizationTarget.repository === undefined ? {} : { repository: organizationTarget.repository }) };
+    // Recipes the policy carries are declared now; recipe-less ones after the authority read renders them (below).
     const captureBudget = createMaterialCaptureBudget();
-    for (const selection of policy.selections) {
-      if ('reference' in selection.recipe) captureBudget.declareReference(selection.recipe.reference);
-      else captureBudget.declareInline(selection.recipe.inline.materials);
+    for (const { recipe } of policy.selections) {
+      if (recipe === undefined) continue;
+      if ('reference' in recipe) captureBudget.declareReference(recipe.reference);
+      else captureBudget.declareInline(recipe.inline.materials);
     }
-    captureBudget.seal();
     const resolutions = clone(request.resolutions ?? []);
     if (!Array.isArray(resolutions) || new Set(resolutions.map(item => `${item.selectionId}/${item.operationId}`)).size !== resolutions.length)
       throw new Error('resolution-invalid');
@@ -508,8 +513,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     for (const [selectionId, values] of Object.entries(privateInputs)) {
       const selection = policy.selections.find(item => item.id === selectionId);
       if (!selection || !values || typeof values !== 'object' || Array.isArray(values)) throw new Error('private-input-unknown');
-      if ('inline' in selection.recipe) for (const name of Object.keys(values))
-        if (!Object.hasOwn(selection.recipe.inline.inputs, name) || !selection.recipe.inline.inputs[name]?.sensitive)
+      const recipe = selection.recipe;
+      if (recipe !== undefined && 'inline' in recipe) for (const name of Object.keys(values))
+        if (!Object.hasOwn(recipe.inline.inputs, name) || !recipe.inline.inputs[name]?.sensitive)
           throw new Error('private-input-unknown');
     }
     const privateValues = Object.values(privateInputs).flatMap(inputs => Object.values(inputs)).map(String);
@@ -529,6 +535,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!parsed.valid || !parsed.document) { result.diagnostics = parsed.diagnostics; return finish(); }
       organization = { read, document: parsed.document, membership: new SetMembership(setMembers) };
     }
+    // Execution policy 1.6.0: Core renders each recipe-less selection from its shipped binding and named Catalog release,
+    // only now that any authority has been read. Its reads count against the same budget; every later step sees the
+    // rendered recipe as it would an inline one.
+    const recipeless = policy.selections.filter(selection => selection.recipe === undefined);
+    const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, captureBudget, controls.signal);
+    if (rendering.diagnostics.length) { result.diagnostics = rendering.diagnostics; return finish(); }
+    for (const selection of recipeless) {
+      const recipe = (selection.recipe as { inline: Recipe }).inline;
+      captureBudget.declareInline(recipe.materials);
+      for (const name of Object.keys(privateInputs[selection.id] ?? {}))
+        if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
+    }
+    captureBudget.seal();
     const admissions: AdmissionSelection[] = [];
     let obligations: OrganizationObligationsReview | undefined;
     const steps: PreparedStep[] = [];
@@ -541,14 +560,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
     const conflicts: Diagnostic[] = []; const omissions: Diagnostic[] = []; const observations: PreparedReview['observations'] = [];
     const ownership = new Map<string, { value: Ownership; digest: string | null }>();
-    const captures: { recheck(): Promise<boolean> }[] = [];
+    const captures: { recheck(): Promise<boolean> }[] = [...rendering.captures];
     const selectionOps = new Map<string, string[]>();
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();
     const knownProcesses = new Set<string>(); const knownChecks = new Set<string>();
-    const namesSelections = policy.schema === POLICY_14 || policy.schema === POLICY_15;
+    const namesSelections = policy.schema === POLICY_14 || policy.schema === POLICY_15 || policy.schema === POLICY_16;
     // Prepared work 1.7.0 adds each item's framework, layout and checked scan state, and the items left out.
-    const checksScans = policy.schema === POLICY_15;
+    const checksScans = policy.schema === POLICY_15 || policy.schema === POLICY_16;
     // Prepared work 1.6.0: what each selection delivers, measured from the bytes this preparation computed.
     const selectionFacts = new Map<string, { inputs: string[]; delivered: DeliveredEntry[]; hookCommands: string[]; own: OwnMaterial[] }>();
     for (const selection of dependencyOrder(policy.selections)) {
@@ -1164,7 +1183,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
-      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
+      if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15 && policy.schema !== POLICY_16) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
           message: 'Bounded configuration custody requires execution-policy 1.2.0 for cleanup.', encountered: policy.schema, supported: [POLICY_12] }];
         return finish();
@@ -1182,7 +1201,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       let kept: PreparedStep['kept'];
       if (descriptor.kind === 'hook') {
         // A 1.0.0 policy never synthesizes a hook-group review under a 1.0.0 prepared/result identity.
-        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15) {
+        if (policy.schema !== POLICY_11 && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15 && policy.schema !== POLICY_16) {
           result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'hook-group-policy-version', message: 'This policy would change owned hook-group custody.',
             encountered: policy.schema, supported: [POLICY_11], guidance: 'Author an execution-policy 1.1.0 document to remove or reconcile owned hook groups.' }];
           return finish();
@@ -2126,8 +2145,9 @@ function selectionItem(selection: ExecutionPolicy['selections'][number], project
 }
 /** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */
 function selectionSource(selection: ExecutionPolicy['selections'][number]): GitMaterialProvenance | undefined {
-  return 'reference' in selection.recipe && selection.recipe.reference.source.kind === 'git' ?
-    gitProvenance(selection.recipe.reference.source) : undefined;
+  const recipe = selection.recipe;
+  return recipe !== undefined && 'reference' in recipe && recipe.reference.source.kind === 'git' ?
+    gitProvenance(recipe.reference.source) : undefined;
 }
 function factsOf(item: ItemFacts): ItemFacts {
   return { managementId: item.managementId, scope: item.scope, name: item.name, kind: item.kind, framework: item.framework,
