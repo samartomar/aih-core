@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, chmodSync, constants, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { accessSync, chmodSync, constants, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -17,7 +17,8 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
   copyFileSync(join(packageRoot, 'package.json'), join(producer, 'package.json'));
   for (const name of ['package-lock.json', 'tsconfig.json']) copyFileSync(join(packageRoot, name), join(producer, name));
   for (const name of ['src', 'scripts']) cpSync(join(packageRoot, name), join(producer, name), { recursive: true });
-  symlinkSync(join(packageRoot, 'node_modules'), join(producer, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  // A real copy: packing from a linked node_modules drops the bundled dependencies' own dependencies.
+  cpSync(join(packageRoot, 'node_modules'), join(producer, 'node_modules'), { recursive: true, verbatimSymlinks: true });
   const member = 'dist/harness/native/linux/facility';
   // A Windows producer does not supply POSIX executable bits. Do not let the
   // developer checkout's executable bit hide that packaging requirement.
