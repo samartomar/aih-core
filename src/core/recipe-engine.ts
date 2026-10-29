@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
@@ -31,6 +31,7 @@ import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
+import { missingContainers, pruneEmptyContainers } from './internal/hook-group.js';
 import { USER_NOTES_FILE, extractBlockBody, personLinesInside, sharedBlockRole } from './internal/shared-blocks.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
@@ -378,6 +379,16 @@ export function transaction(root: string, directoryCreated?: (path: string) => v
     }
   };
 }
+/** Does this JSON/JSONC document hold any value beyond empty objects and arrays? */
+function hasJsonContent(bytes: Buffer): boolean {
+  const errors: ParseError[] = [];
+  const value = parseJsonc(bytes.toString('utf8'), errors, { allowTrailingComma: true }) as Json | undefined;
+  if (errors.length) return true;
+  const empty = (item: Json | undefined): boolean => item === null || item === undefined ? true :
+    Array.isArray(item) ? item.every(empty) : typeof item === 'object' ? Object.values(item as Record<string, Json | undefined>).every(empty) : false;
+  return !empty(value);
+}
+
 function stageRecovery(runId: string, steps: PreparedStep[], project: string): string {
   const base = `recovery/${runId}`;
   pathPins(join(stateRoot(), base));
@@ -689,7 +700,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               try { if (decideWith(option).effect !== 'conflict') choices.push(option); }
               catch (error) { if (!(error instanceof Error) || error.message !== 'resolution-invalid') throw error; }
             }
-            effect = decision.effect; after = decision.after; custody = { [hookKey]: decision.custody }; custodyOnly = decision.custodyOnly;
+            effect = decision.effect; after = decision.after;
+            // A file and JSON containers this run creates are remembered so the last removal can take them
+            // away; a later group in the same file inherits them from the earlier owner.
+            const sameFile = Object.values(projected.members).filter(member => member.descriptor?.path === path);
+            const fileCreated = initialBefore === null || sameFile.some(member => member.createdFile === true);
+            // Containers matter only when the file existed before; a file this run created is deleted whole.
+            const createdPaths = initialBefore === null ? [] : [...new Map([...sameFile.flatMap(member => member.createdContainers ?? []),
+              ...missingContainers(op.format, initialBefore, op.container)].map(item => [JSON.stringify(item), item])).values()];
+            const boundedPaths = createdPaths.length && JSON.stringify(createdPaths).length <= 4096 ? createdPaths : [];
+            custody = { [hookKey]: decision.custody === null ? null : { ...decision.custody,
+              ...(fileCreated ? { createdFile: true as const } : {}), ...(boundedPaths.length ? { createdContainers: boundedPaths } : {}) } };
+            custodyOnly = decision.custodyOnly;
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;
             if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
@@ -779,8 +801,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             custody = Object.fromEntries(descriptors.map(member => {
               const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
               const tomlTable = createdTables && member.kind === 'entry' ? createdTableCustody(member, createdTables, prior, projected.members) : undefined;
+              const fileCreated = selection.item !== undefined &&
+                (initialBefore === null || Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.createdFile === true));
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 ...(approval ? { approval: { tool: approval.tool } } : {}), ...(member.kind === 'member' && (createdContainer || prior?.createdContainer) ? { createdContainer: true as const } : {}),
+                ...(fileCreated ? { createdFile: true as const } : {}),
                 ...(sharedContent !== null && sharedContent.length <= 65536 ? { sharedContent } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
@@ -1089,6 +1114,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const graphIds = [...new Set([...priorDependencies.keys(), ...[...priorDependencies.values()].flat()])];
     const removalOrder = dependencyOrder(graphIds.map(id => ({ id, requires: [...priorDependencies].filter(([, required]) => required.includes(id)).map(([parent]) => parent) })));
     const rank = new Map(removalOrder.map((item, index) => [item.id, index]));
+    // Containers and files an install created belong to the target path, not one member: collect them from every
+    // receipt so the last owned group can remove them even when earlier groups were already removed.
+    const createdFiles = new Set<string>(); const createdContainers = new Map<string, string[][]>();
+    for (const [root, stored] of ownership) if (effectRoot(root)) for (const owner of Object.values(stored.value.members)) {
+      const descriptor = owner.descriptor; if (!descriptor) continue;
+      const id = `${root}:${descriptor.path}`;
+      if (owner.createdFile) createdFiles.add(id);
+      if (owner.createdContainers?.length) {
+        const paths = [...new Map([...(createdContainers.get(id) ?? []), ...owner.createdContainers].map(item => [JSON.stringify(item), item])).values()];
+        createdContainers.set(id, paths);
+      }
+    }
     const members = [...ownership].flatMap(([root, stored]) => Object.entries(stored.value.members).map(([key, owner]) => ({ root, key, owner })));
     members.sort((a, b) => Math.min(...(a.owner.claims ?? []).map(claim => rank.get(claimId(claim, a.root)) ?? 0)) - Math.min(...(b.owner.claims ?? []).map(claim => rank.get(claimId(claim, b.root)) ?? 0)));
     const removedIdentities = new Map<PreparedStep, string[]>();
@@ -1179,11 +1216,22 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             // Removing a shared block never removes the entry file: when the block was the file's only
             // content the file stays behind empty, and the person's other text always survives.
             if (after === null && shared) after = Buffer.alloc(0);
+            // A JSON entry in a file Core created takes the file with it, as an owned hook group does, once only
+            // empty containers are left and no other Core member lives in that file.
+            if (after !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') &&
+              createdFiles.has(`${root}:${descriptor.path}`) && !hasJsonContent(after) && !Object.entries(projectedMembers(root)).some(([other, member]) =>
+                other !== key && member.descriptor !== undefined && samePath(member.descriptor.path, descriptor.path))) after = null;
           }
         }
       } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
       if (hookDecision) {
         matching = hookDecision.effect !== 'conflict'; after = hookDecision.after; effect = hookDecision.effect;
+        const fileId = `${root}:${descriptor.path}`;
+        if (matching && !remaining.length && after !== null) {
+          const pruned = createdContainers.has(fileId) ? pruneEmptyContainers((descriptor as HookDescriptor).format, after, createdContainers.get(fileId)!) : after;
+          if (createdFiles.has(fileId) && !hasJsonContent(pruned)) { after = null; effect = 'remove-file'; }
+          else if (!pruned.equals(after)) { after = pruned; effect = before !== null && after.equals(before) ? 'already-satisfied' : 'replace-file'; }
+        }
         if (!matching && cleanup) kept = { action: 'keep-changed', reason: hookDecision.reason ?? 'managed-content-changed' };
         else if (!matching) conflicts.push(hookConflict(hookDecision, hookDecision.details.groupId, descriptor.path, []));
       }
@@ -1837,11 +1885,37 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const release of releases.reverse()) try { release(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'work-cleanup', 'Inspect remaining temporary work before deliberate cleanup.')); }
     for (const unlock of unlocks.reverse()) try { unlock(); } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'lock-release', 'Inspect the remaining state lock before another run.')); }
   }
+  // Run results 1.4 and 1.5 report the members a run touched. A removal under them is also verified from those
+  // checks, and the same checks decide whether its recovery data may go; a failed, partial or kept removal keeps
+  // that data for inspection. Older identities carry no member checks and keep their documented cleanup behaviour.
   if (state && (result.schema === RESULT_14 || result.schema === RESULT_15)) {
     const members = memberReports(state, result);
     // A truncated list could support a false claim, so an oversized one is withheld entirely.
     if (members.length <= MEMBER_REPORT_LIMIT) result.members = members;
     else result.diagnostics.push(diagnostic('SOURCE_LIMIT', 'member-check-limit', 'Too many touched members to report their checks; no member claim is supported.'));
+    if ((state.request.policy.removals?.length ?? 0) > 0) {
+      // A cleanup operation is verified from the disk it left: the owned path is absent, or the value it kept or
+      // restored is present and matching. This replaces Apply's default "no supplied check" for cleanup steps.
+      for (const operation of result.operations) {
+        const checked = members.filter(member => member.operationId === operation.id && member.intent !== 'write');
+        if (!checked.length) continue;
+        if (checked.every(member => member.check === 'absent' || member.check === 'present-matching'))
+          operation.verification = { status: 'passed', reason: 'member-checked' };
+        else if (checked.some(member => member.check === 'present-different'))
+          operation.verification = { status: 'failed', reason: 'member-changed' };
+        else operation.verification = { status: 'unverified', reason: 'member-unchecked' };
+      }
+      if (result.completion === 'complete' && result.operations.some(operation => operation.verification.status === 'failed'))
+        result.completion = 'incomplete';
+      const checked = members.filter(member => member.intent !== 'write');
+      const kept = state.steps.some(step => step.lifecycle && (step.kept || step.review.effects === 'conflict' || step.review.effects === 'unavailable' ||
+        step.ownerKey !== undefined && step.custody?.[step.ownerKey] !== null && step.custody?.[step.ownerKey] !== undefined));
+      const verified = checked.length > 0 && checked.every(member => member.check === 'absent' || member.check === 'present-matching');
+      if (result.completion === 'complete' && verified && !kept) {
+        try { protectState([`recovery/${runId}`]); rmSync(join(stateRoot(), 'recovery', runId), { recursive: true, force: true }); delete result.recovery; }
+        catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'recovery-cleanup', 'The removal succeeded but its recovery data could not be removed.')); }
+      }
+    }
   }
   // The evidence Apply re-checked is the evidence it reports; it is read again only when Apply stopped before the re-check.
   if (rechecked) result.evidence = coveredEvidence(rechecked.results, rechecked.scans);

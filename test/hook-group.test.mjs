@@ -65,7 +65,7 @@ test('the first group records hook and directory custody and stores only digests
     await run(s, guard());
     const roots = ownershipRoots(s);
     assert.equal(roots.length, 1);
-    assert.equal(roots[0].schema, 'urn:aihq:core:ownership:1.5.0');
+    assert.equal(roots[0].schema, 'urn:aihq:core:ownership:1.6.0');
     const members = Object.values(roots[0].members);
     assert.equal(members.length, 1);
     assert.equal(members[0].descriptor.kind, 'hook');

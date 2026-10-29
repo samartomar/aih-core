@@ -212,7 +212,7 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
   assert.equal((await run(root, older)).result.completion, 'complete');
   const receipt = join(home, '.aih', 'core', 'ownership', `${sha(root)}.json`);
   const before = JSON.parse(readFileSync(receipt, 'utf8'));
-  assert.equal(before.schema, 'urn:aihq:core:ownership:1.5.0', 'directory evidence, a created table, a hook and a marker block');
+  assert.equal(before.schema, 'urn:aihq:core:ownership:1.6.0', 'directory evidence, a created table, a hook, a marker block and the hook-created file');
 
   // Read through the migration: every claim appears as an unnamed 1.1 selection with typed members.
   const unnamed = await inventory(root);

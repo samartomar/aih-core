@@ -22,6 +22,10 @@ export interface Owner { managementId: string; recipeIdentity: string; sha256: s
   approval?: { tool: string };
   /** Recipe 1.4.0: Core created the array holding this member; it goes with the last member Core added. */
   createdContainer?: true;
+  /** The target file was absent before this run's first effect on it; the last owned member removes an empty file. */
+  createdFile?: true;
+  /** JSON object/array prefixes this run created on the way to an entry or hook group, deepest last. */
+  createdContainers?: string[][];
   /** Project basics: the exact text Core wrote inside an aih:shared block, so an update can rescue a person's own lines. */
   sharedContent?: string }
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
@@ -41,7 +45,8 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
 /** A TOML entry owner can record a created table only when its path has a table segment. */
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** Array members, approvals and shared-block content are recorded from 1.6. */
-const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined;
+const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
+  owner.createdFile !== undefined || owner.createdContainers !== undefined;
 /** Item custody, array members and approvals require 1.6; directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
@@ -260,11 +265,14 @@ export function validateOwnership(input: unknown, target: string): asserts input
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
-    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'sharedContent'].includes(key))) throw new Error('ownership-invalid');
+    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'createdFile', 'createdContainers', 'sharedContent'].includes(key))) throw new Error('ownership-invalid');
     if (needs16(m) && !atLeast(value.schema, OWNERSHIP_16) ||
         m.approval !== undefined && (!m.approval || typeof m.approval !== 'object' || Object.keys(m.approval).length !== 1 || typeof m.approval.tool !== 'string' ||
           !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(m.approval.tool) || !(m.descriptor?.kind === 'member' || m.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(m.descriptor.format))) ||
         Object.hasOwn(m, 'createdContainer') && (m.createdContainer !== true || m.descriptor?.kind !== 'member') ||
+        Object.hasOwn(m, 'createdFile') && m.createdFile !== true ||
+        Object.hasOwn(m, 'createdContainers') && (!Array.isArray(m.createdContainers) || m.createdContainers.length === 0 || m.createdContainers.length > 32 ||
+          !m.createdContainers.every(path => Array.isArray(path) && path.length > 0 && path.length <= 32 && path.every(part => typeof part === 'string' && part.length > 0 && part.length <= 256))) ||
         Object.hasOwn(m, 'sharedContent') && (!atLeast(value.schema, OWNERSHIP_16) || m.descriptor?.kind !== 'block' ||
           sharedBlockRole(m.descriptor.startMarker, m.descriptor.endMarker) === null ||
           typeof m.sharedContent !== 'string' || m.sharedContent.length > 65536)) throw new Error('ownership-invalid');

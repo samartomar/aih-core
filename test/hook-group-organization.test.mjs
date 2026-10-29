@@ -73,6 +73,6 @@ test('removing hook custody needs the organization lifecycle.remove permission',
     const permitted = await ask(s, removal);
     assert.equal(permitted.status, 'ready', JSON.stringify(permitted.diagnostics));
     assert.equal((await apply(permitted.prepared, authorize(permitted), { logging: 'off' })).completion, 'complete');
-    assert.deepEqual(groupsOf(s), []);
+    assert.equal(s.read(SETTINGS), null, 'the settings file Core created goes with its last group');
   } finally { s.dispose(); }
 });

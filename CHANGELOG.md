@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.44: removing a selection leaves the project as it was before install.
+
+- Removing the last hook group from a `settings.json` Core created deletes the file
+  instead of leaving empty containers. Containers Core added to an existing file go
+  when they are empty, and anything the person added keeps them.
+- Adding hook groups to an existing settings file follows its indentation (tabs or
+  N spaces) and line endings, and a minified file stays minified. Install followed by
+  removal returns the person's exact bytes. Files Core creates still use 2 spaces.
+- Under run result 1.4 or 1.5, each cleanup operation is checked on disk after Apply.
+  It reports `passed` with reason `member-checked` when every member is `absent` or,
+  for a kept or restored value, `present-matching`. It reports `failed` with reason
+  `member-changed` when one is `present-different`, which makes the run `incomplete`.
+  Otherwise it reports `unverified` with reason `member-unchecked`. Run results 1.0
+  to 1.3 are unchanged: removals stay `unverified` (`no-supplied-check`).
+- A complete, verified removal under run result 1.4 or 1.5 that kept nothing deletes
+  its own recovery folder and drops `recovery` from its result. Every other run keeps
+  its recovery data.
+- The same applies to a JSON or JSONC `config.entries` entry in a file Core created for
+  a selection with item metadata: removing the last such entry removes the file once
+  only empty containers are left and no other Core member lives in it.
+- Hook-group receipts record `createdFile` and `createdContainers`, which moves those
+  receipts to ownership 1.6.0.
+
 Core 1.0.0-dev.43: no two items installed together for Claude Code write one path.
 
 - Claude Code's rule layout keeps a rule's namespace as a folder, so ECC's language
