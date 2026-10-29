@@ -435,6 +435,7 @@ await check('compatibility uses the exact installed CLI version without borrowin
     assert.deepEqual([item.support, item.observed, item.observedOn], ['unconfirmed', 'none', null]);
     assert.match(item.reason, /Not observed for 0\.164\.0/);
     assert.equal(item.notRendered.reason, 'kind-not-native');
+    assert.deepEqual(item.staticBlockers, [], 'an unconfirmed cell is never shown as "doesn\'t work"');
     assert.deepEqual(item.deliveredSize, { bytes: 0, chars: 0, alwaysLoaded: { bytes: 0, chars: 0 } });
   }
   assert.match(byId(result, 'github').permissionStep, /Still needs your OK in Codex CLI/);

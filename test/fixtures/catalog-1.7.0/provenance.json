@@ -1,0 +1,16 @@
+{
+  "description": "Real Catalog release 1.7.0 contents and the Markdown text of their rules, copied unchanged from the packed @aihq/catalog built from samartomar/aih-catalog 1b774e3d (contract conformance, #191). Used to check that compatibility and rendering agree for every real item.",
+  "package": {
+    "name": "@aihq/catalog",
+    "version": "0.1.0",
+    "commit": "1b774e3d45edd4f05cab9375e078915449047432"
+  },
+  "files": {
+    "release-extensions.content.json": "fea9069138632d4b4ab427a3423beaad6ba32b6232493de920c8060636fe77fe",
+    "release-ecc.content.json": "353717e3bb947af8c9094e62fe0c84eb55cb726e4dfb983ad22f9566e580a32c",
+    "release-superpowers.content.json": "1a78412f9c16ca5af00b8bcd6d8c62681e40638b9109ea093c754fade93bfee1",
+    "release-project-basics.content.json": "32ea5a3b982a61e298ada844f17e55e10278841880ebe16cded7e676c5cbbbe2",
+    "release-default.content.json": "0e35b0380884129a6dcbdb9fc86789a96a1fd73263c8bae6e3ed1201a4511c9d"
+  },
+  "ruleTexts": 147
+}
