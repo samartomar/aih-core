@@ -45,7 +45,8 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
 /** A TOML entry owner can record a created table only when its path has a table segment. */
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** Array members, approvals and shared-block content are recorded from 1.6. */
-const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined;
+const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
+  owner.createdFile !== undefined || owner.createdContainers !== undefined;
 /** Item custody, array members and approvals require 1.6; directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));

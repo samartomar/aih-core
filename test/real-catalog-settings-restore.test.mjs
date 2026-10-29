@@ -33,6 +33,16 @@ test('a settings.json AIH created for its hook groups goes with the last group',
   assert.deepEqual(fileTree(s.project), before, 'the project tree is exactly what it was before install');
 });
 
+test('a settings.json AIH created is removed even when the selection carries no item metadata', async () => {
+  assertVendoredRelease();
+  const s = open(), before = fileTree(s.project);
+  const { selections } = await installReal(s, { described: false });
+  assert.equal(existsSync(settings(s)), true, 'Core created the settings file');
+  await removeAll(s, selections);
+  assert.equal(existsSync(settings(s)), false);
+  assert.deepEqual(fileTree(s.project), before);
+});
+
 test('a settings.json the person already had is restored to its exact pre-install bytes', async () => {
   assertVendoredRelease();
   const s = open();

@@ -49,7 +49,7 @@ function selection(itemId, requiredById) {
 }
 
 /** The 19 real selections: Superpowers' 16 set members and notices, git-guard and its notices. */
-export function realSelections() {
+export function realSelections({ described = true } = {}) {
   const ids = [...set.members.map(member => member.item.itemId), 'superpowers.notices', 'extensions.hook.git-guard', 'extensions.notices'];
   for (const id of ids) {
     const item = items.get(id);
@@ -60,8 +60,12 @@ export function realSelections() {
       assert.equal(sha256(readFileSync(path)), member.sha256, `${id} material ${member.relPath}`);
     }
   }
-  return ids.map(id => id === 'superpowers.notices' ? selection(id, 'superpowers.hook.session-start')
-    : id === 'extensions.notices' ? selection(id, 'extensions.hook.git-guard') : selection(id));
+  return ids.map(id => {
+    const value = id === 'superpowers.notices' ? selection(id, 'superpowers.hook.session-start')
+      : id === 'extensions.notices' ? selection(id, 'extensions.hook.git-guard') : selection(id);
+    if (!described) for (const key of ['item', 'tool', 'name', 'kind', 'origins']) delete value[key];
+    return value;
+  });
 }
 
 export function assertVendoredRelease() {
@@ -71,8 +75,8 @@ export function assertVendoredRelease() {
 export const controls = () => ({ logging: 'off', materialRoots: { catalog: catalogRoot } });
 export const approve = review => ({ reviewDigest: review.reviewDigest, approved: true, origin: 'automation' });
 
-export async function installReal(sandbox) {
-  const selections = realSelections();
+export async function installReal(sandbox, options) {
+  const selections = realSelections(options);
   const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections },
     target: { project: sandbox.project } }, controls());
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));

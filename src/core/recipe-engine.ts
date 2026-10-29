@@ -704,12 +704,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             // A file and JSON containers this run creates are remembered so the last removal can take them
             // away; a later group in the same file inherits them from the earlier owner.
             const sameFile = Object.values(projected.members).filter(member => member.descriptor?.path === path);
-            const fileCreated = selection.item !== undefined &&
-              (initialBefore === null || sameFile.some(member => member.createdFile === true));
-            const createdPaths = selection.item === undefined ? [] : [...new Map([...sameFile.flatMap(member => member.createdContainers ?? []),
-              ...missingContainers(op.format, initialBefore ?? null, op.container)].map(item => [JSON.stringify(item), item])).values()];
+            const fileCreated = initialBefore === null || sameFile.some(member => member.createdFile === true);
+            // Containers matter only when the file existed before; a file this run created is deleted whole.
+            const createdPaths = initialBefore === null ? [] : [...new Map([...sameFile.flatMap(member => member.createdContainers ?? []),
+              ...missingContainers(op.format, initialBefore, op.container)].map(item => [JSON.stringify(item), item])).values()];
+            const boundedPaths = createdPaths.length && JSON.stringify(createdPaths).length <= 4096 ? createdPaths : [];
             custody = { [hookKey]: decision.custody === null ? null : { ...decision.custody,
-              ...(fileCreated ? { createdFile: true as const } : {}), ...(createdPaths.length ? { createdContainers: createdPaths } : {}) } };
+              ...(fileCreated ? { createdFile: true as const } : {}), ...(boundedPaths.length ? { createdContainers: boundedPaths } : {}) } };
             custodyOnly = decision.custodyOnly;
             ownerState = decision.managed ? 'managed' : 'unowned';
             resolution = effect === 'conflict' ? undefined : choice?.choice;

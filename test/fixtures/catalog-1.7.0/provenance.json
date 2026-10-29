@@ -1,5 +1,5 @@
 {
-  "description": "Real Catalog release 1.7.0 contents and the Markdown text of their rules, copied unchanged from the packed @aihq/catalog built from samartomar/aih-catalog 1b774e3d (contract conformance, #191). Used to check that compatibility and rendering agree for every real item.",
+  "description": "Real Catalog release 1.7.0 contents and the Markdown text of their rules, copied unchanged from the packed @aihq/catalog built from samartomar/aih-catalog 1b774e3d (contract conformance, #191). Used to check that compatibility and rendering agree for every real item; `release/materials/` holds the exact published bytes of the Superpowers set and Extensions git-guard items the removal journey installs.",
   "package": {
     "name": "@aihq/catalog",
     "version": "0.1.0",
