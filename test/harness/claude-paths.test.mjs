@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { checkCompatibility, renderDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
+import { reidentified } from './catalog-item-fixture.mjs';
 
 const folder = new URL('../fixtures/catalog-1.7.0/', import.meta.url);
 const provenance = JSON.parse(readFileSync(new URL('provenance.json', folder), 'utf8'));
@@ -113,5 +114,33 @@ test('a Kiro-edition variant picked alone is installed in its own folder name; w
   // Left out by the person as well, it is still only left out; leaving the main edition out installs the variant.
   const mainLeftOut = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS,
     items: [{ item: main, excluded: true }, { item: variant }, { item: notices }] });
-  assert.deepEqual([mainLeftOut.items.find(entry => entry.item.itemId === variant.id).excluded, mainLeftOut.items.find(entry => entry.item.itemId === variant.id).staticBlockers], [undefined, []]);
+  const installedVariant = mainLeftOut.items.find(entry => entry.item.itemId === variant.id);
+  assert.equal(installedVariant.excluded, undefined);
+  assert.deepEqual(installedVariant.staticBlockers, []);
+});
+
+test('a variant is never left out in a way that hides a conflict or drops both editions', () => {
+  const variant = ecc.items.find(item => item.id === 'ecc.skill.api-design.kiro-variant');
+  const main = ecc.items.find(item => item.id === variant.variantOf.itemId);
+  const notices = ecc.items.find(item => item.id === 'ecc.notices');
+  const check = entries => checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: entries });
+  const row = (result, item) => result.items.find(entry => entry.item.itemId === item.id);
+  const conflict = (result, ...items) => {
+    for (const item of items) {
+      assert.equal(row(result, item).leftOut, undefined, item.id);
+      assert.ok(row(result, item).staticBlockers.some(blocker => blocker.code === 'same-folder'), item.id);
+    }
+  };
+  // Required by the person: shown as the conflict it is.
+  conflict(check([{ item: main }, { item: variant, required: true }, { item: notices }]), main, variant);
+  // A cycle (each names the other as its main edition) is a visible conflict, whatever the order.
+  const cyclic = { ...main, variantOf: { itemId: variant.id } };
+  conflict(check([cyclic, variant, notices].map(item => ({ item }))), cyclic, variant);
+  conflict(check([variant, cyclic, notices].map(item => ({ item }))), cyclic, variant);
+  // A main edition that would not install (here it requires an item nobody picked) does not take the variant down with it.
+  const blockedMain = reidentified(main, { dependencies: { ...main.dependencies, requires: [...main.dependencies.requires, { itemId: 'ecc.not-picked' }] } });
+  const blocked = check([blockedMain, variant, notices].map(item => ({ item })));
+  assert.equal(row(blocked, variant).leftOut, undefined);
+  assert.equal(row(blocked, variant).excluded, undefined);
+  assert.ok(row(blocked, blockedMain).staticBlockers.some(blocker => blocker.code === 'dependency-missing'));
 });

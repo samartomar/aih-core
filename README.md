@@ -1037,9 +1037,15 @@ depend on order. Per item the result is:
   out.", where `{tool}` is the label of the item's single `hints.tools` entry.
   Without that entry, `{tool} version` reads "Another version". Pass the variant
   in `excludedItems`; Core's review then lists it as excluded, with Core's reason
-  `excluded-in-request`, not the `leftOut` detail. The main edition
-  is installed. A variant picked alone, or one delivered elsewhere (an MCP server
-  under its own key), installs as itself.
+  `excluded-in-request`, not the `leftOut` detail. The main edition is installed.
+  A variant is never left out in these cases:
+  - it is `required`;
+  - its main edition is itself a variant (a chain or a cycle);
+  - its main edition would not install (a blocker, or not rendered).
+
+  In each of these the clash shows as `same-folder`. The result never depends on
+  the order of the items. A variant picked alone, or one delivered elsewhere (an
+  MCP server under its own key), installs as itself.
 - **Sizes.** `bytes` are the delivered materials' byte lengths and `chars`
   Catalog's measured characters (the byte length when unmeasured).
   `alwaysLoaded` is what the tool reads every session: Catalog's measured `name`

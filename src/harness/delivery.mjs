@@ -163,6 +163,12 @@ const neutralFolder = info => [...NEUTRAL_FOLDER, info.ref.framework, info.item.
 const isLicense = member => member.id === 'license' && /^(LICEN[CS]E|COPYING)(\.[A-Za-z]+)?$/i.test(baseName(member.relPath));
 /** The folder every reference keeps, in its source and as delivered: the one place a reference may be written. */
 const REFERENCE_FOLDER = 'references';
+/**
+ * The places a plan owns outright, as `<base>/<path>`: its folder, or each file. Marker blocks are not places: several
+ * items keep their own blocks in one entry file.
+ */
+const placesOf = plan => plan.folder ? [`${plan.base}/${plan.folder.join('/')}`]
+  : plan.files.map(file => `${file.base ?? plan.base}/${file.segments.join('/')}`);
 /** A document delivered for the item that requires it, rather than into the project folder. */
 const supportingDocument = item => item.kind === 'document' && item.payload.placement !== 'project-folder';
 /**
@@ -636,142 +642,157 @@ export function checkCompatibility({ tool, platform, installedVersion, items, bi
       prior.excluded ||= entry.excluded === true; prior.required ||= entry.required === true;
       for (const set of entry.sets ?? []) prior.sets.set(setKey(set), set);
     });
-    // A variant of an item that is also picked (ECC's Kiro edition of a main skill) that would be written to the main
-    // edition's place is never installed with it: the variant is left out, with the reason, and the main edition is
-    // installed. A variant delivered elsewhere (an MCP server under its own key) installs beside it; picked alone, a
-    // variant is delivered as itself.
-    const places = info => {
-      try {
-        const plan = deliveryPlan(info, binding, planScope(binding, info.kind));
-        return new Set([...(plan.folder ? [plan.folder] : plan.files.map(file => file.segments)), ...plan.blocks.map(block => block.segments)]
-          .map(segments => `${plan.base}/${segments.join('/')}`));
-      } catch { return new Set(); }
-    };
-    for (const entry of merged.values()) {
-      const variantOf = entry.info.item.variantOf;
-      if (entry.excluded || !isRecord(variantOf) || typeof variantOf.itemId !== 'string') continue;
-      const main = merged.get(refKey({ framework: variantOf.framework ?? entry.info.ref.framework, itemId: variantOf.itemId }));
-      if (!main || main.excluded) continue;
-      const mainPlaces = places(main.info);
-      if (![...places(entry.info)].some(place => mainPlaces.has(place))) continue;
-      const hinted = Array.isArray(entry.info.item.hints?.tools) && entry.info.item.hints.tools.length === 1 ? selectTool(entry.info.item.hints.tools[0]) : undefined;
-      const name = typeof main.info.item.name === 'string' ? main.info.item.name : main.info.ref.itemId;
-      entry.excluded = true;
-      entry.leftOut = { reason: 'variant-of-selected', detail: `${hinted?.tool ? `${hinted.tool.label} version` : 'Another version'} of ${name}. ` +
-        `${name} is picked, so this version is left out.` };
-    }
-    // Membership is Catalog's: an excluded entry never binds, neither as itself nor through its fallback, and an
-    // excluded item is never used as another item's fallback.
-    const excluded = new Set([...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)));
     const ordered = [...merged.entries()].sort(([a], [b]) => compareCodeUnits(a, b)).map(([, entry]) => entry);
     /** A delivery refusal, kept for its reason; anything else is not an answer about this item and is rethrown. */
     const refusalOf = error => {
       if (!(error instanceof Refusal) || error.refusal.code !== 'PREREQUISITE_UNAVAILABLE') throw error;
       return error.refusal;
     };
-    const assess = entry => {
-      const own = cellOn(binding, entry.info.kind, platform, installedVersion);
-      const isExcluded = excluded.has(refKey(entry.info.ref));
-      let bound = entry.info, cell = own, boundAs;
-      if (!isExcluded && own.support !== 'native' && entry.fallback && !NATIVE_ONLY.has(entry.info.kind) &&
-          !NATIVE_ONLY.has(entry.fallback.kind) && !excluded.has(refKey(entry.fallback.ref))) {
-        const candidate = cellOn(binding, entry.fallback.kind, platform, installedVersion);
-        if (candidate.support === 'native') {
-          bound = entry.fallback; cell = candidate;
-          boundAs = { kind: entry.fallback.kind, item: entry.fallback.ref, viaFallback: true };
-        }
-      }
-      const staticBlockers = [];
-      let plan, notRendered;
-      if (!isExcluded) {
-        try {
-          if (installedVersion !== undefined && cell.support !== 'native')
-            unavailable('kind-not-native', '/item/kind', cell.reason);
-          plan = supportingDocument(bound) ? planBeside(bound, cell.support) :
-            deliveryPlan(bound, binding, bound.kind === 'document' ? 'project' : planScope(binding, bound.kind), { support: cell.support });
-        } catch (error) {
-          const { reason, message } = refusalOf(error);
-          if (STATIC_BLOCKERS.has(reason)) staticBlockers.push({ code: reason, detail: message });
-          else {
-            notRendered = { reason, detail: message };
-            // A native cell that rendering refuses is never shown as working. An unconfirmed cell is neither working
-            // nor "doesn't work", so it carries only notRendered.
-            if (cell.support === 'native') staticBlockers.push({ code: reason, detail: message });
+    // A variant of an item that is also picked (ECC's Kiro edition of a main skill) that would be written to the main
+    // edition's place is never installed with it: the variant is left out, with the reason, and the main edition is
+    // installed. It is not left out when it was required, when its main edition is itself a variant (a chain or a
+    // cycle, which stays a visible conflict), when it is delivered elsewhere (an MCP server under its own key), or when
+    // the main edition would not install after all. Picked alone, a variant is delivered as itself. The outcome does not
+    // depend on the order of the items.
+    const places = info => {
+      try {
+        return new Set(placesOf(deliveryPlan(info, binding, planScope(binding, info.kind))));
+      } catch (error) { refusalOf(error); return new Set(); }
+    };
+    const mainOf = entry => {
+      const variantOf = entry.info.item.variantOf;
+      if (!isRecord(variantOf) || typeof variantOf.itemId !== 'string') return undefined;
+      const key = refKey({ framework: variantOf.framework ?? entry.info.ref.framework, itemId: variantOf.itemId });
+      return key === refKey(entry.info.ref) ? undefined : merged.get(key);
+    };
+    const candidates = new Map();
+    for (const entry of ordered) {
+      const main = mainOf(entry);
+      if (!main || entry.excluded || entry.required || main.excluded || supportingDocument(entry.info) || mainOf(main)) continue;
+      const mainPlaces = places(main.info);
+      if (![...places(entry.info)].some(place => mainPlaces.has(place))) continue;
+      const hinted = Array.isArray(entry.info.item.hints?.tools) && entry.info.item.hints.tools.length === 1 ? selectTool(entry.info.item.hints.tools[0]) : undefined;
+      const name = typeof main.info.item.name === 'string' ? main.info.item.name : main.info.ref.itemId;
+      candidates.set(refKey(entry.info.ref), { main: refKey(main.info.ref), leftOut: { reason: 'variant-of-selected',
+        detail: `${hinted?.tool ? `${hinted.tool.label} version` : 'Another version'} of ${name}. ${name} is picked, so this version is left out.` } });
+    }
+    /** Every item's result, with these variants left out. */
+    const evaluate = leftOut => {
+      // Membership is Catalog's: an excluded entry never binds, neither as itself nor through its fallback, and an
+      // excluded item is never used as another item's fallback.
+      const excluded = new Set([...[...merged.values()].filter(entry => entry.excluded).map(entry => refKey(entry.info.ref)), ...leftOut.keys()]);
+      const assess = entry => {
+        const own = cellOn(binding, entry.info.kind, platform, installedVersion);
+        const isExcluded = excluded.has(refKey(entry.info.ref));
+        let bound = entry.info, cell = own, boundAs;
+        if (!isExcluded && own.support !== 'native' && entry.fallback && !NATIVE_ONLY.has(entry.info.kind) &&
+            !NATIVE_ONLY.has(entry.fallback.kind) && !excluded.has(refKey(entry.fallback.ref))) {
+          const candidate = cellOn(binding, entry.fallback.kind, platform, installedVersion);
+          if (candidate.support === 'native') {
+            bound = entry.fallback; cell = candidate;
+            boundAs = { kind: entry.fallback.kind, item: entry.fallback.ref, viaFallback: true };
           }
         }
-        if (entry.required && cell.support === 'none') staticBlockers.push({ code: 'required-but-unsupported',
-          detail: `A required ${bound.kind} item is not supported by ${binding.tool} on ${platform.os} ${platform.arch}.` });
-      }
-      return { entry, bound, plan, result: {
-        item: entry.info.ref, support: cell.support, reason: cell.reason, observed: cell.observed, observedOn: cell.observedOn,
-        ...(boundAs ? { boundAs } : {}), ...(isExcluded ? { excluded: true } : {}), ...(entry.leftOut ? { leftOut: entry.leftOut } : {}),
-        ...(notRendered ? { notRendered } : {}),
-        ...(cell.layout.register?.permissionStep && !isExcluded ?
-          { permissionStep: permissionNotice(selectTool(binding.tool).tool.label, cell.layout.register.permissionStep) } : {}),
-        deliveredSize: plan ? deliveredSize(bound, plan) : emptySize(), staticBlockers } };
-    };
-    // Two different items writing one folder (a skill or hook folder) or one file. Items bound to the same item,
-    // such as a fallback that is also a member, write the same place and do not collide.
-    const markCollisions = rows => {
-      const writers = new Map();
-      for (const row of rows) if (row.plan) {
-        const places = row.plan.folder ? [[row.plan.base, row.plan.folder]] : row.plan.files.map(file => [file.base ?? row.plan.base, file.segments]);
-        for (const [base, place] of places) {
-          const where = `${base}/${place.join('/')}`;
-          writers.set(where, [...(writers.get(where) ?? []), row]);
+        const staticBlockers = [];
+        let plan, notRendered;
+        if (!isExcluded) {
+          try {
+            if (installedVersion !== undefined && cell.support !== 'native')
+              unavailable('kind-not-native', '/item/kind', cell.reason);
+            plan = supportingDocument(bound) ? planBeside(bound, cell.support) :
+              deliveryPlan(bound, binding, bound.kind === 'document' ? 'project' : planScope(binding, bound.kind), { support: cell.support });
+          } catch (error) {
+            const { reason, message } = refusalOf(error);
+            if (STATIC_BLOCKERS.has(reason)) staticBlockers.push({ code: reason, detail: message });
+            else {
+              notRendered = { reason, detail: message };
+              // A native cell that rendering refuses is never shown as working. An unconfirmed cell is neither working
+              // nor "doesn't work", so it carries only notRendered.
+              if (cell.support === 'native') staticBlockers.push({ code: reason, detail: message });
+            }
+          }
+          if (entry.required && cell.support === 'none') staticBlockers.push({ code: 'required-but-unsupported',
+            detail: `A required ${bound.kind} item is not supported by ${binding.tool} on ${platform.os} ${platform.arch}.` });
         }
-      }
-      for (const [where, writing] of writers) if (new Set(writing.map(row => refKey(row.bound.ref))).size > 1)
-        for (const row of new Set(writing)) {
-          const detail = `Another item also writes ${where}`;
-          if (!row.result.staticBlockers.some(blocker => blocker.code === 'same-folder' && blocker.detail === detail))
-            row.result.staticBlockers.push({ code: 'same-folder', detail });
+        return { entry, bound, plan, result: {
+          item: entry.info.ref, support: cell.support, reason: cell.reason, observed: cell.observed, observedOn: cell.observedOn,
+          ...(boundAs ? { boundAs } : {}), ...(isExcluded ? { excluded: true } : {}), ...(leftOut.has(refKey(entry.info.ref)) ? { leftOut: leftOut.get(refKey(entry.info.ref)).leftOut } : {}),
+          ...(notRendered ? { notRendered } : {}),
+          ...(cell.layout.register?.permissionStep && !isExcluded ?
+            { permissionStep: permissionNotice(selectTool(binding.tool).tool.label, cell.layout.register.permissionStep) } : {}),
+          deliveredSize: plan ? deliveredSize(bound, plan) : emptySize(), staticBlockers } };
+      };
+      // Two different items writing one folder (a skill or hook folder) or one file. Items bound to the same item,
+      // such as a fallback that is also a member, write the same place and do not collide.
+      const markCollisions = rows => {
+        const writers = new Map();
+        for (const row of rows) if (row.plan) {
+          for (const where of placesOf(row.plan)) writers.set(where, [...(writers.get(where) ?? []), row]);
         }
-    };
-    // Supporting documents are assessed after the items they sit beside: only an item installed as itself, with no
-    // blocker of its own, gives one a place.
-    const assessed = new Map(ordered.filter(entry => !supportingDocument(entry.info)).map(entry => [entry, assess(entry)]));
-    markCollisions([...assessed.values()]);
-    const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.result.staticBlockers.length === 0 && !row.result.notRendered);
-    // A supporting document is planned beside each such requiring item, exactly as renderDelivery places it.
-    const planBeside = (document, support) => {
-      const files = []; let refusal;
-      for (const host of hosts) if (requiresDocument(host.bound, document)) {
-        try {
-          const plan = deliveryPlan(document, binding, planScope(binding, host.bound.kind), { support, requirer: host.bound });
-          // A shared copy (neutral or source-relative) is one file per scope however many items require it; it is
-          // planned and sized once.
-          for (const file of plan.files) if (!files.some(known => known.base === plan.base && known.segments.join('/') === file.segments.join('/')))
-            files.push({ ...file, base: plan.base });
-        } catch (error) { refusal = refusalOf(error); }
-      }
-      if (files.length === 0) throw new Refusal(refusal ?? { code: 'PREREQUISITE_UNAVAILABLE', reason: 'scope-not-bound', path: '/items',
-        message: 'A supporting document is delivered beside the item that requires it; no requiring item it can sit beside is selected.' });
-      return { kind: 'document', base: files[0].base, files, blocks: [], layout: binding.layouts.document };
-    };
-    const results = ordered.map(entry => assessed.get(entry) ?? assess(entry));
-    markCollisions(results);
-    // `requires` is installed with the item or the item cannot be installed: a required item that is not selected, is
-    // left out, or (a supporting document) has no place beside it blocks the item that requires it.
-    const byRef = new Map(results.map(row => [refKey(row.entry.info.ref), row]));
-    for (const row of results) {
-      if (row.result.excluded) continue;
-      // An item that cannot be delivered itself already names why (a blocker, or notRendered for an unconfirmed cell);
-      // its supporting documents are not blamed for it.
-      const own = row.result.staticBlockers.length > 0 || row.result.notRendered !== undefined;
-      for (const ref of requiresOf(row.bound)) {
-        const required = byRef.get(refKey({ framework: ref.framework ?? row.bound.ref.framework, itemId: ref.itemId }));
-        if (!required) row.result.staticBlockers.push({ code: 'dependency-missing', detail: `It requires ${ref.itemId}, which is not selected.` });
-        else if (required.result.excluded)
-          row.result.staticBlockers.push({ code: 'excluded-but-required', detail: `It requires ${ref.itemId}, which is left out.` });
-        else if (!own && supportingDocument(required.bound)) {
-          try { deliveryPlan(required.bound, binding, planScope(binding, row.bound.kind), { requirer: row.bound }); }
-          catch (error) {
-            row.result.staticBlockers.push({ code: 'dependency-missing',
-              detail: `${ref.itemId} cannot be delivered beside it: ${refusalOf(error).message}` });
+        for (const [where, writing] of writers) if (new Set(writing.map(row => refKey(row.bound.ref))).size > 1)
+          for (const row of new Set(writing)) {
+            const detail = `Another item also writes ${where}`;
+            if (!row.result.staticBlockers.some(blocker => blocker.code === 'same-folder' && blocker.detail === detail))
+              row.result.staticBlockers.push({ code: 'same-folder', detail });
+          }
+      };
+      // Supporting documents are assessed after the items they sit beside: only an item installed as itself, with no
+      // blocker of its own, gives one a place.
+      const assessed = new Map(ordered.filter(entry => !supportingDocument(entry.info)).map(entry => [entry, assess(entry)]));
+      markCollisions([...assessed.values()]);
+      const hosts = [...assessed.values()].filter(row => !row.result.excluded && row.result.staticBlockers.length === 0 && !row.result.notRendered);
+      // A supporting document is planned beside each such requiring item, exactly as renderDelivery places it.
+      const planBeside = (document, support) => {
+        const files = []; let refusal;
+        for (const host of hosts) if (requiresDocument(host.bound, document)) {
+          try {
+            const plan = deliveryPlan(document, binding, planScope(binding, host.bound.kind), { support, requirer: host.bound });
+            // A shared copy (neutral or source-relative) is one file per scope however many items require it; it is
+            // planned and sized once.
+            for (const file of plan.files) if (!files.some(known => known.base === plan.base && known.segments.join('/') === file.segments.join('/')))
+              files.push({ ...file, base: plan.base });
+          } catch (error) { refusal = refusalOf(error); }
+        }
+        if (files.length === 0) throw new Refusal(refusal ?? { code: 'PREREQUISITE_UNAVAILABLE', reason: 'scope-not-bound', path: '/items',
+          message: 'A supporting document is delivered beside the item that requires it; no requiring item it can sit beside is selected.' });
+        return { kind: 'document', base: files[0].base, files, blocks: [], layout: binding.layouts.document };
+      };
+      const results = ordered.map(entry => assessed.get(entry) ?? assess(entry));
+      markCollisions(results);
+      // `requires` is installed with the item or the item cannot be installed: a required item that is not selected, is
+      // left out, or (a supporting document) has no place beside it blocks the item that requires it.
+      const byRef = new Map(results.map(row => [refKey(row.entry.info.ref), row]));
+      for (const row of results) {
+        if (row.result.excluded) continue;
+        // An item that cannot be delivered itself already names why (a blocker, or notRendered for an unconfirmed cell);
+        // its supporting documents are not blamed for it.
+        const own = row.result.staticBlockers.length > 0 || row.result.notRendered !== undefined;
+        for (const ref of requiresOf(row.bound)) {
+          const required = byRef.get(refKey({ framework: ref.framework ?? row.bound.ref.framework, itemId: ref.itemId }));
+          if (!required) row.result.staticBlockers.push({ code: 'dependency-missing', detail: `It requires ${ref.itemId}, which is not selected.` });
+          else if (required.result.excluded)
+            row.result.staticBlockers.push({ code: 'excluded-but-required', detail: `It requires ${ref.itemId}, which is left out.` });
+          else if (!own && supportingDocument(required.bound)) {
+            try { deliveryPlan(required.bound, binding, planScope(binding, row.bound.kind), { requirer: row.bound }); }
+            catch (error) {
+              row.result.staticBlockers.push({ code: 'dependency-missing',
+                detail: `${ref.itemId} cannot be delivered beside it: ${refusalOf(error).message}` });
+            }
           }
         }
       }
+      return results;
+    };
+    // Leave a variant out only while its main edition installs; a variant whose main edition does not is evaluated again
+    // as picked, so the person never gets neither edition. Each pass keeps fewer variants out, so this ends.
+    const leftOut = new Map(candidates);
+    let results;
+    for (;;) {
+      results = evaluate(leftOut);
+      const rows = new Map(results.map(row => [refKey(row.entry.info.ref), row.result]));
+      const failed = [...leftOut].filter(([, { main }]) => { const row = rows.get(main); return row.excluded || row.staticBlockers.length > 0 || row.notRendered; });
+      if (failed.length === 0) break;
+      for (const [key] of failed) leftOut.delete(key);
     }
     const sets = new Map();
     for (const { entry, result } of results) if (!result.excluded) for (const [key, set] of entry.sets) {
