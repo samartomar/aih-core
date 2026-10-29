@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.46: single-id managed removal accepts a local organization source.
+
+- `prepareManagedRemoval` with a single `managementId` now accepts the same local
+  organization policy file, `{ provider: 'local', path }`, as the `removals[]` form.
+  Its removal review uses execution policy 1.4.0, names the file and never its folder,
+  and returns managed-removal-preparation 1.1.0 with prepared-work 1.6.0. The GitHub
+  source and every other removal identity are unchanged.
+
 Core 1.0.0-dev.45: execution policy 1.6.0 accepts recipe-less item selections.
 
 - A selection may name its Catalog item, tool, scope, configuration, requirements,
