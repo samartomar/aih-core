@@ -237,3 +237,22 @@ test('an item with no location of its own is not blamed on the documents it requ
     assert.match(row.notRendered.detail, /location for mcp-server items/, server.id);
   }
 });
+
+test("a single-file item's own licence goes to the neutral folder under its id, so no two items write one licence", () => {
+  const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
+  const claude = toolBindings.find(binding => binding.tool === 'claude');
+  const singles = extensions.filter(entry => ['agent', 'command'].includes(entry.kind));
+  assert.ok(singles.length > 1);
+  const licences = singles.map(item => {
+    const rendered = renderDelivery({ tool: 'claude', item, binding: claude, scope: 'project' });
+    assert.equal(rendered.status, 'rendered', `${item.id}: ${JSON.stringify(rendered)}`);
+    const writes = rendered.recipe.operations.filter(op => op.kind === 'file.write').map(op => [op.material, op.target.segments.map(part => part.literal).join('/')]);
+    const licence = writes.filter(([material]) => material === 'license').map(([, path]) => path);
+    assert.deepEqual(licence, [`.aih/notices/extensions/${item.id}/LICENSE`], item.id);
+    assert.ok(writes.every(([material, path]) => material === 'license' || path.startsWith(`.claude/${item.kind}s/`)), JSON.stringify(writes));
+    return licence[0];
+  });
+  assert.equal(new Set(licences).size, licences.length);
+  const compat = checkCompatibility({ tool: 'claude', binding: claude, platform: WINDOWS, items: extensions.map(item => ({ item })) });
+  for (const item of singles) assert.deepEqual(compat.items.find(row => row.item.itemId === item.id).staticBlockers, [], item.id);
+});

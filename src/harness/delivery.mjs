@@ -213,7 +213,10 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
     if (!Array.isArray(payload.files) || payload.files.length === 0) invalid('item-invalid', `${path}/payload/files`, 'Expected the carried files.');
     payload.files.forEach((id, index) => {
       const member = material(info, id, `${path}/payload/files/${index}`);
-      file(member, [...root, baseName(member.relPath)]);
+      // Catalog's `license` material is the source's licence. A single-file item keeps no folder for it, so it goes to
+      // the neutral notices folder under the item's own id: one copy per item, owned and removed with it.
+      if (member.id === 'license') file(member, [...NEUTRAL_FOLDER, info.ref.framework, info.item.id, baseName(member.relPath)]);
+      else file(member, [...root, baseName(member.relPath)]);
     });
   } else if (info.kind === 'rule') {
     const texts = markdown(info);
