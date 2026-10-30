@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.48: Prepare of a large pick keeps its history.
+
+- A policy Prepare's routine history record names a required selection once instead of
+  repeating its every operation in each requiring operation's `requires`. Each operation
+  of a requirer requires all operations of the selections it requires, so ECC's notices
+  (196 operations: the neutral copy and one beside each requirer's own folder) were
+  listed in each of about 430 requiring operations. In history such an operation lists
+  that selection in `requiresSelections`, meaning every operation of the record's review
+  with that `selectionId`, and keeps its other required ids in `requires`; together they
+  are exactly the reviewed set. History also leaves out `operationSelections` when every
+  entry is the review operation at its position, with its `selectionId` and the rest of
+  its id. The returned result, the review and its digest, and Apply are unchanged.
+- Claude Code with ECC's default pick and Superpowers (256 selections) now saves its
+  Prepare history: the record is about 926 KB instead of about 7.2 MB, which exceeded
+  the unchanged 1 MiB bound and reported `record-limit`.
+
 Core 1.0.0-dev.47: Apply scales linearly, a shared notices copy is written once, and large installs keep their history.
 
 - Apply no longer re-reads, re-parses and re-validates the whole ownership receipt,
