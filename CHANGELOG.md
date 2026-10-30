@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.51: an update is checked like an install, and a refused one is not "prepared".
+
+- Add managed update preparation 1.1.0. `prepareUpdate` accepts an optional
+  `policy: { schema, catalogReleases?, evidence? }` naming execution policy 1.4.0, 1.5.0
+  or 1.6.0. Its replacements are prepared in that version exactly as an install is: a
+  1.6.0 replacement may be recipe-less, rendered from the named Catalog release; a
+  replacement's `bindingDigest`, `scanRecords` and `itemMaterials` are checked against its
+  own bytes; the review is prepared work 1.7.0; and Apply re-checks binding, Scan state
+  and release-index status. With `policy` the update also takes the `evidence` and `index`
+  controls those checks read. A replacement rendered for a binding Core no longer ships
+  is a `binding-changed` conflict, named in its entry, and `REVIEW_STALE` (`binding`) at
+  Apply. The schema and its fixture are published.
+- A request without `policy` still takes execution policy 1.4.0 replacements and returns
+  managed update preparation 1.0.0, and still refuses the `evidence` control.
+- A shared preparation refused without a review is no longer reported `prepared`. The
+  request is `not-prepared` without a preparation or `reviewDigest`, and each entry it
+  held is `invalid` (or `unavailable` for a `blocked` preparation) with the
+  preparation's diagnostics. This applies to 1.0.0 results too; both dispositions are
+  already in the 1.0.0 schema, so 1.0.0 results still validate. A consumer that read
+  the reasons from `preparation.diagnostics` reads them from each entry instead.
+
 Core 1.0.0-dev.49: Apply on Windows no longer starts PowerShell for every effect.
 
 - On Windows, state protection reads the real access list of Core's state through

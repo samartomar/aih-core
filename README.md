@@ -79,6 +79,7 @@ macOS session limits are internal to the package and not part of any entry.
 | `@aihq/core/schemas/managed-removal-preparation/1.0.0.json` | Managed removal preparation JSON Schema |
 | `@aihq/core/schemas/managed-removal-preparation/1.2.0.json` | Removal preparation 1.2.0 JSON Schema: several removals, by origin, with named member actions (`$defs/request` describes the request) |
 | `@aihq/core/schemas/managed-update-preparation/1.0.0.json` | Managed update preparation 1.0.0 JSON Schema: explicit replacements with named member actions and local edits as conflicts (`$defs/request` describes the request) |
+| `@aihq/core/schemas/managed-update-preparation/1.1.0.json` | Managed update preparation 1.1.0 JSON Schema: a request that names its execution policy (1.4.0 to 1.6.0), with Catalog releases and Scan evidence (`$defs/request` describes the request) |
 | `@aihq/core/schemas/execution-policy/1.1.0.json` | Execution-policy 1.1.0 JSON Schema (adds owned hook groups) |
 | `@aihq/core/schemas/recipe/1.1.0.json` | Recipe 1.1.0 JSON Schema (adds `hook.group`) |
 | `@aihq/core/schemas/prepared-work/1.1.0.json` | Serializable review 1.1.0 JSON Schema |
@@ -2611,23 +2612,36 @@ Byte custody is published after the corresponding successful mutation. Set/depen
 
 `prepareUpdate` previews updating installed selections to replacements the consumer
 chose. Core never looks for, chooses or applies an update by itself: the consumer
-supplies each exact replacement, an execution policy 1.4.0 selection such as one
-rendered by `renderDelivery` from a newer Catalog item, and applies the reviewed
-result with the ordinary `apply`.
+supplies each exact replacement, such as a selection rendered by `renderDelivery` from a
+newer Catalog item or a recipe-less one naming it, and applies the reviewed result with
+the ordinary `apply`.
 
 ```ts
 prepareUpdate({ target: { project }, scope: 'project' | 'user',
-  updates: { managementId, replacement: <execution policy 1.4.0 selection> }[] }, controls?)
+  updates: { managementId, replacement: <execution policy selection> }[],
+  policy?: { schema: <execution policy 1.4.0, 1.5.0 or 1.6.0>, catalogReleases?, evidence? } }, controls?)
 ```
 
-The result is `urn:aihq:core:managed-update-preparation:1.0.0`. Each replacement keeps
+Without `policy` each replacement is an execution policy 1.4.0 selection and the result
+is `urn:aihq:core:managed-update-preparation:1.0.0`, as before. With `policy` the result is
+`urn:aihq:core:managed-update-preparation:1.1.0` and the replacements are prepared in that
+execution policy version, with its `catalogReleases` and Scan `evidence`, exactly as an
+install in that version is: a 1.6.0 replacement may be recipe-less, rendered from the
+named Catalog release; a 1.5.0 or 1.6.0 replacement's `bindingDigest`, `scanRecords` and
+`itemMaterials` are checked as at install (see [Scan state](#scan-state-and-the-owners-stale-list-execution-policy-150) for the same
+review fields), its review is prepared work 1.7.0, and Apply re-checks its binding, Scan
+state and release-index status. A replacement whose `bindingDigest` Core no longer ships
+is a `binding-changed` conflict, named in its entry's `diagnostics`, and Apply rejects the
+review as `REVIEW_STALE` with `changed: 'binding'`. Any other `policy` member, or a schema
+outside those three, makes the request `invalid` (`request-shape`). Each replacement keeps
 the `managementId` and `scope` of the selection it updates (`management-id-changed`,
 `scope-changed`), and names each management id and selection id once (`update-conflict`);
 otherwise the whole request is `invalid` without reading custody. `controls` take
 `signal`, `logging`, `materialRoots` and `privateInputs` (keyed by the replacement's
-selection id) for the replacement's material and inputs; the request accepts no
-`resolutions`, organization source or evidence. Every requested update gets an entry, in
-request order:
+selection id) for the replacement's material and inputs, and, only with `policy`, the
+`evidence` and `index` controls its Scan and release-index checks read (pass the same
+ones to `apply`); the request accepts no `resolutions` or organization source. Every
+requested update gets an entry, in request order:
 
 - `prepared`: Core holds a claim for that id in that scope. The entry names the
   replacement's `selectionId`, `from` (the facts recorded at install, as inventory 1.1.0
@@ -2642,16 +2656,20 @@ request order:
   (`replacement-item-changed`; a different item needs its own management id), or carries no
   item metadata although an item was recorded at install (`replacement-unnamed`).
 
-All prepared updates share one policy preparation (execution policy 1.4.0, prepared
-work 1.6.0) and its `reviewDigest`, which the result repeats; nothing else is selected,
+All prepared updates share one policy preparation (execution policy 1.4.0 and prepared
+work 1.6.0 unless `policy` names a later version) and its `reviewDigest`, which the result repeats; nothing else is selected,
 so every other installed selection stays as it is. A replacement's `requires` can name only
 other replacements in the request; each updated claim also keeps the dependency edges
 recorded at install, so a dependency the replacement does not name is still retained. When
-no update is prepared the result is `not-prepared` without a preparation. When the
-replacements themselves are invalid (for example a `requires` naming a selection outside
-the request), the result is still `prepared` and so is each entry, but the preparation is
-`invalid` with no review, no `reviewDigest`, no members and nothing to Apply; each entry
-carries the preparation's diagnostics. As for removal, only a preparation whose `status` is
+no update is prepared the result is `not-prepared` without a preparation. When the shared
+preparation is refused without a review (for example a `requires` naming a selection
+outside the request, or Catalog release bytes other than the ones named), nothing is
+listed or can be applied: the result is `not-prepared` without a preparation or
+`reviewDigest`, and each entry the preparation held is `invalid` (or `unavailable` for a
+`blocked` preparation) with the preparation's diagnostics and no members. Earlier Core
+reported such a request and its entries `prepared` with an `invalid` embedded preparation;
+both versions now use only dispositions the 1.0.0 schema already allows, and a 1.0.0
+result still validates against it. As for removal, only a preparation whose `status` is
 `ready` or `partial` can be applied. Each prepared entry lists every member the review
 touches: `kind`, `path` (private path values stay redacted), `pointer`, `blockId` or
 `groupId`, `approval: { tool }` for an approval, the review `operationId` and one `action`:
@@ -2721,7 +2739,7 @@ Check install and removal wording against this table. Each status establishes on
 | `removals[].members[].action` | `keep-required` | A licence or notice file kept with an item that keeps a changed member. | "Kept: the item's licence or notice". | "Removed". |
 | `updates[].members[].action` | `add`, `replace`, `remove`, `restore`, `unregister` | The reviewed update plans this change to the member. | "Will be added", "will be updated", "will be removed" or "will be restored" before Apply. | "Updated" before a `complete` run's member checks confirm it. |
 | `updates[].members[].action` | `conflict` | The review leaves the member exactly as it is, for the named `reason`; a local edit is never overwritten. | "Kept as you changed it" for `managed-content-changed`; otherwise "not updated", with the reason. | "Updated", or that the whole item now matches the replacement. |
-| `disposition` (update) | `prepared` | Managed update preparation 1.0.0: at least one update had an eligible claim and the policy Prepare of its replacement ran; read `preparation.status`. | "Update ready for review" only when `ready`; "update partly ready for review" when `partial`; otherwise "update not prepared", with the preparation's diagnostics. | "Updated", or "ready" from `prepared` alone. |
+| `disposition` (update) | `prepared` | Managed update preparation 1.0.0 and 1.1.0: at least one update had an eligible claim and the policy Prepare of its replacement produced a review; read `preparation.status`. A Prepare refused without a review is `not-prepared`. | "Update ready for review" only when `ready`; "update partly ready for review" when `partial`; otherwise "update not prepared", with the preparation's diagnostics. | "Updated", or "ready" from `prepared` alone. |
 | `updateState` after an incomplete update | `current` | Custody records the replacement's identities with the members an `incomplete` update run wrote. | "Recorded as the replacement", reading each member's `fileState`. | That the item matches the replacement while any member reads `changed`, or while a member the replacement dropped is still listed. |
 | `completion` | `complete` | Every reviewed operation was `applied` or `already-satisfied` with verification `passed` or `unverified`, and nothing was omitted. | "Run complete". | "Verified" while any operation is `unverified`; read each operation. |
 | `completion` | `incomplete` | Apply ran, but some operation did not end `applied` or `already-satisfied` with verification `passed` or `unverified`, or something was omitted, or a post-Apply custody or session check failed although every operation succeeded (see `diagnostics`), or a removal operation's member check reported `failed` with reason `member-changed`. It may have changed nothing; completed effects are kept. | "Not complete", naming any operations that were applied. | "Complete", "rolled back" or that the applied subset is the whole result. |

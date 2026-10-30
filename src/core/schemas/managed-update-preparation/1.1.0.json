@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:managed-update-preparation:1.1.0",
+  "description": "Managed update preparation 1.1.0: replacements the consumer chose for installed selections, in one reviewed policy preparation that keeps every management id and reports local edits as conflicts. A request that names its `policy` may carry replacements in execution policy 1.4.0, 1.5.0 or 1.6.0, with that policy's Catalog releases and Scan evidence, and gets the same checks an install gets. A refused inner preparation is `not-prepared`. $defs/request describes the request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "package",
+    "disposition",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:managed-update-preparation:1.1.0"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "@aihq/core"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "disposition": {
+      "enum": [
+        "prepared",
+        "not-prepared",
+        "unavailable",
+        "invalid",
+        "cancelled"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scope": {
+      "enum": [
+        "project",
+        "user"
+      ]
+    },
+    "diagnostics": {
+      "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+    },
+    "updates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "reviewDigest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "runId",
+        "diagnostics",
+        "record"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "partial",
+            "blocked",
+            "invalid",
+            "cancelled"
+          ]
+        },
+        "runId": {
+          "type": "string"
+        },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.6.0"
+            },
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.7.0"
+            }
+          ]
+        },
+        "diagnostics": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+        },
+        "record": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/record"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.1.0#/properties/evidence"
+            },
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.7.0#/properties/evidence"
+            }
+          ]
+        }
+      },
+      "description": "The embedded policy preparation of every prepared replacement. Its JSON projection omits the live Apply handle; no resolution is offered, so a conflict cannot become an overwrite."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "prepared"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "preparation",
+          "updates"
+        ],
+        "properties": {
+          "preparation": {},
+          "updates": {}
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "preparation"
+              ],
+              "properties": {
+                "preparation": {}
+              }
+            },
+            {
+              "required": [
+                "reviewDigest"
+              ],
+              "properties": {
+                "reviewDigest": {}
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "not-prepared"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "updates"
+        ],
+        "properties": {
+          "updates": {}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "enum": [
+              "invalid",
+              "cancelled",
+              "unavailable"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "updates"
+          ],
+          "properties": {
+            "updates": {}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "not": {
+              "const": "invalid"
+            }
+          }
+        },
+        "required": [
+          "disposition"
+        ]
+      },
+      "then": {
+        "required": [
+          "target",
+          "scope"
+        ],
+        "properties": {
+          "target": {},
+          "scope": {}
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "preparation"
+        ],
+        "properties": {
+          "preparation": {
+            "type": "object",
+            "required": [
+              "review"
+            ],
+            "properties": {
+              "review": {}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reviewDigest"
+        ],
+        "properties": {
+          "reviewDigest": {}
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "reviewDigest"
+          ],
+          "properties": {
+            "reviewDigest": {}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "tool",
+        "framework",
+        "item",
+        "origins"
+      ],
+      "properties": {
+        "name": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "oneOf": [
+            {
+              "enum": [
+                "skill",
+                "agent",
+                "command",
+                "rule",
+                "hook",
+                "mcp-server",
+                "document"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tool": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "framework": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "item": {
+          "oneOf": [
+            {
+              "$ref": "urn:aihq:core:prepared-work:1.6.0#/properties/selections/items/properties/item"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origins": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "urn:aihq:core:prepared-work:1.6.0#/$defs/origin"
+          }
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "action",
+        "operationId"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "text-block",
+            "entry-block",
+            "entry-pointer",
+            "config-entry",
+            "config-member",
+            "hook-group-member"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pointer": {
+          "type": "string"
+        },
+        "blockId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool"
+          ],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "action": {
+          "enum": [
+            "add",
+            "replace",
+            "unchanged",
+            "remove",
+            "restore",
+            "unregister",
+            "keep-shared",
+            "conflict"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "restore",
+                  "unregister",
+                  "keep-shared",
+                  "conflict"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {}
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managementId",
+        "disposition",
+        "diagnostics",
+        "members"
+      ],
+      "properties": {
+        "managementId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "disposition": {
+          "enum": [
+            "prepared",
+            "absent",
+            "reconcile-required",
+            "unavailable",
+            "invalid"
+          ]
+        },
+        "selectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "from": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/facts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "to": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/facts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagnostics": {
+          "$ref": "urn:aihq:core:run-result:1.1.0#/properties/diagnostics"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "prepared"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "selectionId",
+              "from"
+            ],
+            "properties": {
+              "selectionId": {},
+              "from": {}
+            }
+          },
+          "else": {
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "selectionId"
+                  ],
+                  "properties": {
+                    "selectionId": {}
+                  }
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "from"
+                  ],
+                  "properties": {
+                    "from": {}
+                  }
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "to"
+                  ],
+                  "properties": {
+                    "to": {}
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "members": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "scope",
+        "updates"
+      ],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project"
+          ],
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "scope": {
+          "enum": [
+            "project",
+            "user"
+          ]
+        },
+        "updates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "managementId",
+              "replacement"
+            ],
+            "properties": {
+              "managementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "replacement": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:aihq:core:execution-policy:1.4.0#/properties/selections/items"
+                  },
+                  {
+                    "$ref": "urn:aihq:core:execution-policy:1.5.0#/properties/selections/items"
+                  },
+                  {
+                    "$ref": "urn:aihq:core:execution-policy:1.6.0#/properties/selections/items"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "policy": {
+          "description": "The execution policy the replacements are prepared in, and that policy's Catalog releases and Scan evidence. Without it the replacements are execution policy 1.4.0 selections and the result is managed update preparation 1.0.0.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "schema": {
+              "enum": [
+                "urn:aihq:core:execution-policy:1.4.0",
+                "urn:aihq:core:execution-policy:1.5.0",
+                "urn:aihq:core:execution-policy:1.6.0"
+              ]
+            },
+            "catalogReleases": {
+              "$ref": "urn:aihq:core:execution-policy:1.6.0#/properties/catalogReleases"
+            },
+            "evidence": {
+              "$ref": "urn:aihq:core:execution-policy:1.6.0#/properties/evidence"
+            }
+          }
+        }
+      }
+    }
+  }
+}
