@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { prepare as preparePolicy, validateControls, dataObject, safeText } from './recipe-engine.js';
 import { claimRefusal, distributionIdentity, readImage, sameImageAs, type Image } from './internal/custody-preflight.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
-import { isContentRoot } from './internal/state.js';
+import { forgetProvenState, isContentRoot } from './internal/state.js';
 import { claimIdentity } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries } from './internal/trust-custody.js';
 import { readMacosCustody } from './internal/macos-session-custody.js';
@@ -48,6 +48,7 @@ const plainObject = (value: unknown): value is Record<string, unknown> => !!valu
  * The result's preparation is applied with the ordinary `apply`, its review digest and re-check.
  */
 export async function prepareUpdate(request: ManagedUpdateRequest, controls: HostControls = {}): Promise<ManagedUpdatePreparationResult> {
+  forgetProvenState();
   const { identity, valid: identityValid } = distributionIdentity();
   const known: Partial<ManagedUpdatePreparationResult> = {};
   const done = (disposition: ManagedUpdatePreparationResult['disposition'], diagnostics: Diagnostic[] = [], fields: Partial<ManagedUpdatePreparationResult> = {}): ManagedUpdatePreparationResult =>

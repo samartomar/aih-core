@@ -11,7 +11,7 @@ import { readMacosCustody, readPendingMacos, macosCustodyParticipant, sessionFil
   sessionTrustMatches, sessionConfiguration, sessionRecoveryFiles } from './internal/macos-session-custody.js';
 import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
 import { readRegularFile } from './internal/fsxn.js';
-import { writeHistory } from './internal/state.js';
+import { forgetProvenState, writeHistory } from './internal/state.js';
 import { apply as applyPolicy } from './recipe-engine.js';
 import { validateMacosRepairRequest, validateMacosSessionVerificationRequest,
   type MacosRepairRequest, type MacosSessionReview, type MacosSessionRun,
@@ -257,6 +257,7 @@ export async function applyMacosSession(handle: PreparedHandle, authorization: A
 /** Observational API; invalid requests and unsupported hosts do not mutate session state. */
 export async function verifyMacosSession(input: MacosSessionVerificationRequest,
   controls: Pick<HostControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult> {
+  forgetProvenState();
   const started = performance.now();
   let managementId: string | null = null;
   let platform: MacosSessionVerificationResult['platform'] = null;

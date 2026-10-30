@@ -5,7 +5,7 @@ import { isProxy } from 'node:util/types';
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 import { installedDistribution } from './internal/installed-distribution.js';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
-import { readOwnership, readOwnershipReceipts, stateRoot } from './internal/state.js';
+import { forgetProvenState, readOwnership, readOwnershipReceipts, stateRoot } from './internal/state.js';
 import type { Ownership } from './internal/state.js';
 import { type Claim } from './internal/recipe-lifecycle.js';
 import type { Diagnostic } from './types.js';
@@ -147,6 +147,7 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   controls?: ManagedInventoryControls): Promise<ManagedInventoryResult>;
 export async function listManagedSelections(request: ManagedInventoryRequest,
   controls: ManagedInventoryControls = {}): Promise<ManagedInventoryResult | ManagedInventoryResult11> {
+  forgetProvenState();
   const started = performance.now();
   let wants11 = false;
   try { wants11 = !!request && typeof request === 'object' && Object.hasOwn(request, 'format') && request.format === SCHEMA_11; } catch { wants11 = false; }

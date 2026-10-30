@@ -94,37 +94,113 @@ foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
   }
 }`;
 
+/** How often this process ran state protection, and how many Windows ACL checks (PowerShell processes) that started. */
+export const stateProtectionCounts = { calls: 0, aclChecks: 0 };
+
+/**
+ * Windows only: the state paths this process has proven protected, each with the identity it had when proven (see
+ * `proofIdentity`), under one state root. Starting PowerShell costs a fraction of a second, so a path is checked once
+ * per identity instead of once per use.
+ *
+ * Why a proven path stays protected while its identity holds: the check admits a path only when its owner and every
+ * Allow entry are the current user, SYSTEM or Administrators, and every directory between it and the state root is
+ * admitted the same way. Changing its access list needs its owner or an Allow entry (or a privilege only SYSTEM and
+ * Administrators hold), and replacing it needs write or delete access to an admitted directory, so only those trusted
+ * principals can do either. A replacement is a new file with a new identity, which is checked again before use. A
+ * file's identity includes its change time, which Windows moves when its access list changes, so a file whose access
+ * list was widened (even by a trusted program) is checked again before its next use. An identity this process has not
+ * proven (a file moved in from elsewhere keeps its own access list) is always checked. What is proven lasts one public
+ * operation (see `forgetProvenState`).
+ */
+let proven: { root: string; paths: Map<string, string> } | undefined;
+/**
+ * Forget every proven path. Each public operation that reads Core state starts here (Prepare, Apply, managed inventory,
+ * removal and update preparation), so a long-lived host (the Workbench) proves its state paths again in every
+ * operation rather than trusting one proven earlier. Steps inside one operation, such as Apply's review recheck, keep
+ * what the operation proved.
+ */
+export function forgetProvenState(): void { proven = undefined; }
+/**
+ * The identity a path is proven under: its pin (`dev:ino:mode`) and, for a file, its change time. A folder's change time
+ * moves whenever an entry is added inside it, so a folder keeps its pin alone; its own access list cannot change
+ * without a trusted principal, and anything new inside it is checked or recorded on its own.
+ */
+function proofIdentity(path: string, pin: string): string {
+  if (pin === 'absent') return pin;
+  const stats = lstatSync(path, { bigint: true });
+  return stats.isDirectory() ? pin : `${pin}:${stats.ctimeNs}`;
+}
+
 export function protectState(relativePaths: string[] = []): void {
+  stateProtectionCounts.calls += 1;
   const root = stateRoot(); pathPins(root);
   const base = dirname(root);
   try { mkdirSync(base, { mode: 0o700 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
   let created = false;
   try { mkdirSync(root, { mode: 0o700 }); created = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-  pathPins(root);
+  const rootIdentity = pathPins(root).at(-1)!.identity;
   const stat = lstatSync(root);
   if (!stat.isDirectory()) throw new Error('state-protection');
-  const protectedPaths = new Set([root]);
+  const protectedPaths = new Map([[root, rootIdentity]]);
   for (const path of relativePaths) {
     for (const pin of pathPins(join(root, path))) {
-      if (pin.identity !== 'absent' && containedPath(root, pin.path)) protectedPaths.add(pin.path);
+      if (pin.identity !== 'absent' && containedPath(root, pin.path)) protectedPaths.set(pin.path, process.platform === 'win32' ? proofIdentity(pin.path, pin.identity) : pin.identity);
     }
   }
   if (process.platform === 'win32') {
+    // A new root, or a root that is no longer the one proven, starts again with nothing proven.
+    if (created || proven?.root !== root || proven.paths.get(root) !== rootIdentity) proven = { root, paths: new Map() };
+    const known = proven.paths;
+    const unproven = [...protectedPaths].filter(([path, identity]) => known.get(path) !== identity);
+    if (unproven.length === 0) return;
     // -Command uses fixed source; variable values are passed through the environment,
     // never concatenated into executable PowerShell text.
+    stateProtectionCounts.aclChecks += 1;
     const result = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
       `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`], {
       windowsHide: true, timeout: 10_000, maxBuffer: 4096,
-      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no', AIHQ_STATE_CHECK: [...protectedPaths].join('\n') }
+      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no', AIHQ_STATE_CHECK: unproven.map(([path]) => path).join('\n') }
     });
     if (result.error || result.status !== 0) throw new Error('state-protection');
+    // Remember a path only if it is still the object that was checked, unchanged: anything replaced or changed meanwhile
+    // (a swap and swap back moves the file's change time) is checked next time.
+    for (const [path, identity] of unproven) {
+      const pin = pathPins(path).at(-1)?.identity;
+      if (pin && pin !== 'absent' && proofIdentity(path, pin) === identity) known.set(path, identity);
+    }
   } else {
     if (created) chmodSync(root, 0o700);
-    for (const path of protectedPaths) {
+    for (const path of protectedPaths.keys()) {
       const current = lstatSync(path);
       if (current.uid !== process.getuid?.() || (current.mode & 0o077) !== 0) throw new Error('state-protection');
     }
   }
+}
+
+/**
+ * Windows only: record the state file this process just created at `relativePath`, so its next protection check needs
+ * no PowerShell. `created` is the `dev:ino` of the very object Core created (read from its own handle or staging file),
+ * and the path is recorded only while it still holds that object and every folder from the state root down to it is
+ * proven with its identity unchanged. Such a folder's own entries can be created only by the trusted principals, and a
+ * new entry Core creates there (Node sets no access list of its own) inherits only that folder's proven entries.
+ * Anything else is checked.
+ */
+export function stateWritten(relativePath: string, created: string | undefined): void {
+  if (process.platform !== 'win32' || !proven || !created) return;
+  const root = stateRoot();
+  if (proven.root !== root) return;
+  const pins = pathPins(join(root, relativePath));
+  const entry = pins.at(-1);
+  if (!entry || entry.identity === 'absent' || !containedPath(root, entry.path) || !entry.identity.startsWith(`${created}:`)) return;
+  const folders = pins.slice(0, -1).filter(pin => pin.path === root || containedPath(root, pin.path));
+  if (folders.length === 0 || folders[0]!.path !== root || folders.some(pin => proven!.paths.get(pin.path) !== pin.identity)) return;
+  proven.paths.set(entry.path, proofIdentity(entry.path, entry.identity));
+}
+/** Write a state file atomically and record it as written by Core (see `stateWritten`). */
+export function writeStateFile(relativePath: string, contents: Buffer, mode: number, exclusive = false): void {
+  let created: string | undefined;
+  stateFiles().writeAtomic(relativePath, contents, mode, exclusive, identity => { created = identity; });
+  stateWritten(relativePath, created);
 }
 
 /** A Core-assigned managed-content child of the state root (user-scope `userState`). */
@@ -460,7 +536,7 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
   try {
     const bytes = Buffer.from(JSON.stringify({ ...(result as object), record: written }));
     if (bytes.length > 1_048_576) return { status: 'failed', reason: 'record-limit', diagnosticId: 'record-limit' };
-    protectState([reference]); stateFiles().writeAtomic(reference, bytes, 0o600);
+    protectState([reference]); writeStateFile(reference, bytes, 0o600);
     return written;
   } catch { return { status: 'failed', reason: 'record-write', diagnosticId: 'record-write' }; }
 }
@@ -535,11 +611,11 @@ export function stageOwnership(target: string, runId: string, update: Ownership)
     // The caller supplies a conservative bound covering intermediate custody
     // and intent records. Stage it in the actual destination directory to prove
     // capacity and receipt creation before any target changes.
-    files.writeAtomic(staged, record, 0o600, true); stagedWritten = true;
+    writeStateFile(staged, record, 0o600, true); stagedWritten = true;
     const current = files.read(path);
     // Existing receipts also require replacement permission. Probe that exact
     // operation with unchanged bytes; this adds no claim of target ownership.
-    if (current) files.writeAtomic(path, current, 0o600);
+    if (current) writeStateFile(path, current, 0o600);
   } catch {
     if (stagedWritten) { try { files.remove(staged); } catch { /* A failed probe can leave recognizable inert staging. */ } }
     throw new Error('state-unwritable');
