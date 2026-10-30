@@ -1,6 +1,6 @@
 // Routine history of a policy Prepare. Every operation of a requirer requires every operation of the selections it
 // requires, so a shared document's operations were repeated once per requiring operation: for the first product's
-// 256-selection pick that made the record about 7.2 MB, over the 1 MiB bound, and Prepare reported record-limit.
+// pick (then 256 selections) that made the record about 7.2 MB, over the 1 MiB bound, and Prepare reported record-limit.
 // History names such a selection once instead, and leaves out `operationSelections` when the review operations already
 // carry it; both expand back to exactly what Prepare returned. The first test uses the vendored Catalog 1.7.0 ECC
 // content; the second the packed Catalog named by AIH_CATALOG_PACK.
@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { prepare } from '../dist/core/index.js';
 import { toolBindings } from '../dist/harness/contracts.mjs';
 import { catalogRoot } from './real-catalog-fixture.mjs';
-import { catalogPack, composePolicy, eccDefault, privateInputsFor, setRequest } from './fixtures/catalog-pack.mjs';
+import { catalogPack, composePolicy, eccDefault, privateInputsFor, resolvedCount, setRequest } from './fixtures/catalog-pack.mjs';
 
 const LIMIT = 1_048_576;
 const pack = await catalogPack();
@@ -85,13 +85,14 @@ test('history names a required shared document selection once and expands to the
   assert.ok(prepared.review.operations.every(operation => !('requiresSelections' in operation)));
 });
 
-test('the 256-selection first-product pick prepares with its history saved under 1 MiB', { skip: pack.skip, timeout: 900_000 }, async () => {
-  const policy = composePolicy(pack, { sets: [...eccDefault(pack), setRequest(pack, 'superpowers', 'superpowers')], recipeless: true });
-  assert.equal(policy.selections.length, 256);
+test('the first-product pick prepares with its history saved under 1 MiB', { skip: pack.skip, timeout: 900_000 }, async () => {
+  const sets = [...eccDefault(pack), setRequest(pack, 'superpowers', 'superpowers')];
+  const policy = composePolicy(pack, { sets, recipeless: true });
+  assert.equal(policy.selections.length, resolvedCount(pack, { sets }));
   const project = projectFolder('pack');
   const prepared = await prepare({ useCase: 'policy', policy, target: { project } },
     { logging: 'on', materialRoots: { catalog: pack.root }, privateInputs: privateInputsFor(pack, policy) });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const { bytes } = savedHistory(prepared);
-  console.log(`review: ${prepared.review.operations.length} operations; history record ${bytes} bytes`);
+  console.log(`${policy.selections.length} selections, review: ${prepared.review.operations.length} operations; history record ${bytes} bytes`);
 });

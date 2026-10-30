@@ -113,15 +113,22 @@ export function privateInputsFor(pack, policy) {
     .filter(([, values]) => Object.keys(values).length > 0));
 }
 
+const checkedReleases = pack => Object.fromEntries(Object.values(pack.releases).map(release => [release.sha256, release.checked]));
+const resolve = (pack, { sets = [], roots = [] }) => {
+  const resolution = pack.reader.resolveSelections({ releases: checkedReleases(pack), roots, skips: [], sets });
+  if (resolution.status !== 'ok') throw new Error(JSON.stringify(resolution.diagnostics));
+  return resolution.value.selections;
+};
+/** How many selections Catalog's own reader resolves for a pick: the size of the policy composed from it. */
+export const resolvedCount = (pack, pick) => resolve(pack, pick).length;
+
 /**
  * An execution policy for the tool, composed as the Workbench composes it from Catalog's resolution. `recipeless`
  * names each item instead of carrying its rendered recipe, in execution policy 1.6.0 with the releases it reads.
  */
 export function composePolicy(pack, { sets = [], roots = [], tool = 'claude', recipeless, schema }) {
-  const checked = Object.fromEntries(Object.values(pack.releases).map(release => [release.sha256, release.checked]));
-  const resolution = pack.reader.resolveSelections({ releases: checked, roots, skips: [], sets });
-  if (resolution.status !== 'ok') throw new Error(JSON.stringify(resolution.diagnostics));
-  const resolved = resolution.value.selections;
+  const checked = checkedReleases(pack);
+  const resolved = resolve(pack, { sets, roots });
   const validation = pack.reader.validateSelectionSet({ releases: checked, selections: resolved });
   if (!validation.valid) throw new Error(JSON.stringify(validation.diagnostics));
   const binding = toolBindings.find(candidate => candidate.tool === tool);

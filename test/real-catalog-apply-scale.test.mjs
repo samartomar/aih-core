@@ -1,5 +1,5 @@
-// Apply at the first product's size: Claude Code with ECC's default pick and Superpowers' starting set, 256 recipe-less
-// selections from the packed Catalog named by AIH_CATALOG_PACK, prepared and applied by the real Core into a disposable
+// Apply at the first product's size: Claude Code with ECC's default pick and Superpowers' starting set, as recipe-less
+// selections resolved from the packed Catalog named by AIH_CATALOG_PACK, prepared and applied by the real Core into a disposable
 // project with routine history on. Apply finishes within a time budget, writes each shared notice copy once and saves
 // its history.
 import { test, before, after } from 'node:test';
@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { apply, prepare } from '../dist/core/index.js';
 import { stateProtectionCounts } from '../dist/core/internal/state.js';
-import { catalogPack, composePolicy, eccDefault, privateInputsFor, setRequest } from './fixtures/catalog-pack.mjs';
+import { catalogPack, composePolicy, eccDefault, privateInputsFor, resolvedCount, setRequest } from './fixtures/catalog-pack.mjs';
 
 // Linear Apply takes a few seconds here; the quadratic one took minutes. The budget leaves room for slower hosts, and on
 // Windows for the state protection checks, which start PowerShell.
@@ -26,9 +26,10 @@ after(() => {
   if (pack.folder) rmSync(pack.folder, { recursive: true, force: true });
 });
 
-test('the 256-selection first-product pick applies within budget, writes each notice copy once and saves its history', { skip, timeout: 900_000 }, async () => {
-  const policy = composePolicy(pack, { sets: [...eccDefault(pack), setRequest(pack, 'superpowers', 'superpowers')], recipeless: true });
-  assert.equal(policy.selections.length, 256);
+test('the first-product pick applies within budget, writes each notice copy once and saves its history', { skip, timeout: 900_000 }, async () => {
+  const sets = [...eccDefault(pack), setRequest(pack, 'superpowers', 'superpowers')];
+  const policy = composePolicy(pack, { sets, recipeless: true });
+  assert.equal(policy.selections.length, resolvedCount(pack, { sets }));
   const folder = join(scratch, 'project'); mkdirSync(folder);
   const project = realpathSync(folder);
   const controls = { logging: 'on', materialRoots: { catalog: pack.root }, privateInputs: privateInputsFor(pack, policy) };
@@ -37,7 +38,7 @@ test('the 256-selection first-product pick applies within budget, writes each no
   const writes = prepared.review.operations.filter(operation => operation.kind === 'file.write');
   const planned = writes.map(operation => relative(project, operation.details.target).replaceAll('\\', '/'));
   const notices = planned.filter(path => path.startsWith('.aih/notices/ecc/ecc.notices/'));
-  console.log(`review: ${prepared.review.operations.length} operations, ${writes.length} file writes onto ${new Set(planned).size} paths; ` +
+  console.log(`${policy.selections.length} selections, review: ${prepared.review.operations.length} operations, ${writes.length} file writes onto ${new Set(planned).size} paths; ` +
     `${notices.length} ECC notice writes onto ${new Set(notices).size} paths`);
 
   const counted = { ...stateProtectionCounts };
