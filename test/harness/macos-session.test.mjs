@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
-import { symlinked } from '../symlink-fixture.mjs';
+import { symlinked } from './symlink-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderMacosSessionLaunchAgent, macosSessionTrustKeys, macosSessionBudgets,

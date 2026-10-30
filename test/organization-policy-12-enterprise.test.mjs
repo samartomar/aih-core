@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { symlinked } from './symlink-fixture.mjs';
+import { symlinked } from './harness/symlink-fixture.mjs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
