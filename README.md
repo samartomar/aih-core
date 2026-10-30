@@ -1210,9 +1210,17 @@ move, and the block itself updates instead of conflicting. The notes file is wri
 claimed: removal never touches it and later edits are never conflicts. Edits that delete or change
 Core's own lines stay ordinary conflicts, never rescued.
 
-Removal takes only the blocks: the entry files and everything the person wrote outside the blocks
-stay byte for byte, and any `preExisting` value a replaced configuration entry had is restored as
-before. Project-folder items go into the folder the consumer named (default `ai-coding`).
+Removal takes only the blocks, with one exception for files Core created:
+
+- **Core created the entry file** (its custody records `createdFile` for that target) and, once
+  every AIH block in it is removed, nothing is left but the line endings Core wrote: removal
+  deletes the file, so the project returns to its earlier tree. The review lists that step as a
+  file removal (`remove-file`), its recovery data keeps the file's bytes like any other removed
+  file, and removing an interrupted install follows the same rule.
+- **Otherwise** (the file was there before, even empty, or the person wrote anything outside the
+  blocks): the entry file and everything outside the blocks stay byte for byte.
+
+Any `preExisting` value a replaced configuration entry had is restored as before. Project-folder items go into the folder the consumer named (default `ai-coding`).
 
 ## Supported AI clients
 
@@ -2556,6 +2564,14 @@ it is then refused without reading custody, as is a cancelled one.
   the last origin removes the selection (`change: 'remove-selection'`). An inclusion
   that is not recorded is `absent` (`origin-absent`); a selection that recorded no
   origins is `reconcile-required` (`origin-unrecorded`) and can be removed whole.
+- **Required-by origins follow their requirer.** A `required-by` origin whose requiring
+  item this request removes, or that is no longer installed, is dropped from the recorded
+  origins. A selection left with no origin and not required by any remaining selection
+  goes in the same review: one named by origin becomes `remove-selection`, and one not
+  named in the request (such as a shared notices item) is removed with the removals that
+  freed it, which list its members. A selection that keeps another origin keeps its
+  members and loses only those origins. In Enterprise the origins are kept (a
+  metadata-only change), and only a freed selection with members is removed.
 - **One review.** All prepared removals share one cleanup-only preparation (execution
   policy 1.4.0, prepared work 1.6.0) and its `reviewDigest`, which the result repeats.
   Each entry lists every member it touches before Apply: `kind`, `path` (private

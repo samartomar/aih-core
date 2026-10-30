@@ -268,7 +268,7 @@ await check('redaction: a fact value equal to a private input never reaches the 
   assert.equal(listed.selections[0].projectFacts[0].value, 'run with [REDACTED]');
 });
 
-await check('removal keeps an entry file that held only the shared block, leaving it empty rather than deleting it', async () => {
+await check('removal keeps an entry file that was there before and held only the shared block, leaving it empty', async () => {
   const root = project('only-block');
   writeFileSync(join(root, 'AGENTS.md'), '');
   const prepared = await prepare({ useCase: 'policy', policy: basicsPolicy(basicsSelection(basicsRecipe('Shared guidance.\n', 'Read ai-coding/RULE_ROUTER.md\n'))),
@@ -281,7 +281,7 @@ await check('removal keeps an entry file that held only the shared block, leavin
   assert.equal(shared.action, 'remove');
   const result = await apply(removal.preparation.prepared, approve(removal.reviewDigest), { logging: 'off' });
   assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
-  assert.ok(existsSync(join(root, 'AGENTS.md')), 'the entry file is never deleted');
+  assert.ok(existsSync(join(root, 'AGENTS.md')), 'an entry file that was there before is never deleted');
   assert.equal(readFileSync(join(root, 'AGENTS.md'), 'utf8'), '', 'it is left empty');
 });
 
