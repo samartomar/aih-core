@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, rmdirSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
@@ -22,7 +22,7 @@ import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
+import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
@@ -406,9 +406,13 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
     if (step.before) {
       const snapshot = `${base}/${index}.bin`; const absolute = join(stateRoot(), snapshot);
       pathPins(absolute);
-      writeFileSync(absolute, step.before, { flag: 'wx', mode: 0o600 });
+      // The snapshot is created exclusively; its identity is read from Core's own handle, never from the path.
+      const handle = openSync(absolute, 'wx', 0o600);
+      let created: string;
+      try { writeSync(handle, step.before); const stats = fstatSync(handle, { bigint: true }); created = `${stats.dev}:${stats.ino}`; }
+      finally { closeSync(handle); }
       if (process.platform !== 'win32') chmodSync(absolute, 0o600);
-      stateWritten(snapshot); protectState([snapshot]); record.snapshot = snapshot;
+      stateWritten(snapshot, created); protectState([snapshot]); record.snapshot = snapshot;
     }
     records.push(record);
   }
@@ -1737,7 +1741,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       protectState([ownershipPath(root)]);
       const sealed = sealOwnership(next);
       const text = JSON.stringify(sealed);
-      const receipt = Buffer.from(text); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600); stateWritten(ownershipPath(root));
+      const receipt = Buffer.from(text); writeStateFile(ownershipPath(root), receipt, 0o600);
       const written = sha256(receipt);
       metadataState.ownership.set(root, { value: sealed, digest: written });
       metadataState.inventory?.set(basename(ownershipPath(root)), written);

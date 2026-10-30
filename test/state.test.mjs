@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { forgetProvenState, protectState, stateFiles, stateProtectionCounts, stateRoot, stateWritten } from '../dist/core/internal/state.js';
+import { forgetProvenState, protectState, stateFiles, stateProtectionCounts, stateRoot, stateWritten, writeStateFile } from '../dist/core/internal/state.js';
 
 test('Windows state validates newly created recovery and history children under elevation',
   { skip: process.platform !== 'win32' }, () => {
@@ -84,7 +84,7 @@ function grantEveryone(path) {
 }
 
 test('Windows state checks a file Core did not write, even in a folder already proven', { skip: process.platform !== 'win32' }, () => withHome('aih-state-foreign-', () => {
-  protectState(); stateFiles().writeAtomic('runs/a.json', Buffer.from('{}'), 0o600); stateWritten('runs/a.json');
+  protectState(); writeStateFile('runs/a.json', Buffer.from('{}'), 0o600);
   protectState(['runs/a.json']);
   // Another program creates a file with a wider access list in the proven folder.
   const foreign = join(stateRoot(), 'runs/b.json'); writeFileSync(foreign, '{}'); grantEveryone(foreign);
@@ -92,34 +92,47 @@ test('Windows state checks a file Core did not write, even in a folder already p
 }));
 
 test('Windows state checks a proven file again once it is replaced', { skip: process.platform !== 'win32' }, () => withHome('aih-state-replaced-', () => {
-  protectState(); stateFiles().writeAtomic('runs/a.json', Buffer.from('{}'), 0o600); stateWritten('runs/a.json');
+  protectState(); writeStateFile('runs/a.json', Buffer.from('{}'), 0o600);
   protectState(['runs/a.json']);
   const replacement = join(stateRoot(), 'runs/c.json'); writeFileSync(replacement, '{}'); grantEveryone(replacement);
   renameSync(replacement, join(stateRoot(), 'runs/a.json'));
   assert.throws(() => protectState(['runs/a.json']), /state-protection/);
 }));
 
-test('Windows state proves its paths again in every operation', { skip: process.platform !== 'win32' }, () => withHome('aih-state-again-', () => {
-  protectState(); stateFiles().writeAtomic('runs/a.json', Buffer.from('{}'), 0o600); stateWritten('runs/a.json');
+test('Windows state checks a proven file again once its access list changes, within one operation and in the next', { skip: process.platform !== 'win32' }, () => withHome('aih-state-again-', () => {
+  protectState(); writeStateFile('runs/a.json', Buffer.from('{}'), 0o600);
   protectState(['runs/a.json']);
   const before = stateProtectionCounts.aclChecks;
   protectState(['runs/a.json']);
-  assert.equal(stateProtectionCounts.aclChecks, before, 'a proven path is not checked again within one operation');
+  assert.equal(stateProtectionCounts.aclChecks, before, 'an unchanged proven path is not checked again within one operation');
+  // Widened by a program the person runs, mid-operation: the file's change time moves, so it is checked again at once.
   grantEveryone(join(stateRoot(), 'runs/a.json'));
+  assert.throws(() => protectState(['runs/a.json']), /state-protection/);
   forgetProvenState();
   assert.throws(() => protectState(['runs/a.json']), /state-protection/);
 }));
 
-test('Windows state records only what Core writes inside proven folders', { skip: process.platform !== 'win32' }, () => withHome('aih-state-recorded-', () => {
+test('Windows state records only what Core itself writes inside proven folders', { skip: process.platform !== 'win32' }, () => withHome('aih-state-recorded-', () => {
   protectState(); stateFiles().writeAtomic('runs/a.json', Buffer.from('{}'), 0o600);
   forgetProvenState();
   // Nothing proven yet: a write is not recorded, so the next protection check starts PowerShell.
-  stateFiles().writeAtomic('runs/d.json', Buffer.from('{}'), 0o600); stateWritten('runs/d.json');
-  const before = stateProtectionCounts.aclChecks;
+  writeStateFile('runs/d.json', Buffer.from('{}'), 0o600);
+  let before = stateProtectionCounts.aclChecks;
   protectState(['runs/d.json']);
   assert.equal(stateProtectionCounts.aclChecks, before + 1);
   // Once its folder is proven, a file Core writes there needs no PowerShell of its own.
-  stateFiles().writeAtomic('runs/e.json', Buffer.from('{}'), 0o600); stateWritten('runs/e.json');
+  writeStateFile('runs/e.json', Buffer.from('{}'), 0o600);
   protectState(['runs/e.json']);
+  assert.equal(stateProtectionCounts.aclChecks, before + 1);
+  // The root is proven but a new folder below it is not: a file Core writes there is checked, with its folder.
+  writeStateFile('recovery/run/f.json', Buffer.from('{}'), 0o600);
+  before = stateProtectionCounts.aclChecks;
+  protectState(['recovery/run/f.json']);
+  assert.equal(stateProtectionCounts.aclChecks, before + 1);
+  // A file Core did not create at that path (another object than the one named) is not recorded, even in a proven folder.
+  writeFileSync(join(stateRoot(), 'runs/g.json'), '{}');
+  stateWritten('runs/g.json', '1:2');
+  before = stateProtectionCounts.aclChecks;
+  protectState(['runs/g.json']);
   assert.equal(stateProtectionCounts.aclChecks, before + 1);
 }));
