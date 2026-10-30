@@ -19,6 +19,7 @@ export { authenticateEvidence, associateEvidence } from './evidence/index.js';
 export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
   AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
 import { prepare as preparePolicy, apply as applyPolicy } from './recipe-engine.js';
+import { forgetProvenState } from './internal/state.js';
 import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
 import { prepareTrust, applyTrust, isTrustHandle } from './trust.js';
 import { prepareMacosSession, applyMacosSession, isMacosSessionHandle } from './macos-session.js';
@@ -40,6 +41,7 @@ import { isProxy } from 'node:util/types';
 import { nodeRuntimeSupported } from './internal/node-runtime.js';
 export type { RepairRequest } from './repair.js';
 export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
+  forgetProvenState();
   if (!nodeRuntimeSupported()) return preparePolicy(request as PolicyRequest, controls);
   const kind = request && typeof request === 'object' && !isProxy(request) ?
     Object.getOwnPropertyDescriptor(request, 'useCase')?.value : undefined;
@@ -49,6 +51,7 @@ export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequ
   return kind === 'repair' ? prepareRepair(request as RepairRequest, controls) : preparePolicy(request as PolicyRequest, controls);
 }
 export function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}) {
+  forgetProvenState();
   if (isMacosSessionHandle(prepared)) return applyMacosSession(prepared, authorization, controls);
   return isTrustHandle(prepared) ? applyTrust(prepared, authorization, controls) : isRepairHandle(prepared) ? applyRepair(prepared, authorization, controls) : applyPolicy(prepared, authorization, controls);
 }

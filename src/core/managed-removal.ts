@@ -4,7 +4,7 @@ import { validGitHubPolicySource } from '../harness/github-policy.mjs';
 import { validLocalPolicySource } from '../harness/local-policy.mjs';
 import { managedRepairRemovalNeedsReconciliation } from '../harness/runtime.mjs';
 import { projectRoot, userHomeRoot } from './internal/host-files.js';
-import { isContentRoot } from './internal/state.js';
+import { forgetProvenState, isContentRoot } from './internal/state.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies } from './internal/recipe-lifecycle.js';
 import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner, custodyParticipant, type TrustPendingImage, type TrustCustodyImage, type TrustCustodyEntry } from './internal/trust-custody.js';
 import { lstatSync } from 'node:fs';
@@ -98,6 +98,7 @@ const metadataOnly = (): Diagnostic => diagnostic('AUTHORITY_DENIED', 'metadata-
 export function prepareManagedRemoval(request: ManagedRemovalsRequest, controls?: HostControls): Promise<ManagedRemovalPreparationResult12>;
 export function prepareManagedRemoval(request: ManagedRemovalRequest, controls?: HostControls): Promise<ManagedRemovalPreparationResult>;
 export async function prepareManagedRemoval(request: ManagedRemovalRequest | ManagedRemovalsRequest, controls: HostControls = {}): Promise<ManagedRemovalPreparationResult | ManagedRemovalPreparationResult12> {
+  forgetProvenState();
   if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls);
   return prepareOne(request as ManagedRemovalRequest, controls);
 }

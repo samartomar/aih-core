@@ -22,7 +22,7 @@ import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
+import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
@@ -408,7 +408,7 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
       pathPins(absolute);
       writeFileSync(absolute, step.before, { flag: 'wx', mode: 0o600 });
       if (process.platform !== 'win32') chmodSync(absolute, 0o600);
-      protectState([snapshot]); record.snapshot = snapshot;
+      stateWritten(snapshot); protectState([snapshot]); record.snapshot = snapshot;
     }
     records.push(record);
   }
@@ -1737,7 +1737,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       protectState([ownershipPath(root)]);
       const sealed = sealOwnership(next);
       const text = JSON.stringify(sealed);
-      const receipt = Buffer.from(text); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+      const receipt = Buffer.from(text); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600); stateWritten(ownershipPath(root));
       const written = sha256(receipt);
       metadataState.ownership.set(root, { value: sealed, digest: written });
       metadataState.inventory?.set(basename(ownershipPath(root)), written);

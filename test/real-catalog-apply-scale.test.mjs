@@ -8,10 +8,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync 
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { apply, prepare } from '../dist/core/index.js';
+import { stateProtectionCounts } from '../dist/core/internal/state.js';
 import { catalogPack, composePolicy, eccDefault, privateInputsFor, setRequest } from './fixtures/catalog-pack.mjs';
 
-// Linear Apply takes a few seconds here; the quadratic one took minutes. The budget leaves room for slower hosts.
-const APPLY_BUDGET_MS = Number(process.env.AIH_APPLY_BUDGET_MS ?? 30_000);
+// Linear Apply takes a few seconds here; the quadratic one took minutes. The budget leaves room for slower hosts, and on
+// Windows for the state protection checks, which start PowerShell.
+const APPLY_BUDGET_MS = Number(process.env.AIH_APPLY_BUDGET_MS ?? (process.platform === 'win32' ? 60_000 : 30_000));
 const pack = await catalogPack();
 const skip = pack.skip;
 const scratch = mkdtempSync(join(tmpdir(), 'aih-apply-scale-'));
@@ -38,10 +40,13 @@ test('the 256-selection first-product pick applies within budget, writes each no
   console.log(`review: ${prepared.review.operations.length} operations, ${writes.length} file writes onto ${new Set(planned).size} paths; ` +
     `${notices.length} ECC notice writes onto ${new Set(notices).size} paths`);
 
+  const counted = { ...stateProtectionCounts };
   const started = performance.now();
   const run = await apply(prepared.prepared, { reviewDigest: prepared.review.reviewDigest, approved: true, origin: 'automation' }, controls);
   const elapsed = performance.now() - started;
-  console.log(`apply: ${(elapsed / 1000).toFixed(1)} s, completion ${run.completion}, record ${JSON.stringify(run.record)}`);
+  const protection = { calls: stateProtectionCounts.calls - counted.calls, aclChecks: stateProtectionCounts.aclChecks - counted.aclChecks };
+  console.log(`apply: ${(elapsed / 1000).toFixed(1)} s, completion ${run.completion}, record ${JSON.stringify(run.record)}, ` +
+    `state protection ${protection.calls} calls, ${protection.aclChecks} Windows ACL checks`);
   assert.equal(run.completion, 'complete', JSON.stringify(run.diagnostics));
 
   // Each shared notice copy is planned and written once: one copy per framework document and scope.
@@ -58,5 +63,7 @@ test('the 256-selection first-product pick applies within budget, writes each no
   assert.ok(existsSync(history));
   assert.equal(JSON.parse(readFileSync(history, 'utf8')).runId, run.runId);
 
+  // On Windows each ACL check starts PowerShell: Apply starts a few, never one per effect.
+  if (process.platform === 'win32') assert.ok(protection.aclChecks <= 4, `Apply started ${protection.aclChecks} Windows ACL checks`);
   assert.ok(elapsed < APPLY_BUDGET_MS, `Apply took ${Math.round(elapsed)} ms (budget ${APPLY_BUDGET_MS} ms)`);
 });

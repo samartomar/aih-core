@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.49: Apply on Windows no longer starts PowerShell for every effect.
+
+- On Windows, state protection reads the real access list of Core's state through
+  PowerShell. Within one Prepare or Apply, a state path is now checked once per file
+  identity rather than on every use.
+- A receipt or staged file that Core itself writes into an already-checked folder is
+  recorded without a check of its own.
+- A file Core did not write, a replaced file, and every path in a new operation are
+  still checked.
+- An Apply now starts a few checks however many files it writes. The 256-selection
+  first-product pick applies in seconds instead of more than 13 minutes.
+
 Core 1.0.0-dev.48: Prepare of a large pick keeps its history.
 
 - A policy Prepare's routine history record names a required selection once instead of
