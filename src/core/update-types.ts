@@ -1,5 +1,5 @@
-// Managed update preparation 1.0.0 types.
-import type { Diagnostic, InclusionOrigin, Selection, SelectionMetadata } from './types.js';
+// Managed update preparation 1.0.0 and 1.1.0 types.
+import type { Diagnostic, ExecutionPolicy, InclusionOrigin, Selection, SelectionMetadata } from './types.js';
 
 /**
  * What the reviewed update does to one member: `add` a new one, `replace` Core's unchanged bytes, leave it `unchanged`,
@@ -7,6 +7,14 @@ import type { Diagnostic, InclusionOrigin, Selection, SelectionMetadata } from '
  * `keep-shared` one another selection still owns, or leave it as it is because of a `conflict` (a local edit included).
  */
 export type UpdateMemberAction = 'add' | 'replace' | 'unchanged' | 'remove' | 'restore' | 'unregister' | 'keep-shared' | 'conflict';
+/**
+ * Managed update preparation 1.1.0: the execution policy the replacements are prepared in (1.4.0, 1.5.0 or 1.6.0), with
+ * that policy's Catalog releases for recipe-less replacements and its Scan evidence.
+ */
+export interface UpdatePolicy {
+  schema: 'urn:aihq:core:execution-policy:1.4.0' | 'urn:aihq:core:execution-policy:1.5.0' | 'urn:aihq:core:execution-policy:1.6.0';
+  catalogReleases?: ExecutionPolicy['catalogReleases']; evidence?: ExecutionPolicy['evidence'];
+}
 /** One update: the installed selection's management id and the exact replacement selection the consumer chose. */
 export interface UpdateSelector { managementId: string; replacement: Selection }
 /** The item facts on one side of an update, as inventory 1.1.0 reports them; `null` when none are recorded or given. */
@@ -28,6 +36,7 @@ export interface UpdateMember {
 }
 export interface UpdateEntry {
   managementId: string;
+  /** Also `invalid` or `unavailable`, with its diagnostics, when the shared policy preparation was refused without a review. */
   disposition: 'prepared' | 'absent' | 'reconcile-required' | 'unavailable' | 'invalid';
   /** The replacement's selection id in the review; present for `prepared`. */
   selectionId?: string;

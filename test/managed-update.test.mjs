@@ -130,12 +130,13 @@ test('special dispositions and whole-request failures carry no preparation and w
   assert.deepEqual([unverifiable.disposition, unverifiable.diagnostics.map(item => item.reason)], ['unavailable', ['ownership-unverifiable']]);
 });
 
-test('an invalid replacement policy is prepared without a review: nothing is listed and every entry carries the reason', async () => {
+test('an invalid replacement policy is not prepared: nothing is listed and every entry it held is invalid with the reason', async () => {
   const s = open();
   await install(s, [fileSelection('a', 'A.md', 'a\n')]);
   const broken = fileSelection('a', 'A.md', 'a2\n'); broken.requires = ['missing'];
   const result = await prepareUpdate(request(s, [{ managementId: 'a', replacement: broken }]), { logging: 'off' });
-  assert.deepEqual([result.disposition, result.preparation.status, Object.hasOwn(result, 'reviewDigest'), result.updates[0].members], ['prepared', 'invalid', false, []]);
+  assert.deepEqual([result.disposition, Object.hasOwn(result, 'preparation'), Object.hasOwn(result, 'reviewDigest'), result.updates[0].disposition, result.updates[0].members],
+    ['not-prepared', false, false, 'invalid', []]);
   assert.ok(result.updates[0].diagnostics.length > 0);
   assert.equal(readFileSync(join(s.project, 'A.md'), 'utf8'), 'a\n');
 });

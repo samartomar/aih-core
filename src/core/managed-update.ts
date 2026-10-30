@@ -8,15 +8,19 @@ import { readTrustCustody, readPendingTrust, pendingEntries } from './internal/t
 import { readMacosCustody } from './internal/macos-session-custody.js';
 import { memberPointer, publicKind } from './internal/custody-items.js';
 import type { PlannedMember } from './internal/update-plan.js';
-import type { UpdateEntry, UpdateItemFacts, UpdateSelector } from './update-types.js';
+import { bindingLayout } from '../harness/delivery-review.mjs';
+import type { UpdateEntry, UpdateItemFacts, UpdatePolicy, UpdateSelector } from './update-types.js';
 import type { Diagnostic, ExecutionPolicy, Selection } from './types.js';
 import type { HostControls, PreparationResult } from './host-types.js';
 
-export type { UpdateMemberAction, UpdateSelector, UpdateItemFacts, UpdateMember, UpdateEntry } from './update-types.js';
-/** Managed update preparation 1.0.0: replacements the consumer chose for installed selections, in one reviewed step. */
-export interface ManagedUpdateRequest { target: { project: string }; scope: 'project' | 'user'; updates: UpdateSelector[] }
+export type { UpdateMemberAction, UpdateSelector, UpdateItemFacts, UpdateMember, UpdateEntry, UpdatePolicy } from './update-types.js';
+/**
+ * Managed update preparation 1.0.0: replacements the consumer chose for installed selections, in one reviewed step.
+ * A request that names its `policy` is 1.1.0: replacements in that execution policy version, up to 1.6.0.
+ */
+export interface ManagedUpdateRequest { target: { project: string }; scope: 'project' | 'user'; updates: UpdateSelector[]; policy?: UpdatePolicy }
 export interface ManagedUpdatePreparationResult {
-  schema: 'urn:aihq:core:managed-update-preparation:1.0.0';
+  schema: 'urn:aihq:core:managed-update-preparation:1.0.0' | 'urn:aihq:core:managed-update-preparation:1.1.0';
   package: { name: string; version: string };
   disposition: 'prepared' | 'not-prepared' | 'unavailable' | 'invalid' | 'cancelled';
   target?: { project: string }; scope?: 'project' | 'user';
@@ -25,21 +29,32 @@ export interface ManagedUpdatePreparationResult {
   updates?: UpdateEntry[];
   /** The one review digest that binds every listed member; present exactly with `preparation.review`. */
   reviewDigest?: string;
-  /** Present exactly for `prepared`: one policy preparation of every prepared replacement, applied with the ordinary `apply`. */
+  /**
+   * Present exactly for `prepared`: one policy preparation of every prepared replacement, applied with the ordinary `apply`.
+   * A preparation without a review is never `prepared`: the request is `not-prepared` and each entry it held says why.
+   */
   preparation?: PreparationResult;
 }
 
 const SCHEMA = 'urn:aihq:core:managed-update-preparation:1.0.0' as const;
+const SCHEMA_11 = 'urn:aihq:core:managed-update-preparation:1.1.0' as const;
 const POLICY_14 = 'urn:aihq:core:execution-policy:1.4.0' as const;
+/** Every execution policy version an update can carry; each is prepared exactly as an install in that version is. */
+const POLICIES: readonly UpdatePolicy['schema'][] = [POLICY_14, 'urn:aihq:core:execution-policy:1.5.0', 'urn:aihq:core:execution-policy:1.6.0'];
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const diagnostic = (code: string, reason: string, message: string, guidance?: string): Diagnostic =>
   ({ code, reason, message, ...(guidance === undefined ? {} : { guidance }) });
 const UNVERIFIABLE = 'Protected custody for this update could not be verified.';
-/** An update reads its replacement's material and private inputs; it never acquires evidence or reads an organization. */
-const forbiddenControls = (controls: HostControls): boolean => ['authentication', 'evidence'].some(name => Object.hasOwn(controls, name));
-const forwardedControls = (controls: HostControls): HostControls => Object.fromEntries((['signal', 'logging', 'privateInputs', 'materialRoots'] as const)
-  .filter(name => controls[name] !== undefined).map(name => [name, controls[name]]));
+/**
+ * An update reads its replacement's material and private inputs; it never reads an organization. Only a request that names
+ * its policy reads the Scan evidence and release index that policy's checks use, as an install in that version does.
+ */
+const forbiddenControls = (controls: HostControls, named: boolean): boolean =>
+  (named ? ['authentication'] : ['authentication', 'evidence']).some(name => Object.hasOwn(controls, name));
+const forwardedControls = (controls: HostControls, named: boolean): HostControls => Object.fromEntries(
+  (['signal', 'logging', 'privateInputs', 'materialRoots', ...(named ? ['evidence', 'index'] as const : [])] as const)
+    .filter(name => controls[name] !== undefined).map(name => [name, controls[name]]));
 const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 
 /**
@@ -50,9 +65,11 @@ const plainObject = (value: unknown): value is Record<string, unknown> => !!valu
 export async function prepareUpdate(request: ManagedUpdateRequest, controls: HostControls = {}): Promise<ManagedUpdatePreparationResult> {
   forgetProvenState();
   const { identity, valid: identityValid } = distributionIdentity();
+  // A request in the earlier shape keeps its 1.0.0 result; one that names its policy gets 1.1.0.
+  const named = !!request && typeof request === 'object' && Object.hasOwn(request, 'policy');
   const known: Partial<ManagedUpdatePreparationResult> = {};
   const done = (disposition: ManagedUpdatePreparationResult['disposition'], diagnostics: Diagnostic[] = [], fields: Partial<ManagedUpdatePreparationResult> = {}): ManagedUpdatePreparationResult =>
-    ({ schema: SCHEMA, package: identity, disposition, ...known, ...fields, diagnostics });
+    ({ schema: named ? SCHEMA_11 : SCHEMA, package: identity, disposition, ...known, ...fields, diagnostics });
   const invalid = (reason: 'request-shape' | 'management-id-changed' | 'scope-changed' | 'update-conflict') => done('invalid', [diagnostic('INPUT_INVALID', reason, {
     'request-shape': 'The managed update request is not valid.',
     'management-id-changed': 'A replacement keeps the management id of the selection it updates.',
@@ -60,8 +77,12 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
     'update-conflict': 'Each update names a different management id and replacement selection id.' }[reason])]);
   let project: string | undefined;
   try {
-    dataObject(request, ['target', 'scope', 'updates']);
+    dataObject(request, ['target', 'scope', 'updates', 'policy']);
     validateControls(controls);
+    if (named) {
+      dataObject(request.policy, ['schema', 'catalogReleases', 'evidence']);
+      if (!POLICIES.includes(request.policy!.schema)) throw new Error('request-shape');
+    }
     dataObject(request.target, ['project']); project = projectRoot(request.target.project);
     if (!Array.isArray(request.updates) || request.updates.length === 0 || request.updates.length > 256) throw new Error('request-shape');
     for (const update of request.updates) {
@@ -70,7 +91,7 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
         typeof update.replacement.id !== 'string') throw new Error('request-shape');
     }
   } catch { return invalid('request-shape'); }
-  if (!['project', 'user'].includes(request.scope) || forbiddenControls(controls)) return invalid('request-shape');
+  if (!['project', 'user'].includes(request.scope) || forbiddenControls(controls, named)) return invalid('request-shape');
   known.target = { project }; known.scope = request.scope;
   const scope = request.scope;
   // The replacement is the consumer's exact selection: Core never substitutes its id or scope.
@@ -130,15 +151,26 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
   const sameImage = sameImageAs(project, home, image);
   try { if (!sameImage()) return unavailable('ownership-changed', 'Protected custody changed during preflight; request the update again.'); }
   catch { return unavailable('ownership-unverifiable', UNVERIFIABLE); }
-  const policy: ExecutionPolicy = { schema: POLICY_14, mode: 'vibe', selections: prepared.map(item => item.replacement) };
+  // The replacements are prepared in the policy version the request names, with its Catalog releases and Scan evidence,
+  // so Prepare renders, binds and checks each exactly as it would at install.
+  const { schema, catalogReleases, evidence }: UpdatePolicy = clone(request.policy ?? { schema: POLICY_14 });
+  const policy = { schema, mode: 'vibe', ...(catalogReleases === undefined ? {} : { catalogReleases }), ...(evidence === undefined ? {} : { evidence }),
+    selections: prepared.map(item => item.replacement) } as ExecutionPolicy;
   let rows: PlannedMember[] = [];
-  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls),
+  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls, named),
     undefined, sameImage, undefined, undefined, { plan: planned => { rows = planned; } });
   // No reviewed resolution is offered: a local edit stays a conflict instead of becoming a replace choice.
   // Review operations name their selections, so the embedded preparation omits the separate selection list too.
   const { resolutionInputs: _resolutions, operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request the update again.');
+  if (!preparation.review) {
+    if (preparation.status === 'cancelled') return done('cancelled', clone(preparation.diagnostics));
+    // Without a review nothing is listed or can be applied: no entry is reported prepared, and each carries the reasons.
+    for (const { entry } of prepared) Object.assign(entry, { disposition: preparation.status === 'blocked' ? 'unavailable' : 'invalid',
+      diagnostics: clone(preparation.diagnostics) });
+    return done('not-prepared', [], { updates: entries });
+  }
   // A step that requires a conflicting or unavailable one never runs in this review, so its member stays as it is too.
   const operations = new Map((preparation.review?.operations ?? []).map(operation => [operation.id, operation]));
   const held = new Map<string, boolean>();
@@ -150,13 +182,16 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
     held.set(id, value); return value;
   };
   const privateValues = Object.values(controls.privateInputs ?? {}).flatMap(inputs => Object.values(inputs ?? {})).map(String);
+  const review = preparation.review;
   for (const { entry, replacement, from } of prepared) {
     entry.selectionId = replacement.id; entry.from = from;
-    const facts = preparation.review?.selections?.find(item => item.selectionId === replacement.id);
-    if (preparation.review) entry.to = facts?.item ? { name: facts.name!, kind: facts.kind!, tool: facts.tool!, framework: facts.item.framework,
+    const facts = review.selections?.find(item => item.selectionId === replacement.id);
+    entry.to = facts?.item ? { name: facts.name!, kind: facts.kind!, tool: facts.tool!, framework: facts.item.framework,
       item: clone(facts.item), origins: clone(facts.origins!) } : null;
-    // Without a review nothing is listed or can be applied; each prepared entry carries the preparation's reasons.
-    if (!preparation.review) { entry.diagnostics = clone(preparation.diagnostics); continue; }
+    // Prepare's own binding check: a replacement rendered for a binding Core no longer ships is a conflict, stale at Apply.
+    const shipped = replacement.bindingDigest === undefined ? undefined : bindingLayout(replacement.tool!, replacement.kind!)?.bindingDigest;
+    if (shipped !== undefined && shipped !== replacement.bindingDigest)
+      entry.diagnostics = clone(review.conflicts.filter(item => item.reason === 'binding-changed' && item.message.startsWith(`${safeText(replacement.name!, privateValues)} was rendered`)));
     entry.members = rows.filter(row => row.managementIds.includes(entry.managementId)).map(row => {
       const pointer = memberPointer(row.descriptor);
       const waits = row.action !== 'conflict' && isHeld(row.operationId);
@@ -167,5 +202,5 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
         operationId: row.operationId };
     });
   }
-  return done('prepared', [], { updates: entries, ...(preparation.review ? { reviewDigest: preparation.review.reviewDigest } : {}), preparation });
+  return done('prepared', [], { updates: entries, reviewDigest: review.reviewDigest, preparation });
 }
