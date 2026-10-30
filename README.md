@@ -2565,8 +2565,9 @@ it is then refused without reading custody, as is a cancelled one.
   that is not recorded is `absent` (`origin-absent`); a selection that recorded no
   origins is `reconcile-required` (`origin-unrecorded`) and can be removed whole.
 - **Required-by origins follow their requirer.** A `required-by` origin whose requiring
-  item this request removes, or that is no longer installed, is dropped from the recorded
-  origins. A selection left with no origin and not required by any remaining selection
+  item this request removes, or that is no longer installed in the same scope and project
+  (the same item installed in another project does not hold it), is dropped from the
+  recorded origins, however many removals the request carries and in any order. A selection left with no origin and not required by any remaining selection
   goes in the same review: one named by origin becomes `remove-selection`, and one not
   named in the request (such as a shared notices item) is removed with the removals that
   freed it, which list its members. A selection that keeps another origin keeps its

@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
@@ -120,4 +120,78 @@ test('a set member required only by another removed member goes with the set, an
   assert.deepEqual(removalClaims(removed.prepared, removed.run).removals.map(claim => claim.claim), ['removed', 'removed']);
   assert.deepEqual(await inventory(project), [], 'nothing is left in custody');
   assert.ok(!existsSync(join(project, '.aih', 'notices', 'ecc', 'ecc.notices', 'LICENSE')));
+});
+
+// The Workbench's "Remove this set": one request removes several requirers whole, in any order. Core's image also reads
+// other projects' receipts; the same requirers installed in another project do not keep this project's origins. Every
+// removed requirer's origin goes, not only the first, and the request removing the rest frees the notices and lists them.
+const MANY = [...AGENTS, 'ecc.agent.architect', 'ecc.agent.build-error-resolver', 'ecc.agent.chief-of-staff', 'ecc.agent.code-architect'];
+async function installMany(name, agents) {
+  const folder = join(scratch, name); mkdirSync(folder);
+  const project = realpathSync(folder);
+  for (const id of ['ecc.notices', ...agents]) for (const member of item(id).materials)
+    assert.equal(sha256(readFileSync(join(catalogRoot, member.packagePath))), member.sha256, `${id} ${member.relPath} is the published bytes`);
+  const selections = [selection('ecc.notices', agents.map(requiredBy), []),
+    ...agents.map(id => selection(id, [{ reasonIncluded: 'in-set', set: inSet.set }], ['ecc.notices']))];
+  const prepared = await prepare({ useCase: 'policy', policy: { ...policy([]), selections }, target: { project } }, controls());
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.equal((await apply(prepared.prepared, approve(prepared.review), controls())).completion, 'complete');
+  const copy = ['LICENSE', 'AGENTS.md', 'README.md', 'plugin.json'].map(file => join(project, '.aih', 'notices', 'ecc', 'ecc.notices', file));
+  assert.ok(copy.every(existsSync));
+  return { project, copy };
+}
+const removeWhole = (project, ids) => remove(project, ids.map(id => ({ managementId: managementId(id) })));
+// The removal that frees the notices lists their copy (under each removal that freed them) and removes it.
+async function assertFreed({ project, copy }, { prepared }) {
+  const listed = prepared.removals.flatMap(entry => entry.members).filter(member => member.path.includes(join('.aih', 'notices', 'ecc', 'ecc.notices')));
+  assert.deepEqual([...new Set(listed.map(member => member.path))].sort(), [...copy].sort(), JSON.stringify(prepared.removals));
+  assert.ok(listed.every(member => member.action === 'remove'), JSON.stringify(listed));
+  assert.ok(!copy.some(existsSync), 'the shared copy is gone');
+  assert.deepEqual(await inventory(project), [], 'nothing is left in custody');
+}
+
+for (const [label, order] of [['in order', ids => ids], ['in reverse', ids => [...ids].reverse()], ['interleaved', ids => [...ids.filter((_, i) => i % 2), ...ids.filter((_, i) => !(i % 2))]]]) {
+  test(`one request removing several requirers drops every one of their origins (${label}); the rest frees the notices`, async () => {
+    const other = await installMany(`elsewhere-${label.replace(' ', '-')}`, MANY);
+    const mine = await installMany(`many-${label.replace(' ', '-')}`, MANY);
+    const [first, rest] = [MANY.slice(0, 4), MANY.slice(4)];
+    const one = await removeWhole(mine.project, order(first));
+    assert.deepEqual(one.prepared.removals.map(entry => [entry.managementId, entry.change]), order(first).map(id => [managementId(id), 'remove-selection']));
+    assert.ok(!one.prepared.removals.some(entry => entry.members.some(member => member.path.includes('ecc.notices'))), 'the notices stay for the rest');
+    assert.ok(mine.copy.every(existsSync));
+    assert.deepEqual(await originsOf(mine.project, 'ecc.notices'), rest.map(requiredBy));
+
+    await assertFreed(mine, await removeWhole(mine.project, order(rest)));
+    // The other project's custody is untouched.
+    assert.deepEqual(await originsOf(other.project, 'ecc.notices'), MANY.map(requiredBy));
+    assert.ok(other.copy.every(existsSync));
+  });
+}
+
+// Origins an earlier run left behind for requirers no longer installed here (as Core dev.53 did while the same
+// requirers were installed elsewhere) are dropped by the next removal, which then frees the notices.
+test('stale origins of requirers already gone are dropped, and the last removal frees the notices', async () => {
+  await installMany('stale-elsewhere', MANY);
+  const mine = await installMany('stale', AGENTS);
+  const receipt = join(process.env.HOME, '.aih', 'core', 'ownership', `${sha256(mine.project)}.json`);
+  const value = JSON.parse(readFileSync(receipt, 'utf8'));
+  const notices = Object.values(value.items).find(entry => entry.managementId === managementId('ecc.notices'));
+  notices.origins.push(...MANY.slice(2).map(requiredBy));
+  writeFileSync(receipt, JSON.stringify(value));
+  assert.deepEqual(await originsOf(mine.project, 'ecc.notices'), MANY.map(requiredBy));
+
+  // Removing one of the two installed requirers keeps the notices for the other and drops every stale origin.
+  await removeWhole(mine.project, [AGENTS[0]]);
+  assert.deepEqual(await originsOf(mine.project, 'ecc.notices'), [requiredBy(AGENTS[1])]);
+  await assertFreed(mine, await removeWhole(mine.project, [AGENTS[1]]));
+});
+
+test('stale origins alone do not keep the notices when the last installed requirers go together', async () => {
+  await installMany('stale-only-elsewhere', MANY);
+  const mine = await installMany('stale-only', AGENTS);
+  const receipt = join(process.env.HOME, '.aih', 'core', 'ownership', `${sha256(mine.project)}.json`);
+  const value = JSON.parse(readFileSync(receipt, 'utf8'));
+  Object.values(value.items).find(entry => entry.managementId === managementId('ecc.notices')).origins.push(...MANY.slice(2).map(requiredBy));
+  writeFileSync(receipt, JSON.stringify(value));
+  await assertFreed(mine, await removeWhole(mine.project, [...AGENTS].reverse()));
 });
