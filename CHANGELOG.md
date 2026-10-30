@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-Removal leaves nothing behind that only removed items needed.
+Core 1.0.0-dev.53: removal leaves nothing behind that only removed items needed, and a
+project returns to the tree it had before Core wrote into it.
 
 - Removal preparation 1.2.0 drops each `required-by` origin whose requiring item the
   request removes or that is no longer installed. A supporting item left with no origin
