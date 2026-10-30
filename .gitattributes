@@ -23,3 +23,6 @@ test/fixtures/linux-runtime-recapture/*.json text eol=lf
 examples/reporting/claims/*.json text eol=lf
 # Vendored Catalog contents are checked against their recorded SHA-256.
 test/fixtures/catalog-1.7.0/*.json text eol=lf
+# Vendored published ECC bytes are checked against the release's SHA-256.
+test/fixtures/catalog-1.7.0/release/materials/github.com/affaan-m/** -text
+test/fixtures/catalog-1.7.0/release/items/ecc.*/** -text
