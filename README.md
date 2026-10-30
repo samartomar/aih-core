@@ -3119,7 +3119,7 @@ report yourself before sharing it — nothing shares it for you.
 
 ## State and recovery
 
-Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
+Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. One history record holds the redacted run result and is at most 1 MiB (1,048,576 bytes), the bound of every file in Core's state; a larger result is not recorded and reports `record-limit`. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
 
 New files use reviewed mode 0600 by default and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest points to private original-file snapshots for manual inspection; it is never a resumable plan.
 
