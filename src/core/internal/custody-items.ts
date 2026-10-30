@@ -59,6 +59,19 @@ export const interruptedClaim = (item: Pick<CustodyItem, 'managementId' | 'scope
 interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
+/** Custody data with the same own keys in the same order and identical values: it serializes identically. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return Object.is(a, b);
+  const left = Object.keys(a), right = Object.keys(b);
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index++) {
+    const key = left[index]!;
+    if (key !== right[index] || !sameData((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
 const KINDS = ['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document'];
 /** An RFC 6901 JSON Pointer naming a configuration entry path. */
 export const pointerOf = (segments: readonly string[]): string =>
@@ -141,8 +154,10 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
     const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
     const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
-    items[id] = { ...facts, members: owned.flatMap(([key, owner]) => typedMembers(key, owner)),
+    const refreshed: CustodyItem = { ...facts, members: owned.flatMap(([key, owner]) => typedMembers(key, owner)),
       ...(Object.keys(preExisting).length ? { preExisting } : {}), ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}) };
+    // An item whose data did not change keeps its object, so an unchanged item is recognisably the same.
+    items[id] = sameData(refreshed, item) ? item : refreshed;
   }
   for (const field of ['preExisting', 'redactedPaths'] as const) for (const [key, entry] of Object.entries(orphaned[field])) {
     const claim = value.members[key]!.claims?.[0];
