@@ -36,8 +36,9 @@ const inlinePolicy = () => ({ schema: 'urn:aihq:core:execution-policy:1.5.0', mo
 const recipelessPolicy = () => ({ schema: 'urn:aihq:core:execution-policy:1.6.0', mode: 'vibe',
   catalogReleases: [release('extensions'), release('superpowers')],
   selections: realSelections().map(({ recipe: _recipe, ...selection }) => ({ ...selection, bindingDigest: claude.digest })) });
+// The folder as it appears inside JSON text: Windows paths carry backslashes, which JSON escapes.
 const comparable = (review, folder) => JSON.parse(JSON.stringify({ operations: review.operations, checks: review.checks ?? null })
-  .replaceAll(folder, '<project>'));
+  .replaceAll(JSON.stringify(folder).slice(1, -1), '<project>'));
 const members = (run, folder) => run.members.map(member => ({ kind: member.kind, path: relative(folder, member.path),
   pointer: member.pointer ?? null, groupId: member.groupId ?? null, blockId: member.blockId ?? null, outcome: member.outcome,
   sha256: sha256(readFileSync(member.path)) })).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1);
