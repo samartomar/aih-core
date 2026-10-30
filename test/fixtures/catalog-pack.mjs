@@ -56,7 +56,8 @@ export function contentsOf(pack, item) {
 
 /**
  * The inline recipe the Workbench writes for one selection: one rendering per requiring item for a supporting
- * document (operation and check ids suffixed per rendering), otherwise one rendering.
+ * document (operation and check ids suffixed per rendering), otherwise one rendering. Renderings that differ only in
+ * their recipe id (the shared copy in the neutral notices folder) are planned once, by the first of them.
  */
 export function inlineRecipe({ pack, tool, item, scope, requiredBy = [] }) {
   const binding = toolBindings.find(candidate => candidate.tool === tool);
@@ -67,7 +68,12 @@ export function inlineRecipe({ pack, tool, item, scope, requiredBy = [] }) {
   if (refused) return refused;
   const [rendered] = deliveries;
   if (deliveries.length === 1) return rendered;
-  const unique = deliveries.map((delivery, index) => ({ ...delivery, recipe: { ...delivery.recipe,
+  const planned = new Set();
+  const unique = deliveries.map((delivery, index) => ({ delivery, index })).filter(({ delivery }) => {
+    const { id: _id, ...recipe } = delivery.recipe;
+    const key = canonical(recipe);
+    return !planned.has(key) && !!planned.add(key);
+  }).map(({ delivery, index }) => ({ ...delivery, recipe: { ...delivery.recipe,
     operations: delivery.recipe.operations.map(operation => ({ ...operation, id: `${operation.id}-${index + 1}`,
       requires: (operation.requires ?? []).map(required => `${required}-${index + 1}`), checks: (operation.checks ?? []).map(check => `${check}-${index + 1}`) })),
     checks: delivery.recipe.checks.map(check => ({ ...check, id: `${check.id}-${index + 1}` })) } }));

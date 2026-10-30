@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.47: Apply scales linearly, a shared notices copy is written once, and large installs keep their history.
+
+- Apply no longer re-reads, re-parses and re-validates the whole ownership receipt,
+  re-publishes every selection's metadata or re-digests the whole request for each
+  operation. Every stale check still reads and digests the stored receipt and checks the
+  request and private inputs before each effect, and every receipt Apply writes is still
+  admitted under the same rules, now part by part. Receipts, recovery data, files and the
+  run result are byte-identical. Claude Code with ECC's default pick and Superpowers
+  (256 selections) applies in about 7 s instead of over a minute.
+- A supporting document required by several items without a folder of their own is
+  planned once in the neutral notices folder. ECC's notices were written once per
+  requiring item (191 times each). Custody still names the document selection that every
+  requirer requires, so removal keeps the copy while another requirer remains. A
+  recipe-less selection combines its renderings this way; inline consumers should too.
+- Routine history records are bounded at 1 MiB, unchanged and now documented. The
+  256-selection install's record (about 570 KB) is saved; before, its 760 duplicate
+  notice operations pushed it over and it reported `record-limit`.
+
 Core 1.0.0-dev.46: single-id managed removal accepts a local organization source.
 
 - `prepareManagedRemoval` with a single `managementId` now accepts the same local

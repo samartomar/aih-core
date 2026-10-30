@@ -2064,6 +2064,9 @@ the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
 
 `requiredBy` is a `renderDelivery` input for a supporting `document`. It names the
 Catalog item that requires the document. Render the document once per requiring item.
+When you combine those renderings into one selection's recipe, include a rendering that
+matches an earlier one apart from its recipe id only once, so a shared copy is planned
+once; Core combines recipe-less selections this way.
 
 - **A requirer with its own folder** (skill, hook): the document goes inside that
   folder, under the document's item id. The recipe id is
@@ -2293,7 +2296,10 @@ shipped binding for `tool`:
 - **The same recipe an inline selection carries.** A supporting `document` is
   rendered beside each item that its `required-by` origins name, in their order,
   with each rendering's operation and check ids suffixed by its position, as a
-  consumer combines them. A marker block's text is read from the item's materials
+  consumer combines them. Renderings that differ only in their recipe id, such as
+  the one copy in the neutral notices folder for every requirer without a folder of
+  its own, are planned once, by the first of them: the copy is written once and its
+  custody names the document selection, which every requirer's `requires` names. A marker block's text is read from the item's materials
   under the `catalog` root. The rendered recipe is byte-identical to the inline one,
   so the review, writes and receipts are the same.
 - **Bound to the item and the binding.** The release must carry the item with both
@@ -3113,7 +3119,7 @@ report yourself before sharing it — nothing shares it for you.
 
 ## State and recovery
 
-Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
+Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. One history record holds the redacted run result and is at most 1 MiB (1,048,576 bytes), the bound of every file in Core's state; a larger result is not recorded and reports `record-limit`. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
 
 New files use reviewed mode 0600 by default and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest points to private original-file snapshots for manual inspection; it is never a resumable plan.
 
