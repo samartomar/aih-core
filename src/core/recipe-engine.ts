@@ -1491,8 +1491,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           record: disabled, ...(hinted ? { resolutionInputs: [], operationSelections: [] } : {}) };
       }
     }
+    const requirements = result.review ? historyRequires(result.review.operations) : undefined;
     const record = { ...result, prepared: undefined,
+      ...(result.review && historyDerives(result.review.operations, result.operationSelections) ? { operationSelections: undefined } : {}),
       review: result.review ? { ...result.review, operations: result.review.operations.map(op => ({ ...op,
+        ...requirements!(op),
         checks: op.checks.map(check => ({ ...check, details: historyDetails(check.details) })),
         details: historyDetails(op.details) })) } : undefined };
     result.record = writeHistory(runId, historySafe(record, project, secrets), logging);
@@ -1513,6 +1516,38 @@ function resolutionInputs(steps: PreparedStep[]): ResolutionInput[] {
 function operationSelections(steps: PreparedStep[]): OperationSelection[] {
   return steps.map(step => ({ id: step.review.id, selectionId: step.authored?.selectionId ?? null,
     operationId: step.authored?.operationId ?? null }));
+}
+/**
+ * An operation's requirements as routine history records them. A requirer depends on every operation of each selection
+ * it requires, so a shared document's requirers would each repeat its whole operation list. History names such a
+ * selection once in `requiresSelections`, meaning every operation of the record's review with that `selectionId`, and
+ * keeps the other ids in `requires`; together they are exactly the reviewed set.
+ */
+function historyRequires(operations: readonly ReviewOperation[]): (op: ReviewOperation) => { requires: string[]; requiresSelections?: string[] } {
+  const owner = new Map<string, string>(); const members = new Map<string, number>();
+  for (const op of operations) if (op.selectionId) {
+    owner.set(op.id, op.selectionId); members.set(op.selectionId, (members.get(op.selectionId) ?? 0) + 1);
+  }
+  return op => {
+    const counts = new Map<string, number>();
+    for (const id of new Set(op.requires)) { const selection = owner.get(id); if (selection) counts.set(selection, (counts.get(selection) ?? 0) + 1); }
+    const whole = new Set([...counts].filter(([selection, count]) => selection !== op.selectionId && count > 1 &&
+      count === members.get(selection)).map(([selection]) => selection));
+    if (!whole.size) return { requires: op.requires };
+    return { requires: op.requires.filter(id => !whole.has(owner.get(id)!)), requiresSelections: [...whole] };
+  };
+}
+/**
+ * Whether `operationSelections` repeats only what the review operations record: each entry is the operation at its
+ * position, with that operation's `selectionId` (or null) and the rest of its id after `<selectionId>/`. History then
+ * leaves the list out.
+ */
+function historyDerives(operations: readonly ReviewOperation[], selections: OperationSelection[] | undefined): boolean {
+  return selections !== undefined && selections.length === operations.length && selections.every((entry, index) => {
+    const op = operations[index]!; const selectionId = op.selectionId ?? null;
+    return entry.id === op.id && entry.selectionId === selectionId && entry.operationId === (selectionId === null ? null :
+      op.id.startsWith(`${selectionId}/`) ? op.id.slice(selectionId.length + 1) : undefined);
+  });
 }
 function historyDetails(details: ReviewOperation['details']): ReviewOperation['details'] {
   return { ...details, content: details.content === undefined ? undefined : '[OMITTED]',
