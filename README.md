@@ -1210,9 +1210,17 @@ move, and the block itself updates instead of conflicting. The notes file is wri
 claimed: removal never touches it and later edits are never conflicts. Edits that delete or change
 Core's own lines stay ordinary conflicts, never rescued.
 
-Removal takes only the blocks: the entry files and everything the person wrote outside the blocks
-stay byte for byte, and any `preExisting` value a replaced configuration entry had is restored as
-before. Project-folder items go into the folder the consumer named (default `ai-coding`).
+Removal takes only the blocks, with one exception for files Core created:
+
+- **Core created the entry file** (its custody records `createdFile` for that target) and, once
+  every AIH block in it is removed, nothing is left but the line endings Core wrote: removal
+  deletes the file, so the project returns to its earlier tree. The review lists that step as a
+  file removal (`remove-file`), its recovery data keeps the file's bytes like any other removed
+  file, and removing an interrupted install follows the same rule.
+- **Otherwise** (the file was there before, even empty, or the person wrote anything outside the
+  blocks): the entry file and everything outside the blocks stay byte for byte.
+
+Any `preExisting` value a replaced configuration entry had is restored as before. Project-folder items go into the folder the consumer named (default `ai-coding`).
 
 ## Supported AI clients
 

@@ -9,6 +9,10 @@ Removal leaves nothing behind that only removed items needed.
   and no remaining requirer, such as ECC's shared notices after the last ECC set is
   removed, is removed in the same review and listed with the removals that freed it. A
   set member that was also required only by removed members goes with its set.
+- An entry file such as CLAUDE.md that Core created for a shared (`aih:shared`) block is
+  deleted when its last AIH block is removed and only Core's line endings are left; the
+  review lists it as a `remove-file` step. A file that was there before, or that holds the
+  person's own text, still stays without the blocks.
 
 Core 1.0.0-dev.52: the test suite passes on Windows, and an unchanged Apply no longer
 rewrites custody modes there.

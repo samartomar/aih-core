@@ -1242,9 +1242,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           }
           else {
             ({ bytes: after, heir } = subtractMember(descriptor, before, owner));
-            // Removing a shared block never removes the entry file: when the block was the file's only
-            // content the file stays behind empty, and the person's other text always survives.
-            if (after === null && shared) after = Buffer.alloc(0);
+            // An entry file Core created goes with its last shared block once nothing but the line endings Core
+            // wrote is left. A file that was there before stays, emptied of the blocks only, and the person's
+            // other text always survives byte for byte.
+            if (shared && (after === null || /^[\r\n]*$/.test(after.toString('utf8'))))
+              after = createdFiles.has(`${root}:${descriptor.path}`) ? null : after ?? Buffer.alloc(0);
             // A JSON entry in a file Core created takes the file with it, as an owned hook group does, once only
             // empty containers are left and no other Core member lives in that file.
             if (after !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') &&
