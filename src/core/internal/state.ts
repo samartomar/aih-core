@@ -1,9 +1,9 @@
 import { chmodSync, lstatSync, mkdirSync, readFileSync, rmdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
-import { hostname } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { dirname, join, isAbsolute, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { OwnedFileTransaction, fileIdentity, type OwnedFileRead } from './owned-file-transaction.js';
-import { parseStrictJsonObjectV1 } from './strict-json.js';
+import { assertStrictJsonValueV1, assertWellFormedNfcV1, parseStrictJsonObjectV1 } from './strict-json.js';
 import { fileTransaction, pathPins, pinsMatch, sha256, userHomeRoot, validSegment } from './host-files.js';
 import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
 import { containedPath } from './contained-path.js';
@@ -163,8 +163,33 @@ function settled(value: Ownership): Ownership {
 }
 
 export function ownershipPath(target: string): string { return `ownership/${sha256(target)}.json`; }
-/** The digest of a root's stored receipt (`null` when there is none), without settling pending members. */
-export const ownershipDigest = (target: string): string | null => readOwnership(target, false).digest;
+/**
+ * The digest of a root's stored receipt (`null` when there is none), without settling pending members. Reading it runs
+ * the same protection check and read as `readOwnership`, which also admits the receipt (strict parse and validation).
+ * `admitted` names digests of receipt bytes already admitted for this target under the same home folder: bytes with one
+ * of those digests are the very bytes admitted before, so their admission is not repeated. Any other bytes, or any
+ * bytes once the home folder differs, are admitted exactly as before.
+ */
+export interface AdmittedReceipts { home: string; digests: Set<string> }
+export function ownershipDigest(target: string, admitted?: AdmittedReceipts): string | null {
+  if (!admitted) return readOwnership(target, false).digest;
+  try { lstatSync(stateRoot()); } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return null;
+    throw error;
+  }
+  protectState([ownershipPath(target)]);
+  const bytes = stateFiles().read(ownershipPath(target));
+  if (!bytes) return null;
+  const digest = sha256(bytes);
+  if (homedir() !== admitted.home || !admitted.digests.has(digest)) admitOwnership(bytes, target);
+  return digest;
+}
+/** Strict admission of stored receipt bytes for `target`: the parse and validation `readOwnership` applies. */
+export function admitOwnership(bytes: Uint8Array, target: string): Ownership {
+  const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
+  validateOwnership(value, target);
+  return value;
+}
 export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
   const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
@@ -176,8 +201,7 @@ export function readOwnership(target: string, settle = true): { value: Ownership
   protectState([ownershipPath(target)]);
   const bytes = stateFiles().read(ownershipPath(target));
   if (!bytes) return { value: empty, digest: null, bytes: 0 };
-  const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
-  validateOwnership(value, target);
+  const value = admitOwnership(bytes, target);
   return { value: settle ? settled(value) : value, digest: sha256(bytes), bytes: bytes.length };
 }
 
@@ -300,14 +324,133 @@ export function validateOwnership(input: unknown, target: string): asserts input
   // Items describe claims already held here; the target-keyed members above stay authoritative.
   if (value.items !== undefined && (!atLeast(value.schema, OWNERSHIP_16) ||
     !validItems(value as unknown as Ownership, (scope, managementId) => claimIdentity(scope, managementId, target)))) throw new Error('ownership-invalid');
-  // A pending owner is exactly the custody its member would publish, held to the same rules.
-  for (const item of Object.values((value.items ?? {}) as Record<string, CustodyItem>)) for (const entry of item.pending ?? []) {
+  validatePending(value.items as Record<string, CustodyItem> | undefined, value.schema as Ownership['schema'], target);
+}
+/** A pending owner is exactly the custody its member would publish, held to the same rules. */
+function validatePending(items: Record<string, CustodyItem> | undefined, schema: Ownership['schema'], target: string): void {
+  for (const item of Object.values(items ?? {})) for (const entry of item.pending ?? []) {
     if (!validDescriptor(entry.descriptor) || memberKey(entry.descriptor) !== entry.key) throw new Error('ownership-invalid');
     if (entry.owner === null) continue;
     if (canonicalJson(entry.owner.descriptor ?? null) !== canonicalJson(entry.descriptor) ||
         !entry.owner.claims?.some(claim => claim.managementId === item.managementId && claim.scope === item.scope)) throw new Error('ownership-invalid');
-    validateOwnership({ schema: value.schema, target, members: { [entry.key]: entry.owner } }, target);
+    validateOwnership({ schema, target, members: { [entry.key]: entry.owner } }, target);
   }
+}
+
+/**
+ * What one admitted receipt held: the custody objects it serialized, by key, and their parsed (admitted) data. Custody
+ * objects are never changed in place; every change replaces the object, so the same object serializes the same.
+ */
+export interface AdmittedImage {
+  schema: unknown; members: Map<string, unknown>; selections: unknown; selectionEntries: Map<string, unknown>;
+  directories: unknown; items: Map<string, unknown>; parsed: WeakMap<object, unknown>;
+}
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+/** The strictly admitted data of one serialized part of a receipt, `depth` levels below its root (the root is level 1). */
+function admittedPart(value: unknown, depth: number): unknown {
+  const text = JSON.stringify(value);
+  // A `__proto__` key reads differently through the strict parser; such a part is left to full admission.
+  if (text === undefined || text.includes('"__proto__"')) throw new Error('ownership-invalid');
+  assertWellFormedNfcV1(text, 'ownership JSON text');
+  return assertStrictJsonValueV1(JSON.parse(text), 'ownership', true, new WeakSet(), depth);
+}
+function imageOf(value: Ownership, parsed: WeakMap<object, unknown>): AdmittedImage {
+  return { schema: value.schema, members: new Map(Object.entries(value.members)), selections: value.selections,
+    selectionEntries: new Map(Object.entries(value.selections ?? {})), directories: value.directories,
+    items: new Map(Object.entries(value.items ?? {})), parsed };
+}
+/**
+ * Admit the receipt bytes `text` (`JSON.stringify(next)`) that this process just wrote for `target`, given the image of
+ * the receipt admitted before it under the same home folder. Returns the new image exactly when `admitOwnership` would
+ * admit `text`, and `undefined` when it would not or when that is not shown here; the bytes then stay unadmitted and the
+ * next read admits them in full. Only the parts that changed are parsed and validated, each under the same rules:
+ *
+ * - The receipt is the strict text JSON.stringify writes, so its strict parse is the parse of each part, and each part
+ *   (a member, selection, item or the directories) is checked as strict JSON at its own depth.
+ * - Each member, selection and directory record is validated on its own, as `validateOwnership` does; an unchanged one
+ *   (the same object, under the same schema, target and home) keeps its earlier result.
+ * - An item depends on its own record, the members its claim holds and its selection record, so it is validated again
+ *   when any of them changed, against all members and selections; the counts are checked on the whole receipt.
+ */
+export function admitWrittenOwnership(previous: AdmittedImage | undefined, next: Ownership, text: string, target: string): AdmittedImage | undefined {
+  try {
+    if (!previous) {
+      const value = admitOwnership(Buffer.from(text), target);
+      const parsed = new WeakMap<object, unknown>();
+      const pair = (live: Record<string, unknown> | undefined, stored: unknown) => {
+        for (const [key, entry] of Object.entries(live ?? {})) if (entry && typeof entry === 'object') parsed.set(entry, (stored as Record<string, unknown>)[key]);
+      };
+      pair(next.members as Record<string, unknown>, value.members);
+      pair(next.selections as Record<string, unknown> | undefined, value.selections);
+      pair(next.items as Record<string, unknown> | undefined, value.items);
+      return imageOf(next, parsed);
+    }
+    const value = next as unknown as Record<string, unknown>;
+    if (next.schema !== previous.schema || next.target !== target || !OWNERSHIP_VERSIONS.includes(next.schema) ||
+        Object.keys(value).some(key => !['schema', 'target', 'members', 'selections', 'directories', 'items'].includes(key)) ||
+        !plainObject(next.members) || Object.keys(next.members).length > 8192) return undefined;
+    const parsed = previous.parsed;
+    const part = (entry: unknown, depth: number) => {
+      if (entry && typeof entry === 'object' && parsed.has(entry)) return parsed.get(entry);
+      const data = admittedPart(entry, depth);
+      if (entry && typeof entry === 'object') parsed.set(entry, data);
+      return data;
+    };
+    // Claims whose items must be validated again: those of every changed or removed member, before and after.
+    const affected = new Set<string>();
+    const touch = (owner: unknown) => {
+      for (const claim of ((owner as Owner | undefined)?.claims ?? [])) affected.add(claimIdentity(claim.scope, claim.managementId, target));
+    };
+    const members: Record<string, unknown> = {};
+    for (const [key, owner] of Object.entries(next.members)) {
+      if (key === '__proto__' || !owner || typeof owner !== 'object') return undefined;
+      if (previous.members.get(key) !== owner) {
+        assertWellFormedNfcV1(JSON.stringify(key), 'ownership JSON text');
+        const data = part(owner, 3);
+        validateOwnership({ schema: next.schema, target, members: { [key]: data } }, target);
+        touch(previous.members.get(key)); touch(owner);
+      }
+      members[key] = part(owner, 3);
+    }
+    for (const [key, owner] of previous.members) if (!Object.hasOwn(next.members, key)) touch(owner);
+    if (next.directories !== previous.directories && next.directories !== undefined)
+      validateOwnership({ schema: next.schema, target, members: {}, directories: admittedPart(next.directories, 2) }, target);
+    let selections: Record<string, unknown> | undefined;
+    if (next.selections !== undefined) {
+      if (!plainObject(next.selections) || Object.keys(next.selections).length > 4096) return undefined;
+      selections = {};
+      for (const [key, claim] of Object.entries(next.selections)) {
+        if (key === '__proto__' || !claim || typeof claim !== 'object') return undefined;
+        if (previous.selectionEntries.get(key) !== claim) {
+          assertWellFormedNfcV1(JSON.stringify(key), 'ownership JSON text');
+          validateOwnership({ schema: next.schema, target, members: {}, selections: { [key]: part(claim, 3) } }, target);
+          affected.add(key);
+        }
+        selections[key] = part(claim, 3);
+      }
+    }
+    for (const key of previous.selectionEntries.keys()) if (!Object.hasOwn(next.selections ?? {}, key)) affected.add(key);
+    if (next.items !== undefined) {
+      if (!plainObject(next.items) || !atLeast(next.schema, OWNERSHIP_16)) return undefined;
+      const count = Object.keys(next.items).length;
+      if (count === 0 || count > 4096) return undefined;
+      const items: Record<string, CustodyItem> = {};
+      for (const [id, item] of Object.entries(next.items)) {
+        if (id === '__proto__' || !item || typeof item !== 'object') return undefined;
+        if (previous.items.get(id) !== item || affected.has(id)) {
+          assertWellFormedNfcV1(JSON.stringify(id), 'ownership JSON text');
+          items[id] = part(item, 3) as CustodyItem;
+        }
+      }
+      if (Object.keys(items).length) {
+        if (!validItems({ members: members as Record<string, Owner>, selections: selections as Record<string, Claim> | undefined, items },
+          (scope, managementId) => claimIdentity(scope, managementId, target))) return undefined;
+        validatePending(items, next.schema, target);
+      }
+    }
+    return imageOf(next, parsed);
+  } catch { return undefined; }
 }
 
 export function writeHistory(runId: string, result: unknown, logging: 'on' | 'off'): RecordStatus {

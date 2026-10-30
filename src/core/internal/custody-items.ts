@@ -98,10 +98,26 @@ export function typedMembers(key: string, owner: Owned): TypedMember[] {
 
 const claimed = (owner: Owned, scope: string, managementId: string): boolean =>
   !!owner.claims?.some(claim => claim.scope === scope && claim.managementId === managementId);
+const byKey = ([a]: [string, Owned], [b]: [string, Owned]): number => a < b ? -1 : a > b ? 1 : 0;
 /** Target-keyed members a claim owns, in key order. */
 export function claimedMembers(value: Custody, scope: string, managementId: string): [string, Owned][] {
-  return Object.entries(value.members).filter(([, owner]) => claimed(owner, scope, managementId))
-    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  return Object.entries(value.members).filter(([, owner]) => claimed(owner, scope, managementId)).sort(byKey);
+}
+/**
+ * `claimedMembers` for every claim at once: one pass over the members instead of one per item. Each list holds the
+ * same entries in the same key order as `claimedMembers` gives for that claim while the members stay unchanged.
+ */
+function claimIndex(value: Custody): (scope: string, managementId: string) => [string, Owned][] {
+  const index = new Map<string, Map<string, [string, Owned][]>>();
+  for (const entry of Object.entries(value.members)) for (const claim of entry[1].claims ?? []) {
+    let scoped = index.get(claim.scope);
+    if (!scoped) index.set(claim.scope, scoped = new Map());
+    const list = scoped.get(claim.managementId);
+    if (!list) scoped.set(claim.managementId, [entry]);
+    else if (list.at(-1) !== entry) list.push(entry);
+  }
+  for (const scoped of index.values()) for (const list of scoped.values()) list.sort(byKey);
+  return (scope, managementId) => index.get(scope)?.get(managementId) ?? [];
 }
 
 /**
@@ -113,10 +129,11 @@ export function claimedMembers(value: Custody, scope: string, managementId: stri
  */
 export function refreshItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): Record<string, CustodyItem> | undefined {
   if (!value.items) return undefined;
+  const claimedBy = claimIndex(value);
   const items: Record<string, CustodyItem> = {};
   const orphaned = { preExisting: {} as Record<string, { value: Json }>, redactedPaths: {} as Record<string, string> };
   for (const [id, item] of Object.entries(value.items)) {
-    const owned = claimedMembers(value, item.scope, item.managementId);
+    const owned = claimedBy(item.scope, item.managementId);
     const keys = new Set(owned.map(([key]) => key));
     for (const field of ['preExisting', 'redactedPaths'] as const)
       for (const [key, entry] of Object.entries(item[field] ?? {})) if (!keys.has(key) && value.members[key]) (orphaned[field] as Record<string, unknown>)[key] ??= entry;
@@ -132,7 +149,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     if (!claim) continue;
     const id = identity(claim.scope, claim.managementId);
     const heir: CustodyItem = items[id] ?? { managementId: claim.managementId, scope: claim.scope, name: null, kind: null, framework: null, item: null,
-      tool: null, origins: [], members: claimedMembers(value, claim.scope, claim.managementId).flatMap(([member, owner]) => typedMembers(member, owner)) };
+      tool: null, origins: [], members: claimedBy(claim.scope, claim.managementId).flatMap(([member, owner]) => typedMembers(member, owner)) };
     const record = { ...(heir[field] as Record<string, unknown> | undefined) };
     record[key] ??= entry;
     items[id] = { ...heir, [field]: record };
@@ -176,6 +193,7 @@ export function validProjectFacts(value: unknown): boolean {
 export function validItems(value: Custody, identity: (scope: 'project' | 'user', managementId: string) => string): boolean {
   const items = value.items as unknown;
   if (!items || typeof items !== 'object' || Array.isArray(items) || Object.keys(items).length === 0 || Object.keys(items).length > 4096) return false;
+  const claimedBy = claimIndex(value);
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
     if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
         ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts']) ||
@@ -193,7 +211,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
     if (!validProjectFacts(item.projectFacts)) return false;
-    const owned = claimedMembers(value, item.scope as string, item.managementId);
+    const owned = claimedBy(item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;

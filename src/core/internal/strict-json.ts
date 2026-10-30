@@ -313,6 +313,26 @@ export function cloneJsonValueStructureV1<T>(value: T, label: string, maxDepth: 
   return read.get(value)?.copy as T;
 }
 
+/**
+ * Whether `value` still holds exactly the data of `copy`, a `cloneJsonValueStructureV1` copy: the same own entries in
+ * the same order, read the same way (through descriptors, never invoking a getter), with identical primitives
+ * (`Object.is`). Then copying `value` again yields `copy`'s data, so any digest of that copy still holds. The walk is
+ * bounded by `copy`, which is finite and acyclic. Anything unreadable or different answers `false`.
+ */
+export function sameJsonDataV1(value: unknown, copy: unknown): boolean {
+  if (!isObject(copy)) return Object.is(value, copy);
+  if (!isObject(value) || Array.isArray(value) !== Array.isArray(copy)) return false;
+  let entries: [string, unknown][];
+  try { entries = jsonOwnEntriesV1(value, "value"); } catch { return false; }
+  const expected = Object.entries(copy);
+  if (entries.length !== expected.length) return false;
+  for (let index = 0; index < entries.length; index += 1) {
+    const [key, child] = entries[index]!, [expectedKey, expectedChild] = expected[index]!;
+    if (key !== expectedKey || !sameJsonDataV1(child, expectedChild)) return false;
+  }
+  return true;
+}
+
 /** Freezes a value and everything it holds, at any depth: iteratively, never recursing. */
 export function deepFreezeStrictJsonV1<T>(value: T, seen = new WeakSet<object>()): T {
   const pending: unknown[] = [value];

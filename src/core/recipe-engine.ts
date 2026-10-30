@@ -16,13 +16,13 @@ import { isNativeClient } from './internal/policy-validation.js';
 import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
-import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1, sameJsonDataV1 } from './internal/strict-json.js';
 import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type Ownership, type Owner } from './internal/state.js';
+import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
@@ -1586,12 +1586,22 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     // Each reviewed binding in a fixed order; an unreadable binding counts as changed.
     const holds = (check: () => boolean): boolean => { try { return check(); } catch { return false; } };
     const held = state;
+    // The last copy of the request and of the private inputs whose digest matched the review. A value still holding
+    // exactly that copy's data would copy and digest the same, so only a value that differs is copied and digested again.
+    const copies: { request?: unknown; privateInputs?: unknown } = {};
+    const unchanged = (field: 'request' | 'privateInputs', value: unknown, expected: string): boolean => {
+      if (Object.hasOwn(copies, field) && sameJsonDataV1(value, copies[field])) return true;
+      const copy = clone(value);
+      if (digest(copy) !== expected) return false;
+      copies[field] = copy;
+      return true;
+    };
     const assertInputs = () => {
       if (!holds(() => homedir() === held.home && pinsMatch(held.bindings))) throw stale('host');
       // The request (recipes, selections, metadata) is not an organization's policy: run result 1.5.0 reports it as how
       // the items are installed; earlier results keep `policy`.
-      if (!holds(() => digest(clone(held.request)) === held.requestDigest)) throw stale(ownerList ? 'binding' : 'policy');
-      if (!holds(() => digest(clone(held.privateInputs ?? {})) === held.privateDigest)) throw stale('input');
+      if (!holds(() => unchanged('request', held.request, held.requestDigest))) throw stale(ownerList ? 'binding' : 'policy');
+      if (!holds(() => unchanged('privateInputs', held.privateInputs ?? {}, held.privateDigest))) throw stale('input');
       if (held.inventory && !holds(() => canonicalJson([...held.inventory!].sort()) === canonicalJson(ownershipInventory().entries.sort()))) throw stale('ownership');
     };
     assertInputs();
@@ -1675,13 +1685,31 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const createdDirectories = new Map<string, CreatedDirectories>();
     const outcomes = new Map<string, boolean>(); let stop = false;
     const metadataState = state;
+    // Receipt bytes already admitted per root: those Prepare read, and those this Apply wrote once they pass the same
+    // admission. A stale check reads and digests the stored receipt every time; it only skips re-admitting those bytes.
+    const admitted = new Map<string, AdmittedReceipts>();
+    const admittedFor = (root: string): AdmittedReceipts => {
+      let receipts = admitted.get(root);
+      if (!receipts) admitted.set(root, receipts = { home: metadataState.home, digests: new Set() });
+      return receipts;
+    };
+    for (const [root, tracked] of state.ownership) if (tracked.digest) admittedFor(root).digests.add(tracked.digest);
+    const receiptDigest = (root: string): string | null => ownershipDigest(root, admittedFor(root));
+    /** Per root, the last receipt this Apply wrote and admitted, from which the next one is admitted part by part. */
+    const images = new Map<string, AdmittedImage | undefined>();
     /** Seal and write one root's receipt, tracking the new digest for later stale checks. */
     const persist = (root: string, next: Ownership) => {
       protectState([ownershipPath(root)]);
       const sealed = sealOwnership(next);
-      const receipt = Buffer.from(JSON.stringify(sealed)); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
-      metadataState.ownership.set(root, { value: sealed, digest: sha256(receipt) });
-      metadataState.inventory?.set(basename(ownershipPath(root)), sha256(receipt));
+      const text = JSON.stringify(sealed);
+      const receipt = Buffer.from(text); stateFiles().writeAtomic(ownershipPath(root), receipt, 0o600);
+      const written = sha256(receipt);
+      metadataState.ownership.set(root, { value: sealed, digest: written });
+      metadataState.inventory?.set(basename(ownershipPath(root)), written);
+      // Bytes that are not admitted here stay unadmitted, so the next stale check admits them in full, exactly as before.
+      const image = homedir() === metadataState.home ? admitWrittenOwnership(images.get(root), sealed, text, root) : undefined;
+      images.set(root, image);
+      if (image) admittedFor(root).digests.add(written);
     };
     // The pending receipt: immediately before the run's first effect, every selection it writes custody for is
     // recorded as an interrupted install. Members are added only as each is written; completion clears the state.
@@ -1695,29 +1723,67 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         const tracked = metadataState.ownership.get(root)!;
         const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
         for (const step of installing) upsertItem(next, step.item!, { installing: true });
-        if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
+        if (receiptDigest(root) !== tracked.digest) throw stale('ownership');
         try { persist(root, next); } catch { throw new Error('state-unwritable'); }
         started = true;
       }
     };
+    // A step's selection metadata is published once every non-lifecycle step of its selection (management id and scope)
+    // succeeded; it stays complete, as outcomes are final. Its claims are re-applied only to members it could still
+    // change: its own members when it completes, and any member whose custody changed since the last publication.
+    // Re-applying to any other member leaves it as it is, so each publication equals the full pass over every step.
+    const selectionSteps = new Map<string | undefined, Map<string, PreparedStep[]>>();
+    for (const step of state.steps) if (!step.lifecycle) {
+      let scoped = selectionSteps.get(step.managementId);
+      if (!scoped) selectionSteps.set(step.managementId, scoped = new Map());
+      const steps = scoped.get(step.review.scope);
+      if (steps) steps.push(step); else scoped.set(step.review.scope, [step]);
+    }
+    const stepOrder = new Map(state.steps.map((step, index) => [step, index]));
+    const inOrder = (list: PreparedStep[], step: PreparedStep) => {
+      let at = list.length;
+      while (at > 0 && stepOrder.get(list[at - 1]!)! > stepOrder.get(step)!) at--;
+      list.splice(at, 0, step);
+    };
+    const completed = new Set<PreparedStep>();
+    /** Per root: completed steps in step order, and those holding desired custody for each member key. */
+    const completedSteps = new Map<string, PreparedStep[]>();
+    const completedOwners = new Map<string, Map<string, PreparedStep[]>>();
+    const publishedMembers = new Map<string, Record<string, Owner>>();
     const publishMetadata = () => {
       // Byte custody follows each successful mutation. Selection metadata advances
       // only when all its reviewed operations and required checks succeeded.
+      const fresh: PreparedStep[] = [];
+      for (const step of metadataState.steps) {
+        if (completed.has(step) || outcomes.get(step.review.id) !== true) continue;
+        if (!(selectionSteps.get(step.managementId)?.get(step.review.scope) ?? []).every(other => outcomes.get(other.review.id) === true)) continue;
+        completed.add(step); fresh.push(step);
+        if (!step.root) continue;
+        let steps = completedSteps.get(step.root);
+        if (!steps) completedSteps.set(step.root, steps = []);
+        inOrder(steps, step);
+        let owners = completedOwners.get(step.root);
+        if (!owners) completedOwners.set(step.root, owners = new Map());
+        for (const [key, desired] of Object.entries(step.custody ?? {})) if (desired) {
+          const list = owners.get(key);
+          if (list) inOrder(list, step); else owners.set(key, [step]);
+        }
+      }
       for (const root of mutatingRoots) {
         const tracked = metadataState.ownership.get(root)!;
         const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
         let changed = false;
-        for (const step of metadataState.steps.filter(step => step.root === root && outcomes.get(step.review.id) === true)) {
-          const selectionSteps = metadataState.steps.filter(other => other.managementId === step.managementId && other.review.scope === step.review.scope && !other.lifecycle);
-          if (!selectionSteps.every(other => outcomes.get(other.review.id) === true)) continue;
-          for (const [key, desired] of Object.entries(step.custody ?? {})) {
-            const current = next.members[key]; if (!desired || !current) continue;
-            const claims = (current.claims ?? []).map(claim => desired.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope) ?? claim);
-            const owner = { ...current, claims };
-            if (canonicalJson(owner) !== canonicalJson(current)) { next.members[key] = owner; changed = true; }
-          }
-          if (step.item && completeItem(next, step.item.id)) changed = true;
+        const published = publishedMembers.get(root);
+        const affected = new Set<string>();
+        for (const step of fresh) if (step.root === root) for (const [key, desired] of Object.entries(step.custody ?? {})) if (desired) affected.add(key);
+        for (const [key, owner] of Object.entries(next.members)) if (!published || published[key] !== owner) affected.add(key);
+        for (const key of affected) for (const step of completedOwners.get(root)?.get(key) ?? []) {
+          const desired = step.custody![key]!, current = next.members[key]; if (!current) continue;
+          const claims = (current.claims ?? []).map(claim => desired.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope) ?? claim);
+          const owner = { ...current, claims };
+          if (canonicalJson(owner) !== canonicalJson(current)) { next.members[key] = owner; changed = true; }
         }
+        for (const step of completedSteps.get(root) ?? []) if (step.item && completeItem(next, step.item.id)) changed = true;
         for (const [key, update] of Object.entries(metadataState.selectionUpdates.get(root) ?? {})) {
           if (!update.requires.every(id => outcomes.get(id) === true)) continue;
           next.selections = { ...next.selections };
@@ -1734,9 +1800,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           changed = true;
         }
         if (changed) {
-          if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
+          if (receiptDigest(root) !== tracked.digest) throw stale('ownership');
           persist(root, next);
         }
+        publishedMembers.set(root, { ...metadataState.ownership.get(root)!.value.members });
       }
     };
     publishMetadata();
@@ -1758,7 +1825,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       assertInputs();
       if (step.path) {
         assertStep(step);
-        if (ownershipDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
+        if (receiptDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
       if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
@@ -1778,7 +1845,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
         assertStep(step);
-        if (ownershipDigest(step.root) !== state.ownership.get(step.root)?.digest) throw stale('ownership');
+        if (receiptDigest(step.root) !== state.ownership.get(step.root)?.digest) throw stale('ownership');
         writePending(); started = true;
         // Write ahead the members this effect changes, so a crash before its custody is published can be settled later.
         // A written file is recorded with the identity of the staged file that replaces the destination.
@@ -1874,7 +1941,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         outcomes.get(step.review.id) === true).map(step => step.directoryCleanup ?? {})) as CreatedDirectories;
       if (!Object.keys(reviewed).length) continue;
       const tracked = state.ownership.get(root)!;
-      if (ownershipDigest(root) !== tracked.digest) throw stale('ownership');
+      if (receiptDigest(root) !== tracked.digest) throw stale('ownership');
       const directories = removeCreatedDirectories(root, directoryMap(tracked.value.directories), reviewed,
         Object.entries(tracked.value.members).map(([key, owner]) => owner.descriptor?.path ?? key));
       persist(root, { ...tracked.value, directories: directoryRecords(directories) });
