@@ -221,7 +221,9 @@ test('a substitute executable never yields verified success', () => withPath(asy
   fixtureTool('git');
   const prepared = await prepare(request(source('substitute.pem'), ['git'], 'declared'), { logging: 'off' });
   assert.equal(prepared.status, 'blocked', JSON.stringify(prepared.diagnostics));
-  assert.equal(prepared.diagnostics[0].reason, 'identity-unavailable');
+  // On Windows no process is run for user-tool trust until its argument protocol is qualified, so the substitute is
+  // refused before its identity is read; elsewhere its identity is checked and found wanting.
+  assert.equal(prepared.diagnostics[0].reason, process.platform === 'win32' ? 'windows-process-protocol-unqualified' : 'identity-unavailable');
   assert.equal(prepared.prepared, undefined);
   assert.equal(existsSync(join(home, '.gitconfig')), false);
 }));

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.52: the test suite passes on Windows, and an unchanged Apply no longer
+rewrites custody modes there.
+
+- On Windows a present file's mode is only its read-only flag (0o666 or 0o444). A file
+  whose recorded custody mode agrees with that flag keeps the recorded mode, so
+  re-applying an unchanged selection leaves its receipt unchanged.
+- Tests now assert Windows behaviour instead of POSIX:
+  - receipt member keys and claim identities are lower case;
+  - member paths use backslashes;
+  - user-tool trust refuses before reading an executable's identity.
+- Where Windows refuses an account the privilege to create symbolic links, a test's
+  link check is reported as not run, and the rest of the test still runs.
+
 Core 1.0.0-dev.51: an update is checked like an install, and a refused one is not "prepared".
 
 - Add managed update preparation 1.1.0. `prepareUpdate` accepts an optional

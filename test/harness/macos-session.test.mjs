@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
+import { symlinked } from './symlink-fixture.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderMacosSessionLaunchAgent, macosSessionTrustKeys, macosSessionBudgets,
@@ -15,7 +16,7 @@ const dir = (over = {}) => ({ mode: 0o755, uid: 0, gid: 0, dev: 1, ino: 7, size:
   isDirectory: () => true, isSymbolicLink: () => false, ...over });
 const regular = (size, over = {}) => ({ ...dir(), isDirectory: () => false, isFile: () => true, size, ...over });
 
-test('the native app reader bounds descriptor reads and refuses links', () => {
+test('the native app reader bounds descriptor reads and refuses links', t => {
   const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-app-reader-'));
   try {
     const file = join(root, 'member');
@@ -23,8 +24,7 @@ test('the native app reader bounds descriptor reads and refuses links', () => {
     assert.equal(readMacosSessionFile(file, 7).toString(), 'bounded');
     assert.equal(readMacosSessionFile(file, 6), undefined);
     const link = join(root, 'linked');
-    symlinkSync(file, link, 'file');
-    assert.equal(readMacosSessionFile(link, 7), undefined);
+    if (symlinked(file, link, t, 'file')) assert.equal(readMacosSessionFile(link, 7), undefined);
     writeFileSync(file, Buffer.alloc(65537));
     assert.equal(readMacosSessionFile(file), undefined);
   } finally { rmSync(root, { recursive: true, force: true }); }

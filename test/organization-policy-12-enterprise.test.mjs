@@ -1,7 +1,9 @@
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { symlinked } from './harness/symlink-fixture.mjs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -84,7 +86,7 @@ test('a local organization document changed between Prepare and Apply is REVIEW_
   assert.equal(existsSync(join(target, 'TEAM.md')), false);
 });
 
-test('a local source is caller-selected, bounded and fails closed', async () => {
+test('a local source is caller-selected, bounded and fails closed', async t => {
   offline();
   const target = project();
   const missing = await prepare(request(target, { provider: 'local', path: join(scratch, 'absent.json') }), { logging: 'off' });
@@ -93,9 +95,11 @@ test('a local source is caller-selected, bounded and fails closed', async () => 
   const relative = await prepare(request(target, { provider: 'local', path: 'org.json' }), { logging: 'off' });
   assert.deepEqual([relative.status, relative.diagnostics[0].reason], ['invalid', 'source-invalid']);
   const source = localSource(org12(recipeEntry()));
-  const link = join(scratch, 'link.json'); symlinkSync(source.path, link);
-  const linked = await prepare(request(target, { provider: 'local', path: link }), { logging: 'off' });
-  assert.deepEqual([linked.status, linked.diagnostics[0].reason], ['blocked', 'source-not-regular-file']);
+  const link = join(scratch, 'link.json');
+  if (symlinked(source.path, link, t)) {
+    const linked = await prepare(request(target, { provider: 'local', path: link }), { logging: 'off' });
+    assert.deepEqual([linked.status, linked.diagnostics[0].reason], ['blocked', 'source-not-regular-file']);
+  }
   // Older review formats name only a GitHub source.
   const older = await prepare(request(target, source, {}, enterprisePolicy()), { logging: 'off' });
   assert.deepEqual([older.status, reasons(older)], ['invalid', ['organization-source-local-review']]);
@@ -194,7 +198,7 @@ test('both Enterprise removal forms accept a local organization source', async (
 
 test('the CLI selects a local organization file offline and refuses mixing it with GitHub flags or Vibe', async () => {
   const { spawnSync } = await import('node:child_process');
-  const cli = new URL('../dist/core/cli.js', import.meta.url).pathname;
+  const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   const target = project();
   const policyFile = join(mkdtempSync(join(scratch, 'cli-')), 'policy.json');
   writeFileSync(policyFile, JSON.stringify(policy14()));

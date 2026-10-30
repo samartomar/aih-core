@@ -63,7 +63,7 @@ test('a removal whose member is changed again before the check fails it and keep
   const run = await apply(result.preparation.prepared, approve({ reviewDigest: result.reviewDigest }), { logging: 'off' })
     .finally(() => { applying = false; });
   assert.equal(rewritten, true, 'the path was written again during Apply');
-  const member = run.members.find(entry => entry.path.endsWith(skill));
+  const member = run.members.find(entry => entry.path.replaceAll('\\', '/').endsWith(skill));
   assert.equal(member.check, 'present-different', JSON.stringify(member));
   const operation = run.operations.find(entry => entry.id === member.operationId);
   assert.deepEqual(operation.verification, { status: 'failed', reason: 'member-changed' });

@@ -107,7 +107,9 @@ test('Enterprise keeps its custody-only refusal per removal and delegates file r
   // A claim recorded without members: only custody would change.
   rewriteReceipt(s, value => {
     for (const [key, member] of Object.entries(value.members)) if (member.managementId === 'empty') delete value.members[key];
-    value.selections = { ...value.selections, [`project:${sha(realpathSync.native(s.project))}:empty`]: { managementId: 'empty', scope: 'project', sets: [], requires: [] } };
+    // A claim identity names the project as Core does: in lower case on Windows, whose paths are case-insensitive.
+    const anchor = process.platform === 'win32' ? realpathSync.native(s.project).toLowerCase() : realpathSync.native(s.project);
+    value.selections = { ...value.selections, [`project:${sha(anchor)}:empty`]: { managementId: 'empty', scope: 'project', sets: [], requires: [] } };
   });
   const counter = { calls: 0 };
   try {
