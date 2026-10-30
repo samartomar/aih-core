@@ -685,6 +685,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             live.state === 'present' ? live.mode : 0o600;
           const stored = ownership.get(root) ?? readOwnership(root); ownership.set(root, stored);
           const projected: Ownership = { ...stored.value, members: { ...stored.value.members } };
+          // Windows reports a file's mode as its read-only flag alone (0o666 or 0o444). A present file whose recorded
+          // mode agrees with that flag keeps it, so an unchanged Apply leaves its custody unchanged.
+          if (process.platform === 'win32' && live.state === 'present' && !(op.kind === 'file.write' && op.mode !== undefined)) {
+            const recorded = Object.values(projected.members).find(owner => owner.descriptor?.path.toLowerCase() === path!.toLowerCase())?.mode;
+            if (recorded !== undefined && ((recorded & 0o200) !== 0) === ((live.mode & 0o200) !== 0)) mode = recorded;
+          }
           for (const prior of steps.filter(step => step.root === root && step.custody && (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly))) updateCustody(projected, prior);
           if (op.kind === 'hook.group') {
             const authored = bindHookGroup(op, bound);

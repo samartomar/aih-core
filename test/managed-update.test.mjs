@@ -59,7 +59,7 @@ test('an obsolete member another selection owns is keep-shared; one that replace
   const withEntry = fileSelection('tool', 'TOOL.md', 'tool\n');
   withEntry.recipe.inline.operations.push(entry);
   await install(s, [withEntry], [{ selectionId: 'tool', operationId: 'mode', choice: 'replace', observedSha256: sha(readFileSync(settings)) }]);
-  rewriteReceipt(s, value => { const member = Object.entries(value.members).find(([key]) => key.endsWith('TOOL.md'))[1]; member.claims.push({ ...member.claims[0], managementId: 'other-tool' }); });
+  rewriteReceipt(s, value => { const member = Object.entries(value.members).find(([key]) => key.toLowerCase().endsWith('tool.md'))[1]; member.claims.push({ ...member.claims[0], managementId: 'other-tool' }); });
   // The replacement writes another file and no longer sets the entry.
   const result = await prepareUpdate(request(s, [{ managementId: 'tool', replacement: fileSelection('tool', 'TOOL-2.md', 'tool 2\n') }]), { logging: 'off' });
   assert.equal(result.preparation.status, 'ready', JSON.stringify(result.preparation.diagnostics));

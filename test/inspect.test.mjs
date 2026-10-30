@@ -323,8 +323,10 @@ test('an unconfirmed child stops all later probes, and abort during deadline cle
     };
     syncBuiltinESMExports();
     const controller = new AbortController();
-    const pending = inspect({ targets: ['node', 'npm'], network: 'off' }, { signal: controller.signal, budgetMs: 20 });
-    setTimeout(() => controller.abort(), 50); // Abort after deadline entered cleanup.
+    // The deadline comes well after the probe starts (resolving tools on PATH takes longer on some hosts), and the
+    // abort after the deadline, while cleanup waits up to two seconds for the child to close.
+    const pending = inspect({ targets: ['node', 'npm'], network: 'off' }, { signal: controller.signal, budgetMs: 1000 });
+    setTimeout(() => controller.abort(), 1500); // Abort after deadline entered cleanup.
     const cancelled = await pending;
     assert.equal(cancelled.status, 'cancelled');
     assert.equal(cancelled.checks.find(check => check.id === 'node/version').reason, 'cancelled');

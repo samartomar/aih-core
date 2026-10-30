@@ -17,6 +17,8 @@ after(() => { for (const [key, value] of Object.entries(previous)) {
 } rmSync(scratch, { recursive: true, force: true }); });
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
+/** A receipt's member key for a file: Windows paths are case-insensitive, so Core keys them in lower case there. */
+const keyOf = path => process.platform === 'win32' ? path.toLowerCase() : path;
 const FILES = { 'SKILL.md': 'Take notes.\n', LICENSE: 'MIT\n', 'reference.md': 'Reference.\n' };
 const literal = value => ({ literal: value });
 const file = (id, name, requires, checks, root) => ({ id, purpose: `Write ${name}`, kind: 'file.write', scope: root === 'project' ? 'project' : 'user',
@@ -95,7 +97,7 @@ test('a crash between a file effect and its custody is settled from the target: 
     assert.equal(finished.completion, 'complete', JSON.stringify(finished.diagnostics));
     const done = readReceipt(target);
     // The person's copy stays theirs: matching unowned bytes are never adopted without a reviewed adoption.
-    assert.deepEqual(Object.keys(done.members).sort(), name === 'copied' ? ['notes/LICENSE', 'notes/SKILL.md'] : ['notes/LICENSE', 'notes/SKILL.md', 'notes/reference.md']);
+    assert.deepEqual(Object.keys(done.members).sort(), (name === 'copied' ? ['notes/LICENSE', 'notes/SKILL.md'] : ['notes/LICENSE', 'notes/SKILL.md', 'notes/reference.md']).map(keyOf).sort());
     assert.equal(done.items[id].installState, undefined);
     assert.equal(done.items[id].pending, undefined);
     assert.equal((await row(target)).installState, 'complete');
@@ -115,7 +117,7 @@ test('an interrupted user-scope install in Core content is found, settled, finis
   const listed = await row(target, 'user');
   assert.deepEqual([listed.installState, listed.members.map(member => basename(member.path))], ['interrupted', ['LICENSE', 'SKILL.md']]);
   // A crash right after reference.md was published in the content root: its custody is SKILL.md's, for that file.
-  const skill = JSON.parse(readFileSync(receiptFile, 'utf8')).members['notes/SKILL.md'];
+  const skill = JSON.parse(readFileSync(receiptFile, 'utf8')).members[keyOf('notes/SKILL.md')];
   const owner = { ...skill, sha256: sha256(FILES['reference.md']), descriptor: { ...skill.descriptor, path: 'notes/reference.md' } };
   const path = join(content, 'notes', 'reference.md');
   writeFileSync(path, FILES['reference.md'], { mode: 0o600 });
@@ -138,7 +140,7 @@ test('a pending owner must belong to its item, or the receipt is not trusted', a
   await install(target, true);
   const receipt = readReceipt(target);
   const id = Object.keys(receipt.items)[0];
-  const owner = { ...receipt.members['notes/SKILL.md'], claims: [{ managementId: 'other', scope: 'project', sets: [], requires: [] }] };
+  const owner = { ...receipt.members[keyOf('notes/SKILL.md')], claims: [{ managementId: 'other', scope: 'project', sets: [], requires: [] }] };
   receipt.items[id].pending = [{ key: 'notes/SKILL.md', descriptor: owner.descriptor, owner }];
   writeFileSync(receiptPath(target), JSON.stringify(receipt));
   const listed = await listManagedSelections({ target: { project: target }, scope: 'project', format: 'urn:aihq:core:managed-inventory-result:1.1.0' });
