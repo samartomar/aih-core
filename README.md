@@ -2556,6 +2556,14 @@ it is then refused without reading custody, as is a cancelled one.
   the last origin removes the selection (`change: 'remove-selection'`). An inclusion
   that is not recorded is `absent` (`origin-absent`); a selection that recorded no
   origins is `reconcile-required` (`origin-unrecorded`) and can be removed whole.
+- **Required-by origins follow their requirer.** A `required-by` origin whose requiring
+  item this request removes, or that is no longer installed, is dropped from the recorded
+  origins. A selection left with no origin and not required by any remaining selection
+  goes in the same review: one named by origin becomes `remove-selection`, and one not
+  named in the request (such as a shared notices item) is removed with the removals that
+  freed it, which list its members. A selection that keeps another origin keeps its
+  members and loses only those origins. In Enterprise the origins are kept (a
+  metadata-only change), and only a freed selection with members is removed.
 - **One review.** All prepared removals share one cleanup-only preparation (execution
   policy 1.4.0, prepared work 1.6.0) and its `reviewDigest`, which the result repeats.
   Each entry lists every member it touches before Apply: `kind`, `path` (private

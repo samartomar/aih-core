@@ -13,7 +13,7 @@ import { pathPins } from './internal/host-files.js';
 import { readMacosCustody, macosCustodyParticipant, joinSessionParticipant, sessionFilesMatch } from './internal/macos-session-custody.js';
 import { wrapMacosRemoval } from './macos-session.js';
 import type { MacosSessionEffect } from './macos-session-contracts.js';
-import { claimedMembers, memberPointer, publicKind, redactedPathFor, type ItemFacts } from './internal/custody-items.js';
+import { claimedMembers, memberPointer, publicKind, redactedPathFor, type CustodyItem, type ItemFacts } from './internal/custody-items.js';
 import { canonicalJson } from './internal/canonical.js';
 import type { CleanupPlanRow } from './internal/removal-plan.js';
 import type { RemovalEntry, RemovalSelector } from './removal-types.js';
@@ -337,6 +337,62 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
       wholeIds.delete(managementId);
     }
   }
+  // A supporting item goes with the last item that required it. A `required-by` origin whose requirer this review
+  // removes, or that is no longer installed, is dropped. An item left with no origin and no retaining claim is removed
+  // in the same review: one named by origin becomes a whole removal, and one not named is listed with the removals
+  // that freed it. A whole removal named in the request keeps its own plan.
+  const freed = new Set<string>();
+  let freedEdges: ReadonlyMap<string, readonly string[]> = new Map();
+  if (wholeIds.size) {
+    const recorded = new Map<string, { root: string; item: CustodyItem }>();
+    for (const [root, stored] of image.receipts) for (const [id, item] of Object.entries(stored.value.items ?? {}))
+      if (!recorded.has(id)) recorded.set(id, { root, item });
+    const { dependencies: edges } = classifyStoredClaims(image.receipts, () => false);
+    freedEdges = edges;
+    const requirer = (framework: string | null | undefined, itemId: string) => `${framework ?? ''}\0${itemId}`;
+    // Each pass frees what the previous one left without a holder, so a chain of supporting items goes together.
+    for (let changed = true; changed;) {
+      changed = false;
+      const gone = new Set([...wholeIds, ...freed].map(identityOf));
+      const live = new Set([...recorded].filter(([id]) => !gone.has(id))
+        .flatMap(([, { item }]) => item.item ? [requirer(item.framework, item.item.itemId)] : []));
+      const candidates = new Map<string, InclusionOrigin[]>();
+      const consider = (managementId: string, item: CustodyItem, origins: readonly InclusionOrigin[]) => {
+        const remaining = origins.filter(origin => origin.reasonIncluded !== 'required-by' ||
+          live.has(requirer(origin.requiredBy.framework ?? item.framework, origin.requiredBy.itemId)));
+        if (remaining.length < origins.length) candidates.set(managementId, remaining);
+      };
+      for (const [managementId, origins] of releaseOrigins) {
+        const record = recorded.get(identityOf(managementId));
+        if (record) consider(managementId, record.item, origins);
+      }
+      for (const id of gone) for (const dependency of edges.get(id) ?? []) {
+        const record = recorded.get(dependency);
+        if (gone.has(dependency) || !record || !effectRoot(record.root)) continue;
+        const { item } = record;
+        if (item.scope !== scope || identityOf(item.managementId) !== dependency || seen.has(item.managementId) || !item.origins.length) continue;
+        consider(item.managementId, item, item.origins);
+      }
+      const unheld = [...candidates].filter(([managementId, remaining]) => !remaining.length &&
+        !claimRefusal(image, project, home, scope, managementId, special, 'removal') &&
+        !(mode === 'enterprise' && classify(image, project, home, scope, managementId).members === 0)).map(([managementId]) => managementId);
+      const wanted = new Set([...gone, ...unheld.map(identityOf)]);
+      const { retained: held, dependencies } = classifyStoredClaims(image.receipts, (_claim, claimRoot, id) => effectRoot(claimRoot) && wanted.has(id));
+      retainClaimDependencies(held, dependencies);
+      for (const managementId of unheld) {
+        if (held.has(identityOf(managementId))) continue;
+        changed = true;
+        if (!releaseOrigins.delete(managementId)) { freed.add(managementId); continue; }
+        // Named by origin, it had other origins left, but each named a requirer that is gone: the whole selection goes.
+        for (const plan of plans) if (plan.entry.managementId === managementId && plan.releases) { delete plan.releases; plan.whole = true; }
+        wholeIds.add(managementId);
+      }
+      // A kept item loses only the origins of requirers that are gone; Enterprise keeps them (metadata-only change).
+      if (!changed && mode === 'vibe') for (const [managementId, remaining] of candidates)
+        if (remaining.length) releaseOrigins.set(managementId, remaining);
+    }
+    for (const managementId of freed) wholeIds.add(managementId);
+  }
   // A released origin changes only custody metadata, which Enterprise admission does not cover.
   if (mode === 'enterprise') for (const [managementId] of releaseOrigins) {
     plans.filter(plan => plan.entry.managementId === managementId && plan.releases).forEach(plan => { delete plan.releases; settle(plan, 'unavailable', metadataOnly()); });
@@ -375,8 +431,11 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
       plan.entry.diagnostics = clone(preparation.diagnostics);
     } else if (plan.whole) {
       const id = identityOf(plan.entry.managementId);
+      // This removal's own members, then those of the supporting items it freed (directly or through another freed item).
+      const ids = new Set([id]); const freedIds = new Set([...freed].map(identityOf));
+      for (const queued of ids) for (const dependency of freedEdges.get(queued) ?? []) if (freedIds.has(dependency)) ids.add(dependency);
       plan.entry.disposition = 'prepared'; plan.entry.change = 'remove-selection';
-      plan.entry.members = rows.filter(row => row.removed.includes(id)).map(row => ({ ...listed(row.root, row.descriptor, row.redactedPath),
+      plan.entry.members = rows.filter(row => row.removed.some(removed => ids.has(removed))).map(row => ({ ...listed(row.root, row.descriptor, row.redactedPath),
         ...(row.approval ? { approval: row.approval } : {}), action: row.action, ...(row.reason === undefined ? {} : { reason: row.reason }), operationId: row.operationId }));
     } else if (plan.releases) {
       plan.entry.disposition = 'prepared'; plan.entry.change = 'remove-origin';
