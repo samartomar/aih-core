@@ -2064,6 +2064,9 @@ the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
 
 `requiredBy` is a `renderDelivery` input for a supporting `document`. It names the
 Catalog item that requires the document. Render the document once per requiring item.
+When you combine those renderings into one selection's recipe, include a rendering that
+matches an earlier one apart from its recipe id only once, so a shared copy is planned
+once; Core combines recipe-less selections this way.
 
 - **A requirer with its own folder** (skill, hook): the document goes inside that
   folder, under the document's item id. The recipe id is
@@ -2293,7 +2296,10 @@ shipped binding for `tool`:
 - **The same recipe an inline selection carries.** A supporting `document` is
   rendered beside each item that its `required-by` origins name, in their order,
   with each rendering's operation and check ids suffixed by its position, as a
-  consumer combines them. A marker block's text is read from the item's materials
+  consumer combines them. Renderings that differ only in their recipe id, such as
+  the one copy in the neutral notices folder for every requirer without a folder of
+  its own, are planned once, by the first of them: the copy is written once and its
+  custody names the document selection, which every requirer's `requires` names. A marker block's text is read from the item's materials
   under the `catalog` root. The rendered recipe is byte-identical to the inline one,
   so the review, writes and receipts are the same.
 - **Bound to the item and the binding.** The release must carry the item with both

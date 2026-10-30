@@ -6,7 +6,7 @@ import { renderDelivery, deliveryMaterialRoot, type CatalogItem, type DeliveryRe
 import { toolBindings, type ToolBinding } from '../../harness/tool-binding.mjs';
 import { captureInlineMaterials, type InlineMaterialDescriptor, type MaterialCaptureBudget } from './material.js';
 import { parseStrictJsonObjectV1 } from './strict-json.js';
-import { codeUnitCompare } from './canonical.js';
+import { canonicalJson, codeUnitCompare } from './canonical.js';
 import type { Diagnostic, ExecutionPolicy, Recipe, Selection } from '../types.js';
 
 type Rendered = RenderedDelivery | DeliveryRefusal;
@@ -14,7 +14,9 @@ type Recheck = { recheck(): Promise<boolean> };
 
 /**
  * The recipe for one item selection: one rendering, or for a supporting document one rendering beside each requiring
- * item, combined with each rendering's operation and check ids suffixed by its position.
+ * item, combined with each rendering's operation and check ids suffixed by its position. Requirers without a folder of
+ * their own share one copy in the neutral notices folder: their renderings differ only in the recipe id, so that copy
+ * is planned once, by the first of them, and the others add no operations.
  */
 export function renderSelectionRecipe({ tool, binding, item, scope, contents, requiredBy }: {
   tool: string; binding: ToolBinding | undefined; item: CatalogItem; scope: 'project' | 'user';
@@ -26,7 +28,14 @@ export function renderSelectionRecipe({ tool, binding, item, scope, contents, re
   if (refused) return refused;
   const rendered = deliveries[0] as RenderedDelivery;
   if (deliveries.length === 1) return rendered;
-  const unique = (deliveries as RenderedDelivery[]).map((delivery, index) => ({ ...delivery, recipe: { ...delivery.recipe,
+  const planned = new Set<string>();
+  const unique = (deliveries as RenderedDelivery[]).map((delivery, index) => ({ delivery, index })).filter(({ delivery }) => {
+    const { id: _id, ...recipe } = delivery.recipe;
+    const key = canonicalJson(recipe);
+    if (planned.has(key)) return false;
+    planned.add(key);
+    return true;
+  }).map(({ delivery, index }) => ({ ...delivery, recipe: { ...delivery.recipe,
     operations: delivery.recipe.operations.map(operation => ({ ...operation, id: `${String(operation.id)}-${index + 1}`,
       requires: ((operation.requires ?? []) as string[]).map(required => `${required}-${index + 1}`),
       checks: ((operation.checks ?? []) as string[]).map(check => `${check}-${index + 1}`) })),
