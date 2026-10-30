@@ -350,11 +350,14 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
     const { dependencies: edges } = classifyStoredClaims(image.receipts, () => false);
     freedEdges = edges;
     const requirer = (framework: string | null | undefined, itemId: string) => `${framework ?? ''}\0${itemId}`;
+    // A requirer holds only in this scope's own custody: the same item installed in another project or scope (whose
+    // receipts the image also reads) does not keep this one's origin.
+    const anchor = identityOf('');
     // Each pass frees what the previous one left without a holder, so a chain of supporting items goes together.
     for (let changed = true; changed;) {
       changed = false;
       const gone = new Set([...wholeIds, ...freed].map(identityOf));
-      const live = new Set([...recorded].filter(([id]) => !gone.has(id))
+      const live = new Set([...recorded].filter(([id, { root }]) => id.startsWith(anchor) && effectRoot(root) && !gone.has(id))
         .flatMap(([, { item }]) => item.item ? [requirer(item.framework, item.item.itemId)] : []));
       const candidates = new Map<string, InclusionOrigin[]>();
       const consider = (managementId: string, item: CustodyItem, origins: readonly InclusionOrigin[]) => {

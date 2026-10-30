@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.54: removal drops every removed requirer's origin, also while the same items
+are installed in another project.
+
+- A `required-by` origin is held only by a requirer installed in the same scope and
+  project (or user home). Removal preparation read every receipt in the home inventory and
+  counted the same item installed in another project as a live requirer, so removing
+  several requirers in one request could leave their origins behind, and stale origins
+  kept a supporting item such as ECC's notices installed after its last requirer went.
+  Each removal now drops the origins of every requirer it removes or that is no longer
+  installed here, in any number and order, and frees and lists the supporting item.
+
 Core 1.0.0-dev.53: removal leaves nothing behind that only removed items needed, and a
 project returns to the tree it had before Core wrote into it.
 
