@@ -986,18 +986,22 @@ depend on order. Per item the result is:
   observed support. A malformed item still refuses the whole check.
 - **Documents.** A `document` with `placement: project-folder` (Project basics)
   goes to the project folder. Any other document (licences, notices, references)
-  is delivered beside the item that requires it: inside that item's own folder,
-  under the document's item id. Compatibility plans it beside each requiring item
-  in the request that is installed as itself (not through a fallback) with no
-  blocker of its own, and reports the combined size.
+  is delivered for the items that require it. Compatibility plans it for each
+  requiring item in the request that is installed as itself (not through a
+  fallback) with no blocker of its own, and reports the combined size.
+  - **Notices and licences:** a `notice` or `license` document goes once per
+    framework document and scope to the neutral notices folder, which no tool reads
+    as content: `<project>/.aih/notices/<framework>/<document>/`, or
+    `<home>/.aih/notices/...` in user scope. This holds for every requiring item,
+    including skills and hooks with folders of their own, so the document's recipe
+    and recipe identity depend only on its own material bytes and that place, never
+    on which items require it. An organization entry for it admits any requiring set. Compatibility plans and sizes that copy once.
   - **No requiring item in the request:** the document is blocked with
     `scope-not-bound`.
-  - **Requirers without their own folder:** agents, commands, rules and MCP servers
-    keep no folder, and their tools read those folders as content (ECC's notices
-    include `AGENTS.md` and `README.md`). Their `notice` and `license` documents go
-    once per framework to the neutral notices folder, which no tool reads as content:
-    `<project>/.aih/notices/<framework>/<document>/`, or `<home>/.aih/notices/...`
-    in user scope. Compatibility plans and sizes that copy once.
+  - **Other documents beside a requirer's folder:** a document that is neither a
+    notice, a licence nor a reference goes inside the requiring item's own folder,
+    under the document's item id. A requirer with no folder (an agent, command, rule
+    or MCP server) gives it no place.
   - **References:** a `reference` document is read by the item that requires it,
     which names it by where both sit in their source tree. It keeps that place
     relative to the requirer as delivered: under the folder that stands for the
@@ -2073,15 +2077,19 @@ the same recipe formats plus [recipe 1.4.0](#allow-one-mcp-server). It adds:
 
 `requiredBy` is a `renderDelivery` input for a supporting `document`. It names the
 Catalog item that requires the document. Render the document once per requiring item.
-When you combine those renderings into one selection's recipe, include a rendering that
-matches an earlier one apart from its recipe id only once, so a shared copy is planned
-once; Core combines recipe-less selections this way.
+To compose one selection's recipe, call `renderSelectionDelivery` with the same request
+and `requiredBy` as the list of requiring items; Core renders recipe-less selections
+through it. It includes a rendering that matches an earlier one apart from its recipe
+id only once, so a shared copy is planned once. When one rendering remains, it is the
+recipe as rendered; otherwise each rendering's operation and check ids are suffixed by
+its position. Composing the renderings any other way gives another recipe identity.
 
-- **A requirer with its own folder** (skill, hook): the document goes inside that
-  folder, under the document's item id. The recipe id is
+- **A notice or licence**, for any requirer: it goes to the neutral notices folder.
+  The recipe id is `<tool>.<document>`, so every requirer renders the same recipe and
+  the composed recipe is the same for any non-empty requiring set.
+- **Another document, for a requirer with its own folder** (skill, hook): the document
+  goes inside that folder, under the document's item id. The recipe id is
   `<tool>.<document>.beside.<requirer>`.
-- **A requirer without one:** a notice or licence goes to the neutral notices folder.
-  The recipe id is `<tool>.<document>.for.<requirer>`.
 - **A reference**, for any requirer: it goes where the requirer's text links it,
   relative to their shared source tree. The recipe id is
   `<tool>.<document>.for.<requirer>`, and every requirer in one tool folder writes
@@ -2303,12 +2311,11 @@ through [`renderDelivery`](#render-one-item-as-an-ordinary-recipe) with Core's
 shipped binding for `tool`:
 
 - **The same recipe an inline selection carries.** A supporting `document` is
-  rendered beside each item that its `required-by` origins name, in their order,
-  with each rendering's operation and check ids suffixed by its position, as a
-  consumer combines them. Renderings that differ only in their recipe id, such as
-  the one copy in the neutral notices folder for every requirer without a folder of
-  its own, are planned once, by the first of them: the copy is written once and its
-  custody names the document selection, which every requirer's `requires` names. A marker block's text is read from the item's materials
+  rendered for each item that its `required-by` origins name, in their order, and
+  combined through `renderSelectionDelivery`, as a consumer composes it. A notice or
+  licence is one copy in the neutral notices folder, the same recipe for any
+  requiring set: the copy is written once and its custody names the document
+  selection, which every requirer's `requires` names. A marker block's text is read from the item's materials
   under the `catalog` root. The rendered recipe is byte-identical to the inline one,
   so the review, writes and receipts are the same.
 - **Bound to the item and the binding.** The release must carry the item with both

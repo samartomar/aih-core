@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.55: a notices or licence document has one recipe identity whichever items
+require it, so an organization can permit it.
+
+- A `notice` or `license` document now goes to the neutral notices folder
+  (`.aih/notices/<framework>/<document>/`) for every requiring item, skills and hooks
+  included, and its recipe id names no requirer (`<tool>.<document>`). Its recipe, and so
+  its recipe identity, covers only its own material bytes and that place. An
+  organization entry authored for one requiring set admits the document installed for
+  any other. Copies are no longer written inside each requiring skill or hook folder.
+  Every other kind, references included, keeps its exact recipe identity check.
+- Harness exports `renderSelectionDelivery`, the composition Core uses for a
+  recipe-less selection: one rendering per requiring item, a shared copy planned once,
+  and the single remaining rendering returned as rendered. A consumer that inlines
+  recipes through it, as an organization author does before `deriveRecipeIdentity`,
+  holds the recipe Core admits. Recipes composed with the earlier per-requirer rule, or
+  organization entries derived from them, must be re-derived.
+
 Core 1.0.0-dev.54: removal drops every removed requirer's origin, also while the same items
 are installed in another project.
 

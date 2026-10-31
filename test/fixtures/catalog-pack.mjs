@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { renderDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
+import { renderSelectionDelivery, toolBindings } from '../../dist/harness/contracts.mjs';
 
 export const POLICY_15 = 'urn:aihq:core:execution-policy:1.5.0';
 export const POLICY_16 = 'urn:aihq:core:execution-policy:1.6.0';
@@ -55,32 +55,12 @@ export function contentsOf(pack, item) {
 }
 
 /**
- * The inline recipe the Workbench writes for one selection: one rendering per requiring item for a supporting
- * document (operation and check ids suffixed per rendering), otherwise one rendering. Renderings that differ only in
- * their recipe id (the shared copy in the neutral notices folder) are planned once, by the first of them.
+ * The inline recipe the Workbench writes for one selection, composed as Core composes it: Harness
+ * renderSelectionDelivery, one rendering per requiring item for a supporting document, a shared copy planned once.
  */
 export function inlineRecipe({ pack, tool, item, scope, requiredBy = [] }) {
   const binding = toolBindings.find(candidate => candidate.tool === tool);
-  const contents = contentsOf(pack, item);
-  const deliveries = (requiredBy.length ? requiredBy : [undefined]).map(requirer =>
-    renderDelivery({ tool, item, binding, scope, contents, ...(requirer ? { requiredBy: requirer } : {}) }));
-  const refused = deliveries.find(delivery => delivery.status !== 'rendered');
-  if (refused) return refused;
-  const [rendered] = deliveries;
-  if (deliveries.length === 1) return rendered;
-  const planned = new Set();
-  const unique = deliveries.map((delivery, index) => ({ delivery, index })).filter(({ delivery }) => {
-    const { id: _id, ...recipe } = delivery.recipe;
-    const key = canonical(recipe);
-    return !planned.has(key) && !!planned.add(key);
-  }).map(({ delivery, index }) => ({ ...delivery, recipe: { ...delivery.recipe,
-    operations: delivery.recipe.operations.map(operation => ({ ...operation, id: `${operation.id}-${index + 1}`,
-      requires: (operation.requires ?? []).map(required => `${required}-${index + 1}`), checks: (operation.checks ?? []).map(check => `${check}-${index + 1}`) })),
-    checks: delivery.recipe.checks.map(check => ({ ...check, id: `${check.id}-${index + 1}` })) } }));
-  return { ...rendered, recipe: { ...rendered.recipe,
-    materials: [...new Map(unique.flatMap(delivery => delivery.recipe.materials).map(material => [`${material.id}/${material.path}/${material.sha256}`, material])).values()],
-    targets: [...new Set(unique.flatMap(delivery => delivery.recipe.targets))], prerequisites: [...new Set(unique.flatMap(delivery => delivery.recipe.prerequisites))],
-    operations: unique.flatMap(delivery => delivery.recipe.operations), checks: unique.flatMap(delivery => delivery.recipe.checks) } };
+  return renderSelectionDelivery({ tool, item, binding, scope, contents: contentsOf(pack, item), requiredBy });
 }
 
 const releaseOf = (pack, releaseSha256) => Object.values(pack.releases).find(release => release.sha256 === releaseSha256);
