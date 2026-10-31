@@ -62,11 +62,12 @@ export function sealOwnership(value: Ownership): Ownership {
 /** Every file in Core's state is at most 1 MiB, except an ownership record. */
 export const STATE_FILE_BYTES = 1_048_576;
 /**
- * An ownership record (stored form) is at most 4 MiB. Each of a pick's files is one member, so the record grows with
- * tools × items × files; this bound keeps what one record costs bounded: Core reads and strictly admits a record
- * whole in each operation, and Apply rewrites it atomically after every file effect it commits.
+ * An ownership record (stored form) is at most 2 MiB. Each of a pick's files is one member, so the record grows with
+ * tools × items × files. Core reads and strictly admits a record whole in each operation, and Apply rewrites, encodes
+ * and checks it whole twice for every file it changes (write-ahead, then publish), so one Apply's time grows with the
+ * square of the record's size; this bound keeps that bounded.
  */
-export const OWNERSHIP_RECORD_BYTES = 4 * 1_048_576;
+export const OWNERSHIP_RECORD_BYTES = 2 * 1_048_576;
 export function stateFiles(maxFileBytes = STATE_FILE_BYTES): OwnedFileTransaction {
   return new OwnedFileTransaction(stateRoot(), {
     label: 'Core state', maxFileBytes, contentDirectoryMode: 0o700,

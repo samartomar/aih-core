@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { apply, prepare, prepareManagedRemoval } from '../dist/core/index.js';
 import { OWNERSHIP_RECORD_BYTES, admitOwnership, sealOwnership, validateOwnership } from '../dist/core/internal/state.js';
 import { expandOwnership, storedOwnership } from '../dist/core/internal/ownership-storage.js';
+import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
 import { sandbox } from './hook-group-fixture.mjs';
 
 const OLD_LIMIT = 1_048_576;
@@ -67,7 +68,7 @@ test('a 451-selection pick across five tools installs, keeps headroom in its rec
   assert.equal(Object.keys(record.members).length, 1 + 450 * 3);
   // The same record written whole, as ownership 1.6.0 wrote it, would not fit the former 1 MiB bound.
   assert.ok(Buffer.byteLength(JSON.stringify({ ...record, schema: 'urn:aihq:core:ownership:1.6.0' })) > OLD_LIMIT);
-  assert.ok(bytes.length * 4 < OWNERSHIP_RECORD_BYTES, `${bytes.length} bytes stays within a quarter of the bound`);
+  assert.ok(bytes.length * 2 < OWNERSHIP_RECORD_BYTES, `${bytes.length} bytes stays within half the bound`);
 
   const ids = policy.selections.map(selection => selection.managementId);
   for (let offset = 0; offset < ids.length; offset += 256) {
@@ -88,11 +89,15 @@ test('the stored record leaves out what it derives from itself and reads back as
   const text = readFileSync(receiptOf(s), 'utf8');
   const stored = JSON.parse(text);
   const record = admitOwnership(Buffer.from(text), realpathSync.native(s.project));
-  // A file member is its key; its claim's management ID is the owner's, and sets and requires are its selection record's.
+  // A file member is its key (stating only a path that differs from it, as a lowercased Windows key does); its claim's
+  // management ID is the owner's, and sets and requires are its selection record's.
   for (const [key, owner] of Object.entries(stored.members)) {
+    const { path } = record.members[key].descriptor;
+    assert.deepEqual(record.members[key].descriptor, { path, kind: 'file' });
+    assert.equal(memberKey({ path, kind: 'file' }), key);
     assert.equal(owner.descriptor, undefined, key);
+    assert.equal(owner.path, path === key ? undefined : path, key);
     assert.deepEqual(owner.claims, [{ scope: 'project' }], key);
-    assert.deepEqual(record.members[key].descriptor, { path: key, kind: 'file' });
     const selection = Object.values(record.selections).find(claim => claim.managementId === owner.managementId);
     assert.deepEqual(record.members[key].claims, [{ managementId: owner.managementId, scope: 'project',
       sets: selection?.sets ?? [], requires: selection?.requires ?? [] }]);
@@ -114,7 +119,7 @@ function sealedRecord(tools, items, files, target = '/project') {
   const identity = managementId => `project:${sha(target)}:${managementId}`;
   const notices = id('example.notices', 'claude');
   const members = {}, selections = {}, items_ = {};
-  members['.aih/notices/example/LICENSE'] = { managementId: notices, recipeIdentity: `sha256:${sha('notices')}`, sha256: sha('LICENSE'), mode: 0o600,
+  members[memberKey({ path: '.aih/notices/example/LICENSE', kind: 'file' })] = { managementId: notices, recipeIdentity: `sha256:${sha('notices')}`, sha256: sha('LICENSE'), mode: 0o600,
     descriptor: { path: '.aih/notices/example/LICENSE', kind: 'file' }, createdFile: true,
     claims: [{ managementId: notices, scope: 'project', sets: [], requires: [] }] };
   items_[identity(notices)] = { managementId: notices, scope: 'project', framework: 'example', ...described('example.notices', 'claude', 'document',
@@ -125,7 +130,7 @@ function sealedRecord(tools, items, files, target = '/project') {
     selections[identity(managementId)] = claim;
     for (let file = 0; file < files; file++) {
       const path = `.${tool}/skills/skill-${index}/${file === 0 ? 'SKILL.md' : `references/part-${file}.md`}`;
-      members[path] = { managementId, recipeIdentity: `sha256:${sha(`${tool}.${itemId}`)}`, sha256: sha(path), mode: 0o600,
+      members[memberKey({ path, kind: 'file' })] = { managementId, recipeIdentity: `sha256:${sha(`${tool}.${itemId}`)}`, sha256: sha(path), mode: 0o600,
         descriptor: { path, kind: 'file' }, createdFile: true, claims: [claim] };
     }
     items_[identity(managementId)] = { managementId, scope: 'project', framework: 'example', ...described(itemId, tool, 'skill', [{ reasonIncluded: 'in-set', set: SET }]), members: [] };
@@ -136,7 +141,7 @@ function sealedRecord(tools, items, files, target = '/project') {
 }
 const storedBytes = record => Buffer.byteLength(JSON.stringify(storedOwnership(record)));
 
-test('each further tool adds only its own members and selections, so thirteen tools keep headroom', () => {
+test('each further tool adds only its own members and selections, so thirteen tools fit the bound', () => {
   const thirteen = Array.from({ length: 13 }, (_, index) => TOOLS[index] ?? `tool-${index}`);
   // The owner's pick: about 254 items for Claude and 64 for each other tool, a little under three files each.
   const one = sealedRecord(['claude'], 64, 3), two = sealedRecord(['claude', 'codex'], 64, 3);
@@ -148,8 +153,46 @@ test('each further tool adds only its own members and selections, so thirteen to
   assert.equal(Object.keys(all.members).length, 1 + 13 * 64 * 3);
   assert.equal(JSON.parse(JSON.stringify(storedOwnership(all))).facts.length, 1 + 64);
   const bytes = storedBytes(all);
-  assert.ok(bytes * 2 < OWNERSHIP_RECORD_BYTES, `${bytes} bytes for thirteen tools stays within half the bound`);
+  assert.ok(bytes * 4 < OWNERSHIP_RECORD_BYTES * 3, `${bytes} bytes for thirteen tools stays within three quarters of the bound`);
   assert.deepEqual(admitOwnership(Buffer.from(JSON.stringify(storedOwnership(all))), '/project'), all);
+});
+
+/** Run `body` with Core seeing `platform`: member keys and claim anchors follow it. */
+function as(platform, body) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { ...descriptor, value: platform });
+  try { return body(); } finally { Object.defineProperty(process, 'platform', descriptor); }
+}
+
+test('a Windows record, keyed by lowercased paths, stores only the original-case path of a file member', () => {
+  const text = record => JSON.stringify(storedOwnership(record));
+  const linux = as('linux', () => text(sealedRecord(TOOLS, 90, 3)));
+  as('win32', () => {
+    const record = sealedRecord(TOOLS, 90, 3);
+    const stored = JSON.parse(text(record));
+    let stated = 0;
+    for (const [key, owner] of Object.entries(stored.members)) {
+      const { path } = record.members[key].descriptor;
+      assert.equal(key, path.toLowerCase());
+      assert.equal(owner.descriptor, undefined, key);
+      assert.equal(owner.path, path === key ? undefined : path, key);
+      if (owner.path !== undefined) stated++;
+    }
+    // Each SKILL.md and the notices LICENSE differ from their keys in case; every other file is its key.
+    assert.equal(stated, 1 + TOOLS.length * 90);
+    assert.deepEqual(admitOwnership(Buffer.from(text(record)), '/project'), record);
+    // The stated path costs no more than the path itself: the Windows record exceeds the Linux one by those paths alone.
+    const extra = Object.values(stored.members).reduce((sum, owner) => sum + (owner.path ? Buffer.byteLength(JSON.stringify(owner.path)) + 8 : 0), 0);
+    assert.equal(Buffer.byteLength(text(record)), Buffer.byteLength(linux) + extra);
+    // Only that one form is admitted: neither a whole descriptor nor a path equal to the key.
+    const [skill, lower] = [Object.entries(stored.members).find(([, owner]) => owner.path), Object.entries(stored.members).find(([, owner]) => !owner.path)];
+    for (const change of [value => { value.members[skill[0]].descriptor = { path: skill[1].path, kind: 'file' }; delete value.members[skill[0]].path; },
+      value => { value.members[skill[0]].descriptor = { path: skill[1].path, kind: 'file' }; },
+      value => { const { claims, ...rest } = value.members[lower[0]]; value.members[lower[0]] = { ...rest, path: lower[0], claims }; }]) {
+      const changed = JSON.parse(text(record)); change(changed);
+      assert.throws(() => admitOwnership(Buffer.from(JSON.stringify(changed)), '/project'), /ownership-invalid/);
+    }
+  });
 });
 
 test('a 1.6.0 record is read as it is, and its next write is the same record stored as 1.7.0', () => {

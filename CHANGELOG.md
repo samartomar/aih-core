@@ -16,10 +16,14 @@ Core 1.0.0-dev.55: a pick installed for several tools fits its project's ownersh
   stored form is admitted. The same pick's record holds 910,688 bytes. Records of every
   earlier version are read as they are and written as 1.7.0 by the next Apply; a Core
   before this one refuses a 1.7.0 record (`ownership-invalid`), as it refuses any newer one.
-- An ownership record may hold up to 4 MiB (4,194,304 bytes); every other state file
-  keeps its 1 MiB bound. At that size a record of realistic files already holds about as
-  many members as a record admits (8,192), and reading it costs about 0.2 s and each Apply
-  commit about 30 ms on Linux.
+- An ownership record may hold up to 2 MiB (2,097,152 bytes); every other state file
+  keeps its 1 MiB bound. That leaves room to add a language or a tool to the pick above.
+  The bound also bounds Apply: Apply rewrites, encodes and checks the whole record twice
+  for every file it changes, so an Apply's time grows with the square of the record's
+  size. On Linux, installing 151, 301 and 451 selections (451, 901 and 1,351 files;
+  records of 299, 597 and 895 KB) took 5.3, 26.6 and 51.8 s.
+- On Windows a file member's key is its path lowercased; such a member stores just its
+  original-case path, not its whole descriptor.
 
 Core 1.0.0-dev.55: a notices or licence document has one recipe identity whichever items
 require it, so an organization can permit it.

@@ -3,7 +3,8 @@
 //
 // One installed pick writes a copy of each Catalog item per tool, and each copy owns a member per file. Version 1.6.0
 // repeated per member what its selection already records, and per copy what the Catalog item already says:
-// - a file member's descriptor `{ path, kind: 'file' }`, whose path is the member's key;
+// - a file member's descriptor `{ path, kind: 'file' }`, whose path is the member's key (on Windows, the key is the
+//   path lowercased; a path that differs from its key in case alone is stored as `path`);
 // - each member claim's management ID (the owner's) and its sets and requires (those of its selection record);
 // - each item's typed members, which `validItems` requires to equal those derived from the members;
 // - each copy's Catalog facts (name, kind, framework, Catalog item and origins).
@@ -32,8 +33,9 @@ function recordedClaims(selections: unknown): Map<string, Claim> {
       recorded.set(`${claim.scope}\0${claim.managementId}`, claim as unknown as Claim);
   return recorded;
 }
-const fileAt = (key: string, descriptor: unknown): boolean => isRecord(descriptor) && Object.keys(descriptor).length === 2 &&
-  descriptor.path === key && descriptor.kind === 'file';
+/** A file member's descriptor, which validation requires to be the one its key names: its path, or none when that is the key. */
+const filePath = (descriptor: unknown): string | undefined => isRecord(descriptor) && Object.keys(descriptor).length === 2 &&
+  descriptor.kind === 'file' && typeof descriptor.path === 'string' ? descriptor.path : undefined;
 
 /** The bytes-to-be of a sealed record: 1.7.0 without its derivable data, every earlier version as it is. */
 export function storedOwnership(value: Ownership): Stored {
@@ -43,7 +45,10 @@ export function storedOwnership(value: Ownership): Stored {
   for (const [key, owner] of Object.entries(value.members)) {
     const stored: Stored = {};
     for (const [field, data] of Object.entries(owner)) {
-      if (field === 'descriptor' && fileAt(key, data)) continue;
+      if (field === 'descriptor' && filePath(data) !== undefined) {
+        if (filePath(data) !== key) stored.path = filePath(data);
+        continue;
+      }
       stored[field] = field === 'claims' ? (data as Claim[]).map(claim => storedClaim(claim, owner, recorded)) : data;
     }
     members[key] = stored;
@@ -87,10 +92,13 @@ export function expandOwnership(stored: Stored): Stored {
   for (const [key, owner] of Object.entries(stored.members as Stored)) {
     if (!isRecord(owner)) invalid();
     const expanded: Stored = {};
-    for (const [field, data] of Object.entries(owner as Stored)) {
+    const stated = owner as Stored;
+    if (Object.hasOwn(stated, 'path') && (Object.hasOwn(stated, 'descriptor') || !Object.hasOwn(stated, 'claims') || typeof stated.path !== 'string')) invalid();
+    for (const [field, data] of Object.entries(stated)) {
+      if (field === 'path') { expanded.descriptor = { path: data, kind: 'file' }; continue; }
       if (field !== 'claims') { expanded[field] = data; continue; }
       if (!Array.isArray(data)) invalid();
-      if (!Object.hasOwn(owner as Stored, 'descriptor')) expanded.descriptor = { path: key, kind: 'file' };
+      if (!Object.hasOwn(stated, 'descriptor') && !Object.hasOwn(stated, 'path')) expanded.descriptor = { path: key, kind: 'file' };
       expanded.claims = (data as unknown[]).map(claim => expandClaim(claim, (owner as Stored).managementId, recorded));
     }
     members[key] = expanded;
