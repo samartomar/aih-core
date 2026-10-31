@@ -95,16 +95,19 @@ test('an item whose required item is not selected, left out or has no place besi
     .every(op => op.target.segments.map(part => part.literal).join('/').startsWith('.aih/notices/ecc/ecc.notices/')));
 });
 
-test('the required notices render beside Claude hooks and in the neutral folder for a rule', () => {
+test('the required notices render in the neutral folder for a Claude hook as for a rule', () => {
   const extensions = releases.find(release => release.name === 'release-extensions.content.json').items;
   const ecc = releases.find(release => release.name === 'release-ecc.content.json').items;
   const claude = toolBindings.find(binding => binding.tool === 'claude');
   const item = (items, id) => items.find(entry => entry.id === id);
   const guard = item(extensions, 'extensions.hook.git-guard'), notices = item(extensions, 'extensions.notices');
-  const beside = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: guard });
-  assert.equal(beside.status, 'rendered', JSON.stringify(beside));
-  const targets = beside.recipe.operations.filter(op => op.kind === 'file.write').map(op => op.target.segments.map(part => part.literal).join('/'));
-  assert.ok(targets.length > 0 && targets.every(path => path.startsWith('.claude/hooks/extensions.hook.git-guard/extensions.notices/')), targets.join(' '));
+  // A hook keeps a folder of its own, but its notices still go to the neutral folder, as the same recipe as for any
+  // other requirer, so the notices' recipe identity does not depend on which items require it.
+  const forHook = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: guard });
+  assert.equal(forHook.status, 'rendered', JSON.stringify(forHook));
+  assert.equal(forHook.recipe.id, 'claude.extensions.notices');
+  const targets = forHook.recipe.operations.filter(op => op.kind === 'file.write').map(op => op.target.segments.map(part => part.literal).join('/'));
+  assert.ok(targets.length > 0 && targets.every(path => path.startsWith('.aih/notices/extensions/extensions.notices/')), targets.join(' '));
   // Without the requiring item there is no place to put a supporting document.
   const alone = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project' });
   assert.deepEqual([alone.status, alone.reason], ['refused', 'scope-not-bound']);
@@ -128,7 +131,7 @@ test('notices for items without a folder of their own go once per framework to t
   const placed = folderless.map(requirer => {
     const rendered = renderDelivery({ tool: 'claude', item: notices, binding: claude, scope: 'project', requiredBy: requirer });
     assert.equal(rendered.status, 'rendered', `${requirer.id}: ${JSON.stringify(rendered)}`);
-    assert.equal(rendered.recipe.id, `claude.ecc.notices.for.${requirer.id}`);
+    assert.equal(rendered.recipe.id, 'claude.ecc.notices');
     return writes(rendered);
   });
   // Every requirer renders the same one copy, which Core custody then shares among them.

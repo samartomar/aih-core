@@ -43,10 +43,19 @@ export declare function renderDelivery(request: {
   /** Text of content materials keyed by material id, needed only for marker blocks; checked against each SHA-256. */
   contents?: Readonly<Record<string, string>>;
   /**
-   * For a supporting `document` (not `placement: project-folder`): the item that requires it. The document is delivered
-   * beside that item, inside its folder under the document's item id; render it once per requiring item.
+   * For a supporting `document` (not `placement: project-folder`): the item that requires it. A notice or licence goes
+   * to the neutral notices folder, the same recipe for every requiring item; any other document is delivered beside
+   * that item, inside its folder under the document's item id. Render it once per requiring item.
    */
   requiredBy?: CatalogItem;
+}): RenderedDelivery | DeliveryRefusal;
+/**
+ * One item selection's recipe, as Core renders a recipe-less selection: `renderDelivery` once per requiring item,
+ * combined, with a shared copy planned once. A notices or licence document's recipe, and so its recipe
+ * identity, is the same for any non-empty requiring set.
+ */
+export declare function renderSelectionDelivery(request: Omit<Parameters<typeof renderDelivery>[0], 'requiredBy'> & {
+  requiredBy?: readonly CatalogItem[];
 }): RenderedDelivery | DeliveryRefusal;
 
 /** The named blockers, plus the reason of any other rendering refusal (`scope-not-bound`, `interpreter-required`, ...). */

@@ -153,7 +153,7 @@ const requiresOf = info => isRecord(info.item.dependencies) && Array.isArray(inf
 /** Whether `requirer` lists `document` in its `requires` (a reference without a framework names the requirer's own). */
 const requiresDocument = (requirer, document) => requiresOf(requirer).some(ref => ref.itemId === document.ref.itemId &&
   (ref.framework ?? requirer.ref.framework) === document.ref.framework);
-/** Document purposes delivered to the neutral notices folder for a requirer with no folder of its own. */
+/** Document purposes delivered to the neutral notices folder, for every requiring item. */
 const NEUTRAL_PURPOSES = new Set(['notice', 'license']);
 /** The neutral notices folder, under the project or the user's home: no tool reads it as content. */
 const NEUTRAL_FOLDER = ['.aih', 'notices'];
@@ -303,14 +303,14 @@ function deliveryPlan(info, binding, scope, { projectFolder, support, requirer }
         plan.copy = 'shared';
         for (const { member, segments } of sourceRelativePlacements(binding, scope, info, documents, requirer, requirerPlan.files))
           file(member, segments);
-      } else if (requirerPlan.folder) for (const member of documents) file(member, [...requirerPlan.folder, info.item.id, ...segmentsOf(member.relPath)]);
-      // A requirer with no folder of its own (a single-file agent, command or rule, an MCP server entry) keeps its notices
-      // and licences in the neutral folder no tool reads as content: one copy per framework document and scope, which
-      // every requiring item owns.
-      else if (NEUTRAL_PURPOSES.has(payload.purpose)) {
-        plan.copy = 'shared';
+      // Notices and licences go to the neutral folder no tool reads as content, for every requiring item: one copy per
+      // framework document and scope, which every requiring item owns. Its place, and so its recipe and recipe identity,
+      // never depend on which items require it, so an organization entry for it admits any requiring set.
+      } else if (NEUTRAL_PURPOSES.has(payload.purpose)) {
+        plan.copy = 'neutral';
         for (const member of documents) file(member, [...neutralFolder(info), ...segmentsOf(member.relPath)]);
-      } else unavailable('scope-not-bound', '/requiredBy',
+      } else if (requirerPlan.folder) for (const member of documents) file(member, [...requirerPlan.folder, info.item.id, ...segmentsOf(member.relPath)]);
+      else unavailable('scope-not-bound', '/requiredBy',
         `${binding.tool} keeps no folder of its own for a ${requirer.kind} item, so there is no place beside it that the tool would not read as content.`);
     }
   } else {
@@ -428,8 +428,9 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     const plan = deliveryPlan(info, binding, scope, { projectFolder, requirer });
     const key = recipeKey(info, '/item');
     // One recipe per placement: a document rendered beside two items is two recipes, never one recipe that moves.
-    // `for` names a copy every requirer shares (neutral or source-relative); `beside` one inside the requirer's folder.
-    const recipeId = requirer ? `${binding.tool}.${info.ref.itemId}.${plan.copy === 'shared' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
+    // `for` names a source-relative copy every requirer shares; `beside` one inside the requirer's folder. The neutral
+    // notices copy names no requirer: it is the same recipe for each.
+    const recipeId = requirer && plan.copy !== 'neutral' ? `${binding.tool}.${info.ref.itemId}.${plan.copy === 'shared' ? 'for' : 'beside'}.${requirer.ref.itemId}` :
       `${binding.tool}.${info.ref.itemId}`;
     if (recipeId.length > 128) invalid('item-invalid', '/item/id', 'The rendered recipe id exceeds 128 characters.');
     const materials = new Map(), operations = [], checks = [], inputs = {}, prerequisites = [];
@@ -519,6 +520,45 @@ export function renderDelivery({ tool, item, binding, scope, projectFolder, gran
     };
     return { status: 'rendered', tool: binding.tool, item: info.ref, bindingDigest: binding.digest, materialRoot: deliveryMaterialRoot,
       ...(projectFacts ? { projectFacts } : {}), recipe };
+  });
+}
+
+/**
+ * The recipe for one item selection: one rendering, or for a supporting document one rendering beside each requiring
+ * item, combined. A rendering that matches an earlier one apart from its recipe id adds nothing, so a shared copy is
+ * planned once. When one rendering remains it is the recipe as rendered: a notices or licence document is then the
+ * same recipe, with the same identity, for any requiring set. Otherwise each rendering's operation and check ids are
+ * suffixed by its position. Core renders recipe-less selections through this, so a consumer that does too holds the
+ * recipe, and so the recipe identity, Core admits.
+ */
+export function renderSelectionDelivery({ requiredBy = [], ...request } = {}) {
+  return guarded(() => {
+    if (!Array.isArray(requiredBy)) invalid('required-by', '/requiredBy', 'Expected the requiring items.');
+    const deliveries = (requiredBy.length ? requiredBy : [undefined]).map(requirer =>
+      renderDelivery({ ...request, ...(requirer ? { requiredBy: requirer } : {}) }));
+    const refused = deliveries.find(delivery => delivery.status !== 'rendered');
+    if (refused) return refused;
+    const planned = new Set();
+    const unique = deliveries.map((delivery, index) => ({ delivery, index })).filter(({ delivery }) => {
+      const { id: _id, ...recipe } = delivery.recipe;
+      const key = canonicalJson(recipe);
+      if (planned.has(key)) return false;
+      planned.add(key);
+      return true;
+    });
+    const rendered = deliveries[0];
+    if (unique.length === 1) return unique[0].delivery;
+    const suffixed = unique.map(({ delivery, index }) => ({ ...delivery.recipe,
+      operations: delivery.recipe.operations.map(operation => ({ ...operation, id: `${operation.id}-${index + 1}`,
+        requires: (operation.requires ?? []).map(required => `${required}-${index + 1}`),
+        checks: (operation.checks ?? []).map(check => `${check}-${index + 1}`) })),
+      checks: delivery.recipe.checks.map(check => ({ ...check, id: `${check.id}-${index + 1}` })) }));
+    return { ...rendered, recipe: { ...rendered.recipe,
+      materials: [...new Map(suffixed.flatMap(recipe => recipe.materials)
+        .map(material => [`${material.id}/${material.path}/${material.sha256}`, material])).values()],
+      targets: [...new Set(suffixed.flatMap(recipe => recipe.targets))],
+      prerequisites: [...new Set(suffixed.flatMap(recipe => recipe.prerequisites))],
+      operations: suffixed.flatMap(recipe => recipe.operations), checks: suffixed.flatMap(recipe => recipe.checks) } };
   });
 }
 

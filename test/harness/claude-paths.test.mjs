@@ -58,8 +58,8 @@ function writesOf(items) {
 // ECC with typescript (its common and typescript rules), all of Superpowers and all of AIH Extensions. The two blocked
 // items are the code-reviewer agents above; the Kiro edition adds 43 skills, each left out for its main edition.
 const EXPECTED = {
-  without: { picked: 625, installed: 623, leftOut: 0, blocked: 2, files: 3088 },
-  with: { picked: 668, installed: 623, leftOut: 43, blocked: 2, files: 3088 },
+  without: { picked: 625, installed: 623, leftOut: 0, blocked: 2, files: 1540 },
+  with: { picked: 668, installed: 623, leftOut: 43, blocked: 2, files: 1540 },
 };
 
 for (const variants of [false, true]) test(`ECC (typescript), Superpowers and Extensions ${variants ? 'with' : 'without'} the Kiro-edition variants: no two items write one path`, () => {

@@ -47,7 +47,7 @@ const expectedRuntimeNames = {
     'checkCompatibility', 'consumerProfiles', 'contractSupport', 'deliveryMaterialRoot', 'deriveCellSupport', 'exportDefaultNames', 'helperMetadata',
     'listTools', 'macosRepairIndex',
     'macosSessionProfiles', 'macosSessionProfilesSchema', 'nativeClientIds', 'nativeVerificationDefinitions',
-    'renderDelivery', 'repairDefinitionSchema12', 'repairIndex', 'selectBindingCell', 'selectRepairDefinition', 'selectTool', 'selectTrustCell', 'selectVerificationKeys',
+    'renderDelivery', 'renderSelectionDelivery', 'repairDefinitionSchema12', 'repairIndex', 'selectBindingCell', 'selectRepairDefinition', 'selectTool', 'selectTrustCell', 'selectVerificationKeys',
     'selectVerificationPublishers', 'targets', 'toolBindingKinds', 'toolBindings', 'toolRegistry', 'trustCapabilities', 'trustLimits', 'trustPlatformMatrix',
     'trustRepairIndex', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition',
     'validateRepairDefinition11', 'validateRepairDefinition12', 'validateToolBinding', 'validateToolRegistry', 'validateTrustCapabilities',

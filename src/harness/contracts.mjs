@@ -19,7 +19,7 @@ export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles,
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
 export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
-export { renderDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
+export { renderDelivery, renderSelectionDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
 export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
   validateNativeTestIdentity } from './native/contracts.mjs';
 export const contractSupport = Object.freeze({
