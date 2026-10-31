@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.55: a pick installed for several tools fits its project's ownership record.
+
+- A pick of ECC (TypeScript), Superpowers, git-guard and Project basics for five tools
+  (451 selections) was blocked with `custody-record-limit`: its record would have held
+  1,590,154 bytes against a 1 MiB bound. Each tool's copy of each item repeated what its
+  selection and its Catalog item already record: every file member a descriptor naming
+  its own key and a claim with its selection's management ID, sets and requires; every
+  item its typed members (a second list of each file's path and digest) and the Catalog
+  item, name, kind, framework and origins its other tool copies also hold.
+- Ownership records are now written as 1.7.0, which stores none of that: a record holds
+  each fact once and expands to exactly the 1.6.0 data when read, and only that one
+  stored form is admitted. The same pick's record holds 910,688 bytes. Records of every
+  earlier version are read as they are and written as 1.7.0 by the next Apply; a Core
+  before this one refuses a 1.7.0 record (`ownership-invalid`), as it refuses any newer one.
+- An ownership record may hold up to 2 MiB (2,097,152 bytes); every other state file
+  keeps its 1 MiB bound. That leaves room to add a language or a tool to the pick above.
+  The bound also bounds Apply: Apply rewrites, encodes and checks the whole record twice
+  for every file it changes, so an Apply's time grows with the square of the record's
+  size. On Linux, installing 151, 301 and 451 selections (451, 901 and 1,351 files;
+  records of 299, 597 and 895 KB) took 5.3, 26.6 and 51.8 s.
+- On Windows a file member's key is its path lowercased; such a member stores just its
+  original-case path, not its whole descriptor.
+
 Core 1.0.0-dev.55: a notices or licence document has one recipe identity whichever items
 require it, so an organization can permit it.
 

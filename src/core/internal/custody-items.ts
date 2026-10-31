@@ -133,6 +133,12 @@ function claimIndex(value: Custody): (scope: string, managementId: string) => [s
   return (scope, managementId) => index.get(scope)?.get(managementId) ?? [];
 }
 
+/** Each claim's typed members, as every seal derives them for its item. */
+export function itemMembersOf(value: Custody): (scope: string, managementId: string) => TypedMember[] {
+  const claimedBy = claimIndex(value);
+  return (scope, managementId) => claimedBy(scope, managementId).flatMap(([key, owner]) => typedMembers(key, owner));
+}
+
 /**
  * Refresh items against the authoritative members: drop an item no claim in this root
  * still names, re-derive its typed members and keep member-keyed data (restoration values
