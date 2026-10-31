@@ -37,7 +37,7 @@ import managedInventorySchema from './schemas/managed-inventory-result/1.0.0.jso
 import managedInventorySchema11 from './schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
 import managedRemovalSchema from './schemas/managed-removal-preparation/1.0.0.json' with { type: 'json' };
 import { cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
-import { registerSchemas, schemaCheck, validateAcceptedDocument, validateExactDocument } from './internal/contract-validation.js';
+import { POLICY_MAX_BYTES, registerSchemas, schemaCheck, validateAcceptedDocument, validateExactDocument } from './internal/contract-validation.js';
 import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, OrganizationPolicyOptions, OrganizationValidationResult, ParseResult,
   ValidationResult } from './types.js';
 import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
@@ -169,7 +169,7 @@ const recipes = accepting(recipeSchema, recipeSchema11, recipeSchema12, recipeSc
 const organizations = accepting(organizationSchema, organizationSchema11, organizationSchema12);
 const organizationTargets = accepting(organizationTargetSchema, organizationTargetSchema11);
 export const validatePolicy = (value: unknown): ValidationResult =>
-  validateAcceptedDocument(value, policies, policySemantics as never);
+  validateAcceptedDocument(value, policies, policySemantics as never, POLICY_MAX_BYTES);
 export const validateRecipe = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, recipes, recipeSemantics as never);
 /**
@@ -200,7 +200,7 @@ export const validateOrganizationTarget = (value: unknown): ValidationResult =>
   validateAcceptedDocument(value, organizationTargets, organizationTargetSemantics as never);
 export function parsePolicy(text: string): ParseResult {
   try {
-    if (typeof text !== 'string' || text.length > 1_000_000 || new TextEncoder().encode(text).length > 1_000_000) throw new Error('input limit');
+    if (typeof text !== 'string' || text.length > POLICY_MAX_BYTES || new TextEncoder().encode(text).length > POLICY_MAX_BYTES) throw new Error('input limit');
     const document = parseStrictJsonObjectV1(text, 'policy');
     const result = validatePolicy(document);
     return result.valid ? { ...result, document: document as unknown as ExecutionPolicy } : result;

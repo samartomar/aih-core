@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.57: an execution policy may hold up to 5 MiB.
+
+- Core refused any execution policy over 1,000,000 bytes, and an Enterprise pick of ECC
+  (TypeScript), Superpowers, git-guard and Project basics for 11 tools, with every tool's
+  copy, composes 1,211,260 bytes. `validatePolicy`, `parsePolicy`, Prepare,
+  `checkFileState` and the CLI's `policy`, `check-files` and `validate execution-policy`
+  now admit a policy of up to 5 MiB (5,242,880 bytes); one byte more is still
+  `INPUT_INVALID` (`strict-json`). Recipes, organization documents, resolutions and every
+  other input keep their 1,000,000-byte bound, and an ownership record keeps 2 MiB.
+- On Linux (Node 26.12.1), a 5,167,819-byte policy of 1,100 inline selections, each
+  writing one 4 KB file, was read in 0.9 ms, parsed and validated in 312 ms (validation
+  of the parsed document alone 60 ms) and prepared in 23.1 s at a 478 MiB peak resident
+  size; 400 such selections (618,619 bytes, 1 KB files) prepared in 1.5 s. Prepare's time
+  grows faster than its selection count: 3,375 selections with 1 KB files (5.24 MB) had
+  not prepared after 10 minutes. The policy's bytes cost little; its selection count
+  (at most 4,096) sets the Prepare time.
+- A configuration entry an earlier selection owns as a tool's approval is no longer
+  claimed as a shared copy by another selection of the same item that sets the same
+  value without one: the approval stays the person's decision in that tool.
+
 Core 1.0.0-dev.56: two tools' copies of one item share a file or a configuration entry in
 one Prepare, as they already did across Prepares.
 

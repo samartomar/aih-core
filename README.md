@@ -2336,10 +2336,14 @@ or read. The release and marker-block text count against the same per-policy cap
 limit as the recipes' materials, and only the text a marker block needs is read.
 Apply rechecks the release and material text read at Prepare like any captured
 material. `checkFileState` renders recipe-less selections the same way from a local
-release; an archive release is `remote-material-not-admitted` there. The policy
-byte bound stays 1,000,000: without inline recipes, Claude Code with ECC's default
-pick (246 items, about 232,000 bytes) fits it, and so does its full TypeScript profile
-(476 items, about 491,000 bytes). The profile is still refused by the unchanged limit
+release; an archive release is `remote-material-not-admitted` there. An execution
+policy may hold up to 5 MiB (5,242,880 bytes), whether passed as data, parsed from text
+or read from a file by the CLI: an Enterprise pick of ECC (TypeScript), Superpowers,
+git-guard and Project basics for 11 tools composes about 1,211,000 bytes without inline
+recipes. Claude Code with ECC's default pick (246 items, about 232,000 bytes) and its
+full TypeScript profile (476 items, about 491,000 bytes) fit it too. Recipes,
+organization documents and other inputs keep their 1,000,000-byte bound. The profile
+is still refused by the unchanged limit
 of 256 `origins` per selection: its ECC notices document is required by 475 items. One-server
 approval (`grantApproval`) and `projectFolder` are not recipe-less inputs yet: carry
 an inline recipe for them.

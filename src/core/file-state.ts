@@ -5,6 +5,7 @@ import { validatePolicy, validateRecipe } from './contracts.js';
 import { installedDistribution } from './internal/installed-distribution.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { POLICY_MAX_BYTES } from './internal/contract-validation.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment } from './internal/host-files.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
@@ -205,7 +206,7 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     // Diagnostic pointers are relative to the request, whose policy is one member.
     if (!validation.valid) return failWith('validation', validation.diagnostics.map(item =>
       item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
-    const policy = cloneJsonValueStructureV1(request.policy, 'request', 32);
+    const policy = cloneJsonValueStructureV1(request.policy, 'request', 32, POLICY_MAX_BYTES);
     // Execution policy 1.6.0: a recipe-less selection is checked against the recipe Prepare renders for it, from a
     // locally readable Catalog release; remote material is not admitted here.
     if (policy.selections.some(selection => selection.recipe === undefined)) {

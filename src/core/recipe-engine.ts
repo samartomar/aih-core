@@ -17,6 +17,7 @@ import { admitOrganizationSelections, evaluateOrganizationObligations, type Admi
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { recipeIdentityDescriptor } from './internal/recipe-identity.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, deepFreezeStrictJsonV1, parseStrictJsonObjectV1, sameJsonDataV1 } from './internal/strict-json.js';
+import { POLICY_MAX_BYTES } from './internal/contract-validation.js';
 import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
@@ -239,7 +240,9 @@ function indexStatuses(policy: ExecutionPolicy, index: HostControls['index']): R
 }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
-const clone = <T>(value: T): T => cloneJsonValueStructureV1(value, 'request', 32);
+const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
+/** A whole policy request: the policy's own bound plus the 1,000,000 of each other field Prepare copies. */
+const REQUEST_MAX_SIZE = POLICY_MAX_BYTES + 4 * 1_000_000;
 const digest = (value: unknown): string => sha256(canonicalJson(value));
 const diagnostic = (code: string, reason: string, message: string): Diagnostic => ({ code, reason, message });
 const loggingOption = (controls: HostControls): Effective<'on' | 'off'> => ({ value: controls.logging ?? 'on', origin: controls.logging === undefined ? 'default' : 'explicit' });
@@ -448,7 +451,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (request.useCase !== 'policy') throw new Error('use-case-unsupported');
     const validation = validatePolicy(request.policy);
     if (!validation.valid) { result.diagnostics = validation.diagnostics; return finish(); }
-    const policy = clone(request.policy);
+    const policy = clone(request.policy, POLICY_MAX_BYTES);
     const enterprise = policy.mode === 'enterprise';
     if (enterprise && request.organizationSource === undefined) {
       result.diagnostics = [diagnostic('INPUT_INVALID', 'organization-source-required', 'Enterprise preparation requires an independently selected organization source.')];
@@ -946,11 +949,12 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // A file or configuration entry Core already installs, or plans earlier in this run, for other selections of the
           // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
           // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
-          // file or value, or another item's, is never acquired.
+          // file or value, another item's, or a tool's approval entry is never acquired.
           const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
-              return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes);
+              // An entry a tool's approval owns is the person's decision there, never a shared copy.
+              return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes) && !prior.approval;
             });
           if (sharedCopy) ownerState = 'managed';
           const adoptable = same && before !== null && !managed && !sharedCopy;
@@ -1475,7 +1479,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       diagnostics: [...conflicts, ...omissions], record: disabled, evidence, ...(hinted ? { resolutionInputs: resolutionInputs(steps), operationSelections: operationSelections(steps) } : {}) };
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
-      handles.set(prepared, { request, requestDigest: digest(clone(request)), privateInputs: controls.privateInputs,
+      handles.set(prepared, { request, requestDigest: digest(clone(request, REQUEST_MAX_SIZE)), privateInputs: controls.privateInputs,
         privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(checksScans ? { rechecks: { own: owned, indexStatus: indexStatus! } } : {}),
@@ -1642,7 +1646,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const copies: { request?: unknown; privateInputs?: unknown } = {};
     const unchanged = (field: 'request' | 'privateInputs', value: unknown, expected: string): boolean => {
       if (Object.hasOwn(copies, field) && sameJsonDataV1(value, copies[field])) return true;
-      const copy = clone(value);
+      const copy = clone(value, field === 'request' ? REQUEST_MAX_SIZE : undefined);
       if (digest(copy) !== expected) return false;
       copies[field] = copy;
       return true;

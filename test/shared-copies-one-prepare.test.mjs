@@ -3,7 +3,7 @@
 // list shows both with their item and tool, and the shared file or entry stays until the last claim is removed.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply, prepare, prepareManagedRemoval, prepareUpdate, listManagedSelections } from '../dist/core/index.js';
 import { sandbox, sha } from './hook-group-fixture.mjs';
@@ -29,8 +29,8 @@ const skillOps = (text = 'brainstorm\n') => [
 const serverOps = (command = 'ecc-server') => [{ id: 'server', purpose: 'Register the server', kind: 'config.entries', scope: 'project',
   target: { root: 'project', segments: at(MCP) }, format: 'json', requires: [], checks: [],
   entries: [{ path: ['mcpServers', 'ecc'], action: 'set', value: { literal: { command } } }] }];
-const selection = (id, tool, itemId, operations, version) => ({ id, managementId: id, scope: 'project', configuration: {}, requires: [],
-  recipe: { inline: { schema: 'urn:aihq:core:recipe:1.3.0', id: `${itemId}-${tool}`, description: itemId, inputs: {}, materials: [], targets: ['project'],
+const selection = (id, tool, itemId, operations, version, schema = 'urn:aihq:core:recipe:1.3.0') => ({ id, managementId: id, scope: 'project', configuration: {}, requires: [],
+  recipe: { inline: { schema, id: `${itemId}-${tool}`, description: itemId, inputs: {}, materials: [], targets: ['project'],
     prerequisites: [], checks: [], operations } },
   item: item(itemId, version), tool, name: itemId, kind: operations[0].kind === 'config.entries' ? 'mcp-server' : 'skill', origins: [{ reasonIncluded: 'chosen' }] });
 
@@ -131,4 +131,50 @@ test('updating both copies of a shared entry together changes it; updating one a
   assert.deepEqual(server(s), { command: 'ecc-server-2' });
   await remove(s, 'copilot');
   assert.equal(existsSync(s.file(MCP)), false);
+});
+
+test('the second copy of a shared entry can be removed first; the entry stays for the first until it goes', async () => {
+  const s = open('aih-shared-entry-reverse-');
+  await install(s, [selection('claude', 'claude', 'ecc', serverOps()), selection('copilot', 'copilot', 'ecc', serverOps())]);
+  const second = await remove(s, 'copilot');
+  assert.deepEqual(second.removals[0].members.map(member => `${member.action}/${member.reason}`), ['keep-shared/another-selection']);
+  assert.deepEqual(server(s), { command: 'ecc-server' });
+  assert.deepEqual(await installed(s), [['claude', 'claude', 'ecc', 1]]);
+  const first = await remove(s, 'claude');
+  assert.deepEqual(first.removals[0].members.map(member => member.action), ['remove']);
+  assert.equal(existsSync(s.file(MCP)), false, `left behind: ${s.read(MCP)}`);
+  assert.deepEqual(await installed(s), []);
+});
+
+test('a person\'s edit of a shared entry is drift for both copies: neither replaces it and removal keeps their value', async () => {
+  const s = open('aih-shared-entry-drift-');
+  const both = [selection('claude', 'claude', 'ecc', serverOps()), selection('copilot', 'copilot', 'ecc', serverOps())];
+  await install(s, both);
+  writeFileSync(s.file(MCP), JSON.stringify({ mcpServers: { ecc: { command: 'my-own-server' } } }, null, 2) + '\n');
+  const again = await prepare({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections: both }, target: { project: s.project } }, { logging: 'off' });
+  assert.equal(again.status, 'blocked');
+  assert.deepEqual(again.review.operations.map(op => [op.selectionId, op.effects]), [['claude', 'conflict'], ['copilot', 'conflict']]);
+  assert.deepEqual(again.diagnostics.map(item => [item.code, item.path]), [['STATE_CONFLICT', MCP], ['STATE_CONFLICT', MCP]]);
+  for (const id of ['claude', 'copilot']) {
+    const removal = await remove(s, id);
+    assert.deepEqual(removal.removals[0].members.map(member => `${member.action}/${member.reason}`), ['keep-changed/managed-content-changed'], id);
+    assert.deepEqual(server(s), { command: 'my-own-server' }, `the person's value stays after removing ${id}`);
+  }
+  // As for one copy, a changed entry keeps its record: the person decides what happens to it.
+  assert.deepEqual(await installed(s), [['claude', 'claude', 'ecc', 1], ['copilot', 'copilot', 'ecc', 1]]);
+});
+
+for (const order of ['one Prepare', 'a later Prepare']) test(`an entry the earlier copy writes as a tool's approval is never shared (${order})`, async () => {
+  const s = open('aih-shared-entry-approval-');
+  const allow = approval => ({ id: 'allow', purpose: 'Allow the server', kind: 'config.entries', scope: 'project',
+    target: { root: 'project', segments: at('.tool/settings.json') }, format: 'json', requires: approval ? ['server'] : [], checks: [],
+    entries: [{ path: ['allowed', 'ecc'], action: 'set', value: { literal: true } }], ...(approval ? { approval } : {}) });
+  const claude = selection('claude', 'claude', 'ecc', [...serverOps(), allow({ tool: 'claude' })], 'v1', 'urn:aihq:core:recipe:1.4.0');
+  const copilot = selection('copilot', 'copilot', 'ecc', [allow()], 'v1', 'urn:aihq:core:recipe:1.4.0');
+  if (order === 'a later Prepare') await install(s, [claude]);
+  const prepared = await prepare({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections: [claude, copilot] }, target: { project: s.project } }, { logging: 'off' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
+  assert.deepEqual(prepared.review.operations.filter(op => op.selectionId === 'copilot').map(op => [op.effects, op.ownership]), [['already-satisfied', 'unowned']]);
+  assert.equal((await apply(prepared.prepared, approve(prepared.review), { logging: 'off' })).completion, 'complete');
+  assert.deepEqual(await installed(s), [['claude', 'claude', 'ecc', 2]]);
 });

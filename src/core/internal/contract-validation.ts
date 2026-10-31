@@ -49,6 +49,8 @@ export const schemaCheck = (id: string): LazyCheck => once(() => {
 /** A registered schema fragment (`<id>#/<pointer>`), compiled on first use. */
 export const fragmentCheck = (ref: string): LazyCheck => once(() => instance().compile({ $ref: ref }));
 
+/** An execution policy's byte bound (5 MiB): its canonical UTF-8 bytes, and the bytes of a policy file or text. */
+export const POLICY_MAX_BYTES = 5_242_880;
 const strictJsonInvalid = (): ValidationResult =>
   ({ valid: false, diagnostics: [{ code: 'INPUT_INVALID', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }] });
 /** Bounded strict JSON read once; `maxBytes` undefined leaves size to the producer's own output limits. */
@@ -76,13 +78,13 @@ function compiled(lazy: LazyCheck): ValidateFunction {
 /**
  * Accepted-format validation (policies, recipes, organization documents and
  * targets): one of several accepted IDs, a missing ID checked against the first,
- * a 1,000,000-byte cap, the schema before semantics. An unaccepted ID reports
- * reason `schema-id` with every supported ID.
+ * a byte cap (1,000,000 unless the caller names another), the schema before
+ * semantics. An unaccepted ID reports reason `schema-id` with every supported ID.
  */
 export function validateAcceptedDocument(value: unknown, accepted: Readonly<Record<string, LazyCheck>>,
-  semantics: (document: never) => Diagnostic[]): ValidationResult {
+  semantics: (document: never) => Diagnostic[], maxBytes = 1_000_000): ValidationResult {
   try {
-    const safe = admit(value, 1_000_000, false);
+    const safe = admit(value, maxBytes, false);
     const found = safe && typeof safe === 'object' ? (safe as { schema?: unknown }).schema : undefined;
     if (typeof found === 'string' && !Object.hasOwn(accepted, found)) return {
       valid: false, schema: found, diagnostics: [{ code: 'SCHEMA_UNSUPPORTED', reason: 'schema-id',
