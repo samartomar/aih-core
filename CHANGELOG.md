@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Core 1.0.0-dev.56: two tools' copies of one item share a file or a configuration entry in
+one Prepare, as they already did across Prepares.
+
+- An executable file one selection plans in a Prepare was compared with the mode on disk,
+  not the mode that selection writes, so a second tool's copy of the same item was
+  reported `existing-content` and never claimed the file. It now claims it, exactly as it
+  does once the first copy is installed.
+- A second selection of the same Catalog item that sets the same configuration entry
+  (for example one MCP server for Claude Code and Copilot CLI in `.mcp.json`) now gets its
+  own claim on that entry, in one Prepare or a later one. The installed list shows it with
+  its item, tool and member; removing one tool's copy keeps the entry for the other
+  (`keep-shared`, `another-selection`) and removing the last removes it, along with the
+  file Core created for it. An update changes the shared entry only when every claimant
+  updates to the same item together; otherwise it stays a conflict.
+  Another item's entry, a person's own value and a tool's approval entry are never claimed.
+
 Core 1.0.0-dev.55: a pick installed for several tools fits its project's ownership record.
 
 - A pick of ECC (TypeScript), Superpowers, git-guard and Project basics for five tools
