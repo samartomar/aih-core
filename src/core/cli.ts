@@ -12,6 +12,7 @@ import type { FileStateControls, FileStateRequest } from './file-state-types.js'
 import { readRegularFile } from './internal/fsxn.js';
 import { sha256 } from './internal/host-files.js';
 import { parseStrictJsonObjectV1 } from './internal/strict-json.js';
+import { POLICY_MAX_BYTES } from './internal/contract-validation.js';
 import { getGuidance, type SupportInput, type SupportPlatform } from './support.js';
 import { formatGuidanceText } from './internal/guidance-text.js';
 import { writeSupportReport } from './support-report.js';
@@ -296,7 +297,7 @@ if (process.argv[2] === 'verify-macos-session') {
     const kind = ['execution-policy', 'organization-policy', 'recipe'].find(name => name === positionals[1]);
     if (positionals.length !== 3 || !kind || !onlyJson) refused('INPUT_INVALID', 'cli-options');
     else {
-      const bytes = readRegularFile(resolve(positionals[2]!), { maxBytes: 1_000_000 });
+      const bytes = readRegularFile(resolve(positionals[2]!), { maxBytes: kind === 'execution-policy' ? POLICY_MAX_BYTES : 1_000_000 });
       if (!bytes) throw new Error('validate-file');
       const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
       let result: { valid: boolean; schema?: string; diagnostics: unknown[] };
@@ -499,7 +500,7 @@ if (process.argv[2] === 'verify-macos-session') {
       refused('INPUT_INVALID', 'cli-options');
     } else {
       const file = resolve(positionals[1]!);
-      const bytes = readRegularFile(file, { maxBytes: 1_000_000 });
+      const bytes = readRegularFile(file, { maxBytes: POLICY_MAX_BYTES });
       if (!bytes) throw new Error('policy-file');
       let document: unknown;
       try {
@@ -548,7 +549,7 @@ if (process.argv[2] === 'verify-macos-session') {
     refused('INPUT_INVALID', 'cli-options');
   } else {
     const file = resolve(positionals[1]!);
-    const bytes = readRegularFile(file, { maxBytes: 1_000_000 });
+    const bytes = readRegularFile(file, { maxBytes: POLICY_MAX_BYTES });
     if (!bytes) throw new Error('policy-file');
     const parsed = parsePolicy(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
     if (!parsed.valid || !parsed.document) {
@@ -630,7 +631,7 @@ if (process.argv[2] === 'verify-macos-session') {
         }
         if (!approved) refused('APPROVAL_REQUIRED', 'explicit-approval');
         else {
-          const current = readRegularFile(file, { maxBytes: 1_000_000 });
+          const current = readRegularFile(file, { maxBytes: POLICY_MAX_BYTES });
           const currentResolutions = resolutionsFile ? readRegularFile(resolutionsFile, { maxBytes: 1_000_000 }) : undefined;
           if (!current || sha256(current) !== sha256(bytes) || resolutionsFile && (!currentResolutions || sha256(currentResolutions) !== resolutionsDigest))
             refused('REVIEW_STALE', 'input-file-changed');

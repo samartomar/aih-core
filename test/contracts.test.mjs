@@ -25,11 +25,11 @@ test('strict parsing rejects ambiguous bytes and numbers before a host can act',
     text.replace('guidance-file', 'e\u0301'),
     text.replace('guidance-file', '\\ud800'),
     text.replace('guidance-file', '\ud800'),
-    ' '.repeat(1_000_001) + text
+    ' '.repeat(5_242_881) + text
   ];
   for (const candidate of invalid) assert.equal(parsePolicy(candidate).valid, false);
   const tooLarge = policy();
-  tooLarge.metadata = { text: 'x'.repeat(1_000_001) };
+  tooLarge.metadata = { text: 'x'.repeat(5_242_881) };
   assert.equal(validatePolicy(tooLarge).valid, false);
   let called = false;
   const accessor = policy();
@@ -38,6 +38,21 @@ test('strict parsing rejects ambiguous bytes and numbers before a host can act',
   assert.equal(called, false);
   const cyclic = policy(); cyclic.metadata = { cyclic };
   assert.equal(validatePolicy(cyclic).valid, false);
+});
+
+test('a policy is bounded at 5 MiB (5,242,880 bytes): its text, its file and its canonical bytes', () => {
+  const BOUND = 5_242_880;
+  const sized = bytes => { const document = policy(); document.metadata = { text: '' };
+    document.metadata.text = 'x'.repeat(bytes - Buffer.byteLength(JSON.stringify(document))); return document; };
+  const fits = sized(BOUND), over = sized(BOUND + 1);
+  assert.equal(Buffer.byteLength(JSON.stringify(fits)), BOUND);
+  assert.equal(validatePolicy(fits).valid, true, JSON.stringify(validatePolicy(fits).diagnostics));
+  assert.equal(parsePolicy(JSON.stringify(fits)).valid, true);
+  assert.deepEqual(validatePolicy(over).diagnostics.map(item => item.reason), ['strict-json']);
+  assert.deepEqual(parsePolicy(JSON.stringify(over)).diagnostics.map(item => item.reason), ['strict-json']);
+  // Well past the earlier 1,000,000-byte bound, and refused one byte past this one.
+  assert.equal(parsePolicy(JSON.stringify(sized(1_000_001))).valid, true);
+  assert.equal(parsePolicy(JSON.stringify(fits) + ' ').valid, false);
 });
 
 test('authors get structured diagnostics for unsupported formats, dependencies and bindings', () => {
