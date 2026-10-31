@@ -555,7 +555,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const admissions: AdmissionSelection[] = [];
     let obligations: OrganizationObligationsReview | undefined;
     const steps: PreparedStep[] = [];
-    const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string }>();
+    // `mode` is the file mode an earlier step in this run leaves, when it writes one.
+    const overlays = new Map<string, { initial: Buffer | null; after: Buffer | null; priorId: string; mode?: number }>();
     // The last reviewed rescue step per notes path: a later rescue composes on its bytes, so the steps
     // must run in creation order even after the review's topological re-sort.
     const rescueChains = new Map<string, string>();
@@ -750,7 +751,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             if (effect === 'conflict') {
               conflicts.push(hookConflict(decision, op.groupId, path, privateValues)); conflictReason = conflicts.at(-1)!.reason;
               hookConflicts.set(`${root}:${hookKey}`, id);
-            } else overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
+            } else overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id, ...(overlay?.mode !== undefined ? { mode: overlay.mode } : {}) });
             emit();
             continue;
           }
@@ -906,9 +907,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             resolution = choice.choice;
             if (approval) throw new Error('resolution-invalid');
           }
+          // A file an earlier step of this run writes has the mode that step plans, not the one on disk.
+          const beforeMode = overlay?.mode ?? (live.state === 'present' ? live.mode : undefined);
           const same = before === null ? after === null : after !== null && before.equals(after) &&
-            (op.kind !== 'file.write' || op.mode === undefined || process.platform === 'win32' ||
-              live.state === 'present' && live.mode === op.mode);
+            (op.kind !== 'file.write' || op.mode === undefined || process.platform === 'win32' || beforeMode === op.mode);
           if (op.kind === 'file.remove' && Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.descriptor?.kind !== 'file')) managed = false;
           const changingOwned = (managed && before !== null) || rescuedLines !== null;
           const selectedAbsent = !editConflict && descriptors.every(member => { const bytes = memberBytes(member, before!); const prior = projected.members[memberKey(member)];
@@ -941,10 +943,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             return changingOwned || selectedAbsent || option === 'replace' ? 'replace-file' : 'conflict';
           };
           effect = decide(resolution);
-          // A file Core already installs for other selections of the same Catalog item, with exactly these bytes and
-          // unchanged since it was recorded, gains this selection's claim: every such selection owns it, and removal keeps
-          // it until the last one goes. Nothing is written; a person's own file or another item's is never acquired.
-          const sharedCopy = op.kind === 'file.write' && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
+          // A file or configuration entry Core already installs, or plans earlier in this run, for other selections of the
+          // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
+          // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
+          // file or value, or another item's, is never acquired.
+          const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
               return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes);
@@ -998,7 +1001,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(op.kind === 'file.write' && op.content ? { content: 'input' in op.content && recipe.inputs[op.content.input]?.sensitive ?
               '[REDACTED]' : redactExact(resolveString(op.content, bound), privateValues) } : {}),
             mode, ...(resolution ? { reason: `explicit-${resolution}` } : {}), ...(editConflict ? { reason: editConflict } : {}) };
-          if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id });
+          if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id,
+            ...(op.kind === 'file.write' && ['create-file', 'replace-file'].includes(effect) ? { mode: mode! } : overlay?.mode !== undefined ? { mode: overlay.mode } : {}) });
         }
         emit();
         // The companion write is reviewed but never claimed: PROJECT.md stays user-owned, so removal
