@@ -14,6 +14,7 @@ import type { RecordStatus } from '../host-types.js';
 import { stateLocation } from '../state-location.js';
 import { refreshItems, resolvePending, validItems, type CustodyItem } from './custody-items.js';
 import { canonicalJson } from './canonical.js';
+import { OWNERSHIP_17, expandOwnership, ownershipText } from './ownership-storage.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
 /** `sha256` digests the exact member bytes; a hook group also records its canonical JSON digest. */
@@ -35,10 +36,11 @@ export const OWNERSHIP_13 = 'urn:aihq:core:ownership:1.3.0';
 export const OWNERSHIP_14 = 'urn:aihq:core:ownership:1.4.0';
 export const OWNERSHIP_15 = 'urn:aihq:core:ownership:1.5.0';
 export const OWNERSHIP_16 = 'urn:aihq:core:ownership:1.6.0';
-const OWNERSHIP_VERSIONS: string[] = [OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15, OWNERSHIP_16];
+export { OWNERSHIP_17, ownershipText };
+const OWNERSHIP_VERSIONS: string[] = [OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15, OWNERSHIP_16, OWNERSHIP_17];
 /** Each version admits every record of the versions before it. */
 const atLeast = (schema: unknown, minimum: string): boolean => OWNERSHIP_VERSIONS.indexOf(schema as string) >= OWNERSHIP_VERSIONS.indexOf(minimum);
-export interface Ownership { directories?: CreatedDirectory[]; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15 | typeof OWNERSHIP_16; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
+export interface Ownership { directories?: CreatedDirectory[]; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15 | typeof OWNERSHIP_16 | typeof OWNERSHIP_17; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 /** A TOML entry whose path has a non-bare (quoted) segment. */
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
@@ -47,19 +49,27 @@ const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?
 /** Array members, approvals and shared-block content are recorded from 1.6. */
 const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
   owner.createdFile !== undefined || owner.createdContainers !== undefined;
-/** Item custody, array members and approvals require 1.6; directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
+/** Item custody, array members and approvals require 1.6, stored as 1.7 (see ownership-storage); directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
-  const schema = items || Object.values(value.members).some(needs16) ? OWNERSHIP_16 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
+  const schema = items || Object.values(value.members).some(needs16) ? OWNERSHIP_17 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
     Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
     Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
   const { directories, items: _items, ...rest } = value;
   return { ...rest, ...(directories?.length ? { directories } : {}), ...(items ? { items } : {}), schema };
 }
-export function stateFiles(): OwnedFileTransaction {
+/** Every file in Core's state is at most 1 MiB, except an ownership record. */
+export const STATE_FILE_BYTES = 1_048_576;
+/**
+ * An ownership record (stored form) is at most 4 MiB. Each of a pick's files is one member, so the record grows with
+ * tools × items × files; this bound keeps what one record costs bounded: Core reads and strictly admits a record
+ * whole in each operation, and Apply rewrites it atomically after every file effect it commits.
+ */
+export const OWNERSHIP_RECORD_BYTES = 4 * 1_048_576;
+export function stateFiles(maxFileBytes = STATE_FILE_BYTES): OwnedFileTransaction {
   return new OwnedFileTransaction(stateRoot(), {
-    label: 'Core state', maxFileBytes: 1_048_576, contentDirectoryMode: 0o700,
+    label: 'Core state', maxFileBytes, contentDirectoryMode: 0o700,
     stateDirectoryMode: 0o700, statePaths: new Set(),
     assertOwnedPath() {}, assertResolvedSegments() {}
   });
@@ -197,9 +207,9 @@ export function stateWritten(relativePath: string, created: string | undefined):
   proven.paths.set(entry.path, proofIdentity(entry.path, entry.identity));
 }
 /** Write a state file atomically and record it as written by Core (see `stateWritten`). */
-export function writeStateFile(relativePath: string, contents: Buffer, mode: number, exclusive = false): void {
+export function writeStateFile(relativePath: string, contents: Buffer, mode: number, exclusive = false, maxFileBytes = STATE_FILE_BYTES): void {
   let created: string | undefined;
-  stateFiles().writeAtomic(relativePath, contents, mode, exclusive, identity => { created = identity; });
+  stateFiles(maxFileBytes).writeAtomic(relativePath, contents, mode, exclusive, identity => { created = identity; });
   stateWritten(relativePath, created);
 }
 
@@ -254,7 +264,7 @@ export function ownershipDigest(target: string, admitted?: AdmittedReceipts): st
     throw error;
   }
   protectState([ownershipPath(target)]);
-  const bytes = stateFiles().read(ownershipPath(target));
+  const bytes = ownershipBytes(ownershipPath(target));
   if (!bytes) return null;
   const digest = sha256(bytes);
   if (homedir() !== admitted.home || !admitted.digests.has(digest)) admitOwnership(bytes, target);
@@ -262,10 +272,18 @@ export function ownershipDigest(target: string, admitted?: AdmittedReceipts): st
 }
 /** Strict admission of stored receipt bytes for `target`: the parse and validation `readOwnership` applies. */
 export function admitOwnership(bytes: Uint8Array, target: string): Ownership {
-  const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return admitParsed(parseStrictJsonObjectV1(text, 'ownership'), text, target);
+}
+/** Admit a strictly parsed receipt: its expanded record is valid, and a 1.7.0 receipt is that record's one stored form. */
+function admitParsed(parsed: Record<string, unknown>, text: string, target: string): Ownership {
+  const value = expandOwnership(parsed);
   validateOwnership(value, target);
+  if (value.schema === OWNERSHIP_17 && ownershipText(value) !== text) throw new Error('ownership-invalid');
   return value;
 }
+/** Read a stored receipt's bytes (`null` when absent). */
+const ownershipBytes = (path: string) => stateFiles(OWNERSHIP_RECORD_BYTES).read(path);
 export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
   const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
@@ -275,7 +293,7 @@ export function readOwnership(target: string, settle = true): { value: Ownership
   // Custody is meaningful only in the protected store; existing records in a
   // writable/untrusted root must not establish ownership, including in previews.
   protectState([ownershipPath(target)]);
-  const bytes = stateFiles().read(ownershipPath(target));
+  const bytes = ownershipBytes(ownershipPath(target));
   if (!bytes) return { value: empty, digest: null, bytes: 0 };
   const value = admitOwnership(bytes, target);
   return { value: settle ? settled(value) : value, digest: sha256(bytes), bytes: bytes.length };
@@ -294,15 +312,13 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
   // Keep both process launch count and Windows environment size bounded.
   for (let offset = 0; offset < unique.length; offset += 32)
     protectState(unique.slice(offset, offset + 32).map(ownershipPath));
-  const files = stateFiles();
   for (const target of unique) {
-    const bytes = files.read(ownershipPath(target));
+    const bytes = ownershipBytes(ownershipPath(target));
     if (!bytes) {
       result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
       continue;
     }
-    const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
-    validateOwnership(value, target);
+    const value = admitOwnership(bytes, target);
     result.set(target, { value: settled(value), digest: sha256(bytes), bytes: bytes.length });
   }
   return result;
@@ -337,18 +353,17 @@ export function readOwnershipReceipts(check: () => void): { receipts: Ownership[
   }
   check();
   const receipts: Ownership[] = []; let total = 0;
-  const files = stateFiles();
   for (const name of names) {
     check();
-    const data = files.read(`ownership/${name}`);
+    const data = ownershipBytes(`ownership/${name}`);
     if (!data) throw new Error('ownership-invalid');
     total += data.length;
     if (total > 32 * 1024 * 1024) throw new Error('ownership-limit');
-    const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(data), 'ownership');
-    if (typeof value.target !== 'string' || !isAbsolute(value.target) ||
-      ownershipPath(value.target) !== `ownership/${name}`) throw new Error('ownership-invalid');
-    validateOwnership(value, value.target);
-    receipts.push(settled(value));
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(data);
+    const parsed = parseStrictJsonObjectV1(text, 'ownership');
+    if (typeof parsed.target !== 'string' || !isAbsolute(parsed.target) ||
+      ownershipPath(parsed.target) !== `ownership/${name}`) throw new Error('ownership-invalid');
+    receipts.push(settled(admitParsed(parsed, text, parsed.target)));
   }
   return { receipts, count: names.length, bytes: total };
 }
@@ -602,20 +617,20 @@ export function stageOwnership(target: string, runId: string, update: Ownership)
   // Reject semantic count/descriptor failures before any target effects.
   update = sealOwnership(update);
   try { validateOwnership(update, target); } catch { throw new Error('state-unwritable'); }
-  const record = Buffer.from(JSON.stringify(update));
-  if (record.length > 1_048_576) throw new Error('state-unwritable');
+  const record = Buffer.from(ownershipText(update));
+  if (record.length > OWNERSHIP_RECORD_BYTES) throw new Error('state-unwritable');
   const staged = `ownership/.pending-${runId}-${sha256(target)}.json`;
   protectState([path, staged, `recovery/${runId}`]);
-  const files = stateFiles(); let stagedWritten = false;
+  const files = stateFiles(OWNERSHIP_RECORD_BYTES); let stagedWritten = false;
   try {
     // The caller supplies a conservative bound covering intermediate custody
     // and intent records. Stage it in the actual destination directory to prove
     // capacity and receipt creation before any target changes.
-    writeStateFile(staged, record, 0o600, true); stagedWritten = true;
+    writeStateFile(staged, record, 0o600, true, OWNERSHIP_RECORD_BYTES); stagedWritten = true;
     const current = files.read(path);
     // Existing receipts also require replacement permission. Probe that exact
     // operation with unchanged bytes; this adds no claim of target ownership.
-    if (current) writeStateFile(path, current, 0o600);
+    if (current) writeStateFile(path, current, 0o600, false, OWNERSHIP_RECORD_BYTES);
   } catch {
     if (stagedWritten) { try { files.remove(staged); } catch { /* A failed probe can leave recognizable inert staging. */ } }
     throw new Error('state-unwritable');
@@ -637,7 +652,7 @@ export function ownershipInventory(): { targets: string[]; entries: [string, str
   const targets: string[] = []; const entries: [string, string][] = []; let unverifiable = false;
   for (const name of names.filter(name => /^[a-f0-9]{64}\.json$/.test(name)).sort()) {
     try {
-      const bytes = stateFiles().read(`ownership/${name}`); if (!bytes) throw new Error('ownership-invalid');
+      const bytes = ownershipBytes(`ownership/${name}`); if (!bytes) throw new Error('ownership-invalid');
       entries.push([name, sha256(bytes)]);
       const value = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'ownership');
       if (typeof value.target !== 'string' || !isAbsolute(value.target) || ownershipPath(value.target) !== `ownership/${name}`) throw new Error('ownership-invalid');

@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 import { removalClaims } from '../dist/core/contracts.js';
 import { toolBindings } from '../dist/harness/contracts.mjs';
 import { approve, catalogRoot, controls } from './real-catalog-fixture.mjs';
@@ -174,10 +175,10 @@ test('stale origins of requirers already gone are dropped, and the last removal 
   await installMany('stale-elsewhere', MANY);
   const mine = await installMany('stale', AGENTS);
   const receipt = join(process.env.HOME, '.aih', 'core', 'ownership', `${sha256(mine.project)}.json`);
-  const value = JSON.parse(readFileSync(receipt, 'utf8'));
+  const value = readReceipt(receipt);
   const notices = Object.values(value.items).find(entry => entry.managementId === managementId('ecc.notices'));
   notices.origins.push(...MANY.slice(2).map(requiredBy));
-  writeFileSync(receipt, JSON.stringify(value));
+  writeReceipt(receipt, value);
   assert.deepEqual(await originsOf(mine.project, 'ecc.notices'), MANY.map(requiredBy));
 
   // Removing one of the two installed requirers keeps the notices for the other and drops every stale origin.
@@ -190,8 +191,8 @@ test('stale origins alone do not keep the notices when the last installed requir
   await installMany('stale-only-elsewhere', MANY);
   const mine = await installMany('stale-only', AGENTS);
   const receipt = join(process.env.HOME, '.aih', 'core', 'ownership', `${sha256(mine.project)}.json`);
-  const value = JSON.parse(readFileSync(receipt, 'utf8'));
+  const value = readReceipt(receipt);
   Object.values(value.items).find(entry => entry.managementId === managementId('ecc.notices')).origins.push(...MANY.slice(2).map(requiredBy));
-  writeFileSync(receipt, JSON.stringify(value));
+  writeReceipt(receipt, value);
   await assertFreed(mine, await removeWhole(mine.project, [...AGENTS].reverse()));
 });

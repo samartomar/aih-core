@@ -22,7 +22,7 @@ import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
+import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, ownershipText, OWNERSHIP_RECORD_BYTES, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
@@ -1748,8 +1748,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const persist = (root: string, next: Ownership) => {
       protectState([ownershipPath(root)]);
       const sealed = sealOwnership(next);
-      const text = JSON.stringify(sealed);
-      const receipt = Buffer.from(text); writeStateFile(ownershipPath(root), receipt, 0o600);
+      const text = ownershipText(sealed);
+      const receipt = Buffer.from(text); writeStateFile(ownershipPath(root), receipt, 0o600, false, OWNERSHIP_RECORD_BYTES);
       const written = sha256(receipt);
       metadataState.ownership.set(root, { value: sealed, digest: written });
       metadataState.inventory?.set(basename(ownershipPath(root)), written);
@@ -2176,7 +2176,7 @@ function preflightOwnershipCapacity(steps: PreparedStep[], ownership: Map<string
     const check = () => {
       const sealed = sealOwnership(current);
       try { validateOwnership(sealed, root); } catch { throw new Error('custody-record-limit'); }
-      if (Buffer.byteLength(JSON.stringify(sealed)) > 1_048_576) throw new Error('custody-record-limit');
+      if (Buffer.byteLength(ownershipText(sealed)) > OWNERSHIP_RECORD_BYTES) throw new Error('custody-record-limit');
     };
     reserveDirectoryCapacity(current, steps.filter(item => item.root === root));
     check();

@@ -224,7 +224,7 @@ test('user hook removal retains directory custody while its settings file remain
     await run(s, userPolicy('set'));
     const file = join(s.home, '.tool', 'settings.json');
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, [groupOf('guard-a')]);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.6.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.7.0']);
     await run(s, userPolicy('remove'));
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, []);
     assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.5.0']);

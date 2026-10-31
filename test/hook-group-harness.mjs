@@ -8,6 +8,7 @@ import { prepare, apply } from '../dist/core/index.js';
 import preparedSchema from '../dist/core/schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import resultSchema from '../dist/core/schemas/run-result/1.1.0.json' with { type: 'json' };
 import { SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request } from './hook-group-fixture.mjs';
+import { recordOf } from './fixtures/ownership-receipt.mjs';
 
 export const controls = { logging: 'off' };
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -29,7 +30,7 @@ export const only = prepared => prepared.review.operations[0];
 export const opOf = (prepared, id) => prepared.review.operations.find(item => item.id === id);
 export const ownershipRoots = s => {
   const dir = join(s.home, '.aih', 'core', 'ownership');
-  return existsSync(dir) ? readdirSync(dir).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).map(name => ({ name, ...JSON.parse(readFileSync(join(dir, name), 'utf8')) })) : [];
+  return existsSync(dir) ? readdirSync(dir).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).map(name => ({ name, ...recordOf(readFileSync(join(dir, name), 'utf8')) })) : [];
 };
 export const guard = (name = 'guard-a') => policy11([hookSelection(name, [hookOp('add', name)])]);
 export const neighbor = (name, extra = {}) => ({ matcher: 'Edit', hooks: [{ type: 'command', command: `mine/${name}.sh` }], ...extra });

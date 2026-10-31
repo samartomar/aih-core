@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { prepare, apply, prepareUpdate } from '../dist/core/index.js';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';
 
@@ -15,7 +16,7 @@ const approve = (review, allowPartial) => ({ reviewDigest: review.reviewDigest, 
 const request = (s, updates) => ({ target: { project: s.project }, scope: 'project', updates });
 const runsDir = s => join(s.home, '.aih', 'core', 'runs');
 const projectReceipt = s => join(s.home, '.aih', 'core', 'ownership', `${sha(realpathSync.native(s.project))}.json`);
-const rewriteReceipt = (s, change) => { const value = JSON.parse(readFileSync(projectReceipt(s), 'utf8')); change(value); writeFileSync(projectReceipt(s), JSON.stringify(value)); };
+const rewriteReceipt = (s, change) => { const value = readReceipt(projectReceipt(s)); change(value); writeReceipt(projectReceipt(s), value); };
 const reasons = result => result.updates.map(entry => [entry.managementId, entry.disposition, entry.diagnostics.map(item => item.reason)]);
 const actions = entry => entry.members.map(member => [member.path.split(/[\\/]/).at(-1), member.kind, member.action, member.reason ?? null]);
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply } from '../dist/core/index.js';
+import { receiptText } from './fixtures/ownership-receipt.mjs';
 import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
 import { SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11, sandbox, sha } from './hook-group-fixture.mjs';
 import { controls, groupsOf, neighbor, compact, opOf, ownershipRoots, prep, resolveOp, run } from './hook-group-harness.mjs';
@@ -51,7 +52,7 @@ test('removal preserves a group when a pre-fix receipt has a second format owner
     const descriptor = { ...owner.descriptor, format: 'jsonc' };
     root.members[memberKey(descriptor)] = { ...owner, managementId: 'second', descriptor,
       claims: [{ managementId: 'second', scope: 'project', sets: [], requires: [] }] };
-    writeFileSync(join(s.home, '.aih', 'core', 'ownership', root.name), JSON.stringify({
+    writeFileSync(join(s.home, '.aih', 'core', 'ownership', root.name), receiptText({
       schema: root.schema, target: root.target, members: root.members
     }));
     const authored = await prep(s, policy11([hookSelection('first', [hookOp('drop', 'shared', { action: 'remove' })])]));

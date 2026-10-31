@@ -8,6 +8,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import runResultSchema from '../dist/core/schemas/run-result/1.4.0.json' with { type: 'json' };
 import inventorySchema from '../dist/core/schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
 import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { readReceipt } from './fixtures/ownership-receipt.mjs';
 import { deriveRecipeIdentity, runMemberClaims } from '../dist/core/contracts.js';
 
 // Seam: the built package's public Prepare/Apply entry. Post-apply member checks
@@ -211,8 +212,8 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
   const older = { schema: 'urn:aihq:core:execution-policy:1.3.0', mode: 'vibe', selections, managedSelections: bundle };
   assert.equal((await run(root, older)).result.completion, 'complete');
   const receipt = join(home, '.aih', 'core', 'ownership', `${sha(root)}.json`);
-  const before = JSON.parse(readFileSync(receipt, 'utf8'));
-  assert.equal(before.schema, 'urn:aihq:core:ownership:1.6.0', 'directory evidence, a created table, a hook, a marker block and the hook-created file');
+  const before = readReceipt(receipt);
+  assert.equal(before.schema, 'urn:aihq:core:ownership:1.7.0', 'directory evidence, a created table, a hook, a marker block and the hook-created file');
 
   // Read through the migration: every claim appears as an unnamed 1.1 selection with typed members.
   const unnamed = await inventory(root);
@@ -230,8 +231,8 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
   const { result } = await run(root, { ...older, schema: 'urn:aihq:core:execution-policy:1.4.0', selections: described });
   assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
   assert.equal(result.operations.every(operation => operation.application === 'already-satisfied'), true);
-  const after = JSON.parse(readFileSync(receipt, 'utf8'));
-  assert.equal(after.schema, 'urn:aihq:core:ownership:1.6.0');
+  const after = readReceipt(receipt);
+  assert.equal(after.schema, 'urn:aihq:core:ownership:1.7.0');
   const { items, schema: _new, ...kept } = after; const { schema: _old, ...prior } = before;
   assert.deepEqual(kept, prior, 'members, claims, sets, requires, selectors, markers, modes, tables and directories are unchanged');
   assert.equal(Object.keys(items).length, 4);

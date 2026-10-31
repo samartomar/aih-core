@@ -8,6 +8,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { readReceipt as storedRecord, recordOf, receiptText } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-interrupted-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -43,18 +44,18 @@ async function install(project, fail = false, root = 'project') {
 }
 const state = () => join(process.env.HOME, '.aih', 'core');
 const receiptPath = project => join(state(), 'ownership', `${sha256(project)}.json`);
-const readReceipt = project => JSON.parse(readFileSync(receiptPath(project), 'utf8'));
+const readReceipt = project => storedRecord(receiptPath(project));
 const row = async (project, scope = 'project') => (await listManagedSelections({ target: { project }, scope, format: 'urn:aihq:core:managed-inventory-result:1.1.0' }))
   .selections.find(entry => entry.managementId === 'notes-managed');
 const identity = path => { const stats = lstatSync(path, { bigint: true }); return `${stats.dev}:${stats.ino}`; };
 /** Plant what a crash right after reference.md's commit leaves: its write-ahead entry naming the published file. */
 function plant(receiptFile, owner, fileIdentity) {
-  const receipt = JSON.parse(readFileSync(receiptFile, 'utf8'));
+  const receipt = recordOf(readFileSync(receiptFile, 'utf8'));
   const id = Object.keys(receipt.items)[0];
   assert.equal(receipt.items[id].installState, 'interrupted');
   assert.equal(receipt.items[id].pending, undefined, 'a completed effect leaves no pending member');
   receipt.items[id].pending = [{ key: 'notes/reference.md', descriptor: owner.descriptor, owner, identity: fileIdentity }];
-  writeFileSync(receiptFile, JSON.stringify(receipt));
+  writeFileSync(receiptFile, receiptText(receipt));
   return id;
 }
 const project = name => { const path = join(scratch, name); mkdirSync(path); return realpathSync.native(path); };
@@ -111,13 +112,13 @@ test('an interrupted user-scope install in Core content is found, settled, finis
   const { result } = await install(target, true, 'userState');
   assert.equal(result.completion, 'incomplete');
   const receiptFile = readdirSync(ownership).filter(name => !before.has(name) && /^[a-f0-9]{64}\.json$/.test(name))
-    .map(name => join(ownership, name)).find(file => JSON.parse(readFileSync(file, 'utf8')).items);
+    .map(name => join(ownership, name)).find(file => recordOf(readFileSync(file, 'utf8')).items);
   const content = JSON.parse(readFileSync(receiptFile, 'utf8')).target;
   assert.match(content, /content[\\/][a-f0-9]{64}$/);
   const listed = await row(target, 'user');
   assert.deepEqual([listed.installState, listed.members.map(member => basename(member.path))], ['interrupted', ['LICENSE', 'SKILL.md']]);
   // A crash right after reference.md was published in the content root: its custody is SKILL.md's, for that file.
-  const skill = JSON.parse(readFileSync(receiptFile, 'utf8')).members[keyOf('notes/SKILL.md')];
+  const skill = recordOf(readFileSync(receiptFile, 'utf8')).members[keyOf('notes/SKILL.md')];
   const owner = { ...skill, sha256: sha256(FILES['reference.md']), descriptor: { ...skill.descriptor, path: 'notes/reference.md' } };
   const path = join(content, 'notes', 'reference.md');
   writeFileSync(path, FILES['reference.md'], { mode: 0o600 });
@@ -142,7 +143,7 @@ test('a pending owner must belong to its item, or the receipt is not trusted', a
   const id = Object.keys(receipt.items)[0];
   const owner = { ...receipt.members[keyOf('notes/SKILL.md')], claims: [{ managementId: 'other', scope: 'project', sets: [], requires: [] }] };
   receipt.items[id].pending = [{ key: 'notes/SKILL.md', descriptor: owner.descriptor, owner }];
-  writeFileSync(receiptPath(target), JSON.stringify(receipt));
+  writeFileSync(receiptPath(target), receiptText(receipt));
   const listed = await listManagedSelections({ target: { project: target }, scope: 'project', format: 'urn:aihq:core:managed-inventory-result:1.1.0' });
   assert.equal(listed.status, 'incomplete');
   assert.equal(listed.diagnostics[0].reason, 'ownership-unverifiable');

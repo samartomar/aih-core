@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { prepare, apply } from '../dist/core/index.js';
 import { pathPins, pinsMatch } from '../dist/core/internal/host-files.js';
+import { OWNERSHIP_RECORD_BYTES } from '../dist/core/internal/state.js';
 import { policy } from './fixture.mjs';
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'aih-core-host-'));
@@ -229,15 +230,17 @@ test('known ownership record capacity failure blocks a new target write', async 
   const record = JSON.parse(readFileSync(ownership,'utf8'));
   const current = Object.values(record.members)[0];
   const member = { managementId: current.managementId, recipeIdentity: current.recipeIdentity, sha256: current.sha256, mode: current.mode };
-  // Fill a valid, protected record to just below its admitted byte ceiling.
-  const entryBytes = Buffer.byteLength(JSON.stringify('retained-00000000') + ':' + JSON.stringify(member) + ',');
-  const count = Math.floor((1_048_576 - 4 - Buffer.byteLength(JSON.stringify(record))) / entryBytes);
-  for (let i = 0; i < count; i++) record.members[`retained-${String(i).padStart(8, '0')}`] = member;
+  // Fill a valid, protected record to just below its admitted byte ceiling, with no more members than a record admits.
+  const keyOf = i => `retained-${String(i).padStart(8, '0')}/${'p'.repeat(440)}`;
+  const entryBytes = Buffer.byteLength(JSON.stringify(keyOf(0)) + ':' + JSON.stringify(member) + ',');
+  const count = Math.floor((OWNERSHIP_RECORD_BYTES - 4 - Buffer.byteLength(JSON.stringify(record))) / entryBytes);
+  assert.ok(count < 8192);
+  for (let i = 0; i < count; i++) record.members[keyOf(i)] = member;
   const bytes = Buffer.byteLength(JSON.stringify(record));
   // Inert whitespace is permitted in a historical state file. It does not make
   // the next canonical ownership update larger, so fill remaining space in a key.
   const last = Object.keys(record.members).at(-1);
-  const enlarged = last + 'x'.repeat(1_048_576 - bytes - 4);
+  const enlarged = last + 'x'.repeat(OWNERSHIP_RECORD_BYTES - bytes - 4);
   record.members[enlarged] = record.members[last]; delete record.members[last];
   writeFileSync(ownership, JSON.stringify(record));
   document.selections[0].recipe.inline.operations[0].target.segments = [{literal:'NEXT.md'}];
