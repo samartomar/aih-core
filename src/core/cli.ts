@@ -6,7 +6,8 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe,
   validateTrustRepairInputs, validateCertificateExportInputs } from './contracts.js';
-import { prepare, apply, inspect, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
+import { inspectRetained } from './inspection.js';
+import { prepare, apply, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
 import { invalidFileStateResult } from './file-state.js';
 import type { FileStateControls, FileStateRequest } from './file-state-types.js';
 import { readRegularFile } from './internal/fsxn.js';
@@ -182,9 +183,14 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
   change: () => import('./cli/change.js'),
+  'check-files': () => import('./cli/check-files.js'),
 };
+// `aih inspect` is the 0.1.0 inspection unless a retained-only option asks for the retained result.
+const RETAINED_INSPECT = /^--(?:probe-configured-mcp|project|support-markdown)(?:=|$)/;
 if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(process.argv[3] ?? '')) {
   await (await import('./cli/validate.js')).run(process.argv.slice(3));
+} else if (process.argv[2] === 'inspect' && !process.argv.slice(3).some(arg => RETAINED_INSPECT.test(arg))) {
+  await (await import('./cli/inspect.js')).run(process.argv.slice(3), controller.signal);
 } else if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
   await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
 } else if (process.argv[2] === 'verify-macos-session') {
@@ -392,7 +398,7 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
       !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log'] &&
       values['budget-ms'] === undefined && values.scope === undefined && values.mode === undefined) {
-    const result = await inspect({
+    const result = await inspectRetained({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
       ...(values['probe-configured-mcp'] ? { probeConfiguredMcp: true } : {}),

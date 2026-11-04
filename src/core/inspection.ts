@@ -51,7 +51,10 @@ function plain(value: unknown, keys: string[]): boolean {
     return typeof key === 'string' && keys.includes(key) && descriptor?.enumerable && 'value' in descriptor;
   });
 }
-export async function inspect(request: InspectRequest = {}, controls: InspectControls = {}): Promise<InspectResult> {
+export type ToolVersion = { target: string; binary: string; version: string | null };
+/** The retained inspection (inspect result before 0.1.0); `versions` receives the AI tools' printed versions. */
+export async function inspectRetained(request: InspectRequest = {}, controls: InspectControls = {},
+  versions?: (found: ToolVersion[]) => void): Promise<InspectResult> {
   let identity: { name: string; version: string };
   try { identity = installedDistribution(); }
   catch {
@@ -140,7 +143,7 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
   try {
     result = await diagnose({ requestId: randomUUID(), targets: request.targets, network: options.network.value,
       probeConfiguredMcp: options.probeConfiguredMcp.value, project: request.project,
-      ...(trust ? { persistedTrust: trust } : {}) },
+      ...(trust ? { persistedTrust: trust } : {}), ...(versions ? { toolVersions: true } : {}) },
       { signal: controls.signal, budgetMs: options.budgetMs.value });
     if (!result || result.helper?.name !== identity.name || result.helper?.version !== identity.version ||
         !['completed', 'cancelled', 'invalid', 'unavailable'].includes(result.status) ||
@@ -151,6 +154,7 @@ export async function inspect(request: InspectRequest = {}, controls: InspectCon
         !result.limits || result.limits.budgetMs > options.budgetMs.value ||
         result.limits.maxActiveProbes > profile.maxActiveProbes)
       throw new Error('helper-result-invalid');
+    if (versions) versions(Array.isArray(result.toolVersions) ? result.toolVersions : []);
   } catch { return conclude({ ...base, status: controls.signal?.aborted ? 'cancelled' : 'incomplete',
     diagnostics: [controls.signal?.aborted ? { code: 'CANCELLED', reason: 'cancelled', message: 'Inspection was cancelled.' } : internalFailure] }); }
   const incomplete = result.status !== 'completed' ||

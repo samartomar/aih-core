@@ -10,7 +10,7 @@ export interface DetectProjectFactsDiagnostic { code: string; reason: string; me
 export type DetectProjectFactsResult =
   | { status: 'complete'; project: string; facts: ProjectFact[]; diagnostics: DetectProjectFactsDiagnostic[]; limits: DetectProjectFactsLimits }
   | { status: 'incomplete'; project: string; facts: ProjectFact[]; diagnostics: DetectProjectFactsDiagnostic[]; limits: DetectProjectFactsLimits }
-  | { status: 'invalid'; facts: null; diagnostics: DetectProjectFactsDiagnostic[]; limits: DetectProjectFactsLimits }
+  | { status: 'invalid'; facts: null; problems: { path: string; reason: string; message: string }[]; diagnostics: DetectProjectFactsDiagnostic[]; limits: DetectProjectFactsLimits }
   | { status: 'cancelled'; facts: null; diagnostics: DetectProjectFactsDiagnostic[]; limits: DetectProjectFactsLimits };
 export declare function detectProjectFacts(request: DetectProjectFactsRequest,
   controls?: DetectProjectFactsControls): Promise<DetectProjectFactsResult>;

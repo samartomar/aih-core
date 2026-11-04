@@ -49,6 +49,9 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog and profiles the plan was made with.' },
   { status: 'invalid', code: 'render-failed', fix: 'Pass the Catalog that made the plan; its render did not return checked bytes.' },
   { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
+  // Inspection, file comparison and reporting (samartomar/aih-core#174).
+  { status: 'refused', code: 'tool-not-observed', fix: 'Inspect the host of a tool Core has an observed layout for.' },
+  { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

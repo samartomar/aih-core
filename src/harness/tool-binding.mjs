@@ -5,7 +5,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import bindingSchema from './schemas/tool-binding/1.0.0.json' with { type: 'json' };
 import { pointerMember, snapshotNativeData, unsupportedFormat } from './native/canonical.mjs';
 import { qualifyingIsolation, toolBindings } from './tool-binding-data.mjs';
-import { findTool, selectTool } from './tool-registry.mjs';
+import { findTool, selectTool } from './tool-registry-legacy.mjs';
 
 const BINDING = 'urn:aihq:harness:tool-binding:1.0.0';
 export const toolBindingKinds = Object.freeze(['skill', 'agent', 'command', 'rule', 'hook', 'mcp-server', 'document']);

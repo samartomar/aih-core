@@ -1,0 +1,6 @@
+{
+  "schema": "urn:aihq:core:tool-registry:0.1.0",
+  "tools": [
+    { "id": "claude-code", "label": "Claude Code", "surface": "desktop", "binaries": ["claude"], "aliases": ["claude"] }
+  ]
+}
