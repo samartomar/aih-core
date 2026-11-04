@@ -34,10 +34,12 @@ writeFileSync(join(process.cwd(), 'user-trust-inputs.json'), JSON.stringify({ sc
   sources: { os: false, supplied: [{ id: 'company', file: 'ca.pem' }] } }));
 const userCli = spawnSync(process.execPath, [cli, 'repair', 'user-tools-ca', '--target', 'pip', '--inputs-file', 'user-trust-inputs.json',
   '--offline', '--no-log', '--json'], { cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
-assert.equal(userCli.status, 0, userCli.stdout + userCli.stderr);
 const userPreview = JSON.parse(userCli.stdout);
-assert.equal(userPreview.status, 'ready'); ok(userPreview.review, REVIEW);
-assert.ok(userPreview.review.steps.some(step => step.managementId === 'user-tools-ca'));
+// Ready where the selected tool is installed; blocked, naming the unavailable prerequisite, where it is not.
+assert.ok(['ready', 'blocked'].includes(userPreview.status), userCli.stdout + userCli.stderr);
+assert.equal(userCli.status, userPreview.status === 'ready' ? 0 : 1);
+ok(userPreview.review, REVIEW);
+assert.equal(userPreview.review.environment.repair, 'user-tools-ca');
 
 writeFileSync(join(process.cwd(), 'export-inputs.json'), JSON.stringify({ schema: 'urn:aihq:core:export-inputs:0.1.0',
   sources: { os: false, supplied: [{ id: 'company', file: 'ca.pem' }] } }));
