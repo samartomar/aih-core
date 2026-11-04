@@ -7,7 +7,7 @@
   "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
   "properties": {
     "schema": { "const": "urn:aihq:core:review:0.1.0" },
-    "request": { "enum": ["plan", "removal", "change", "repair", "export", "macos-session"] },
+    "request": { "enum": ["plan", "removal", "change", "update", "repair", "export", "macos-session"] },
     "scope": { "enum": ["project", "user"] },
     "target": { "type": "object", "additionalProperties": false, "required": ["project"],
       "properties": { "project": { "type": ["string", "null"] } } },

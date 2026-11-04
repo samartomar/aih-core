@@ -48,6 +48,12 @@ export interface HandleState {
   request?: { value: unknown; documentDigest: string; bytesDigest: string };
   /** The private inputs the review was prepared with: Apply re-checks them by digest (`REVIEW_STALE` `input`). */
   privateInputs?: PrivateInputBinding;
+  /**
+   * An update (contract 12): the new data and origin each of its claims records once the run completes. Steps it kept
+   * because you edited their member (`<step>\0<managementId>`) are reviewed as left alone, so they don't hold it back.
+   */
+  record?: { data: { repository: string; commit: string } | null; origin: import('../internal/custody-items.js').PlanItemFacts['origin'];
+    claims: { root: string; identity: string }[]; kept: string[] };
 }
 const handles = new WeakMap<PreparedHandle, HandleState>();
 /** Every handle this module issued, also once consumed, so a second Apply still gets a 0.1.0 rejection. */

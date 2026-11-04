@@ -19,6 +19,7 @@ import { requestDigests } from './request.js';
 import { privateInputsHold } from './inputs.js';
 import { checkSwitchOff } from './switch-off.js';
 import { changeControls } from '../change/prepare.js';
+import { recordUpdate } from './update.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
 
@@ -86,6 +87,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   removeReleasedSetups(run);
   if (state.links) removeReleasedLinks(run, state.links);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
+  if (state.record) recordUpdate(run, state.record);
   if (before) {
     run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
     if (run.completion === 'complete' && before.completion !== 'complete') run.completion = 'incomplete';

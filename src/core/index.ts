@@ -141,7 +141,23 @@ export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventor
 export { prepareManagedRemoval } from './managed-removal.js';
 export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult, ManagedRemovalsRequest, ManagedRemovalPreparationResult12,
   RemovalSelector, RemovalEntry, RemovalMember, RemovalMemberAction } from './managed-removal.js';
-export { prepareUpdate } from './managed-update.js';
+import { prepareUpdate as prepareManagedUpdate, type ManagedUpdateRequest, type ManagedUpdatePreparationResult } from './managed-update.js';
+import { prepareUpdate as preparePlanUpdate } from './plan/update.js';
+import type { UpdateResult, UpdateSelector as PlanUpdateSelector } from './plan/types.js';
+export type { UpdateResult, UpdatePreparation, UpdateEntry as PlanUpdateEntry, UpdateMember as PlanUpdateMember,
+  UpdateSelector as PlanUpdateSelector } from './plan/types.js';
+/**
+ * `{ target, scope, updates: [{ managementIds?, request }] }` with a complete plan or change request returns the 0.1.0
+ * update preparation (contract 12); the retained replacement-selection request keeps its own result until it retires.
+ */
+export function prepareUpdate(request: { target: { project?: string | null }; scope: 'project' | 'user'; updates: PlanUpdateSelector[] },
+  controls?: PlanControls | ChangeControls): Promise<UpdateResult>;
+export function prepareUpdate(request: ManagedUpdateRequest, controls?: HostControls): Promise<ManagedUpdatePreparationResult>;
+export function prepareUpdate(request: unknown, controls: unknown = {}): Promise<UpdateResult | ManagedUpdatePreparationResult> {
+  const updates = request && typeof request === 'object' && !isProxy(request) ? Object.getOwnPropertyDescriptor(request, 'updates')?.value : undefined;
+  const current = Array.isArray(updates) && updates.some(update => !!update && typeof update === 'object' && Object.hasOwn(update, 'request'));
+  return current ? preparePlanUpdate(request, controls) : prepareManagedUpdate(request as ManagedUpdateRequest, controls as HostControls);
+}
 export type { ManagedUpdateRequest, ManagedUpdatePreparationResult, UpdateSelector, UpdateEntry, UpdateMember, UpdateMemberAction,
   UpdateItemFacts } from './managed-update.js';
 export { resolveStateLocation } from './resolve-state-location.js';

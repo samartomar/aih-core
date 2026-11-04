@@ -22,6 +22,8 @@ import { claimKey } from '../plan/claims.js';
 import type { ReviewOperation } from '../host-types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 
+
+
 const POLICY = 'urn:aihq:core:execution-policy:1.4.0';
 const COMMAND_LINE = 'Core can\'t show or undo what this command does; if it fails or is stopped, its effects are reported as uncertain.';
 
@@ -92,7 +94,14 @@ function sentence(operation: ReviewOperation, lifecycle: boolean, place: (absolu
   }
 }
 
-export async function prepareChange(input: unknown, rawControls?: unknown): Promise<PlanPreparation> {
+/** `update` (contract 12): Prepare as an update; `removals` are the named changes the request no longer holds. */
+export interface ChangeUpdateContext {
+  removals: { key: string; managementId: string; scope: 'project' | 'user' }[];
+  /** Filled by Prepare: the engine's planned member rows (kept untyped here: this module's declarations stay portable). */
+  rows?: unknown[]; cleanupRows?: unknown[];
+}
+
+export async function prepareChange(input: unknown, rawControls?: unknown, update?: ChangeUpdateContext): Promise<PlanPreparation> {
   forgetProvenState();
   const controls = changeControls(rawControls);
   if (!controls) return invalid([{ path: '', reason: 'controls', message: 'The change controls are not valid.' }]);
@@ -149,12 +158,14 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const attributed = request.scope === 'user' && project !== null;
   const engineId = (managementId: string): string => attributed ? claimKey(managementId, 'user', null, project) : managementId;
   const claims = new Map(request.changes.map(entry => [engineId(entry.managementId), entry.managementId]));
+  for (const removal of update?.removals ?? []) claims.set(removal.key, removal.managementId);
   const selections: ExecutionPolicy['selections'] = request.changes.map(entry => {
     if (entry.change) inline.set(entry.managementId, sha256(canonicalJson(entry.change as unknown as Json)));
     return { id: entry.managementId, managementId: engineId(entry.managementId), scope: request.scope, configuration: entry.inputs,
       requires: entry.requires, recipe: entry.change ? { inline: engineRecipe(entry.change, skips.get(entry.managementId)) } : { reference: entry.reference! } };
   });
   const policy: ExecutionPolicy = { schema: POLICY, mode: 'vibe', selections,
+    ...(update?.removals.length ? { removals: update.removals.map(removal => ({ managementId: removal.key, scope: removal.scope })) } : {}),
     ...(request.groups ? { managedSelections: request.groups.map(group => ({ id: group.id, scope: request.scope, members: group.members.map(engineId) })) } : {}) };
   for (const entry of request.changes) if (entry.change && skips.has(entry.managementId))
     skipped.set(entry.managementId, { change: entry.change, ids: leftOut(entry.change, skips.get(entry.managementId)!) });
@@ -171,7 +182,9 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const engine = await prepareEngine({ useCase: 'policy', policy, target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...(controls.signal ? { signal: controls.signal } : {}), ...(controls.logging ? { logging: controls.logging } : {}),
       ...(controls.privateInputs ? { privateInputs: controls.privateInputs } : {}), ...(controls.materialRoots ? { materialRoots: controls.materialRoots } : {}) },
-    undefined, undefined, undefined, undefined, undefined, { change: { inline, read }, owners,
+    undefined, undefined, undefined,
+    update ? { originReleases: [], plan: (rows: unknown[]) => { update.cleanupRows = rows; } } : undefined,
+    update ? { plan: (rows: unknown[]) => { update.rows = rows; } } : undefined, { change: { inline, read }, owners,
       ...(attributed ? { claims: new Map(request.changes.map(entry => [entry.managementId, { managementId: entry.managementId, project }])) } : {}) });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
@@ -222,7 +235,7 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
       effect: 'skipped', root: op.scope, requires: [...op.requires] });
   }
   const warnings = engine.diagnostics.filter(item => item.code !== 'STATE_CONFLICT').map(item => `${item.reason}: ${item.message}`);
-  const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'change', scope: request.scope, target: { project }, steps, conflicts,
+  const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'change', scope: request.scope, target: { project }, steps, conflicts,
     groups: (request.groups ?? []).map(group => ({ id: group.id, members: [...group.members] })), failureRule: FAILURE_RULE, warnings };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;

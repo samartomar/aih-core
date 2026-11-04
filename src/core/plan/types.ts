@@ -153,7 +153,7 @@ export interface ReviewConflict {
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal' | 'change' | 'repair' | 'export' | 'macos-session';
+  request: 'plan' | 'removal' | 'change' | 'update' | 'repair' | 'export' | 'macos-session';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
@@ -266,6 +266,28 @@ export interface RemovalEntry {
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+/** One update (contract 12): a complete new plan or change request, and the management ids it replaces when no proven origin names them. */
+export interface UpdateSelector { managementIds?: string[]; request: Json }
+/**
+ * What one reviewed update does to one member: `add`, `replace`, leave it `unchanged`, `remove` it, `restore` your earlier
+ * value, `unregister` one already gone, `keep-shared` one another claim holds, or `keep-changed` one you edited (never overwritten).
+ */
+export interface UpdateMember { kind: string; path: string; pointer?: string; blockId?: string; action: string; reason?: string }
+export interface UpdateEntry {
+  managementId: string;
+  disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
+  status?: 'ready' | 'partial' | 'blocked';
+  /** `add`: new in this request; `update`: installed and in the request; `remove`: installed, and left out of the request. */
+  change?: 'add' | 'update' | 'remove';
+  /** A removed item (C19, D109): "removed in data commit X", naming the new request's data commit (or that it left the plan). */
+  note?: string;
+  /** The recorded data and origin now, and those a complete update records. */
+  from?: { data: { repository: string; commit: string } | null; origin: Origin | null } | null;
+  to?: { data: { repository: string; commit: string } | null; origin: Origin | null } | null;
+  members: UpdateMember[];
+}
+export interface UpdatePreparation { status: 'ok'; entries: UpdateEntry[]; review?: Review; handle?: PlanHandle }
+export type UpdateResult = UpdatePreparation | Refusal | Invalid | UnsupportedVersion;
 /**
  * One program step's receipt facts (C30, C54): the command as reviewed (secrets redacted), the acquired executable it
  * ran (from the user root), and its undo: a `tool-command`'s reverse command and readback, or `null` when Core can't.

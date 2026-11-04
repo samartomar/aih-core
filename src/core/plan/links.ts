@@ -53,10 +53,20 @@ export function missingParents(home: string, path: string): string[] {
   return missing;
 }
 
-/** Places a junction or symlink (Apply, before its record is written). Never replaces what is already there. */
-export function placeLink(home: string, link: LinkFacts): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
-  const found = inspectLink(home, link.path, link.to);
+/**
+ * Places a junction or symlink (Apply, before its record is written). Never replaces what is already there, except, for
+ * an update, Core's own link to the earlier version folder `from`, which is repointed (contract 12 "Version folder moved").
+ */
+export function placeLink(home: string, link: LinkFacts, from?: string): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
+  let found = inspectLink(home, link.path, link.to);
   if (found === 'ours') return { status: 'passed', reason: 'already-linked', effectsUncertain: false };
+  if (from !== undefined && found === 'other' && inspectLink(home, link.path, from) === 'ours') {
+    const at = join(home, ...link.path.split('/'));
+    // Only the link goes, never what it points to: a junction is removed as a folder entry, a symlink unlinked.
+    try { rmdirSync(at); } catch { try { unlinkSync(at); } catch { return { status: 'failed', reason: 'relink-failed', effectsUncertain: false }; } }
+    found = inspectLink(home, link.path, link.to);
+    if (found !== 'absent') return { status: 'failed', reason: 'relink-failed', effectsUncertain: true };
+  }
   if (found === 'other') return { status: 'failed', reason: 'link-place-taken', effectsUncertain: false };
   const segments = link.path.split('/');
   try {

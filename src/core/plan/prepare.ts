@@ -12,7 +12,7 @@ import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
-import { register, type ProgramCheck, type StepRef } from './handles.js';
+import { register, type HandleState, type ProgramCheck, type StepRef } from './handles.js';
 import { resolveExecutable } from '../internal/approved-process.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
@@ -26,6 +26,10 @@ import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
+import type { PlanUpdateContext, UpdateSelection } from './update.js';
+import type { PlannedMember } from '../internal/update-plan.js';
+import type { CleanupPlanRow } from '../internal/removal-plan.js';
+import { isAbsolute, relative, sep } from 'node:path';
 import { bindPrivateInputs } from './inputs.js';
 import { limitValue } from './limits.js';
 import { acquisition } from './acquire/effect.js';
@@ -35,7 +39,7 @@ import { FALLBACK_REASONS, type AcquireFacts, type InstalledInterpreter } from '
 import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { Lowered, LoweredMerge } from './steps/types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
-import type { PreparationResult } from '../host-types.js';
+import type { PreparationResult, ReviewOperation } from '../host-types.js';
 import { REVIEW, type PlanControls, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from './types.js';
 
 export const FAILURE_RULE = 'A failed step stops the rest of its item and every item that depends on it; unrelated items continue.';
@@ -79,7 +83,13 @@ function profilesOf(supplied: { id: string; version: string | number }[], clis: 
 /** One claim (C28, C48): a management id and scope, made for one CLI (or none recorded) from one project. */
 interface Group { selectionId: string; managementId: string; scope: 'project' | 'user'; cli: string | null; key: string; steps: CheckedStep[] }
 
-export async function preparePlan(input: unknown, rawControls?: unknown): Promise<PlanPreparation> {
+/**
+ * `update` (contract 12, C39, C52): Prepare as an update of installed receipts. `select` names the recorded claims this
+ * update replaces once the plan's claims are known; claims it names that the new plan no longer makes are removed in the
+ * same review. Preparation fills in the planned member rows; the handle records the new data and origin only after a
+ * complete run.
+ */
+export async function preparePlan(input: unknown, rawControls?: unknown, update?: PlanUpdateContext): Promise<PlanPreparation> {
   forgetProvenState();
   const controls = planControls(rawControls);
   if (!controls) return { status: 'invalid', problems: [{ path: '', reason: 'controls', message: 'The plan controls are not valid.' }] };
@@ -172,10 +182,16 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     }
   }
   const claims = new Map([...groups.values()].map(group => [group.key, group.managementId]));
+  // An update (C52): the recorded claims it replaces; those the new plan no longer makes are removed in this review.
+  const selected = update?.select({ origin: proven.origin, plan: request.plan, project, home,
+    groups: [...groups.values()].map(({ key, managementId, scope, cli }) => ({ key, managementId, scope, cli })) });
+  if (selected && 'status' in selected) return selected;
+  for (const removal of selected?.removals ?? []) claims.set(removal.key, removal.managementId);
   // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
   // last can remove them; a copy holds the files the plan writes into the linked folder.
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
   const recordedLinks = new Map<string, string[]>();
+  const relinks = new Map<number, string>();
   if (checked.steps.some(step => step.lowered.kind === 'link')) for (const root of [home, ...ownershipInventory().targets])
     for (const item of Object.values(readOwnership(root).value.items ?? {}))
       for (const link of item.plan?.links ?? []) if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
@@ -187,7 +203,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       [{ path: `${lowered.path}/${other.lowered.path.slice(lowered.to.length + 1)}`, bytes: other.lowered.bytes, executable: other.lowered.executable }] : []);
     if (lowered.linkType === 'copy' && !files.length) return { status: 'invalid', problems: [{ path: `/plan/plan/${step.index}/to`, reason: 'link-target-unplanned',
       message: `Step ${step.index} copies \`${lowered.to}\`, but the plan writes nothing there.` }] };
-    linkPlans.set(step.index, { files, place: lowered.linkType === 'copy' ? 'absent' : inspectLink(home, lowered.path, lowered.to),
+    // An update repoints a link the replaced claims placed to an earlier version folder (contract 12 "Version folder moved").
+    const moved = lowered.linkType === 'copy' ? undefined : [...selected?.prior.values() ?? []].flatMap(facts => facts.links ?? [])
+      .find(link => link.path === lowered.path && link.linkType === lowered.linkType && link.to !== lowered.to && inspectLink(home, link.path, link.to) === 'ours');
+    if (moved) relinks.set(step.index, moved.to);
+    linkPlans.set(step.index, { files, place: lowered.linkType === 'copy' ? 'absent' : moved ? 'absent' : inspectLink(home, lowered.path, lowered.to),
       facts: { step: step.index, path: lowered.path, to: lowered.to, linkType: lowered.linkType,
         created: lowered.linkType === 'copy' ? [] : recordedLinks.get(lowered.path) ?? missingParents(home, lowered.path) } });
   }
@@ -238,7 +258,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         };
         if (lowered.linkType !== 'copy') {
           // The link is placed just before its record is written; each claim's record lives in Core's private state (contract 5).
-          effects.set(`${group.selectionId}/${id}`, { async run() { return placeLink(home, planned.facts); } });
+          const from = relinks.get(step.index);
+          effects.set(`${group.selectionId}/${id}`, { async run() { return placeLink(home, planned.facts, from); } });
           return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires, 'userState')];
         }
         operations.delete(`${group.selectionId}/${id}`);
@@ -291,8 +312,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       recheck: async () => true }));
     // An unattributed claim is held for every CLI the plan was made for (contract 5).
     const clis = group.cli !== null ? [group.cli] : planClis;
-    plans.set(group.selectionId, { items: [group.managementId], managementId: group.managementId, cli: group.cli, project, clis, data: request.plan.data === null ? null : { ...request.plan.data },
-      origin: proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
+    // An update keeps a replaced claim's recorded data and origin until the update completes (contract 12).
+    const before = selected?.prior.get(group.key);
+    plans.set(group.selectionId, { items: [group.managementId], managementId: group.managementId, cli: group.cli, project, clis,
+      data: before ? before.data === null ? null : { ...before.data } : request.plan.data === null ? null : { ...request.plan.data },
+      origin: before ? structuredClone(before.origin) : proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
       profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
@@ -318,11 +342,17 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
   }));
   const observed = new Map<string, ObservedStep>();
-  const engine = await prepareEngine({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections },
+  // An update releases the replaced claims the new plan no longer makes, and keeps every member you edited (C39, C58).
+  const removals = (selected?.removals ?? []).map(removal => ({ managementId: removal.key, scope: removal.scope }));
+  const lifecycleOwners = new Map<string, string[]>();
+  const engine = await prepareEngine({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections, ...(removals.length ? { removals } : {}) },
     target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...engineControls(controls), ...(Object.keys(enginePrivate).length ? { privateInputs: enginePrivate } : {}) },
-    undefined, undefined, undefined, undefined, undefined,
-    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
+    undefined, undefined, undefined,
+    update ? { originReleases: [], plan: (rows: CleanupPlanRow[]) => { update.cleanupRows = rows; } } : undefined,
+    update ? { plan: (rows: PlannedMember[]) => { update.rows = rows; } } : undefined,
+    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, ...(update ? { owners: lifecycleOwners } : {}),
+      observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))
@@ -343,6 +373,13 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const presented = new Set<string>();
   for (const operation of engine.review.operations) {
     const ref = operations.get(operation.id);
+    if (!ref && update && operation.id.startsWith('lifecycle/')) {
+      // An update's cleanup of members the new plan no longer has (contract 12): each listed as its own step.
+      const owner = (lifecycleOwners.get(operation.id) ?? []).map(id => claims.get(id) ?? id)[0] ?? '';
+      operations.set(operation.id, { step: operation.id, managementId: owner });
+      steps.push(cleanupStep(operation, owner, project, home));
+      continue;
+    }
     if (!ref) continue;
     const step = byStep.get(ref.step as number)!;
     if (step.lowered.kind === 'plugin') {
@@ -460,12 +497,14 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review,
       ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed)) });
-  steps.sort((a, b) => (a.step as number) - (b.step as number) || codeUnitCompare(a.managementId, b.managementId));
+  // Plan steps in plan order, then an update's cleanup steps in engine order.
+  const rank = (step: ReviewStep) => typeof step.step === 'number' ? step.step : Number.MAX_SAFE_INTEGER;
+  steps.sort((a, b) => rank(a) - rank(b) || (typeof a.step === 'string' && typeof b.step === 'string' ? 0 : codeUnitCompare(a.managementId, b.managementId)));
   const { plan: _steps, ...reports } = request.plan;
   // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop.
   const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
   const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
-  const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
+  const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
     ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...(compared?.warnings ?? [])],
     ...(compared ? { versions: compared.versions as unknown as Json[] } : {}) };
@@ -478,8 +517,43 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
     reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}), verifications,
     privateInputs: bindPrivateInputs(controls.privateInputs),
-    request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
+    request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest },
+    ...(selected ? updateRecord(selected, [...groups.values()], conflicts, project, home, request.plan.data, proven.origin) : {}) });
   return { status: partial ? 'partial' : 'ready', review, handle };
+}
+
+/**
+ * An update's handle facts: the links its replaced claims placed (each goes once released, C28), and the new data and
+ * origin every claim of the new plan records once the update completes (contract 12). Your kept edits don't count against
+ * completion: they are reviewed as left as they are.
+ */
+function updateRecord(selected: UpdateSelection, groups: Group[], conflicts: ReviewConflict[],
+    project: string | null, home: string, data: PlanItemFacts['data'], origin: PlanItemFacts['origin']): Pick<HandleState, 'links' | 'record'> {
+  const links = [...selected.prior.values()].flatMap(facts => facts.links ?? []);
+  return { ...(links.length ? { links } : {}), record: { data: data === null ? null : { ...data }, origin: structuredClone(origin),
+    claims: groups.map(group => ({ root: group.scope === 'project' ? project! : home, identity: claimIdentity(group.scope, group.key, project ?? home) })),
+    kept: conflicts.filter(conflict => conflict.reason === 'managed-content-changed').map(conflict => `${conflict.step}\0${conflict.managementId}`) } };
+}
+/** One cleanup step of an update, as the review lists it: the member it removes, restores, releases or keeps. */
+function cleanupStep(operation: ReviewOperation, managementId: string, project: string | null, home: string): ReviewStep {
+  const absolute = operation.details.target ?? '';
+  const inside = (base: string | null) => { if (base === null) return undefined; const path = relative(base, absolute);
+    return path && !path.startsWith('..') && !isAbsolute(path) ? path.split(sep).join('/') : undefined; };
+  const projectPath = inside(project), homePath = projectPath === undefined ? inside(home) : undefined;
+  const path = projectPath ?? homePath ?? absolute;
+  const reason = operation.details.reason;
+  const effect: ReviewStep['effect'] = ['remove-file', 'replace-file', 'already-satisfied'].includes(operation.effects) ?
+    operation.effects as ReviewStep['effect'] : operation.effects === 'conflict' ? 'conflict' : 'unchanged';
+  const sentence = reason === 'keep-changed' ? `Keeps \`${path}\` as you changed it; the update no longer has it, and never overwrites your edit` :
+    reason === 'keep-required' ? `Keeps \`${path}\`, the licence or notice of content you kept` :
+    reason === 'restore-pre-existing' ? `Restores your earlier value in \`${path}\`, which the update no longer has` :
+    reason === 'release-displaced' ? `Releases a displaced claim on \`${path}\`; the value there now stays` :
+    effect === 'remove-file' ? `Removes \`${path}\`, which the update no longer has` :
+    effect === 'replace-file' ? `Removes what the update no longer has from \`${path}\`` :
+    effect === 'already-satisfied' ? `Releases \`${path}\`, which the update no longer has; it is already gone or another claim keeps it` :
+    `Leaves \`${path}\` as it is`;
+  return { step: operation.id, op: 'remove', managementId, sentence, cantPromise: null, effect,
+    ...(projectPath !== undefined ? { root: 'project' as const } : homePath !== undefined ? { root: 'user' as const } : {}), path };
 }
 
 /**

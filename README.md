@@ -2752,6 +2752,42 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   (`command-effects-unknown`); an exit status never confirms its effects. `list` shows the saved facts under `programs`.
 - **Not yet:** Catalog records no reverse on settings commands; the tests use fake programs and a local git repository.
 
+### Update from a new plan or change request
+
+Core never looks for updates. Bring the complete new request (its files, profiles, qualifications and inputs, read as at
+install) and prepare it against the receipts it replaces:
+
+```js
+import { prepareUpdate, apply } from '@aihq/core';
+const update = await prepareUpdate({ target: { project: '/work/app' }, scope: 'project',
+  updates: [{ managementIds: ['local-my-skills.skill.notes'], request: newPlanRequest }] }, { catalog });
+// { status: 'ok', entries: [{ managementId, disposition, status, change, members, from, to, note? }], review, handle? }
+const run = await apply(update.handle, { approved: true, origin: 'interactive', reviewDigest: update.review.reviewDigest, allowPartial: true });
+```
+
+- **Which receipts (C52).** A plan whose recipe origin Core proves (as at install) replaces the receipts here whose origin
+  has the same recipe `id` and `repository`, whatever their recipe or data commit. An unproven plan, or a change, replaces
+  exactly the `managementIds` it names; none named is `refused` `update-target-required`, and so is a request item
+  installed here that the update doesn't name. Two different installed origins of that recipe here are `refused`
+  `update-ambiguous`, naming them. A named id with no claim here is an `absent` entry. One update per call.
+- **What happens to members (C39, C58).** New members are added; members Core wrote and the request changes are replaced;
+  members the request no longer has are removed, unless another claim (another CLI, project or install) still holds
+  them (`keep-shared`). A member you edited is never overwritten: a changed one is a `managed-content-changed` conflict
+  with no choices, listed `keep-changed`, and the review is `partial` (approve with `allowPartial`); a dropped one is
+  kept (`keep-changed`). An item the request no longer has is an entry with `change: remove` and the note "removed in
+  data commit X". The review is `request: update` and lists each cleanup as its own step.
+- **Moved version folders.** A `link` whose target folder moved (a new version) is repointed after the new version's
+  files are written; the old version's files go once no claim holds them, and a file you edited there stays.
+- **Data and origin.** The receipts record the new data commit and origin only after the update's run carried out
+  every reviewed step (your kept edits aside). A rejected, failed, cancelled or interrupted run keeps the earlier ones.
+- **CLI.** `aih update <plan-request.json | change-request.json> --scope project|user [--project <path>]
+  [--management-id <id>]... [--source <sourceId>=<folder>]... [--material-root <id>=<folder>]... [--resolutions <file>]
+  [--apply [--yes] [--allow-partial]] [--private-input <name>=<ENV>]... [--json]`. Exit 0 when every prepared entry is
+  `ready` or the run completed; 1 for a partial or blocked entry, no prepared entry, or an incomplete run; 2 refused,
+  invalid or rejected.
+- The retained replacement-selection form (`updates: [{ managementId, replacement }]`, below) keeps its own result until
+  it retires.
+
 ## Apply authored changes through a change request (0.1.0, in development)
 
 A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an

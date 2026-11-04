@@ -65,6 +65,9 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },
   // Upstream setups, upstream installers and tool commands (samartomar/aih-core#176).
   { status: 'refused', code: 'setup-folder-occupied', fix: 'Move the files in the setup folder away, then Prepare again.' },
+  // Updates from explicit new requests (samartomar/aih-core#178).
+  { status: 'refused', code: 'update-target-required', fix: 'Name the `managementIds` the update replaces.' },
+  { status: 'refused', code: 'update-ambiguous', fix: 'Name the `managementIds` of the one install to update.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

@@ -184,6 +184,7 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
   change: () => import('./cli/change.js'),
+  update: () => import('./cli/update.js'),
 };
 // 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
 const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;

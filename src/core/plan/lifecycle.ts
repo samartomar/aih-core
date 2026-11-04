@@ -35,7 +35,7 @@ const plain = (value: unknown, keys: string[]): value is Record<string, unknown>
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /** The project and the folder the engine anchors a request on: the project, or home for a user-only place. */
-function place(request: Record<string, unknown>, scopes: string[]): { project: string | null; anchor: string; scope: string } | { status: 'invalid'; problems: Problem[] } {
+export function place(request: Record<string, unknown>, scopes: string[]): { project: string | null; anchor: string; scope: string } | { status: 'invalid'; problems: Problem[] } {
   if (!scopes.includes(request.scope as string)) return invalid('/scope', 'scope', `The scope is one of ${scopes.join(', ')}.`);
   if (!plain(request.target, ['project'])) return invalid('/target', 'target', 'The target is `{ project? }`.');
   const named = request.target.project;
