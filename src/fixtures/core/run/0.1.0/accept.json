@@ -1,0 +1,12 @@
+{
+  "schema": "urn:aihq:core:run:0.1.0",
+  "status": "ok",
+  "runId": "8a1f8f2e-7c0d-4b8e-9b4a-1d2c3b4a5f6e",
+  "completion": "complete",
+  "reviewDigest": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e",
+  "steps": [ { "step": 0, "managementId": "local-my-skills.skill.notes", "application": "applied",
+    "verification": { "status": "unverified", "reason": "no-supplied-check" } } ],
+  "members": [ { "managementId": "local-my-skills.skill.notes", "scope": "project", "kind": "file",
+    "path": "/work/app/.claude/skills/notes/SKILL.md", "intent": "write", "outcome": "written", "check": "present-matching" } ],
+  "history": { "status": "recorded" }
+}

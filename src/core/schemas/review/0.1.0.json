@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:review:0.1.0",
+  "title": "A frozen review: every effect Apply may have, bound by its reviewDigest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:review:0.1.0" },
+    "request": { "enum": ["plan", "removal"] },
+    "scope": { "enum": ["project", "user"] },
+    "target": { "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": ["string", "null"] } } },
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "data", "missing", "unavailable", "clashes", "duplicates", "references", "warnings"],
+      "properties": {
+        "status": { "enum": ["ok", "incomplete"] },
+        "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+          "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
+        "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+          "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+        "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
+        "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
+      }
+    },
+    "origin": { "const": "chosen" },
+    "originNote": { "type": ["string", "null"] },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+    "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
+    "ignoredFiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath"],
+      "properties": { "sourceId": { "type": "string" }, "sourcePath": { "type": "string" } } } },
+    "failureRule": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "step": {
+      "type": "object", "additionalProperties": false,
+      "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
+      "properties": {
+        "step": { "type": "integer", "minimum": 0 },
+        "op": { "type": "string" },
+        "managementId": { "type": "string" },
+        "sentence": { "type": "string" },
+        "cantPromise": { "type": ["string", "null"] },
+        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged"] },
+        "root": { "enum": ["project", "user"] },
+        "path": { "type": "string" },
+        "item": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "clis": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "conflict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "choices"],
+      "properties": {
+        "code": { "const": "STATE_CONFLICT" },
+        "reason": { "enum": ["existing-content", "managed-content-changed"] },
+        "managementId": { "type": "string" },
+        "step": { "type": "integer", "minimum": 0 },
+        "target": { "type": "string" },
+        "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } }
+      }
+    }
+  }
+}

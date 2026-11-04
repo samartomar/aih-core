@@ -30,6 +30,28 @@ export interface ItemFacts {
   projectFacts?: SelectionMetadata['projectFacts'];
   /** The exact git commit the selection's referenced recipe was last applied from; absent for every other source. */
   materialSource?: GitMaterialProvenance;
+  /** Receipt facts of an install made from a plan request (`urn:aihq:core:plan-request:0.1.0`); absent for every other request. */
+  plan?: PlanItemFacts;
+}
+/**
+ * What a plan-request install records for one management id (one item per scope, C48): where the content came from and
+ * which clients, steps and profiles it was planned for. Copied from the reviewed request; never authority.
+ */
+export interface PlanItemFacts {
+  /** The item ids the management id's steps name. */
+  items: string[];
+  /** Sorted, unique CLI ids the steps record in `clis`. */
+  clis: string[];
+  /** The Catalog data the plan was made from, or `null` for own content. */
+  data: { repository: string; commit: string } | null;
+  /** `chosen`; a proven recipe origin is recorded by a later contract slice. */
+  origin: 'chosen';
+  /** The caller's Catalog version when one was passed in `controls.catalog`; otherwise `null`. */
+  catalog: string | null;
+  /** The tool profiles supplied with the plan for the CLIs named here. */
+  profiles: { id: string; version: string | number }[];
+  /** The plan step indexes grouped under this management id, ascending. */
+  steps: number[];
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -194,6 +216,24 @@ function validOrigin(value: unknown): boolean {
     (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));
 }
 
+const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
+/** Plan-request receipt facts, bounded like the rest of an item record. */
+export function validPlanFacts(value: unknown): boolean {
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'])) return false;
+  const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
+    list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
+  if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
+  if (value.data !== null && !(exact(value.data, ['repository', 'commit']) && text(value.data.repository, 512) && text(value.data.commit, 128))) return false;
+  if (value.origin !== 'chosen' || value.catalog !== null && !text(value.catalog, 64)) return false;
+  if (!Array.isArray(value.profiles) || value.profiles.length > 64 || !value.profiles.every(profile => exact(profile, ['id', 'version']) &&
+      typeof profile.id === 'string' && PLAN_ID.test(profile.id) &&
+      (text(profile.version, 64) || Number.isSafeInteger(profile.version) && (profile.version as number) >= 0))) return false;
+  const steps = value.steps;
+  return Array.isArray(steps) && steps.length > 0 && steps.length <= 65536 &&
+    steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
+}
+
 function validProvenance(value: unknown): boolean {
   if (!exact(value, ['kind', 'repository', 'commit', 'identity']) || value.kind !== 'git' ||
       typeof value.commit !== 'string' || !/^[a-f0-9]{40}$/.test(value.commit)) return false;
@@ -217,7 +257,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const claimedBy = claimIndex(value);
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
     if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
-        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts']) ||
+        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
@@ -231,6 +271,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
+    if (item.plan !== undefined && !validPlanFacts(item.plan)) return false;
     if (!validProjectFacts(item.projectFacts)) return false;
     const owned = claimedBy(item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
@@ -239,8 +280,13 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
         owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
+      // A replaced whole file is restorable by a reference to its protected original, never by its bytes.
+      const files = new Set(owned.filter(([, owner]) => owner.descriptor === undefined || owner.descriptor.kind === 'file').map(([key]) => key));
+      const original = (entry: unknown): boolean => exact(entry, ['value']) && exact(entry.value, ['originalFile']) &&
+        exact(entry.value.originalFile, ['sha256', 'byteLength']) && hex(entry.value.originalFile.sha256) &&
+        Number.isSafeInteger(entry.value.originalFile.byteLength) && (entry.value.originalFile.byteLength as number) >= 0;
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
-          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || files.has(key) && original(entry))) return false;
     }
     if (item.redactedPaths !== undefined) {
       const keys = new Set(owned.map(([key]) => key));
@@ -305,7 +351,8 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
   value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
     framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins,
     ...(facts.projectFacts ? { projectFacts: facts.projectFacts } : {}),
-    ...(source ? { materialSource: source } : {}), members: prior?.members ?? [],
+    ...(source ? { materialSource: source } : {}),
+    ...(facts.plan ? { plan: facts.plan } : {}), members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
     ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),
@@ -320,7 +367,7 @@ export function completeItem(value: Custody, id: string): boolean {
   if (!item?.installState) return false;
   const { installState: _done, pending: _pending, ...rest } = item;
   const items = { ...value.items, [id]: rest };
-  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.preExisting && !rest.redactedPaths)
+  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.plan && !rest.preExisting && !rest.redactedPaths)
     delete items[id];
   value.items = items;
   return true;

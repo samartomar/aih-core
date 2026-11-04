@@ -1,0 +1,9 @@
+{
+  "schema": "urn:aihq:core:inventory:0.1.0",
+  "status": "ok",
+  "target": { "project": "/work/app" },
+  "scope": "project",
+  "observation": "complete",
+  "entries": [ { "managementId": "local-my-skills.skill.notes", "scope": "project", "items": [], "origin": "chosen", "data": null,
+    "clis": [], "installState": "complete", "members": [ { "kind": "file", "path": "/work/app/x", "state": "edited", "sha256": "receipts digests never appear" } ] } ]
+}

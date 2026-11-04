@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:run:0.1.0",
+  "title": "The result of Apply: each step's application, the members checked on disk, and the run's completion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "runId", "completion", "reviewDigest", "steps", "members", "history"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:run:0.1.0" },
+    "status": { "const": "ok" },
+    "runId": { "type": "string", "minLength": 1 },
+    "completion": { "enum": ["complete", "incomplete", "cancelled", "rejected"] },
+    "code": { "type": "string" },
+    "changed": { "enum": ["policy", "binding", "target-file", "ownership", "input", "host"] },
+    "reason": { "type": "string" },
+    "reviewDigest": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+    "steps": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["step", "managementId", "application", "verification"],
+      "properties": {
+        "step": { "type": "integer", "minimum": 0 },
+        "managementId": { "type": "string" },
+        "application": { "enum": ["applied", "already-satisfied", "failed", "not-attempted"] },
+        "verification": { "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+          "properties": { "status": { "type": "string" }, "reason": { "type": "string" } } }
+      } } },
+    "members": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["managementId", "scope", "kind", "path", "intent", "outcome", "check"],
+      "properties": {
+        "managementId": { "type": "string" }, "scope": { "enum": ["project", "user"] }, "kind": { "type": "string" },
+        "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
+        "intent": { "enum": ["write", "remove", "keep"] },
+        "outcome": { "enum": ["written", "claim-removed", "restored", "kept"] },
+        "check": { "enum": ["present-matching", "present-different", "absent", "unchecked"] }
+      } } },
+    "history": { "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": { "status": { "enum": ["recorded", "disabled", "not-recorded"] }, "limit": { "type": "string" } } }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "urn:aihq:core:review:0.1.0",
+  "request": "plan",
+  "scope": "project",
+  "target": { "project": "/work/app" },
+  "plan": { "status": "ok", "data": null, "missing": [], "unavailable": [], "clashes": [], "duplicates": [], "references": [], "warnings": [] },
+  "origin": "chosen",
+  "originNote": null,
+  "steps": [ { "step": 0, "op": "write", "managementId": "local-my-skills.skill.notes", "sentence": "Writes `.claude/skills/notes/SKILL.md`",
+    "cantPromise": null, "effect": "create-file", "root": "project", "path": ".claude/skills/notes/SKILL.md",
+    "item": "local-my-skills.skill.notes", "clis": ["claude-code"] } ],
+  "conflicts": [],
+  "ignoredFiles": [],
+  "failureRule": "A failed step stops the rest of its item and every item that depends on it; unrelated items continue.",
+  "warnings": [],
+  "reviewDigest": "3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e"
+}

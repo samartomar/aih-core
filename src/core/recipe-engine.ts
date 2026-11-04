@@ -29,7 +29,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
 import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember } from './internal/custody-items.js';
+import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { missingContainers, pruneEmptyContainers } from './internal/hook-group.js';
@@ -79,6 +79,8 @@ interface PreparedStep {
   redactedPaths?: Record<string, string>;
   /** A cleanup step that writes the recorded pre-existing value back instead of removing the member. */
   restores?: boolean;
+  /** A reviewed replacement of a person's whole file: their bytes, kept as a protected original before the effect. */
+  original?: Buffer;
   /** Removal preparation 1.2.0: a cleanup step that keeps its member and the claims on it, with the reason. */
   kept?: { action: 'keep-changed' | 'keep-required'; reason: string };
   /** Why a `conflict` step leaves its member as it is, named per member by managed update preparation. */
@@ -106,6 +108,8 @@ interface PreparedState {
    * and each item's status in the consumer's release index at Prepare.
    */
   rechecks?: { own: Map<string, OwnMaterial[]>; indexStatus: Record<string, ReleaseIndexStatus> };
+  /** Lowered from a plan request: a rejected Apply names the changed binding whatever the internal review version. */
+  planned?: true;
 }
 // Authority read outcome that is not a successful read; carried as a precise diagnostic.
 class AuthorityFailure extends Error {
@@ -239,6 +243,15 @@ function indexStatuses(policy: ExecutionPolicy, index: HostControls['index']): R
     [[selection.id, releaseIndexStatus(selection.item, index)]]));
 }
 const handles = new WeakMap<PreparedHandle, PreparedState>();
+/**
+ * How a plan request (`src/core/plan/`) is lowered into this engine without a second engine: per selection id, the
+ * caller-supplied source bytes it already checked (used instead of acquiring material) and the receipt facts its
+ * items record. Every other request leaves it undefined.
+ */
+export interface EngineExtension {
+  supplied?: ReadonlyMap<string, { readonly materials: readonly OwnMaterial[]; readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> }>;
+  plans?: ReadonlyMap<string, PlanItemFacts>;
+}
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
 /** A whole policy request: the policy's own bound plus the 1,000,000 of each other field Prepare copies. */
@@ -348,10 +361,13 @@ function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Jso
       ...(capturedMissing ? { reason: `executable-missing:${capturedMissing}` } : {}) } };
 }
 async function captureSelection(selection: ExecutionPolicy['selections'][number], roots: Record<string, string>,
-    budget: MaterialCaptureBudget, signal?: AbortSignal): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly OwnMaterial[];
+    budget: MaterialCaptureBudget, signal?: AbortSignal, extension?: EngineExtension): Promise<{ recipe: Recipe; recipeSha256: string; material: { readonly materials: readonly OwnMaterial[];
       readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> } }> {
   // A recipe-less selection was rendered before any capture.
   const selected = selection.recipe!;
+  // A plan request's source bytes were supplied by the caller and checked before lowering; they are never read from disk.
+  const supplied = extension?.supplied?.get(selection.id);
+  if (supplied && 'inline' in selected) return { recipe: selected.inline, recipeSha256: digest(selected.inline), material: supplied };
   if ('reference' in selected) {
     const captured = await captureRecipeReference(selected.reference, roots, { signal, budget });
     const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
@@ -396,6 +412,29 @@ function hasJsonContent(bytes: Buffer): boolean {
   return !empty(value);
 }
 
+/** Where a replaced file's original bytes are kept, by digest, inside the protected recovery folder. */
+const originalPath = (digest: string): string => `recovery/originals/${digest}.bin`;
+/** Keeps a person's replaced file before Core's first effect on it; an identical original already kept is reused. */
+function keepOriginal(bytes: Buffer): void {
+  const digest = sha256(bytes);
+  const existing = readRegularFile(join(stateRoot(), originalPath(digest)), { maxBytes: 16 * 1024 * 1024 });
+  if (existing && sha256(existing) === digest) return;
+  protectState(); mkdirSync(join(stateRoot(), 'recovery', 'originals'), { recursive: true, mode: 0o700 });
+  protectState(['recovery/originals']);
+  stateFiles(16 * 1024 * 1024).writeAtomic(originalPath(digest), bytes, 0o600);
+  protectState([originalPath(digest)]);
+}
+/** The kept original a file member's restoration data names, when it is still there with its exact bytes. */
+function readOriginal(value: Json): Buffer | undefined {
+  const reference = value && typeof value === 'object' && !Array.isArray(value) ? value.originalFile : undefined;
+  if (!reference || typeof reference !== 'object' || Array.isArray(reference) || typeof reference.sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(reference.sha256)) return undefined;
+  try {
+    const bytes = readRegularFile(join(stateRoot(), originalPath(reference.sha256)), { maxBytes: 16 * 1024 * 1024 });
+    return bytes && sha256(bytes) === reference.sha256 ? Buffer.from(bytes) : undefined;
+  } catch { return undefined; }
+}
+
 function stageRecovery(runId: string, steps: PreparedStep[], project: string): string {
   const base = `recovery/${runId}`;
   pathPins(join(stateRoot(), base));
@@ -428,7 +467,7 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
     unavailableInvocations?: CapturedUnavailableInvocations,
     custodyImageStillCurrent?: () => boolean,
-    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, update?: UpdateOptions): Promise<PreparationResult> {
+    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, update?: UpdateOptions, extension?: EngineExtension): Promise<PreparationResult> {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
@@ -581,7 +620,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     for (const selection of dependencyOrder(policy.selections)) {
       if (controls.signal?.aborted) throw new Error('cancelled');
       let captured: Awaited<ReturnType<typeof captureSelection>>;
-      try { captured = await captureSelection(selection, controls.materialRoots ?? {}, captureBudget, controls.signal); }
+      try { captured = await captureSelection(selection, controls.materialRoots ?? {}, captureBudget, controls.signal, extension); }
       catch (error) {
         if (!(error instanceof MaterialCaptureError) || !['archive-download-failed', 'archive-incomplete',
           'local-file-unavailable', 'local-root-unavailable', 'acquisition-deadline'].includes(error.reason)) throw error;
@@ -657,6 +696,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let after: Buffer | null | undefined; let pins: PathPin[] | undefined; let mode: number | undefined;
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let stepMembers: MemberDescriptor[] | undefined; let preExisting: Record<string, Json> | undefined;
+        let original: Buffer | undefined;
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let createdContainer = false;
@@ -978,6 +1018,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               const errors: ParseError[] = []; const value = parseJsonc(found.toString('utf8'), errors, { allowTrailingComma: true }) as Json;
               if (!errors.length && value !== undefined) (preExisting ??= {})[key] = value;
             }
+          // A reviewed replacement of a person's whole file keeps their bytes as a protected original (recovery/originals),
+          // referenced from custody by digest; the last removal writes them back instead of leaving nothing.
+          if (resolution === 'replace' && op.kind === 'file.write' && custody && !editConflict && before !== null && before !== undefined)
+            for (const member of descriptors) {
+              const key = memberKey(member);
+              if (member.kind !== 'file' || projected.members[key] || !custody[key]) continue;
+              (preExisting ??= {})[key] = { originalFile: { sha256: sha256(before), byteLength: before.length } };
+              original = before;
+            }
           // A reviewed replacement of a person's own shared block keeps that block's content in protected
           // custody; the last removal writes the person's block back instead of leaving nothing.
           if (resolution === 'replace' && op.kind === 'text.block' && op.action === 'set' && op.content && !editConflict && before !== null &&
@@ -1025,7 +1074,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           steps.push({ review: rescueReview, root: project!, path: rescueStep.path, initialBefore: rescueStep.initial, before: rescueStep.before,
             after: rescueStep.after, mode: rescueStep.mode, pins: pathPins(join(project!, rescueStep.path)), managementId: selection.managementId,
             recipeIdentity, checks: [], authored: { selectionId: selection.id, operationId: `${op.id}-rescued`, overlayKey: rescueKey, choices: [] },
-            item: selectionItem(selection, project!, privateValues) });
+            item: selectionItem(selection, project!, privateValues, extension) });
           overlays.set(rescueKey, { initial: rescueStep.initial, after: rescueStep.after, priorId: rescueId });
           rescueChains.set(rescueKey, rescueId);
           currentIds.push(rescueId);
@@ -1045,8 +1094,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(effect === 'conflict' && conflictReason ? { conflictReason } : {}),
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
             ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
+            ...(original ? { original } : {}),
             // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
-            item: selectionItem(selection, project!, privateValues) });
+            item: selectionItem(selection, project!, privateValues, extension) });
         }
       }
       selectionOps.set(selection.id, currentIds);
@@ -1240,9 +1290,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // empty; a member the person already deleted stays deleted: only Core's present, unchanged value
           // is given back. Shared blocks join this rule: the person's earlier block content is restored.
           const shared = descriptor.kind === 'block' && sharedBlockRole(descriptor.startMarker, descriptor.endMarker) !== null;
-          const recorded = bytes !== null && (descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') || shared) ?
-            preExistingFor(ownership.get(root)!.value, key) : undefined;
-          if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
+          const recorded = bytes !== null && (descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') || shared ||
+            descriptor.kind === 'file') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
+          const originalBytes = descriptor.kind === 'file' && recorded ? readOriginal(recorded.value) : undefined;
+          if (originalBytes) { after = originalBytes; restores = true; }
+          else if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
           else if (recorded && shared && typeof recorded.value === 'string' && descriptor.kind === 'block') {
             after = renderTextBlock(before, { blockId: descriptor.blockId, startMarker: descriptor.startMarker,
               endMarker: descriptor.endMarker, action: 'set', content: recorded.value });
@@ -1480,7 +1532,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request, REQUEST_MAX_SIZE)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ...(extension ? { planned: true as const } : {}), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(checksScans ? { rechecks: { own: owned, indexStatus: indexStatus! } } : {}),
         ...(organization ? { organization: clone({ source: organization.read.source, contentDigest: organization.read.contentDigest,
@@ -1609,7 +1661,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     state = prepared && typeof prepared === 'object' ? handles.get(prepared) : undefined;
     // A lost or consumed handle carries no review, so its version is unknowable and the 1.0.0 default is the only truthful label.
     if (!state) throw new Error('handle-unavailable');
-    reportsChangedBinding = state.review.schema === PREPARED_16 || state.review.schema === PREPARED_17;
+    reportsChangedBinding = state.review.schema === PREPARED_16 || state.review.schema === PREPARED_17 || state.planned === true;
     ownerList = state.review.schema === PREPARED_17;
     result.schema = ownerList ? RESULT_15 : reportsChangedBinding ? RESULT_14 : [PREPARED_11, PREPARED_14, PREPARED_15].includes(state.review.schema as never) ? RESULT_11 : RESULT_10;
     result.inputs = state.review.inputs;
@@ -1902,6 +1954,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertStep(step);
         if (receiptDigest(step.root) !== state.ownership.get(step.root)?.digest) throw stale('ownership');
         writePending(); started = true;
+        if (step.original) keepOriginal(step.original);
         // Write ahead the members this effect changes, so a crash before its custody is published can be settled later.
         // A written file is recorded with the identity of the staged file that replaces the destination.
         const attempting = step.item && !step.lifecycle ? pendingMembers(step, state.ownership.get(step.root)!.value) : [];
@@ -2255,15 +2308,17 @@ function reservePending(value: Ownership, steps: PreparedStep[]): void {
 function writesCustody(step: PreparedStep): boolean {
   return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly;
 }
-function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[]): NonNullable<PreparedStep['item']> {
+function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[], extension?: EngineExtension): NonNullable<PreparedStep['item']> {
   const source = selectionSource(selection);
-  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined,
+  const plan = extension?.plans?.get(selection.id);
+  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined || plan !== undefined,
     facts: { managementId: selection.managementId, scope: selection.scope,
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
       tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins),
       ...(selection.projectFacts === undefined ? {} : { projectFacts: selection.projectFacts.map(fact => ({ ...fact, value: safeText(fact.value, privateValues) })) }),
-      ...(source === undefined ? {} : { materialSource: source }) } };
+      ...(source === undefined ? {} : { materialSource: source }),
+      ...(plan === undefined ? {} : { plan: clone(plan) }) } };
 }
 /** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */
 function selectionSource(selection: ExecutionPolicy['selections'][number]): GitMaterialProvenance | undefined {
@@ -2275,5 +2330,6 @@ function factsOf(item: ItemFacts): ItemFacts {
   return { managementId: item.managementId, scope: item.scope, name: item.name, kind: item.kind, framework: item.framework,
     item: item.item, tool: item.tool, origins: item.origins,
     ...(item.projectFacts ? { projectFacts: clone(item.projectFacts) } : {}),
-    ...(item.materialSource ? { materialSource: item.materialSource } : {}) };
+    ...(item.materialSource ? { materialSource: item.materialSource } : {}),
+    ...(item.plan ? { plan: item.plan } : {}) };
 }

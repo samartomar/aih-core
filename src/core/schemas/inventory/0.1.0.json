@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:inventory:0.1.0",
+  "title": "What list returns: each management id in a place, with its items, origin, CLIs and member states",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "target", "scope", "observation", "entries"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:inventory:0.1.0" },
+    "status": { "const": "ok" },
+    "target": { "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": ["string", "null"] } } },
+    "scope": { "enum": ["project", "user", "both"] },
+    "observation": { "enum": ["complete", "incomplete"] },
+    "entries": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["managementId", "scope", "items", "origin", "data", "clis", "installState", "members"],
+      "properties": {
+        "managementId": { "type": "string" },
+        "scope": { "enum": ["project", "user"] },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "origin": { "enum": ["chosen", null] },
+        "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+          "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "installState": { "enum": ["complete", "interrupted"] },
+        "members": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "path", "state"],
+          "properties": {
+            "kind": { "type": "string" }, "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
+            "linkType": { "enum": ["junction", "symlink", "copy"] },
+            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked"] }
+          } } }
+      } } }
+  }
+}

@@ -223,3 +223,11 @@ export { checkContracts, validatePackageSupport } from './package-support.js';
 export { stateLocation } from './state-location.js';
 export type { StateLocation, StateLocationRoot, StateLocationMarker } from './state-location.js';
 export type { ContractFixture, SupportedContract, PackageSupport, ContractReadResult, CheckContractsRequest, ContractCheck, ContractCheckResult } from './package-support.js';
+// 0.1.0 formats (contract 3, 4, 14, 15): one schema per format with its valid and invalid fixture, every refusal
+// code, and the limits. Each registry is append-only; later contract slices add entries in their own modules.
+export { schemas, validateFormat } from './plan/formats.js';
+export type { FormatResult } from './plan/formats.js';
+export { refusalCodes } from './plan/codes.js';
+export type { RefusalCode } from './plan/codes.js';
+export { limits } from './plan/limits.js';
+export type { Limit } from './plan/limits.js';

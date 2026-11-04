@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:plan-request:0.1.0",
+  "title": "A Catalog plan plus what Core needs to carry it out; source bytes never appear in the saved document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scope", "target", "plan", "contents", "profiles", "files"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:plan-request:0.1.0" },
+    "scope": { "enum": ["project", "user"] },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 } }
+    },
+    "plan": { "$ref": "#/$defs/plan" },
+    "contents": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/content" } },
+    "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/profile" } },
+    "files": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/file" } },
+    "qualifications": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
+    "inputs": { "type": "object", "additionalProperties": { "type": "object" } },
+    "recipeProof": { "type": "object" },
+    "scans": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
+    "resolutions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/resolution" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourcePath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "data": {
+      "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+      "properties": { "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+    },
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "data", "plan", "missing", "unavailable", "clashes", "duplicates", "references", "warnings"],
+      "properties": {
+        "status": { "enum": ["ok", "incomplete"] },
+        "data": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/data" }] },
+        "recipe": {
+          "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+          "properties": { "id": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/sha256" },
+            "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        },
+        "plan": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+        "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
+        "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
+      }
+    },
+    "step": {
+      "description": "A Catalog plan step. Fields depend on `op`; an op Core does not carry out is refused (`step-unknown`), never schema-invalid.",
+      "type": "object", "required": ["op"],
+      "properties": { "op": { "type": "string", "minLength": 1, "maxLength": 64 } }
+    },
+    "content": {
+      "type": "object", "required": ["schema", "framework", "sources", "items"],
+      "properties": {
+        "schema": { "const": "urn:aihq:catalog:content:0.1.0" },
+        "framework": { "type": "object", "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" } } },
+        "sources": { "type": "array", "items": { "type": "object", "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" },
+          "notices": { "type": "array", "items": { "type": "object", "required": ["sourcePath", "sha256"],
+            "properties": { "sourcePath": { "$ref": "#/$defs/sourcePath" }, "sha256": { "$ref": "#/$defs/sha256" } } } } } } },
+        "items": { "type": "array", "items": { "type": "object", "required": ["id", "files"], "properties": { "id": { "$ref": "#/$defs/id" },
+          "files": { "type": "array", "items": { "type": "object", "required": ["sourceId", "sourcePath", "sha256", "executable"],
+            "properties": { "sourceId": { "$ref": "#/$defs/id" }, "sourcePath": { "$ref": "#/$defs/sourcePath" },
+              "sha256": { "$ref": "#/$defs/sha256" }, "executable": { "type": "boolean" } } } } } } }
+      }
+    },
+    "profile": {
+      "type": "object", "required": ["schema", "id", "version"],
+      "properties": {
+        "schema": { "const": "urn:aihq:catalog:tool-profile:0.1.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "version": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "integer", "minimum": 0 }] }
+      }
+    },
+    "file": {
+      "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath", "sha256"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "sourcePath": { "$ref": "#/$defs/sourcePath" }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "resolution": {
+      "type": "object", "additionalProperties": false, "required": ["managementId", "step", "choice", "observedSha256"],
+      "properties": { "managementId": { "$ref": "#/$defs/id" }, "step": { "type": "integer", "minimum": 0 },
+        "choice": { "enum": ["replace", "adopt", "skip"] }, "observedSha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] } }
+    }
+  }
+}

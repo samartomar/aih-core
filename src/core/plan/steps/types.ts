@@ -1,0 +1,37 @@
+// The step-handler seam: one file per Catalog step kind, registered in `./index.ts`. A handler checks one plan step
+// against the request (sources, containment, clients) before any effect and lowers it into the existing engine's
+// operations. It never touches the disk.
+import type { Json } from '../../types.js';
+import type { PlanControls, PlanRequest, PlanStep, Problem, Refusal } from '../types.js';
+
+/** A source file the plan's documents name, with what they say about it. */
+export interface SourceFacts { sourceId: string; sourcePath: string; sha256: string; executable: boolean }
+export interface StepContext {
+  request: PlanRequest;
+  controls: PlanControls;
+  index: number;
+  /** A content item's file by item id and source path. */
+  itemFile(item: string, sourcePath: string): SourceFacts | undefined;
+  /** A source notice by source id and source path. */
+  notice(sourceId: string, sourcePath: string): SourceFacts | undefined;
+  /** The supplied bytes for one `{ sourceId, sourcePath }`, after checking them; marks the entry as named by a step. */
+  bytesFor(facts: SourceFacts): { bytes: Buffer } | { refusal: Refusal };
+}
+/** One owned file effect the engine carries out as a `file.write`. */
+export interface LoweredWrite {
+  kind: 'write';
+  managementIds: string[];
+  root: 'project' | 'user';
+  path: string;
+  bytes: Buffer;
+  executable: boolean;
+  sentence: string;
+  cantPromise: string | null;
+  review: { item?: string; items?: string[]; clis?: string[] };
+}
+export type Lowered = LoweredWrite;
+export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
+export interface StepHandler {
+  op: string;
+  prepare(step: PlanStep & Record<string, Json>, context: StepContext): StepOutcome;
+}

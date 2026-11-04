@@ -1,0 +1,10 @@
+{
+  "schema": "urn:aihq:core:inventory:0.1.0",
+  "status": "ok",
+  "target": { "project": "/work/app" },
+  "scope": "project",
+  "observation": "complete",
+  "entries": [ { "managementId": "local-my-skills.skill.notes", "scope": "project", "items": ["local-my-skills.skill.notes"],
+    "origin": "chosen", "data": null, "clis": ["claude-code"], "installState": "complete",
+    "members": [ { "kind": "file", "path": "/work/app/.claude/skills/notes/SKILL.md", "state": "matching" } ] } ]
+}

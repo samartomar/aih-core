@@ -39,8 +39,26 @@ export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwor
 import type { Authorization, HostControls, PolicyRequest, PreparedHandle } from './host-types.js';
 import { isProxy } from 'node:util/types';
 import { nodeRuntimeSupported } from './internal/node-runtime.js';
+import { preparePlan } from './plan/prepare.js';
+import { applyPlan } from './plan/apply.js';
+import { isPlanHandle } from './plan/handles.js';
+import type { PreparationResult, RunResult } from './host-types.js';
+import { PLAN_REQUEST, type Approval, type PlanControls, type PlanHandle, type PlanPreparation, type PlanRequest, type Run } from './plan/types.js';
+/** Any `urn:aihq:core:plan-request:*` document goes to the plan path, which answers `unsupported-version` for other versions. */
+const isPlanRequest = (request: unknown): boolean => {
+  if (!request || typeof request !== 'object' || isProxy(request)) return false;
+  const schema = Object.getOwnPropertyDescriptor(request, 'schema')?.value;
+  return schema === PLAN_REQUEST || typeof schema === 'string' && schema.startsWith('urn:aihq:core:plan-request:');
+};
 export type { RepairRequest } from './repair.js';
-export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
+/** A plan request (`urn:aihq:core:plan-request:0.1.0`) returns the 0.1.0 preparation (contract 3, 14.1). */
+export function prepare(request: PlanRequest, controls?: PlanControls): Promise<PlanPreparation>;
+export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls?: HostControls): Promise<PreparationResult>;
+export function prepare(request: PlanRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls = {}): Promise<PreparationResult | PlanPreparation> {
+  if (isPlanRequest(request)) return preparePlan(request, controls);
+  return prepareOlder(request as PolicyRequest, controls as HostControls);
+}
+function prepareOlder(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
   forgetProvenState();
   if (!nodeRuntimeSupported()) return preparePolicy(request as PolicyRequest, controls);
   const kind = request && typeof request === 'object' && !isProxy(request) ?
@@ -50,11 +68,23 @@ export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequ
   if (schema !== undefined || kind === 'certificate-export') return prepareTrust(request as TrustRepairRequest | CertificateExportRequest, controls);
   return kind === 'repair' ? prepareRepair(request as RepairRequest, controls) : preparePolicy(request as PolicyRequest, controls);
 }
-export function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}) {
+/** A 0.1.0 handle (plan request or `prepareRemoval`) returns the 0.1.0 run (contract 7). */
+export function apply(handle: PlanHandle, approval: Approval, controls?: PlanControls): Promise<Run>;
+export function apply(prepared: PreparedHandle, authorization: Authorization, controls?: HostControls): Promise<RunResult>;
+export function apply(prepared: PreparedHandle | PlanHandle, authorization: Authorization | Approval, controls: HostControls | PlanControls = {}): Promise<RunResult | Run> {
+  if (isPlanHandle(prepared)) return applyPlan(prepared, authorization, controls);
+  return applyOlder(prepared as PreparedHandle, authorization as Authorization, controls as HostControls);
+}
+function applyOlder(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}): Promise<RunResult> {
   forgetProvenState();
   if (isMacosSessionHandle(prepared)) return applyMacosSession(prepared, authorization, controls);
   return isTrustHandle(prepared) ? applyTrust(prepared, authorization, controls) : isRepairHandle(prepared) ? applyRepair(prepared, authorization, controls) : applyPolicy(prepared, authorization, controls);
 }
+export { list, prepareRemoval } from './plan/lifecycle.js';
+export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFile, PlanResolution, Preparation, Refusal, Invalid,
+  UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember as PlanRunMember, StaleChange, PlanHandle,
+  Inventory, InventoryEntry, InventoryMember, ListResult, RemovalSelector as PlanRemovalSelector, RemovalMember as PlanRemovalMember, RemovalEntry as PlanRemovalEntry,
+  RemovalPreparation, RemovalResult } from './plan/types.js';
 export { inspect } from './inspection.js';
 export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
 export { writeSupportReport } from './support-report.js';
