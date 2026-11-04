@@ -13,6 +13,9 @@ import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { resolveExecutable } from '../internal/approved-process.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
+import { claimKey } from './claims.js';
+import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeLink } from './links.js';
+import type { LinkFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin } from './steps/types.js';
 import type { PluginFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
@@ -65,7 +68,8 @@ function profilesOf(supplied: { id: string; version: string | number }[], clis: 
   return supplied.filter(profile => ids.has(profile.id)).map(profile => ({ ...profile })).sort((a, b) => codeUnitCompare(a.id, b.id));
 }
 
-interface Group { selectionId: string; managementId: string; scope: 'project' | 'user'; steps: CheckedStep[] }
+/** One claim (C28, C48): a management id and scope, made for one CLI (or none recorded) from one project. */
+interface Group { selectionId: string; managementId: string; scope: 'project' | 'user'; cli: string | null; key: string; steps: CheckedStep[] }
 
 export async function preparePlan(input: unknown, rawControls?: unknown): Promise<PlanPreparation> {
   forgetProvenState();
@@ -108,7 +112,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   // Interpreter facts an earlier install recorded, kept when the same AI setup is already in place.
   const recorded = new Map<string, NonNullable<PlanItemFacts['aiSetup']>>();
   if (checked.steps.some(step => step.lowered.acquire)) for (const item of Object.values(readOwnership(home).value.items ?? {}))
-    if (item.scope === 'user' && item.plan?.aiSetup) recorded.set(item.managementId, item.plan.aiSetup);
+    if (item.scope === 'user' && item.plan?.aiSetup) recorded.set(item.plan.managementId ?? item.managementId, item.plan.aiSetup);
   // Items that depend on another planned item (Catalog `dependencies`, or the MCP item that starts an AI setup's
   // executable) are not attempted when it fails (C60).
   const dependencies = new Map<string, Set<string>>();
@@ -120,17 +124,45 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       if (typeof item.aiSetup?.mcpItem === 'string') needs(item.aiSetup.mcpItem, item.id);
     }
 
-  // One selection per management id and scope (C48), its writes in plan order.
+  // One selection per claim: management id and scope (C48), for each CLI the step records (C28; none recorded is its
+  // own unattributed claim, C55), from this project. A place several CLIs share is one member with a claim per CLI.
   const groups = new Map<string, Group>();
   for (const step of checked.steps) if (!step.skipped) for (const managementId of step.lowered.managementIds) {
     const scope = step.lowered.root === 'project' ? 'project' : 'user';
     if (scope === 'project' && project === null) return { status: 'invalid', problems: [{ path: `/plan/plan/${step.index}/root`,
       reason: 'project', message: 'A project-rooted step needs the request to name its project.' }] };
-    const id = `${scope}\0${managementId}`;
-    let group = groups.get(id);
-    if (!group) groups.set(id, group = { selectionId: `s${groups.size}`, managementId, scope, steps: [] });
-    group.steps.push(step);
+    const served: (string | null)[] = step.lowered.kind === 'plugin' ? [step.lowered.cli] :
+      step.lowered.review.clis?.length ? step.lowered.review.clis : [null];
+    for (const cli of served) {
+      const key = claimKey(managementId, scope, cli, project);
+      let group = groups.get(key);
+      if (!group) groups.set(key, group = { selectionId: `s${groups.size}`, managementId, scope, cli, key, steps: [] });
+      group.steps.push(step);
+    }
   }
+  const claims = new Map([...groups.values()].map(group => [group.key, group.managementId]));
+  // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
+  // last can remove them; a copy holds the files the plan writes into the linked folder.
+  const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
+  const recordedLinks = new Map<string, string[]>();
+  if (checked.steps.some(step => step.lowered.kind === 'link')) for (const item of Object.values(readOwnership(home).value.items ?? {}))
+    for (const link of item.plan?.links ?? []) if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
+  for (const step of checked.steps) {
+    const lowered = step.lowered;
+    if (lowered.kind !== 'link' || step.skipped) continue;
+    const files = lowered.linkType !== 'copy' ? [] : checked.steps.flatMap(other => other.lowered.kind === 'write' && !other.skipped &&
+      other.lowered.root === 'user' && other.lowered.path.startsWith(`${lowered.to}/`) ?
+      [{ path: `${lowered.path}/${other.lowered.path.slice(lowered.to.length + 1)}`, bytes: other.lowered.bytes, executable: other.lowered.executable }] : []);
+    if (lowered.linkType === 'copy' && !files.length) return { status: 'invalid', problems: [{ path: `/plan/plan/${step.index}/to`, reason: 'link-target-unplanned',
+      message: `Step ${step.index} copies \`${lowered.to}\`, but the plan writes nothing there.` }] };
+    linkPlans.set(step.index, { files, place: lowered.linkType === 'copy' ? 'absent' : inspectLink(home, lowered.path, lowered.to),
+      facts: { step: step.index, path: lowered.path, to: lowered.to, linkType: lowered.linkType,
+        created: lowered.linkType === 'copy' ? [] : recordedLinks.get(lowered.path) ?? missingParents(home, lowered.path) } });
+  }
+  /** The last engine operation a step lowers to, which the next step of its claim waits for (C60). */
+  const lastOp = (step: CheckedStep): string => step.lowered.kind === 'plugin' ? `step-${step.index}-${step.lowered.commands.length - 1}` :
+    step.lowered.kind === 'link' && step.lowered.linkType === 'copy' ? `step-${step.index}-${linkPlans.get(step.index)!.files.length - 1}` : `step-${step.index}`;
+  const planClis = [...new Set(checked.profiles.map(profile => profile.id))].sort(codeUnitCompare);
   const supplied = new Map<string, NonNullable<EngineExtension['supplied']> extends ReadonlyMap<string, infer V> ? V : never>();
   const plans = new Map<string, PlanItemFacts>();
   const operations = new Map<string, StepRef>();
@@ -146,8 +178,27 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
       const prior = group.steps[at - 1];
       // A failed step makes the rest of its item's steps not attempted (C60).
-      const requires = !prior ? [] : [prior.lowered.kind === 'plugin' ? `step-${prior.index}-${prior.lowered.commands.length - 1}` : `step-${prior.index}`];
+      const requires = !prior ? [] : [lastOp(prior)];
       const base = { id, purpose: lowered.sentence, scope: group.scope, target, requires, checks: [] };
+      if (lowered.kind === 'link') {
+        const planned = linkPlans.get(step.index)!;
+        const write = (path: string, bytes: Buffer, executable: boolean, opId: string, needs: string[]) => {
+          const material = { id: `m${String(materials.length).padStart(6, '0')}`, path: `plan/${materials.length}`, sha256: sha256(bytes), byteLength: bytes.length, bytes };
+          materials.push(material);
+          return { ...base, id: opId, requires: needs, kind: 'file.write' as const, material: material.id,
+            target: { root: 'userHome' as const, segments: path.split('/').map(literal => ({ literal })) }, ...(executable ? { mode: 0o755 } : {}) };
+        };
+        if (lowered.linkType !== 'copy') {
+          // The link is placed just before its record is written; the record is the member every claim shares.
+          effects.set(`${group.selectionId}/${id}`, { async run() { return placeLink(home, planned.facts); } });
+          return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires)];
+        }
+        operations.delete(`${group.selectionId}/${id}`);
+        return planned.files.map((file, k) => {
+          operations.set(`${group.selectionId}/step-${step.index}-${k}`, { step: step.index, managementId: group.managementId });
+          return write(file.path, file.bytes, file.executable, `step-${step.index}-${k}`, k ? [`step-${step.index}-${k - 1}`] : requires);
+        });
+      }
       if (lowered.kind === 'merge') {
         merges.set(`${group.selectionId}/${id}`, { format: lowered.format, segments: lowered.segments });
         if (lowered.format === 'markdown') return [{ ...base, kind: 'text.block' as const, blockId: lowered.key, ...markers(lowered.key),
@@ -177,20 +228,23 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     supplied.set(group.selectionId, Object.freeze({ materials: Object.freeze(owned),
       readMaterial: (id: string) => { const found = bytes.get(id); return found ? Buffer.from(found) : undefined; },
       recheck: async () => true }));
-    const clis = [...new Set(group.steps.flatMap(step => step.lowered.review.clis ?? []))].sort(codeUnitCompare);
-    plans.set(group.selectionId, { items: [group.managementId], clis, data: request.plan.data === null ? null : { ...request.plan.data },
+    // An unattributed claim is held for every CLI the plan was made for (contract 5).
+    const clis = group.cli !== null ? [group.cli] : planClis;
+    plans.set(group.selectionId, { items: [group.managementId], managementId: group.managementId, cli: group.cli, project, clis, data: request.plan.data === null ? null : { ...request.plan.data },
       origin: proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
       profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
-      ...pluginFacts(group.steps) });
+      ...pluginFacts(group.steps),
+      ...linkFacts(group.steps, linkPlans) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
-    selections.push({ id: group.selectionId, managementId: group.managementId, scope: group.scope, configuration: {}, requires,
+    selections.push({ id: group.selectionId, managementId: group.key, scope: group.scope, configuration: {}, requires,
       recipe: { inline: recipe } });
   }
   const resolutions = (request.resolutions ?? []).filter(item => item.choice !== 'skip').flatMap(item => {
+    // The first claim carrying the step resolves it; the others then share what it wrote.
     const group = [...groups.values()].find(entry => entry.managementId === item.managementId && entry.steps.some(step => step.index === item.step));
     return group ? [{ selectionId: group.selectionId, operationId: `step-${item.step}`, choice: item.choice as 'replace' | 'adopt',
       observedSha256: item.observedSha256 }] : [];
@@ -216,6 +270,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const byStep = new Map<number, CheckedStep>(checked.steps.map(step => [step.index, step]));
   // Codex reads at most 32 KiB of AGENTS.md: the resulting file, your bytes plus every planned block, is checked before any write (C72).
   const guidance = new Map<string, { step: number; path: string; size: number }>();
+  // A step carried out for several claims (CLIs) is presented once, as its first claim's operation.
+  const presented = new Set<string>();
   for (const operation of engine.review.operations) {
     const ref = operations.get(operation.id);
     if (!ref) continue;
@@ -228,6 +284,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       continue;
     }
     const lowered = step.lowered;
+    if (presented.has(`${ref.step}\0${ref.managementId}`)) continue;
+    presented.add(`${ref.step}\0${ref.managementId}`);
     const facts = observed.get(operation.id);
     const hint = hints.get(operation.id);
     // Identical bytes Core didn't write are still yours until you choose to adopt them.
@@ -275,7 +333,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         cwd: lowered.root === 'project' ? project! : home });
     }
     const interrupted = readOwnership(lowered.root === 'project' ? project! : home).value.items?.[
-      claimIdentity(lowered.root, lowered.framework, project ?? home)]?.installState === 'interrupted';
+      claimIdentity(lowered.root, claimKey(lowered.framework, lowered.root, lowered.cli, project), project ?? home)]?.installState === 'interrupted';
     steps.push({ step: step.index, op: step.op, managementId: lowered.framework, sentence: lowered.sentence,
       cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
       effect: 'run-program', framework: lowered.framework, cli: lowered.cli, clis: [lowered.cli], plugin: lowered.plugin, commit: lowered.commit,
@@ -298,7 +356,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
-    reviewDigest, partial, operations, acquired, progress: sink, ...(programs.size ? { programs } : {}),
+    reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
@@ -324,6 +382,11 @@ function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
     plugin: step.lowered.plugin, commit: step.lowered.commit, contains: [...step.lowered.contains], undo: step.lowered.undo,
     presenceCheck: step.lowered.presenceCheck }] : []);
   return plugins.length ? { plugins } : {};
+}
+/** The receipt's facts of the links one claim's steps place. */
+function linkFacts(steps: CheckedStep[], plans: Map<number, { facts: LinkFacts }>): { links?: LinkFacts[] } {
+  const links = steps.flatMap(step => step.lowered.kind === 'link' && plans.has(step.index) ? [{ ...plans.get(step.index)!.facts, created: [...plans.get(step.index)!.facts.created] }] : []);
+  return links.length ? { links } : {};
 }
 /** An AI setup's review facts (C46): what it downloads, and for a Python tool both interpreter branches. */
 function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>): Pick<ReviewStep, 'acquire' | 'interpreter'> {
@@ -366,7 +429,7 @@ function presentedEntry(lowered: LoweredMerge): Json {
  * the real bytes. Bytes that are not text, or a file over 1 MiB, are not presented (`null`).
  */
 function presentExisting(lowered: Lowered, before: Buffer | null): { text: string | null; redacted: string[] } {
-  if (before === null || lowered.kind === 'plugin') return { text: null, redacted: [] };
+  if (before === null || lowered.kind === 'plugin' || lowered.kind === 'link') return { text: null, redacted: [] };
   try {
     if (lowered.kind === 'write') return { text: before.length <= 1_048_576 ? new TextDecoder('utf-8', { fatal: true }).decode(before) : null, redacted: [] };
     if (lowered.format === 'markdown') {

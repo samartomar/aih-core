@@ -61,7 +61,17 @@ export interface PlanItemFacts {
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
    */
   plugins?: PluginFacts[];
+  /** The management id this claim belongs to (C48); the engine keeps the claim under its claim key. */
+  managementId?: string;
+  /** The one CLI that makes this claim (from the steps' `clis`), or `null` when the steps recorded none (C55). */
+  cli?: string | null;
+  /** The project folder that made the claim, for user-scope claims too (C28); `null` when the request named none. */
+  project?: string | null;
+  /** Folder links this claim placed (`link` steps, C29): where, to what, how, and which parents Core created for them. */
+  links?: LinkFacts[];
 }
+/** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
+export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
   /** Protected restoration data: the person's value found at an owned pointer before Core wrote it. */
@@ -236,7 +246,11 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'managementId', 'cli', 'project', 'links'])) return false;
+  if (value.managementId !== undefined && !(typeof value.managementId === 'string' && PLAN_ID.test(value.managementId))) return false;
+  if (value.cli !== undefined && value.cli !== null && !(typeof value.cli === 'string' && PLAN_ID.test(value.cli))) return false;
+  if (value.project !== undefined && value.project !== null && !text(value.project, 4096)) return false;
+  if (value.links !== undefined && !(Array.isArray(value.links) && value.links.length > 0 && value.links.length <= 4096 && value.links.every(validLinkFacts))) return false;
   if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
   if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
     value.plugins.every(validPluginFacts))) return false;
@@ -259,6 +273,12 @@ export function validPlanFacts(value: unknown): boolean {
     steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
 }
 
+const relativePath = (value: unknown): boolean => text(value, 4096) && (value as string).split('/').every(part => part.length > 0 && part !== '.' && part !== '..');
+function validLinkFacts(value: unknown): boolean {
+  return exact(value, ['step', 'path', 'to', 'linkType', 'created']) && Number.isSafeInteger(value.step) && (value.step as number) >= 0 &&
+    relativePath(value.path) && relativePath(value.to) && ['junction', 'symlink', 'copy'].includes(value.linkType as string) &&
+    Array.isArray(value.created) && value.created.length <= 64 && value.created.every(relativePath);
+}
 const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
   value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
 function validPluginFacts(value: unknown): boolean {

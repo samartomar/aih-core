@@ -17,6 +17,10 @@ export interface HandleState {
   partial: boolean;
   /** Engine operation id → the plan step and management id it carries out. */
   operations: Map<string, StepRef>;
+  /** Engine claim key -> the management id it belongs to (plan claims, C28); run members name the management id. */
+  claims?: Map<string, string>;
+  /** A removal's folder links (receipt facts): each goes once its record is released (C28). */
+  links?: import('../internal/custody-items.js').LinkFacts[];
   /** Plugin steps' presence checks by plan step index, run after the engine's commands (plan requests only). */
   programs?: Map<number, ProgramCheck>;
   /**

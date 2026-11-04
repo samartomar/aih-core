@@ -59,7 +59,23 @@ export interface LoweredPlugin {
   profiles?: undefined;
   acquire?: undefined;
 }
-export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge;
+export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge | LoweredLink;
+/**
+ * One user-scope folder link (`link`): a junction or symlink Core places before writing the link's record, or, for a
+ * CLI not confirmed to load junctions on Windows, a copy of the files the plan writes into `to` (C29).
+ */
+export interface LoweredLink {
+  kind: 'link';
+  managementIds: string[];
+  root: 'user';
+  path: string;
+  to: string;
+  linkType: 'junction' | 'symlink' | 'copy';
+  sentence: string;
+  cantPromise: string | null;
+  review: { item?: string; items?: string[]; clis?: string[]; to: string; linkType: 'junction' | 'symlink' | 'copy' };
+  acquire?: never; profiles?: never;
+}
 /**
  * One planned entry the engine adds to a file the person may already have (Catalog 9 `merge`): a JSON value at a JSON
  * Pointer (engine `config.entries`, JSONC-tolerant so a person's comments survive), the leaves of one TOML table

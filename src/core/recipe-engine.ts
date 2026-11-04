@@ -1009,11 +1009,19 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // The Catalog item another claim installs: from this request's selections, else as recorded at install.
           const claimItem = (claim: Claim) => policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item ??
             stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.item ?? undefined;
+          // A plan claim (C28): another CLI's or project's claim of the same management id shares the member.
+          const myPlan = extension?.plans?.get(selection.id);
+          const claimPlan = (claim: Claim) => { const found = policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope);
+            return found ? extension?.plans?.get(found.id) : stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.plan; };
+          const samePlanItem = (claim: Claim, inRequest = false) => { if (!myPlan) return false;
+            const other = inRequest ? policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope) : undefined;
+            const plan = inRequest ? other && extension?.plans?.get(other.id) : claimPlan(claim);
+            return !!plan && canonicalJson(plan.items) === canonicalJson(myPlan.items); };
           const sameItem = (claim: Claim) => { const other = claimItem(claim);
-            return !!selection.item && !!other && other.framework === selection.item.framework && other.itemId === selection.item.itemId; };
+            return samePlanItem(claim) || !!selection.item && !!other && other.framework === selection.item.framework && other.itemId === selection.item.itemId; };
           // A claimant in this request that installs exactly this item version writes the same bytes, so it changes with us.
           const changesTogether = (claim: Claim) => { const other = policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item;
-            return !!selection.item && !!other && canonicalJson(other) === canonicalJson(selection.item); };
+            return samePlanItem(claim, true) || !!selection.item && !!other && canonicalJson(other) === canonicalJson(selection.item); };
           const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
             return prior?.claims?.some(claim => (claim.managementId !== selection.managementId || claim.scope !== selection.scope) && !changesTogether(claim)) &&
               (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
@@ -1035,7 +1043,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
           // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
           // file or value, another item's, or a tool's approval entry is never acquired.
-          const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
+          const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval || op.kind === 'text.block' && !!myPlan) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
               // An entry a tool's approval owns is the person's decision there, never a shared copy.

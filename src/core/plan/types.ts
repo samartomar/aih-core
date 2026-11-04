@@ -73,6 +73,8 @@ export interface ReviewStep {
   step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A link step: the folder it points to, and how it lands on this host (C29). */
+  to?: string; linkType?: 'junction' | 'symlink' | 'copy';
   /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
   requires?: string[]; details?: Json;
   /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
@@ -164,13 +166,20 @@ export interface Run {
   history: { status: 'recorded' | 'disabled' | 'not-recorded'; limit?: string };
 }
 
-export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
+export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string;
+  /** How a folder link landed (C29): a junction or symlink, or a copy. */
+  linkType?: 'junction' | 'symlink' | 'copy';
+  /** The CLIs whose claims hold this member (contract 5); a claim that recorded none counts for every CLI of its plan. */
+  clis?: string[];
+  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
   items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
   /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
   catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** Every claim that holds this management id here: its CLI (`null` when its steps recorded none) and project (C28). */
+  claims?: { cli: string | null; project: string | null }[];
   /** Native plugin installs with the undo facts the receipt keeps for them. */
   plugins?: PluginFacts[];
   /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
