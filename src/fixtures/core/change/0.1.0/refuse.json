@@ -1,7 +1,7 @@
 {
   "schema": "urn:aihq:core:change:0.1.0",
   "id": "codex-everything",
-  "description": "An operation kind Core does not know is refused",
+  "description": "Today's engine root name userHome is not a change root; changes name user or project",
   "inputs": {},
   "materials": [],
   "targets": [
@@ -12,7 +12,7 @@
     {
       "id": "set",
       "purpose": "Ask before Codex runs commands",
-      "kind": "config.everything",
+      "kind": "config.entries",
       "scope": "user",
       "format": "toml",
       "target": {
@@ -26,25 +26,19 @@
           }
         ]
       },
-      "entries": [
+      "set": [
         {
           "path": [
             "approval_policy"
           ],
-          "action": "set",
-          "value": {
-            "literal": "on-request"
-          }
+          "value": "on-request"
         },
         {
           "path": [
             "sandbox_workspace_write",
             "network_access"
           ],
-          "action": "set",
-          "value": {
-            "literal": false
-          }
+          "value": false
         }
       ],
       "requires": [],

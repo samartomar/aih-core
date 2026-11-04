@@ -17,7 +17,7 @@ import { register, type StepRef } from '../plan/handles.js';
 import { FAILURE_RULE, digestOf, problemsOf } from '../plan/prepare.js';
 import { requestDigests } from '../plan/request.js';
 import { REVIEW, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from '../plan/types.js';
-import { CHANGE, CHANGE_REQUEST, engineRecipe, validateChange, type Change, type ChangeReference } from './validate.js';
+import { CHANGE, CHANGE_REQUEST, engineRecipe, leftOut, validateChange, type Change, type ChangeReference } from './validate.js';
 import type { ReviewOperation } from '../host-types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 
@@ -33,7 +33,7 @@ export interface ChangeRequest {
     ({ change: Change; reference?: never } | { reference: ChangeReference; change?: never }))[];
   groups?: { id: string; members: string[] }[];
   /** A second Prepare's conflict choices: `step` is the operation id in that change (section 7). */
-  resolutions?: { managementId: string; step: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
+  resolutions?: { managementId: string; step: string; choice: 'replace' | 'adopt' | 'skip'; observedSha256: string | null }[];
 }
 /** Controls for change requests: secret values by management id, and local material folders by id. */
 export interface ChangeControls {
@@ -81,7 +81,7 @@ function sentence(operation: ReviewOperation, lifecycle: boolean, place: (absolu
       const entries = operation.details.entries ?? [];
       const sets = entries.filter(entry => entry.action === 'set').map(entry => quoted(entry.path.join('.')));
       const removes = entries.filter(entry => entry.action === 'remove').map(entry => quoted(entry.path.join('.')));
-      return [sets.length ? `Sets ${sets.join(', ')}` : '', removes.length ? `Removes ${removes.join(', ')}` : ''].filter(Boolean).join(' and ') + ` in ${target}`;
+      return [sets.length ? `Sets ${sets.join(', ')}` : '', removes.length ? `${sets.length ? 'removes' : 'Removes'} ${removes.join(', ')}` : ''].filter(Boolean).join(' and ') + ` in ${target}`;
     }
     case 'config.member': return `${operation.details.member?.action === 'remove' ? 'Removes' : 'Adds'} ${operation.details.member?.value ?? 'one value'} ` +
       `${operation.details.member?.action === 'remove' ? 'from' : 'to'} ${quoted(operation.details.member?.container.join('.'))} in ${target}`;
@@ -132,19 +132,36 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   try { project = typeof request.target.project === 'string' ? projectRoot(request.target.project) : null; }
   catch { return invalid([{ path: '/target/project', reason: 'project', message: 'The project folder is not usable.' }]); }
 
+  // A skipped operation is left out, with every operation of that change that waits for it; the review is then partial.
+  const skips = new Map<string, Set<string>>();
+  for (const item of request.resolutions ?? []) if (item.choice === 'skip') {
+    const entry = request.changes.find(candidate => candidate.managementId === item.managementId);
+    if (!entry || entry.change && !entry.change.operations.some(op => op.id === item.step))
+      return invalid([{ path: '/resolutions', reason: 'resolution-unknown', message: `No operation \`${item.step}\` belongs to \`${item.managementId}\`.` }]);
+    (skips.get(item.managementId) ?? skips.set(item.managementId, new Set()).get(item.managementId)!).add(item.step);
+  }
+  const skipped = new Map<string, { change: Change; ids: string[] }>();
   // One engine selection per change, keyed by its management id (C48): `requires` and private inputs name it too.
   const inline = new Map<string, string>();
   const selections: ExecutionPolicy['selections'] = request.changes.map(entry => {
     if (entry.change) inline.set(entry.managementId, sha256(canonicalJson(entry.change as unknown as Json)));
     return { id: entry.managementId, managementId: entry.managementId, scope: request.scope, configuration: entry.inputs,
-      requires: entry.requires, recipe: entry.change ? { inline: engineRecipe(entry.change) } : { reference: entry.reference! } };
+      requires: entry.requires, recipe: entry.change ? { inline: engineRecipe(entry.change, skips.get(entry.managementId)) } : { reference: entry.reference! } };
   });
   const policy: ExecutionPolicy = { schema: POLICY, mode: 'vibe', selections,
     ...(request.groups ? { managedSelections: request.groups.map(group => ({ id: group.id, scope: request.scope, members: group.members })) } : {}) };
-  const resolutions = (request.resolutions ?? []).map(item => ({ selectionId: item.managementId, operationId: item.step,
-    choice: item.choice, observedSha256: item.observedSha256 }));
+  for (const entry of request.changes) if (entry.change && skips.has(entry.managementId))
+    skipped.set(entry.managementId, { change: entry.change, ids: leftOut(entry.change, skips.get(entry.managementId)!) });
+  const resolutions = (request.resolutions ?? []).filter(item => item.choice !== 'skip').map(item => ({ selectionId: item.managementId, operationId: item.step,
+    choice: item.choice as 'replace' | 'adopt', observedSha256: item.observedSha256 }));
   const owners = new Map<string, string[]>();
-  const read = (document: unknown): Recipe | undefined => validateChange(document).status === 'ok' ? engineRecipe(document as Change) : undefined;
+  const read = (document: unknown, managementId: string): Recipe | undefined => {
+    if (validateChange(document).status !== 'ok') return undefined;
+    const change = document as Change; const named = skips.get(managementId);
+    if (named && [...named].some(id => !change.operations.some(op => op.id === id))) return undefined;
+    if (named) skipped.set(managementId, { change, ids: leftOut(change, named) });
+    return engineRecipe(change, named);
+  };
   const engine = await prepareEngine({ useCase: 'policy', policy, target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...(controls.signal ? { signal: controls.signal } : {}), ...(controls.logging ? { logging: controls.logging } : {}),
       ...(controls.privateInputs ? { privateInputs: controls.privateInputs } : {}), ...(controls.materialRoots ? { materialRoots: controls.materialRoots } : {}) },
@@ -188,8 +205,13 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
       const hint = hints.get(operation.id);
       const replaceable = !!hint && hint.availableChoices.length > 0;
       conflicts.push({ code: 'STATE_CONFLICT', reason: replaceable ? 'existing-content' : 'managed-content-changed', managementId, step,
-        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, choices: replaceable ? [...hint!.availableChoices] : [] });
+        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
     }
+  }
+  for (const [managementId, { change, ids }] of skipped) for (const id of ids) {
+    const op = change.operations.find(candidate => candidate.id === id)!;
+    steps.push({ step: id, op: op.kind, managementId, sentence: `Leaves out \`${id}\` (${op.purpose}), as you chose`, cantPromise: null,
+      effect: 'skipped', root: op.scope, requires: [...op.requires] });
   }
   const warnings = engine.diagnostics.filter(item => item.code !== 'STATE_CONFLICT').map(item => `${item.reason}: ${item.message}`);
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'change', scope: request.scope, target: { project }, steps, conflicts,
@@ -197,7 +219,7 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   if (conflicts.some(conflict => conflict.reason === 'existing-content') || !engine.prepared) return { status: 'blocked', review };
-  const partial = engine.status === 'partial';
+  const partial = engine.status === 'partial' || skipped.size > 0;
   const digests = requestDigests(input)!;
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial,
     operations, request: { value: input, ...digests } });

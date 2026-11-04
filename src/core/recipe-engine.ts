@@ -255,7 +255,7 @@ export interface EngineExtension {
    * A change request (contract 4.2): each inline change's own canonical digest, by selection id, so its identity is the
    * change's; and the reader that turns an acquired change document into the recipe shape this engine carries out.
    */
-  change?: { inline: ReadonlyMap<string, string>; read(document: unknown): Recipe | undefined };
+  change?: { inline: ReadonlyMap<string, string>; read(document: unknown, selectionId: string): Recipe | undefined };
   /** Filled at Prepare: each review operation id with the management ids it acts for, lifecycle cleanup included. */
   owners?: Map<string, string[]>;
 }
@@ -378,7 +378,7 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   if ('reference' in selected) {
     const captured = await captureRecipeReference(selected.reference, roots, { signal, budget });
     const parsed = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe');
-    const recipe = (extension?.change ? extension.change.read(parsed) : parsed) as unknown as Recipe | undefined;
+    const recipe = (extension?.change ? extension.change.read(parsed, selection.id) : parsed) as unknown as Recipe | undefined;
     if (!recipe || !validateRecipe(recipe).valid) throw new Error('recipe-invalid');
     const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));

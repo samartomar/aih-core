@@ -251,8 +251,7 @@
         "root": {
           "enum": [
             "project",
-            "userHome",
-            "userState"
+            "user"
           ]
         },
         "segments": {
@@ -491,7 +490,6 @@
           "additionalProperties": false,
           "required": [
             "path",
-            "action",
             "value"
           ],
           "properties": {
@@ -503,12 +501,7 @@
                 "minLength": 1
               }
             },
-            "action": {
-              "const": "set"
-            },
-            "value": {
-              "$ref": "#/$defs/slot"
-            }
+            "value": {}
           }
         },
         {
@@ -516,7 +509,7 @@
           "additionalProperties": false,
           "required": [
             "path",
-            "action"
+            "input"
           ],
           "properties": {
             "path": {
@@ -527,8 +520,8 @@
                 "minLength": 1
               }
             },
-            "action": {
-              "const": "remove"
+            "input": {
+              "$ref": "#/$defs/id"
             }
           }
         }
@@ -544,7 +537,6 @@
         "scope",
         "target",
         "format",
-        "entries",
         "requires",
         "checks"
       ],
@@ -579,13 +571,6 @@
             "properties"
           ]
         },
-        "entries": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/entry"
-          }
-        },
         "requires": {
           "$ref": "#/$defs/ids"
         },
@@ -594,8 +579,21 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "set": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/removal"
+          }
         }
-      }
+      },
+      "description": "Sets keys (set: [{ path, value | input }]) and removes keys (remove: [{ path }]); at least one of them names a key."
     },
     "block": {
       "type": "object",
@@ -1311,6 +1309,23 @@
         },
         "checks": {
           "$ref": "#/$defs/ids"
+        }
+      }
+    },
+    "removal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }

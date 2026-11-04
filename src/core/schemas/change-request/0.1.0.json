@@ -210,7 +210,8 @@
           "choice": {
             "enum": [
               "replace",
-              "adopt"
+              "adopt",
+              "skip"
             ]
           },
           "observedSha256": {

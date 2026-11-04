@@ -2,7 +2,7 @@
 // Hand-written authoring examples, not Catalog content.
 const CHANGE = 'urn:aihq:core:change:0.1.0';
 export const CHANGE_REQUEST = 'urn:aihq:core:change-request:0.1.0';
-const user = (...parts) => ({ root: 'userHome', segments: parts.map(literal => ({ literal })) });
+const user = (...parts) => ({ root: 'user', segments: parts.map(literal => ({ literal })) });
 const inProject = (...parts) => ({ root: 'project', segments: parts.map(literal => ({ literal })) });
 const base = (id, scope, operations, extra = {}) => ({ schema: CHANGE, id, description: `Change ${id}`, inputs: {}, materials: [],
   targets: [scope], prerequisites: [], operations, checks: [], ...extra });
@@ -10,8 +10,7 @@ const base = (id, scope, operations, extra = {}) => ({ schema: CHANGE, id, descr
 /** Ask before Codex runs commands: one root key and one key in a table Core creates. */
 export const codexApproval = () => base('codex-approval-on-request', 'user', [{ id: 'set', purpose: 'Ask before Codex runs commands',
   kind: 'config.entries', scope: 'user', format: 'toml', target: user('.codex', 'config.toml'),
-  entries: [{ path: ['approval_policy'], action: 'set', value: { literal: 'on-request' } },
-    { path: ['sandbox_workspace_write', 'network_access'], action: 'set', value: { literal: false } }], requires: [], checks: [] }]);
+  set: [{ path: ['approval_policy'], value: 'on-request' }, { path: ['sandbox_workspace_write', 'network_access'], value: false }], requires: [], checks: [] }]);
 
 /** One project file whose text is an input. */
 export const teamFile = (id, name) => base(id, 'project', [{ id: 'write', purpose: `Write ${name}`, kind: 'file.write', scope: 'project',
@@ -20,12 +19,12 @@ export const teamFile = (id, name) => base(id, 'project', [{ id: 'write', purpos
 
 /** One JSON settings key in the project. */
 export const projectSetting = (id, key, value) => base(id, 'project', [{ id: 'set', purpose: `Set ${key}`, kind: 'config.entries', scope: 'project',
-  format: 'json', target: inProject('.team', 'settings.json'), entries: [{ path: [key], action: 'set', value: { literal: value } }], requires: [], checks: [] }]);
+  format: 'json', target: inProject('.team', 'settings.json'), set: [{ path: [key], value }], requires: [], checks: [] }]);
 
 /** One MCP server and the person's OK for exactly that server (one-server approval). */
 export const approvalChange = () => base('docs-server', 'project', [
   { id: 'server', purpose: 'Register the docs server', kind: 'config.entries', scope: 'project', format: 'json', target: inProject('.mcp.json'),
-    entries: [{ path: ['mcpServers', 'docs', 'command'], action: 'set', value: { literal: 'docs-mcp' } }], requires: [], checks: [] },
+    set: [{ path: ['mcpServers', 'docs', 'command'], value: 'docs-mcp' }], requires: [], checks: [] },
   { id: 'allow', purpose: 'Allow the docs server', kind: 'config.member', scope: 'project', format: 'json', target: inProject('.claude', 'settings.local.json'),
     container: ['enabledMcpjsonServers'], action: 'add', value: { literal: 'docs' }, exclusiveWith: [['disabledMcpjsonServers']],
     approval: { tool: 'claude-code' }, requires: ['server'], checks: [] }]);
@@ -56,7 +55,7 @@ export function teamFolder(folder, { createHash, writeFileSync, join }) {
       startMarker: '<!-- aih:begin team-rules -->', endMarker: '<!-- aih:end team-rules -->', action: 'set', content: { literal: 'See RULES.md.\n' },
       requires: [], checks: [] },
     { id: 'ini', purpose: 'Use the team index', kind: 'config.entries', scope: 'project', format: 'ini', target: inProject('pip.ini'),
-      entries: [{ path: ['global', 'index-url'], action: 'set', value: { input: 'index' } }], requires: [], checks: [] },
+      set: [{ path: ['global', 'index-url'], input: 'index' }], requires: [], checks: [] },
     { id: 'hook', purpose: 'Check commands', kind: 'hook.group', scope: 'project', format: 'json', target: inProject('.tool', 'settings.json'),
       container: ['hooks', 'PreToolUse'], groupId: 'team-check', selector: { path: ['hooks', 0, 'command'], value: 'hooks/team-check.sh' }, action: 'set',
       group: { literal: { matcher: 'Bash', hooks: [{ type: 'command', command: 'hooks/team-check.sh' }] } }, requires: [], checks: [] }],

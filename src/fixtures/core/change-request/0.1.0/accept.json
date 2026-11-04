@@ -26,7 +26,7 @@
             "scope": "user",
             "format": "toml",
             "target": {
-              "root": "userHome",
+              "root": "user",
               "segments": [
                 {
                   "literal": ".codex"
@@ -36,25 +36,19 @@
                 }
               ]
             },
-            "entries": [
+            "set": [
               {
                 "path": [
                   "approval_policy"
                 ],
-                "action": "set",
-                "value": {
-                  "literal": "on-request"
-                }
+                "value": "on-request"
               },
               {
                 "path": [
                   "sandbox_workspace_write",
                   "network_access"
                 ],
-                "action": "set",
-                "value": {
-                  "literal": false
-                }
+                "value": false
               }
             ],
             "requires": [],

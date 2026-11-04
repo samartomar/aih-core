@@ -57,7 +57,7 @@ test('the change formats publish one schema each with a valid and an invalid fix
   assert.equal(validateChange({ ...codexApproval(), schema: 'urn:aihq:core:recipe:1.4.0' }).status, 'unsupported-version');
   // The semantic rules of the bounded editors carry over: a TOML entry path may not overlap another.
   const overlap = codexApproval();
-  overlap.operations[0].entries.push({ path: ['approval_policy', 'nested'], action: 'set', value: { literal: 'x' } });
+  overlap.operations[0].set.push({ path: ['approval_policy', 'nested'], value: 'x' });
   assert.equal(validateChange(overlap).status, 'invalid');
 });
 
@@ -69,7 +69,7 @@ test('deriveChangeIdentity hashes the canonical change and its material closure'
     Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reverse(item)])) : value;
   const reordered = reverse(codexApproval());
   assert.equal((await deriveChangeIdentity({ change: reordered })).changeIdentity, one.changeIdentity);
-  const other = codexApproval(); other.operations[0].entries[0].value = { literal: 'never' };
+  const other = codexApproval(); other.operations[0].set[0].value = 'never';
   assert.notEqual((await deriveChangeIdentity({ change: other })).changeIdentity, one.changeIdentity);
   assert.equal((await deriveChangeIdentity({ change: { schema: 'urn:aihq:core:recipe:1.4.0' } })).status, 'unsupported-version');
 });
@@ -231,4 +231,56 @@ test('a change acquired by reference from a material root edits a text block, an
   assert.equal(removal.completion, 'complete', JSON.stringify(removal));
   assert.equal(readFileSync(join(target, 'AGENTS.md'), 'utf8'), '# Mine\n');
   assert.equal(existsSync(join(target, 'RULES.md')), false);
+});
+
+test('a change names roots `project` and `user`, sets keys with `set: [{ path, value }]` and removes them with `remove: [{ path }]`', async () => {
+  const engineRoot = codexApproval(); engineRoot.operations[0].target.root = 'userHome';
+  assert.equal(validateChange(engineRoot).status, 'invalid');
+  const engineEntries = codexApproval(); engineEntries.operations[0].entries = [{ path: ['x'], action: 'set', value: { literal: 1 } }];
+  delete engineEntries.operations[0].set;
+  assert.equal(validateChange(engineEntries).status, 'invalid');
+  const empty = codexApproval(); empty.operations[0].set = [];
+  assert.deepEqual(validateChange(empty).problems.map(problem => problem.reason), ['entries-empty']);
+  const overlap = codexApproval(); overlap.operations[0].remove = [{ path: ['approval_policy'] }];
+  assert.ok(validateChange(overlap).problems.some(problem => problem.path === '/operations/0/remove/0'), JSON.stringify(validateChange(overlap)));
+  const target = project();
+  mkdirSync(join(target, '.team')); writeFileSync(join(target, '.team', 'settings.json'), '{\n  "legacy": true,\n  "mine": 1\n}\n');
+  const change = projectSetting('tidy', 'lint', true);
+  change.operations[0].remove = [{ path: ['legacy'] }];
+  // Removing a key Core does not own is your content: a conflict, applied only after a reviewed replace.
+  const request = changeRequest([{ managementId: 'tidy', change }], { project: target });
+  const blocked = await prepare(request);
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.review.steps[0].sentence, 'Sets `lint` and removes `legacy` in `.team/settings.json`');
+  const [conflict] = blocked.review.conflicts;
+  await applied({ ...request, resolutions: [{ managementId: 'tidy', step: 'set', choice: 'replace', observedSha256: conflict.observedSha256 }] });
+  assert.deepEqual(JSON.parse(readFileSync(join(target, '.team', 'settings.json'), 'utf8')), { mine: 1, lint: true });
+});
+
+test('skip leaves out a conflicting operation and what waits for it; the review is partial and needs allowPartial', async () => {
+  const target = project();
+  writeFileSync(join(target, 'TEAM.md'), 'mine\n');
+  const change = teamFile('pair', 'TEAM.md');
+  change.operations.push({ id: 'also', purpose: 'Write also', kind: 'file.write', scope: 'project', target: { root: 'project', segments: [{ literal: 'ALSO.md' }] },
+    content: { literal: 'also\n' }, requires: ['write'], checks: [] },
+  { id: 'other', purpose: 'Write other', kind: 'file.write', scope: 'project', target: { root: 'project', segments: [{ literal: 'OTHER.md' }] },
+    content: { literal: 'other\n' }, requires: [], checks: [] });
+  const request = changeRequest([{ managementId: 'pair', change, inputs: { text: 'shared\n' } }], { project: target });
+  const blocked = await prepare(request);
+  assert.equal(blocked.status, 'blocked');
+  const [conflict] = blocked.review.conflicts;
+  assert.ok(conflict.choices.includes('skip'), JSON.stringify(conflict));
+  const skipped = await prepare({ ...request, resolutions: [{ managementId: 'pair', step: 'write', choice: 'skip', observedSha256: conflict.observedSha256 }] });
+  assert.equal(skipped.status, 'partial', JSON.stringify(skipped));
+  conforms(skipped.review);
+  assert.deepEqual(skipped.review.steps.filter(step => step.effect === 'skipped').map(step => step.step).sort(), ['also', 'write']);
+  const refused = conforms(await apply(skipped.handle, approve(skipped.review)));
+  assert.equal(refused.completion, 'rejected');
+  const again = await prepare({ ...request, resolutions: [{ managementId: 'pair', step: 'write', choice: 'skip', observedSha256: conflict.observedSha256 }] });
+  assert.equal(conforms(await apply(again.handle, approve(again.review, { allowPartial: true }))).completion, 'complete');
+  assert.equal(readFileSync(join(target, 'TEAM.md'), 'utf8'), 'mine\n');
+  assert.equal(readFileSync(join(target, 'OTHER.md'), 'utf8'), 'other\n');
+  assert.equal(existsSync(join(target, 'ALSO.md')), false);
+  const unknown = await prepare({ ...request, resolutions: [{ managementId: 'pair', step: 'nobody', choice: 'skip', observedSha256: null }] });
+  assert.deepEqual([unknown.status, unknown.problems[0].reason], ['invalid', 'resolution-unknown']);
 });

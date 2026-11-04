@@ -2474,7 +2474,9 @@ authoring shape and rules, under one version: the operation kinds `file.write`, 
 (JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`; the
 bounded editors of [One complete authoring example](#one-complete-authoring-example); inputs, private inputs, prerequisites
 and checks of [Inputs and outcomes](#inputs-and-outcomes); one-server approval of [Allow one MCP server](#allow-one-mcp-server);
-and [owned hook groups](#owned-hook-groups). Recipe documents are not changes: `validateChange` answers
+and [owned hook groups](#owned-hook-groups). Two names differ from the recipe form: a target `root` is `project` or `user`
+(your home folder), and `config.entries` sets keys with `set: [{ path, value }]` (or `{ path, input }` for a declared input)
+and removes them with `remove: [{ path }]`. Recipe documents are not changes: `validateChange` answers
 `unsupported-version` for any other format id. The formats are not marked ready.
 
 A change request (`urn:aihq:core:change-request:0.1.0`) carries one or more changes for one scope, the ordinary input
@@ -2487,8 +2489,8 @@ import { validateChange, deriveChangeIdentity } from '@aihq/core/contracts';
 const change = { schema: 'urn:aihq:core:change:0.1.0', id: 'codex-approval-on-request', description: 'Ask before Codex runs commands',
   inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [],
   operations: [{ id: 'set', purpose: 'Ask before Codex runs commands', kind: 'config.entries', scope: 'user', format: 'toml',
-    target: { root: 'userHome', segments: [{ literal: '.codex' }, { literal: 'config.toml' }] },
-    entries: [{ path: ['approval_policy'], action: 'set', value: { literal: 'on-request' } }], requires: [], checks: [] }] };
+    target: { root: 'user', segments: [{ literal: '.codex' }, { literal: 'config.toml' }] },
+    set: [{ path: ['approval_policy'], value: 'on-request' }], requires: [], checks: [] }] };
 validateChange(change);                       // { status: 'ok', schema } | invalid | unsupported-version
 await deriveChangeIdentity({ change });       // { status: 'ok', changeIdentity: 'sha256:…', changeSha256, materials }
 const prepared = await prepare({ schema: 'urn:aihq:core:change-request:0.1.0', mode: 'vibe', scope: 'user', target: { project: null },
@@ -2519,8 +2521,9 @@ await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'co
 - **Identity.** `deriveChangeIdentity` hashes the canonical change (or, for a reference, its exact bytes) and its
   material closure; Prepare records the same identity in custody.
 - **Conflicts.** Your existing file or value is a conflict and Prepare is `blocked` with no handle. Prepare again with
-  `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt', observedSha256 }]`; `replace` keeps
-  your original and removal writes it back. A change request has no `skip`.
+  `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt' | 'skip', observedSha256 }]`; `replace`
+  keeps your original and removal writes it back; `skip` leaves that operation out, with every operation of the change
+  that waits for it, and makes the review `partial` (Apply then needs `allowPartial: true`).
 - **Not yet.** `mode: 'enterprise'` is refused (`organization-required`) before any effect; Enterprise admission of changes
   arrives later.
 
