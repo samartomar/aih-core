@@ -2466,6 +2466,73 @@ aih remove local-my-skills.skill.notes --scope project --project /work/app [--ap
 command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
 
+## Apply authored changes through a change request (0.1.0, in development)
+
+A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an
+array member, a team file, a marked text block, an owned hook group or an exact approved command. It has today's
+authoring shape and rules, under one version: the operation kinds `file.write`, `file.remove`, `config.entries`
+(JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`; the
+bounded editors of [One complete authoring example](#one-complete-authoring-example); inputs, private inputs, prerequisites
+and checks of [Inputs and outcomes](#inputs-and-outcomes); one-server approval of [Allow one MCP server](#allow-one-mcp-server);
+and [owned hook groups](#owned-hook-groups). Recipe documents are not changes: `validateChange` answers
+`unsupported-version` for any other format id. The formats are not marked ready.
+
+A change request (`urn:aihq:core:change-request:0.1.0`) carries one or more changes for one scope, the ordinary input
+values beside each, the management ids each `requires`, and named `groups`:
+
+```js
+import { prepare, apply, list, prepareRemoval } from '@aihq/core';
+import { validateChange, deriveChangeIdentity } from '@aihq/core/contracts';
+
+const change = { schema: 'urn:aihq:core:change:0.1.0', id: 'codex-approval-on-request', description: 'Ask before Codex runs commands',
+  inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [],
+  operations: [{ id: 'set', purpose: 'Ask before Codex runs commands', kind: 'config.entries', scope: 'user', format: 'toml',
+    target: { root: 'userHome', segments: [{ literal: '.codex' }, { literal: 'config.toml' }] },
+    entries: [{ path: ['approval_policy'], action: 'set', value: { literal: 'on-request' } }], requires: [], checks: [] }] };
+validateChange(change);                       // { status: 'ok', schema } | invalid | unsupported-version
+await deriveChangeIdentity({ change });       // { status: 'ok', changeIdentity: 'sha256:…', changeSha256, materials }
+const prepared = await prepare({ schema: 'urn:aihq:core:change-request:0.1.0', mode: 'vibe', scope: 'user', target: { project: null },
+  changes: [{ managementId: 'codex-approval-on-request', change, inputs: {}, requires: [] }],
+  groups: [{ id: 'team-settings', members: ['codex-approval-on-request'] }] });
+if (prepared.status === 'ready')
+  await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'codex-approval-on-request' }] });
+```
+
+- **One engine.** Each change is one management id and scope. Its operations go through the same Prepare, custody,
+  recovery and Apply as every other request, and its review and run are `urn:aihq:core:review:0.1.0` (`request: 'change'`)
+  and `urn:aihq:core:run:0.1.0`. In a change review and run, `step` is the operation id; each step has one sentence, the
+  operations it `requires`, and its exact `details` (target, edits, block, hook group, member, and for `process.run` the
+  executable and its sha256, argv, working folder, environment, accepted exit codes and bounds). Private values are
+  redacted. A command's effects are opaque (`effect: 'opaque-process'`), with the line that Core can't show or undo them;
+  a failed or cancelled command is reported `effectsUncertain` and never claims a rollback.
+- **Materials** are inline, or a change acquired by `reference` instead of `change`: a pinned local folder named by
+  `controls.materialRoots: { id: absolutePath }`, an HTTPS archive, or one exact GitHub commit archive, each checked by
+  length and sha256 exactly as in [Install from an exact git commit](#install-from-an-exact-git-commit). The referenced
+  member is itself a change document.
+- **Inputs.** Ordinary values sit in `changes[].inputs`. Secret values go in `controls.privateInputs`, keyed by management
+  id; they never appear in the review, history or receipts, and a changed value rejects Apply (`REVIEW_STALE` `input`).
+- **`requires`.** A required change cannot be removed while its dependant is installed: removal names it `retained`.
+- **Named groups (C50).** A group states the whole set it manages. Leaving a member out of the next request proposes,
+  after review, removing that member's content; an empty `members` proposes removing all the group's earlier members.
+  Unrelated content, and your edits to shared files, stay.
+- **Identity.** `deriveChangeIdentity` hashes the canonical change (or, for a reference, its exact bytes) and its
+  material closure; Prepare records the same identity in custody.
+- **Conflicts.** Your existing file or value is a conflict and Prepare is `blocked` with no handle. Prepare again with
+  `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt', observedSha256 }]`; `replace` keeps
+  your original and removal writes it back. A change request has no `skip`.
+- **Not yet.** `mode: 'enterprise'` is refused (`organization-required`) before any effect; Enterprise admission of changes
+  arrives later.
+
+```sh
+aih change change-request.json [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]...
+           [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]
+aih validate change change.json --json
+aih validate change-request change-request.json --json
+```
+
+Exit codes are those of the plan request commands above.
+
 ## Managed lifecycle
 
 `managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML/INI/YAML/properties entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.

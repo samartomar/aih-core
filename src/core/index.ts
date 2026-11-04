@@ -42,6 +42,7 @@ import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { preparePlan } from './plan/prepare.js';
 import { applyPlan } from './plan/apply.js';
 import { isPlanHandle } from './plan/handles.js';
+import { prepareChange, type ChangeControls, type ChangeRequest } from './change/prepare.js';
 import type { PreparationResult, RunResult } from './host-types.js';
 import { PLAN_REQUEST, type Approval, type PlanControls, type PlanHandle, type PlanPreparation, type PlanRequest, type Run } from './plan/types.js';
 /** Any `urn:aihq:core:plan-request:*` document goes to the plan path, which answers `unsupported-version` for other versions. */
@@ -50,12 +51,22 @@ const isPlanRequest = (request: unknown): boolean => {
   const schema = Object.getOwnPropertyDescriptor(request, 'schema')?.value;
   return schema === PLAN_REQUEST || typeof schema === 'string' && schema.startsWith('urn:aihq:core:plan-request:');
 };
+/** Any `urn:aihq:core:change-request:*` document goes to the change path, which answers `unsupported-version` for other versions. */
+const isChangeRequest = (request: unknown): boolean => {
+  if (!request || typeof request !== 'object' || isProxy(request)) return false;
+  const schema = Object.getOwnPropertyDescriptor(request, 'schema')?.value;
+  return typeof schema === 'string' && schema.startsWith('urn:aihq:core:change-request:');
+};
 export type { RepairRequest } from './repair.js';
+export type { ChangeRequest, ChangeControls } from './change/prepare.js';
 /** A plan request (`urn:aihq:core:plan-request:0.1.0`) returns the 0.1.0 preparation (contract 3, 14.1). */
 export function prepare(request: PlanRequest, controls?: PlanControls): Promise<PlanPreparation>;
+/** A change request (`urn:aihq:core:change-request:0.1.0`) returns the 0.1.0 preparation (contract 4.2, 9). */
+export function prepare(request: ChangeRequest, controls?: ChangeControls): Promise<PlanPreparation>;
 export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls?: HostControls): Promise<PreparationResult>;
-export function prepare(request: PlanRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls = {}): Promise<PreparationResult | PlanPreparation> {
+export function prepare(request: PlanRequest | ChangeRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls | ChangeControls = {}): Promise<PreparationResult | PlanPreparation> {
   if (isPlanRequest(request)) return preparePlan(request, controls);
+  if (isChangeRequest(request)) return prepareChange(request, controls);
   return prepareOlder(request as PolicyRequest, controls as HostControls);
 }
 function prepareOlder(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
@@ -69,9 +80,9 @@ function prepareOlder(request: PolicyRequest | RepairRequest | TrustRepairReques
   return kind === 'repair' ? prepareRepair(request as RepairRequest, controls) : preparePolicy(request as PolicyRequest, controls);
 }
 /** A 0.1.0 handle (plan request or `prepareRemoval`) returns the 0.1.0 run (contract 7). */
-export function apply(handle: PlanHandle, approval: Approval, controls?: PlanControls): Promise<Run>;
+export function apply(handle: PlanHandle, approval: Approval, controls?: PlanControls | ChangeControls): Promise<Run>;
 export function apply(prepared: PreparedHandle, authorization: Authorization, controls?: HostControls): Promise<RunResult>;
-export function apply(prepared: PreparedHandle | PlanHandle, authorization: Authorization | Approval, controls: HostControls | PlanControls = {}): Promise<RunResult | Run> {
+export function apply(prepared: PreparedHandle | PlanHandle, authorization: Authorization | Approval, controls: HostControls | PlanControls | ChangeControls = {}): Promise<RunResult | Run> {
   if (isPlanHandle(prepared)) return applyPlan(prepared, authorization, controls);
   return applyOlder(prepared as PreparedHandle, authorization as Authorization, controls as HostControls);
 }

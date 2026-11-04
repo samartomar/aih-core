@@ -251,6 +251,13 @@ const handles = new WeakMap<PreparedHandle, PreparedState>();
 export interface EngineExtension {
   supplied?: ReadonlyMap<string, { readonly materials: readonly OwnMaterial[]; readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> }>;
   plans?: ReadonlyMap<string, PlanItemFacts>;
+  /**
+   * A change request (contract 4.2): each inline change's own canonical digest, by selection id, so its identity is the
+   * change's; and the reader that turns an acquired change document into the recipe shape this engine carries out.
+   */
+  change?: { inline: ReadonlyMap<string, string>; read(document: unknown): Recipe | undefined };
+  /** Filled at Prepare: each review operation id with the management ids it acts for, lifecycle cleanup included. */
+  owners?: Map<string, string[]>;
 }
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
@@ -370,8 +377,9 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   if (supplied && 'inline' in selected) return { recipe: selected.inline, recipeSha256: digest(selected.inline), material: supplied };
   if ('reference' in selected) {
     const captured = await captureRecipeReference(selected.reference, roots, { signal, budget });
-    const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
-    if (!validateRecipe(recipe).valid) throw new Error('recipe-invalid');
+    const parsed = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe');
+    const recipe = (extension?.change ? extension.change.read(parsed) : parsed) as unknown as Recipe | undefined;
+    if (!recipe || !validateRecipe(recipe).valid) throw new Error('recipe-invalid');
     const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     if (canonicalJson(declared) !== canonicalJson(acquired)) throw new Error('material-closure');
@@ -380,7 +388,7 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   const recipe = selected.inline;
   if (recipe.materials.some(item => !('source' in item))) throw new Error('material-source-missing');
   const captured = await captureInlineMaterials(recipe.materials.filter(item => 'source' in item), roots, { signal, budget });
-  return { recipe, recipeSha256: digest(recipe), material: captured };
+  return { recipe, recipeSha256: extension?.change?.inline.get(selection.id) ?? digest(recipe), material: captured };
 }
 
 export function transaction(root: string, directoryCreated?: (path: string) => void) {
@@ -1521,6 +1529,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(step.redactedPaths?.[step.ownerKey!] ? { redactedPath: step.redactedPaths[step.ownerKey!] } : {}),
         action, ...(reason === undefined ? {} : { reason }) };
     }));
+    if (extension?.owners) for (const step of steps) extension.owners.set(step.review.id, step.lifecycle ? releasedIds.get(step) ?? [] : [step.managementId]);
     update?.plan(steps.flatMap(step => step.root && step.members ? step.members.map(descriptor => planMember(step, descriptor,
       step.lifecycle ? releasedIds.get(step) ?? [] : [step.managementId], stepOwners.get(step)?.approval ?? step.review.details.approval)) : []));
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,

@@ -23,9 +23,9 @@ const expectedRuntimeNames = {
   '@aihq/core/contracts': [
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
-    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'limits', 'parseOrganizationPolicy',
+    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveChangeIdentity', 'deriveRecipeIdentity', 'limits', 'parseOrganizationPolicy',
     'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationContent', 'previewOrganizationObligations', 'recipeOperationKinds', 'refusalCodes', 'removalClaims', 'runMemberClaims', 'schemas', 'stateLocation',
-    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateFormat', 'validateMacosRepairInputs',
+    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateChange', 'validateFileStateResult', 'validateFormat', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
     'validateMacosSessionVerificationResult', 'validateNativeVerificationBundle',

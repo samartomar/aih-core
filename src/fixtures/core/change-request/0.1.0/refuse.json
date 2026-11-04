@@ -1,0 +1,88 @@
+{
+  "schema": "urn:aihq:core:change-request:0.1.0",
+  "mode": "vibe",
+  "scope": "user",
+  "target": {
+    "project": null
+  },
+  "changes": [
+    {
+      "managementId": "codex-approval-on-request",
+      "change": {
+        "schema": "urn:aihq:core:change:0.1.0",
+        "id": "codex-approval-on-request",
+        "description": "Ask before Codex runs commands",
+        "inputs": {},
+        "materials": [],
+        "targets": [
+          "user"
+        ],
+        "prerequisites": [],
+        "operations": [
+          {
+            "id": "set",
+            "purpose": "Ask before Codex runs commands",
+            "kind": "config.entries",
+            "scope": "user",
+            "format": "toml",
+            "target": {
+              "root": "userHome",
+              "segments": [
+                {
+                  "literal": ".codex"
+                },
+                {
+                  "literal": "config.toml"
+                }
+              ]
+            },
+            "entries": [
+              {
+                "path": [
+                  "approval_policy"
+                ],
+                "action": "set",
+                "value": {
+                  "literal": "on-request"
+                }
+              },
+              {
+                "path": [
+                  "sandbox_workspace_write",
+                  "network_access"
+                ],
+                "action": "set",
+                "value": {
+                  "literal": false
+                }
+              }
+            ],
+            "requires": [],
+            "checks": []
+          }
+        ],
+        "checks": []
+      },
+      "inputs": {},
+      "requires": [],
+      "reference": {
+        "source": {
+          "kind": "local",
+          "input": "team"
+        },
+        "path": "change.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "byteLength": 10,
+        "materials": []
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "team-settings",
+      "members": [
+        "codex-approval-on-request"
+      ]
+    }
+  ]
+}

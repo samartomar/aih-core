@@ -52,17 +52,20 @@ export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
 export interface ReviewStep {
-  step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
-  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged';
+  /** A plan step index; for a change, the operation id. */
+  step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
+  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
+  requires?: string[]; details?: Json;
 }
 export interface ReviewConflict {
-  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number;
+  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number | string;
   target: string; observedSha256: string | null; choices: ('replace' | 'adopt' | 'skip')[];
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal';
+  request: 'plan' | 'removal' | 'change';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
@@ -73,6 +76,8 @@ export interface Review {
   conflicts: ReviewConflict[];
   /** `files` entries no step names: ignored, and listed (4.1). */
   ignoredFiles?: { sourceId: string; sourcePath: string }[];
+  /** A change request's named groups, as stated (C50). */
+  groups?: { id: string; members: string[] }[];
   failureRule: string;
   warnings: string[];
   reviewDigest: string;
@@ -86,9 +91,11 @@ export type PlanPreparation = Preparation | Refusal | Invalid | UnsupportedVersi
 export interface Approval { approved: true; origin: 'interactive' | 'automation'; reviewDigest: string; allowPartial?: boolean }
 
 export interface RunStep {
-  step: number; managementId: string;
+  step: number | string; managementId: string;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
+  /** A failed or cancelled command may have left effects Core cannot see; never a rollback claim. */
+  effectsUncertain?: boolean;
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;

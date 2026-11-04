@@ -7,7 +7,7 @@
   "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
   "properties": {
     "schema": { "const": "urn:aihq:core:review:0.1.0" },
-    "request": { "enum": ["plan", "removal"] },
+    "request": { "enum": ["plan", "removal", "change"] },
     "scope": { "enum": ["project", "user"] },
     "target": { "type": "object", "additionalProperties": false, "required": ["project"],
       "properties": { "project": { "type": ["string", "null"] } } },
@@ -30,6 +30,8 @@
     "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
     "ignoredFiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath"],
       "properties": { "sourceId": { "type": "string" }, "sourcePath": { "type": "string" } } } },
+    "groups": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "members"],
+      "properties": { "id": { "type": "string" }, "members": { "type": "array", "items": { "type": "string" } } } } },
     "failureRule": { "type": "string" },
     "warnings": { "type": "array", "items": { "type": "string" } },
     "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
@@ -39,17 +41,19 @@
       "type": "object", "additionalProperties": false,
       "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
       "properties": {
-        "step": { "type": "integer", "minimum": 0 },
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
         "op": { "type": "string" },
         "managementId": { "type": "string" },
         "sentence": { "type": "string" },
         "cantPromise": { "type": ["string", "null"] },
-        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged"] },
+        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged", "opaque-process", "unavailable"] },
         "root": { "enum": ["project", "user"] },
         "path": { "type": "string" },
         "item": { "type": "string" },
         "items": { "type": "array", "items": { "type": "string" } },
-        "clis": { "type": "array", "items": { "type": "string" } }
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "requires": { "type": "array", "items": { "type": "string" } },
+        "details": { "type": "object" }
       }
     },
     "conflict": {
@@ -59,7 +63,7 @@
         "code": { "const": "STATE_CONFLICT" },
         "reason": { "enum": ["existing-content", "managed-content-changed"] },
         "managementId": { "type": "string" },
-        "step": { "type": "integer", "minimum": 0 },
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
         "target": { "type": "string" },
         "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
         "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } }

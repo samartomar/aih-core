@@ -122,7 +122,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   for (const operation of engine.review.operations) {
     const ref = operations.get(operation.id);
     if (!ref) continue;
-    const step = byStep.get(ref.step)!;
+    const step = byStep.get(ref.step as number)!;
     const effect: ReviewStep['effect'] = operation.effects === 'unavailable' ? 'conflict' :
       ['create-file', 'replace-file', 'already-satisfied', 'conflict'].includes(operation.effects) ? operation.effects as ReviewStep['effect'] : 'unchanged';
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
@@ -139,7 +139,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   for (const step of checked.steps) if (step.skipped) for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review });
-  steps.sort((a, b) => a.step - b.step || codeUnitCompare(a.managementId, b.managementId));
+  steps.sort((a, b) => (a.step as number) - (b.step as number) || codeUnitCompare(a.managementId, b.managementId));
   const { plan: _steps, ...reports } = request.plan;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
     plan: reports, origin: 'chosen', originNote: request.plan.recipe ? 'origin not proven' : null, steps, conflicts,

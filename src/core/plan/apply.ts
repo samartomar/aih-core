@@ -6,6 +6,7 @@ import { forgetProvenState } from '../internal/state.js';
 import { take, type HandleState } from './handles.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
+import { changeControls } from '../change/prepare.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
 
@@ -19,7 +20,8 @@ const CHANGED: Record<string, StaleChange> = { policy: 'binding', recipe: 'bindi
 
 export async function applyPlan(handle: unknown, approval: unknown, rawControls?: unknown): Promise<Run> {
   forgetProvenState();
-  const controls = planControls(rawControls);
+  // A change request's own controls (material roots) are accepted too; Apply reads only cancellation and logging.
+  const controls = planControls(rawControls) ?? changeControls(rawControls);
   const state = take(handle);
   if (!state) return rejected('handle-unavailable', { code: 'REVIEW_STALE' });
   if (!controls) return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
@@ -44,7 +46,8 @@ export function runOf(result: RunResult, state: HandleState): Run {
   const steps: RunStep[] = result.operations.flatMap(operation => {
     const ref = state.operations.get(operation.id);
     return ref ? [{ step: ref.step, managementId: ref.managementId, application: operation.application,
-      verification: { status: operation.verification.status, reason: operation.verification.reason } }] : [];
+      verification: { status: operation.verification.status, reason: operation.verification.reason },
+      ...(operation.effectsUncertain ? { effectsUncertain: true } : {}) }] : [];
   });
   const members: RunMember[] = (result.members ?? []).map(member => ({ managementId: member.managementId, scope: member.scope,
     kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),

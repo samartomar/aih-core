@@ -3,7 +3,7 @@
 import type { PreparedHandle } from '../host-types.js';
 import type { PlanHandle } from './types.js';
 
-export interface StepRef { step: number; managementId: string }
+export interface StepRef { step: number | string; managementId: string }
 export interface HandleState {
   engine: PreparedHandle;
   engineDigest: string;

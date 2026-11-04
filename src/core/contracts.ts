@@ -230,4 +230,7 @@ export type { FormatResult } from './plan/formats.js';
 export { refusalCodes } from './plan/codes.js';
 export type { RefusalCode } from './plan/codes.js';
 export { limits } from './plan/limits.js';
+// Authored changes (samartomar/aih-core#166): read a change and derive its canonical, material-bound identity.
+export { validateChange, deriveChangeIdentity } from './change/validate.js';
+export type { Change, ChangeReference, ChangeResult, ChangeIdentity, DeriveChangeIdentityRequest } from './change/validate.js';
 export type { Limit } from './plan/limits.js';
