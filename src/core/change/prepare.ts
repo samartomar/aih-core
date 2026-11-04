@@ -24,7 +24,7 @@ import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 import { recipeIdentityDescriptor } from '../internal/recipe-identity.js';
 import { enterpriseContext } from '../enterprise/plan.js';
 import { admitChanges, admitRemovals, obligations, type ChangeFacts, type ClaimFacts } from '../enterprise/admission.js';
-import { denialReason, enterpriseControls, organizationReview, projected, recordedClaims } from '../enterprise/host.js';
+import { denialReason, enterpriseControls, organizationReview, placeClaims, projected } from '../enterprise/host.js';
 
 
 
@@ -281,7 +281,7 @@ function admitChangeRequest(enterprise: NonNullable<Exclude<Awaited<ReturnType<t
       inputs: (change?.inputs ?? {}) as ChangeFacts['inputs'], configuration: entry.inputs, privateInputs: Object.keys(controls.privateInputs?.[entry.managementId] ?? {}),
       lifecycle: (request.resolutions ?? []).filter(item => item.managementId === entry.managementId && item.choice !== 'skip').map(item => item.choice as 'replace' | 'adopt') };
   });
-  const recorded = recordedClaims(root, request.scope, project);
+  const recorded = placeClaims(request.scope, project);
   const released = new Set((update?.removals ?? []).map(removal => removal.key));
   const denials = [...admitChanges(organization, enterprise.target, facts),
     ...admitRemovals(organization, enterprise.target, recorded.filter(claim => released.has(claim.key)))];

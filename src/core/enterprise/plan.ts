@@ -2,7 +2,7 @@
 // content documents it was made from and the claims it makes. Nothing is inferred: a step names its item, items or
 // framework, and an item's kind and framework come from the content documents, or stay unknown.
 import { admitPlan, obligations, type ClaimFacts, type DeclaredTarget, type Denial, type Obligations, type StepFacts, type Subject } from './admission.js';
-import { declaredTarget, enterpriseMode, organizationReview, projected, readOrganization, recordedClaims, type EnterpriseControls,
+import { declaredTarget, enterpriseMode, organizationReview, placeClaims, projected, readOrganization, type EnterpriseControls,
   type EnterpriseState, type OrganizationReview } from './host.js';
 import type { CheckedStep } from '../plan/request.js';
 import type { Invalid, Origin, PlanRequest, Refusal } from '../plan/types.js';
@@ -66,8 +66,8 @@ export function admitPlanRequest(enterprise: Enterprise, request: PlanRequest, s
   const organization = enterprise.state.bound.organization;
   const denials = admitPlan(organization, enterprise.target, { steps: stepFacts, data: request.plan.data, origin, recipe });
   const planClis = [...new Set((request.profiles as { id?: unknown }[]).map(profile => profile.id).filter((id): id is string => typeof id === 'string'))];
-  const added = plannedClaims(claims, planClis, origin, facts).filter(claim => claim.scope === enterprise.target.scope);
-  const after = projected(recordedClaims(root, enterprise.target.scope, project), new Set(released), added);
+  const added = plannedClaims(claims, planClis, origin, facts);
+  const after = projected(placeClaims(enterprise.target.scope, project), new Set(released), added);
   const results = obligations(organization, enterprise.target, added, after);
   return { denials, results, review: organizationReview(enterprise.state.bound, enterprise.target, denials, results) };
 }

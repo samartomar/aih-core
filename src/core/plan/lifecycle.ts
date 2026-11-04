@@ -21,7 +21,7 @@ import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
 import { enterpriseContext } from '../enterprise/plan.js';
 import { admitRemovals, obligations } from '../enterprise/admission.js';
-import { denialReason, organizationReview, projected, recordedClaims } from '../enterprise/host.js';
+import { denialReason, organizationReview, placeClaims, projected } from '../enterprise/host.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { PluginFacts, ProgramFacts } from './types.js';
 import { join } from 'node:path';
@@ -312,7 +312,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   // A change goes only where its entry permits removal; fulfilment is projected over the claims left (C71).
   const root = scope === 'project' ? located.anchor : home;
   const admission = enterprise ? (() => {
-    const recorded = recordedClaims(root, scope, located.project);
+    const recorded = placeClaims(scope, located.project);
     const releasing = new Set(selectors.flatMap(selector => selector.engineIds));
     const denials = admitRemovals(enterprise.state.bound.organization, enterprise.target, recorded.filter(claim => releasing.has(claim.key)));
     const results = obligations(enterprise.state.bound.organization, enterprise.target, [], projected(recorded, releasing, []));

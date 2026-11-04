@@ -254,3 +254,21 @@ test('organization Scan signers are carried in the review and never gate the req
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
   assert.deepEqual(prepared.review.organization.scanSigners, signers);
 });
+
+test('actual fulfilment after a failed step differs from the projection: a requirement the review projected as fulfilled reads not fulfilled', async () => {
+  const { programRequest } = await import('./fixtures/program-fixture.mjs');
+  const id = 'fixture.ai-setup.failing-tool';
+  // A Core-side installer FIXTURE whose command exits 3: the real Node on PATH, so nothing is installed.
+  const installer = { item: { id, kind: 'ai-setup', name: 'failing-tool', files: [], aiSetup: { version: '1.0.0', settings: { commands: [], files: [] } } },
+    step: { op: 'upstream-installer', aiSetup: id, argv: ['node', '-e', 'process.exit(3)'], managed: false, scanned: false, approval: 'required' } };
+  const target = project();
+  const request = enterprise(programRequest(target, { installers: [installer] }), { id: 'claude-code', surface: 'cli' });
+  const source = organization([{ id: 'need-tool', obligation: 'required', content: { item: id } }]);
+  const prepared = await prepare(request, { organization: source });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.organization.fulfilment.map(item => item.status), ['fulfilled']);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { organization: source }));
+  assert.notEqual(run.completion, 'complete', JSON.stringify(run));
+  assert.equal(run.steps[0].application, 'failed', JSON.stringify(run));
+  assert.deepEqual(run.organization.fulfilment.map(item => item.status), ['not-fulfilled'], JSON.stringify(run.organization));
+});

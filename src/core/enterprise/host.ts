@@ -4,6 +4,8 @@ import { readGitHubPolicy, readLocalPolicy, type GitHubPolicySource, type LocalP
 import { localPolicySourceLabel } from '../../harness/local-policy.mjs';
 import { findTool } from '../../harness/tool-registry.mjs';
 import { readOwnership } from '../internal/state.js';
+import { projectRoot } from '../internal/host-files.js';
+import { homedir } from 'node:os';
 import { sameProject } from '../plan/claims.js';
 import { limitValue } from '../plan/limits.js';
 import { parseOrganization, type Organization } from './organization.js';
@@ -104,7 +106,8 @@ export function recordedClaims(root: string, scope: 'project' | 'user', project:
   try { stored = readOwnership(root).value; } catch { return []; }
   const claims: ClaimFacts[] = [];
   for (const item of Object.values(stored.items ?? {})) {
-    if (item.scope !== scope) continue;
+    // An interrupted install holds nothing confirmed: it fulfils nothing.
+    if (item.scope !== scope || item.installState) continue;
     const plan = item.plan;
     if (plan) {
       if (scope === 'user' && !sameProject(plan, project)) continue;
@@ -130,6 +133,17 @@ export function recordedClaims(root: string, scope: 'project' | 'user', project:
   return claims;
 }
 
+/**
+ * The claims of a place: for project scope the project's receipts and the user-scope claims made from that project (such
+ * as an AI setup in home), for user scope the user-scope claims made from that project (or none named).
+ */
+export function placeClaims(scope: 'project' | 'user', project: string | null): ClaimFacts[] {
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return []; }
+  return scope === 'project' && project !== null ? [...recordedClaims(project, 'project', project), ...recordedClaims(home, 'user', project)] :
+    recordedClaims(home, 'user', project);
+}
+
 /** The claims after a request (C71): what is recorded, minus what it releases or replaces, plus what it makes. */
 export function projected(recorded: ClaimFacts[], released: Set<string>, added: ClaimFacts[]): ClaimFacts[] {
   const replaced = new Set([...released, ...added.map(claim => claim.key)]);
@@ -146,7 +160,7 @@ export function organizationReview(bound: BoundOrganization, target: DeclaredTar
 /** What Apply needs to re-read authority and report actual fulfilment once the run is done. */
 export interface EnterpriseState { bound: BoundOrganization; target: DeclaredTarget; root: string; project: string | null }
 export function actualFulfilment(state: EnterpriseState): OrganizationRun {
-  const after = recordedClaims(state.root, state.target.scope, state.project);
+  const after = placeClaims(state.target.scope, state.project);
   return { id: state.bound.organization.id, fulfilment: obligations(state.bound.organization, state.target, [], after).fulfilment };
 }
 
