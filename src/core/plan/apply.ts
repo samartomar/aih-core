@@ -80,8 +80,11 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
       const skipped: RunStep[] = [...new Map([...state.operations.values()].map(ref => [`${ref.step}\0${ref.managementId}`, ref])).values()]
         .map(ref => ({ step: ref.step, managementId: ref.managementId, application: 'not-attempted' as const,
           verification: { status: 'not-checked', reason: 'not-attempted' } }));
-      return { ...before, completion: before.completion === 'complete' ? 'incomplete' : before.completion, reviewDigest: state.reviewDigest,
+      const kept: Run = { ...before, completion: before.completion === 'complete' ? 'incomplete' : before.completion, reviewDigest: state.reviewDigest,
         steps: [...before.steps, ...skipped].sort((a, b) => (a.step as number) - (b.step as number)) };
+      // Nothing was released, so the actual fulfilment is over the claims still held (C71).
+      if (state.enterprise && kept.completion !== 'rejected') kept.organization = actualFulfilment(state.enterprise);
+      return kept;
     }
   }
   const result = await applyEngine(state.engine, { reviewDigest: state.engineDigest, approved: true, origin: value.origin as 'interactive' | 'automation',

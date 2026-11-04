@@ -3,7 +3,7 @@
 // evidence about a real client's plugin commands, which stay a pending live check.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
@@ -147,6 +147,24 @@ test('a failed presence readback fails the step and the run, and a removal that 
   run = conforms(await apply(prepared.handle, approve(prepared.review)));
   assert.deepEqual([run.completion, run.steps[0].application], ['incomplete', 'failed']);
   assert.equal((await list({ target: {}, scope: 'user' })).entries.length, 1);
+});
+
+test('an Enterprise removal whose plugin command fails still reports the actual fulfilment over the claims left', async () => {
+  fresh();
+  await install(PRESENCE);
+  const path = join(scratch, `org-${counter++}.json`);
+  writeFileSync(path, JSON.stringify({ schema: 'urn:aihq:core:organization:0.1.0', id: 'acme',
+    entries: [{ id: 'need-superpowers', obligation: 'required', scopes: ['user'], content: { framework: 'superpowers' } }] }));
+  const source = { provider: 'local', path };
+  mode('uninstall-fail');
+  const prepared = await prepareRemoval({ target: {}, scope: 'user', mode: 'enterprise', removals: [{ managementId: 'superpowers' }] },
+    { organization: source });
+  assert.equal(prepared.status, 'ok', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.organization.fulfilment.map(item => item.status), ['not-fulfilled']);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { organization: source }));
+  assert.deepEqual([run.completion, run.steps[0].application], ['incomplete', 'failed']);
+  // The receipt stays, so the requirement it holds is still fulfilled: the actual outcome, not the projection.
+  assert.deepEqual(run.organization?.fulfilment.map(item => [item.entry, item.status]), [['need-superpowers', 'fulfilled']]);
 });
 
 test('one item inside a plugin offers removal of the whole plugin, never a silent split', async () => {
