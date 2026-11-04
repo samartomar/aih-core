@@ -195,3 +195,34 @@ export async function inspectMachine(request: unknown, rawControls?: unknown): P
     tools, versions, warnings, observations: retained.observations, checks: retained.checks, repairChoices: retained.repairChoices as Json[],
     diagnostics: retained.diagnostics.map(({ code, reason, message }) => ({ code, reason, message })), followUp: retained.followUp, limits: retained.limits };
 }
+
+/**
+ * The review's old-CLI warning (D110): for each CLI the plan serves, the version its own version command prints (local
+ * only, no network) against the served profile's `checkedWith`. Returns undefined when no served profile carries a
+ * `checkedWith` list, so nothing is run. An older CLI is a warning, never a stop; a CLI whose profile has no list
+ * says "version not compared".
+ */
+export async function reviewVersions(profiles: unknown[], clis: readonly string[], signal?: AbortSignal):
+    Promise<{ versions: VersionComparison[]; warnings: string[] } | undefined> {
+  const read = new Map<string, Profile>();
+  for (const profile of profiles) {
+    if (!plainObject(profile) || typeof profile.id !== 'string' || !clis.includes(profile.id) || !Array.isArray(profile.checkedWith)) continue;
+    const one = readProfiles([profile]);
+    if ('profiles' in one && one.profiles[0]) read.set(profile.id, one.profiles[0]);
+  }
+  if (!read.size) return undefined;
+  const ids = [...new Set(clis)].filter(id => findTool(id)?.via === 'id').sort();
+  const targets = [...new Set(ids.map(id => TARGET_OF[id] ?? id))].filter(id => id !== 'dsh');
+  let found: ToolVersion[] = [];
+  const retained = targets.length ? await inspectRetained({ targets, network: 'off' }, signal ? { signal } : {}, list => { found = list; }) : { tools: [] };
+  const byTarget = new Map(found.map(item => [item.target, item]));
+  const states = new Map(retained.tools.map(tool => [tool.id, tool.state]));
+  const versions = ids.map(id => {
+    const target = TARGET_OF[id] ?? id;
+    const ran = byTarget.get(target);
+    const reached = ran && registryTool(target, ran.binary);
+    const installed = ran && reached === id ? { version: ran.version, binary: ran.binary } : undefined;
+    return compare(id, installed, states.get(target) ?? (target === 'dsh' ? undefined : 'absent'), read.get(id));
+  });
+  return { versions, warnings: versions.filter(item => item.comparison === 'older').map(item => item.message) };
+}

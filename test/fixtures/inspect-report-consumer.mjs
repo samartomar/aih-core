@@ -120,6 +120,27 @@ await check('inspect warns, never blocks, when a CLI is older than its profile, 
   assert.equal(tree(join(home, '.aih')), null, 'inspection keeps no state');
 });
 
+await check('the plan review warns, never blocks, when a served CLI is older than its profile; a profile without checkedWith is not compared', async () => {
+  freshHome('review-versions');
+  const folder = project('review-versions');
+  const request = ownRequest(folder, { notes: { 'SKILL.md': '# Notes\n' } }, ['claude-code', 'codex']);
+  request.profiles = request.profiles.map(item => ({ ...item, checkedWith: item.id === 'codex' ?
+    [{ app: 'codex', version: '0.166.0', date: '2026-11-02' }] : [{ app: 'claude-code', version: '2.1.316', date: '2026-11-02' }] }));
+  const ready = await prepare(request, { logging: 'off' });
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  assert.equal(validateFormat(ready.review).status, 'ok');
+  assert.deepEqual(ready.review.versions.map(item => [item.tool, item.comparison, item.installed]),
+    [['claude-code', 'not-older', '2.1.400'], ['codex', 'older', '0.150.0']]);
+  assert.ok(ready.review.warnings.some(text => /Codex CLI 0.150.0 is older than 0.166.0/.test(text)), JSON.stringify(ready.review.warnings));
+  const partial = ownRequest(folder, { notes: { 'SKILL.md': '# Notes\n' } }, ['claude-code', 'codex']);
+  partial.profiles = partial.profiles.map(item => item.id === 'codex' ? { ...item, checkedWith: [{ app: 'codex', version: '0.100.0', date: '2026-11-02' }] } : item);
+  const second = await prepare(partial, { logging: 'off' });
+  assert.deepEqual(second.review.versions.map(item => [item.tool, item.comparison, item.reason ?? null]),
+    [['claude-code', 'not-compared', 'no-profile'], ['codex', 'not-older', null]]);
+  assert.match(second.review.versions[0].message, /^Version not compared/);
+  assert.equal(second.review.warnings.length, 0);
+});
+
 await check('malformed or alias profiles are invalid with exact problems', async () => {
   const broken = await inspect({ target: 'codex', offline: true, profiles: [{ id: 'codex', version: 3, checkedWith: 'fixture' }] });
   assert.deepEqual(broken, { status: 'invalid', problems: [{ path: '/profiles/0/checkedWith', reason: 'checkedWith',
