@@ -1,0 +1,18 @@
+{
+  "schema": "urn:aihq:core:repair-request:0.1.0",
+  "repair": "node-npm-ca",
+  "targets": [
+    "npm"
+  ],
+  "route": "file",
+  "sources": {
+    "os": false,
+    "supplied": [
+      {
+        "id": "company",
+        "file": "/home/dev/company-ca.pem"
+      }
+    ]
+  },
+  "network": "off"
+}

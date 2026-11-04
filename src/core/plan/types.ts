@@ -114,7 +114,7 @@ export interface ReviewConflict {
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal' | 'change';
+  request: 'plan' | 'removal' | 'change' | 'repair' | 'export' | 'macos-session';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
@@ -129,6 +129,8 @@ export interface Review {
   groups?: { id: string; members: string[] }[];
   failureRule: string;
   warnings: string[];
+  /** Repair, export and macOS session reviews only (contract 10). */
+  environment?: EnvironmentReview;
   reviewDigest: string;
 }
 export interface Preparation {
@@ -164,6 +166,8 @@ export interface Run {
   reviewDigest: string | null;
   steps: RunStep[]; members: RunMember[];
   history: { status: 'recorded' | 'disabled' | 'not-recorded'; limit?: string };
+  /** Repair, export and macOS session runs only (contract 10). */
+  environment?: EnvironmentRun;
 }
 
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
@@ -221,4 +225,26 @@ export interface PluginFacts {
   presenceCheck: 'none' | { argv: string[]; expect: string };
   /** The skill name of each contained skill item, by item id: what a client keys a one-skill switch-off by (C45). */
   skills?: { [item: string]: string };
+}
+
+/** A problem that keeps environment work from being admitted on this host, named by its retained code and reason. */
+export interface EnvironmentProblem { code: string; reason: string; message: string; path?: string }
+/** The retained facts of a repair, certificate export or macOS session review (contract 10). */
+export interface EnvironmentReview {
+  job: 'repair' | 'export' | 'macos-session';
+  repair: string | null;
+  targets: string[];
+  route: 'file' | 'native' | 'os' | 'export';
+  network: 'declared' | 'off';
+  /** The job's reviewed trust facts: sources, certificates, outputs and per-target admission, or the macOS session facts. */
+  facts: { [field: string]: Json };
+  observations: { id: string; reason: string }[];
+  unavailable: EnvironmentProblem[];
+}
+export interface EnvironmentRun {
+  job: 'repair' | 'export' | 'macos-session';
+  outputs: { [field: string]: Json }[];
+  targets: { [field: string]: Json }[];
+  session?: { [field: string]: Json };
+  diagnostics: EnvironmentProblem[];
 }

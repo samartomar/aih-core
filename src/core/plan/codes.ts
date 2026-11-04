@@ -41,6 +41,9 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },
   { status: 'refused', code: 'tls-untrusted', fix: 'Run the repair the result names, then Prepare again.' },
   { status: 'refused', code: 'cell-mismatch', fix: "Replan for this host's platform cell." },
+  // Environment work: repair, certificate export and the macOS session (samartomar/aih-core#170).
+  { status: 'refused', code: 'host-unsupported', fix: 'Run on a supported Node runtime and host.' },
+  { status: 'refused', code: 'resolution-unknown', fix: 'Prepare again with resolutions taken from the conflicts of the review.' },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
