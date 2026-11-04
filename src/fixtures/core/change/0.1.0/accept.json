@@ -1,0 +1,49 @@
+{
+  "schema": "urn:aihq:core:change:0.1.0",
+  "id": "codex-approval-on-request",
+  "description": "Ask before Codex runs commands",
+  "inputs": {},
+  "materials": [],
+  "targets": [
+    "user"
+  ],
+  "prerequisites": [],
+  "operations": [
+    {
+      "id": "set",
+      "purpose": "Ask before Codex runs commands",
+      "kind": "config.entries",
+      "scope": "user",
+      "format": "toml",
+      "target": {
+        "root": "user",
+        "segments": [
+          {
+            "literal": ".codex"
+          },
+          {
+            "literal": "config.toml"
+          }
+        ]
+      },
+      "set": [
+        {
+          "path": [
+            "approval_policy"
+          ],
+          "value": "on-request"
+        },
+        {
+          "path": [
+            "sandbox_workspace_write",
+            "network_access"
+          ],
+          "value": false
+        }
+      ],
+      "requires": [],
+      "checks": []
+    }
+  ],
+  "checks": []
+}

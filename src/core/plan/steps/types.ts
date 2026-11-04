@@ -39,6 +39,28 @@ export interface LoweredWrite {
   profiles?: { id: string; version: string | number }[];
 }
 /**
+ * One native plugin install (`plugin`): the CLI's own commands, filled from the profile's templates, run in order after
+ * approval of those exact commands. Its framework is one indivisible install (C68); its undo facts go to the receipt.
+ */
+export interface LoweredPlugin {
+  kind: 'plugin';
+  managementIds: [string];
+  /** The request scope: where the commands run (the project folder or home) and which receipt keeps the install. */
+  root: 'project' | 'user';
+  cli: string; plugin: string; commit: string; framework: string;
+  contains: string[];
+  commands: string[][];
+  undo: string[][] | null;
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+  sentence: string;
+  cantPromise: string;
+  review: { framework: string; clis: string[] };
+  /** Never an acquisition or a render. */
+  profiles?: undefined;
+  acquire?: undefined;
+}
+export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge;
+/**
  * One planned entry the engine adds to a file the person may already have (Catalog 9 `merge`): a JSON value at a JSON
  * Pointer (engine `config.entries`, JSONC-tolerant so a person's comments survive), the leaves of one TOML table
  * (engine `config.entries` toml), or one marked Markdown block (engine `text.block`). It never replaces the file.
@@ -66,7 +88,6 @@ export interface LoweredMerge {
   /** Only writes acquire or render. */
   acquire?: never; profiles?: never;
 }
-export type Lowered = LoweredWrite | LoweredMerge;
 export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
 export interface StepHandler {
   op: string;

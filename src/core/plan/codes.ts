@@ -29,6 +29,13 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'existing-content', fix: 'Prepare again with a resolution: replace, adopt if identical, or skip.' },
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
+  // Authored changes (samartomar/aih-core#166).
+  { status: 'refused', code: 'organization-required', fix: 'Prepare the change in Vibe mode; Enterprise admission of changes needs a newer Core.' },
+  // Native plugin steps (samartomar/aih-core#168).
+  { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog profile the plan was made with.' },
+  { status: 'refused', code: 'plugin-command-unresolved', fix: 'Replan with a Catalog whose plugin step and profile give every value of an unattended, pinned install.' },
+  { status: 'refused', code: 'program-unavailable', fix: 'Install the CLI the step runs, then prepare again.' },
+  { status: 'invalid', code: 'item-removal-unavailable', fix: 'Remove the whole management id; only an item inside a plugin is named by item.' },
   // AI setup acquisition (samartomar/aih-core#169).
   { status: 'refused', code: 'qualification-missing', fix: "Pass the qualification documents that the plan's acquire steps name." },
   { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },

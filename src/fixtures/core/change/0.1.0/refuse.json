@@ -1,0 +1,49 @@
+{
+  "schema": "urn:aihq:core:change:0.1.0",
+  "id": "codex-everything",
+  "description": "Today's engine root name userHome is not a change root; changes name user or project",
+  "inputs": {},
+  "materials": [],
+  "targets": [
+    "user"
+  ],
+  "prerequisites": [],
+  "operations": [
+    {
+      "id": "set",
+      "purpose": "Ask before Codex runs commands",
+      "kind": "config.entries",
+      "scope": "user",
+      "format": "toml",
+      "target": {
+        "root": "userHome",
+        "segments": [
+          {
+            "literal": ".codex"
+          },
+          {
+            "literal": "config.toml"
+          }
+        ]
+      },
+      "set": [
+        {
+          "path": [
+            "approval_policy"
+          ],
+          "value": "on-request"
+        },
+        {
+          "path": [
+            "sandbox_workspace_write",
+            "network_access"
+          ],
+          "value": false
+        }
+      ],
+      "requires": [],
+      "checks": []
+    }
+  ],
+  "checks": []
+}

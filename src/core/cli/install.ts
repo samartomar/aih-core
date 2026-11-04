@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { readRegularFile } from '../internal/fsxn.js';
 import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
 import { apply, prepare } from '../index.js';
-import { approved, emit, exitCode, printable, readDocument, refusal } from './common.js';
+import { approved, emit, exitCode, printable, progressLine, readDocument, refusal } from './common.js';
 import type { CatalogControls, PlanControls, PlanRequest } from '../plan/types.js';
 
 const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
@@ -92,7 +92,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
     }
   }
   const catalog = await catalogReader();
-  const controls: PlanControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(catalog ? { catalog } : {}) };
+  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(catalog ? { catalog } : {}) };
   const preparation = await prepare(request, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));

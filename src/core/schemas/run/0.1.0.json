@@ -17,11 +17,12 @@
     "steps": { "type": "array", "items": {
       "type": "object", "additionalProperties": false, "required": ["step", "managementId", "application", "verification"],
       "properties": {
-        "step": { "type": "integer", "minimum": 0 },
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
         "managementId": { "type": "string" },
         "application": { "enum": ["applied", "already-satisfied", "failed", "not-attempted"] },
         "verification": { "type": "object", "additionalProperties": false, "required": ["status", "reason"],
           "properties": { "status": { "type": "string" }, "reason": { "type": "string" } } },
+        "effectsUncertain": { "const": true },
         "reason": { "type": "string" },
         "interpreter": { "type": "object", "additionalProperties": false, "required": ["branch", "path", "version", "fallback", "fallbackReason"],
           "properties": { "branch": { "enum": ["installed", "fallback"] }, "path": { "type": "string" }, "version": { "type": "string" },

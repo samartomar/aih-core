@@ -13,6 +13,12 @@ import runInvalid from '../../fixtures/core/run/0.1.0/refuse.json' with { type: 
 import inventorySchema from '../schemas/inventory/0.1.0.json' with { type: 'json' };
 import inventoryValid from '../../fixtures/core/inventory/0.1.0/accept.json' with { type: 'json' };
 import inventoryInvalid from '../../fixtures/core/inventory/0.1.0/refuse.json' with { type: 'json' };
+import changeSchema from '../schemas/change/0.1.0.json' with { type: 'json' };
+import changeValid from '../../fixtures/core/change/0.1.0/accept.json' with { type: 'json' };
+import changeInvalid from '../../fixtures/core/change/0.1.0/refuse.json' with { type: 'json' };
+import changeRequestSchema from '../schemas/change-request/0.1.0.json' with { type: 'json' };
+import changeRequestValid from '../../fixtures/core/change-request/0.1.0/accept.json' with { type: 'json' };
+import changeRequestInvalid from '../../fixtures/core/change-request/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -25,6 +31,9 @@ const entries: FormatEntry[] = [
   { id: reviewSchema.$id, schema: reviewSchema, fixtures: { valid: reviewValid, invalid: reviewInvalid } },
   { id: runSchema.$id, schema: runSchema, fixtures: { valid: runValid, invalid: runInvalid } },
   { id: inventorySchema.$id, schema: inventorySchema, fixtures: { valid: inventoryValid, invalid: inventoryInvalid } },
+  // Authored changes and named groups (samartomar/aih-core#166).
+  { id: changeSchema.$id, schema: changeSchema, fixtures: { valid: changeValid, invalid: changeInvalid } },
+  { id: changeRequestSchema.$id, schema: changeRequestSchema, fixtures: { valid: changeRequestValid, invalid: changeRequestInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

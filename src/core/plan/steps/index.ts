@@ -4,6 +4,7 @@
 import { fetch } from './fetch.js';
 import { acquire } from './acquire.js';
 import { write } from './write.js';
+import { plugin } from './plugin.js';
 import { merge } from './merge.js';
 import type { StepHandler } from './types.js';
 
@@ -11,10 +12,11 @@ const handlers: Readonly<Record<string, StepHandler>> = Object.freeze({
   [write.op]: write,
   [fetch.op]: fetch,
   [acquire.op]: acquire,
+  [plugin.op]: plugin,
   [merge.op]: merge,
 });
 /** Catalog's other step kinds (D92); named so the refusal can say they are known but not carried out here yet. */
-const CATALOG_KINDS = new Set(['link', 'merge', 'plugin', 'upstream-setup', 'upstream-installer', 'tool-command']);
+const CATALOG_KINDS = new Set(['link', 'merge', 'upstream-setup', 'upstream-installer', 'tool-command']);
 
 export function handlerFor(op: string): StepHandler | { known: boolean } {
   return Object.hasOwn(handlers, op) ? handlers[op]! : { known: CATALOG_KINDS.has(op) };

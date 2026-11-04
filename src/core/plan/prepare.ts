@@ -10,8 +10,12 @@ import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
+import { register, type ProgramCheck, type StepRef } from './handles.js';
+import { resolveExecutable } from '../internal/approved-process.js';
+import { claimIdentity } from '../internal/recipe-lifecycle.js';
+import type { LoweredPlugin } from './steps/types.js';
+import type { PluginFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
-import { register, type StepRef } from './handles.js';
 import { limitValue } from './limits.js';
 import { acquisition } from './acquire/effect.js';
 import { probe } from './acquire/download.js';
@@ -134,25 +138,28 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const selections: ExecutionPolicy['selections'] = [];
   for (const group of groups.values()) {
     const materials: { id: string; path: string; sha256: string; byteLength: number; bytes: Buffer }[] = [];
-    const ops: Recipe['operations'] = group.steps.map((step, at) => {
+    const ops: Recipe['operations'] = group.steps.flatMap((step, at): Recipe['operations'] => {
+      const lowered = step.lowered;
+      if (lowered.kind === 'plugin') return programOperations(lowered, step.index, group, operations);
       const id = `step-${step.index}`;
       operations.set(`${group.selectionId}/${id}`, { step: step.index, managementId: group.managementId });
-      const lowered = step.lowered;
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
+      const prior = group.steps[at - 1];
       // A failed step makes the rest of its item's steps not attempted (C60).
-      const base = { id, purpose: lowered.sentence, scope: group.scope, target, requires: at === 0 ? [] : [`step-${group.steps[at - 1]!.index}`], checks: [] };
+      const requires = !prior ? [] : [prior.lowered.kind === 'plugin' ? `step-${prior.index}-${prior.lowered.commands.length - 1}` : `step-${prior.index}`];
+      const base = { id, purpose: lowered.sentence, scope: group.scope, target, requires, checks: [] };
       if (lowered.kind === 'merge') {
         merges.set(`${group.selectionId}/${id}`, { format: lowered.format, segments: lowered.segments });
-        if (lowered.format === 'markdown') return { ...base, kind: 'text.block' as const, blockId: lowered.key, ...markers(lowered.key),
-          action: 'set' as const, content: { literal: lowered.entry } };
-        return { ...base, kind: 'config.entries' as const, format: lowered.format === 'json' ? 'jsonc' as const : 'toml' as const,
+        if (lowered.format === 'markdown') return [{ ...base, kind: 'text.block' as const, blockId: lowered.key, ...markers(lowered.key),
+          action: 'set' as const, content: { literal: lowered.entry } }];
+        return [{ ...base, kind: 'config.entries' as const, format: lowered.format === 'json' ? 'jsonc' as const : 'toml' as const,
           entries: lowered.format === 'json' ? [{ path: lowered.segments, action: 'set' as const, value: { literal: lowered.entry } }] :
-            lowered.leaves!.map(leaf => ({ path: [...lowered.segments, ...leaf.path], action: 'set' as const, value: { literal: leaf.value } })) };
+            lowered.leaves!.map(leaf => ({ path: [...lowered.segments, ...leaf.path], action: 'set' as const, value: { literal: leaf.value } })) }];
       }
       const material = { id: `m${String(materials.length).padStart(6, '0')}`, path: `plan/${materials.length}`, sha256: sha256(lowered.bytes),
         byteLength: lowered.bytes.length, bytes: lowered.bytes };
       materials.push(material);
-      return { ...base, kind: 'file.write' as const, material: material.id, ...(lowered.executable ? { mode: 0o755 } : {}) };
+      return [{ ...base, kind: 'file.write' as const, material: material.id, ...(lowered.executable ? { mode: 0o755 } : {}) }];
     });
     for (const step of group.steps) if (step.lowered.kind === 'write' && step.lowered.acquire) {
       const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress);
@@ -176,7 +183,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
-        { aiSetup: { ...recorded.get(group.managementId)! } } : {}) });
+        { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
+      ...pluginFacts(group.steps) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
     selections.push({ id: group.selectionId, managementId: group.managementId, scope: group.scope, configuration: {}, requires,
@@ -204,13 +212,21 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const chosen = new Map(resolutions.map(item => [`${item.selectionId}/${item.operationId}`, item.choice]));
   const conflicts: ReviewConflict[] = [];
   const steps: ReviewStep[] = [];
+  const programCommands = new Map<number, { executable: string; executableSha256: string }[]>();
   const byStep = new Map<number, CheckedStep>(checked.steps.map(step => [step.index, step]));
   // Codex reads at most 32 KiB of AGENTS.md: the resulting file, your bytes plus every planned block, is checked before any write (C72).
   const guidance = new Map<string, { step: number; path: string; size: number }>();
   for (const operation of engine.review.operations) {
     const ref = operations.get(operation.id);
     if (!ref) continue;
-    const step = byStep.get(ref.step)!;
+    const step = byStep.get(ref.step as number)!;
+    if (step.lowered.kind === 'plugin') {
+      if (operation.effects === 'unavailable' || typeof operation.details.executableSha256 !== 'string')
+        return { status: 'refused', code: 'program-unavailable', reason: `Step ${ref.step} runs \`${step.lowered.cli}\`, which this host cannot run.`, step: ref.step as number };
+      const commands = programCommands.get(ref.step as number) ?? []; programCommands.set(ref.step as number, commands);
+      commands.push({ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 });
+      continue;
+    }
     const lowered = step.lowered;
     const facts = observed.get(operation.id);
     const hint = hints.get(operation.id);
@@ -226,7 +242,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence, cantPromise: lowered.cantPromise, effect,
       root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed)) });
     if (lowered.kind === 'merge' && lowered.codexGuidance && !conflict && facts?.after)
-      guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step, path: lowered.path, size: facts.after.length });
+      guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length });
     if (!conflict) continue;
     const before = facts?.before ?? null;
     const reason = facts?.reason;
@@ -243,11 +259,34 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   for (const found of guidance.values()) if (found.size > CODEX_GUIDANCE_BYTES)
     return { status: 'refused', code: 'file-too-large-for-client', step: found.step, file: found.path, size: found.size, value: CODEX_GUIDANCE_BYTES,
       reason: `\`${found.path}\` would be ${found.size} bytes with your bytes and the planned blocks; Codex reads at most ${CODEX_GUIDANCE_BYTES}.` };
-  for (const step of checked.steps) if (step.skipped) for (const managementId of step.lowered.managementIds)
+  // One review step per plugin step: every exact command with its pinned executable, the undo facts and the check.
+  const programs = new Map<number, ProgramCheck>();
+  for (const step of checked.steps) {
+    const lowered = step.lowered;
+    if (lowered.kind !== 'plugin' || step.skipped) continue;
+    const pinned = programCommands.get(step.index) ?? [];
+    let presence: ReviewStep['presenceCheck'] = 'none';
+    if (lowered.presenceCheck !== 'none') {
+      const executable = resolveExecutable(lowered.presenceCheck.argv[0]!);
+      if (!executable) return { status: 'refused', code: 'program-unavailable',
+        reason: `Step ${step.index}'s presence check runs \`${lowered.presenceCheck.argv[0]}\`, which this host cannot run.`, step: step.index };
+      presence = { ...lowered.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
+      programs.set(step.index, { executable, argv: lowered.presenceCheck.argv, expect: lowered.presenceCheck.expect,
+        cwd: lowered.root === 'project' ? project! : home });
+    }
+    const interrupted = readOwnership(lowered.root === 'project' ? project! : home).value.items?.[
+      claimIdentity(lowered.root, lowered.framework, project ?? home)]?.installState === 'interrupted';
+    steps.push({ step: step.index, op: step.op, managementId: lowered.framework, sentence: lowered.sentence,
+      cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
+      effect: 'run-program', framework: lowered.framework, cli: lowered.cli, clis: [lowered.cli], plugin: lowered.plugin, commit: lowered.commit,
+      contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
+      presenceCheck: presence, ...(interrupted ? { previous: 'interrupted' as const } : {}) });
+  }
+  for (const step of checked.steps) if (step.skipped && step.lowered.kind !== 'plugin') for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review,
       ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed)) });
-  steps.sort((a, b) => a.step - b.step || codeUnitCompare(a.managementId, b.managementId));
+  steps.sort((a, b) => (a.step as number) - (b.step as number) || codeUnitCompare(a.managementId, b.managementId));
   const { plan: _steps, ...reports } = request.plan;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
@@ -259,11 +298,33 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
-    reviewDigest, partial, operations, acquired, progress: sink,
+    reviewDigest, partial, operations, acquired, progress: sink, ...(programs.size ? { programs } : {}),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
 
+/**
+ * A plugin step's commands as engine `process.run` operations, run in order in the request scope's root (the project
+ * folder or home). Each command needs the one before it; the engine pins each executable by sha256 at Prepare.
+ */
+function programOperations(lowered: LoweredPlugin, index: number, group: { selectionId: string; managementId: string; scope: 'project' | 'user' },
+    operations: Map<string, StepRef>): Recipe['operations'] {
+  return lowered.commands.map((argv, at) => {
+    const id = `step-${index}-${at}`;
+    operations.set(`${group.selectionId}/${id}`, { step: index, managementId: group.managementId, program: true });
+    return { id, purpose: `Runs \`${argv.join(' ')}\``, kind: 'process.run', scope: group.scope,
+      executable: { name: argv[0]! }, args: argv.slice(1).map(literal => ({ literal })),
+      cwd: { root: group.scope === 'project' ? 'project' : 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0],
+      effects: [`The ${lowered.cli} CLI's own plugin command; Core can't show its effects`], requires: at ? [`step-${index}-${at - 1}`] : [], checks: [] };
+  });
+}
+/** The receipt's plugin undo facts for one management id's steps (C54). */
+function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
+  const plugins = steps.flatMap(step => step.lowered.kind === 'plugin' && !step.skipped ? [{ step: step.index, cli: step.lowered.cli,
+    plugin: step.lowered.plugin, commit: step.lowered.commit, contains: [...step.lowered.contains], undo: step.lowered.undo,
+    presenceCheck: step.lowered.presenceCheck }] : []);
+  return plugins.length ? { plugins } : {};
+}
 /** An AI setup's review facts (C46): what it downloads, and for a Python tool both interpreter branches. */
 function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>): Pick<ReviewStep, 'acquire' | 'interpreter'> {
   const spec = step.lowered.acquire;
@@ -305,7 +366,7 @@ function presentedEntry(lowered: LoweredMerge): Json {
  * the real bytes. Bytes that are not text, or a file over 1 MiB, are not presented (`null`).
  */
 function presentExisting(lowered: Lowered, before: Buffer | null): { text: string | null; redacted: string[] } {
-  if (before === null) return { text: null, redacted: [] };
+  if (before === null || lowered.kind === 'plugin') return { text: null, redacted: [] };
   try {
     if (lowered.kind === 'write') return { text: before.length <= 1_048_576 ? new TextDecoder('utf-8', { fatal: true }).decode(before) : null, redacted: [] };
     if (lowered.format === 'markdown') {

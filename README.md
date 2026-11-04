@@ -2414,8 +2414,9 @@ elsewhere (for example in the user's own state) is not seen.
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
 with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
-(including `render`), `fetch`, `merge` and `acquire` steps (see [AI setups](#ai-setups-acquire-steps)); every other step
-kind is refused (`step-unknown`) before any effect. The format is not marked ready.
+(including `render`), `fetch`, `merge`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
+[Native plugins](#native-plugins-plugin-steps)); every other step kind is refused (`step-unknown`) before any effect. The
+format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2495,6 +2496,36 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
   failed reproduction still installs, records `chosen`, and the review says "origin not proven". A plan without
   `recipe` (`planInstall`) is always `chosen`. Only a malformed proof (`invalid`, `recipe-proof`) or a proof without
   `controls.catalog.planRecipe` (`catalog-required`) stops Prepare.
+### Native plugins (`plugin` steps)
+
+A `plugin` step installs a framework through the CLI's own plugin commands at the pinned commit. Every step naming a
+`framework` is one indivisible install, grouped under that framework id.
+
+- **Commands.** Core fills the supplied tool profile's `plugins.install` argv templates only from the step's own fields
+  (`<plugin>`, `<marketplace>`, `<marketplace-name>`, `<repository>`, `<commit>`, `<scope>`). A placeholder the step
+  doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
+  (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
+  `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
+- **The review** shows each exact command with the executable and sha256 Prepare pinned, the removal commands, the
+  presence check, the items the plugin's recorded folder holds (`contains`) and a "can't promise" line: Core can't show
+  or roll back what the CLI's own program changes. Prepare runs nothing.
+- **Apply** runs only those commands, in order, in the project folder or home, with cancellation and `onProgress`
+  events for each command's start and finish. The pending receipt is written before the first command, so an
+  interrupted command leaves the install `interrupted` and the run step `effectsUncertain`; the next Prepare shows the
+  step again (`previous: interrupted`) for a fresh approval and never re-runs it by itself.
+- **Presence.** Only the profile's `plugins.verify` readback (`{ argv, expect }`: the expected line in the command's
+  output) decides. After install, `present` gives verification `passed`; `absent`, or a check that can't run, fails the
+  step and makes the run `incomplete`. With `verify: none` the step is `unverified` (`no-presence-check`). An exit
+  status or help output never proves presence or absence.
+- **Receipt.** At install the filled removal commands and presence check are copied into the receipt and listed under
+  `plugins` by `list`, so removal never needs the old profile.
+- **Removal** runs those saved commands first, then the saved check: `absent` is `passed`; still `present`, a failed
+  command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
+  `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
+  `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
+  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
+  commands is a pending live check.
 
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
@@ -2544,6 +2575,76 @@ qualification documents the plan's acquire steps name in `qualifications`.
   acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
   redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
   last claim, the whole folder goes.
+
+## Apply authored changes through a change request (0.1.0, in development)
+
+A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an
+array member, a team file, a marked text block, an owned hook group or an exact approved command. It has today's
+authoring shape and rules, under one version: the operation kinds `file.write`, `file.remove`, `config.entries`
+(JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`; the
+bounded editors of [One complete authoring example](#one-complete-authoring-example); inputs, private inputs, prerequisites
+and checks of [Inputs and outcomes](#inputs-and-outcomes); one-server approval of [Allow one MCP server](#allow-one-mcp-server);
+and [owned hook groups](#owned-hook-groups). Two names differ from the recipe form: a target `root` is `project` or `user`
+(your home folder), and `config.entries` sets keys with `set: [{ path, value }]` (or `{ path, input }` for a declared input)
+and removes them with `remove: [{ path }]`. Recipe documents are not changes: `validateChange` answers
+`unsupported-version` for any other format id. The formats are not marked ready.
+
+A change request (`urn:aihq:core:change-request:0.1.0`) carries one or more changes for one scope, the ordinary input
+values beside each, the management ids each `requires`, and named `groups`:
+
+```js
+import { prepare, apply, list, prepareRemoval } from '@aihq/core';
+import { validateChange, deriveChangeIdentity } from '@aihq/core/contracts';
+
+const change = { schema: 'urn:aihq:core:change:0.1.0', id: 'codex-approval-on-request', description: 'Ask before Codex runs commands',
+  inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [],
+  operations: [{ id: 'set', purpose: 'Ask before Codex runs commands', kind: 'config.entries', scope: 'user', format: 'toml',
+    target: { root: 'user', segments: [{ literal: '.codex' }, { literal: 'config.toml' }] },
+    set: [{ path: ['approval_policy'], value: 'on-request' }], requires: [], checks: [] }] };
+validateChange(change);                       // { status: 'ok', schema } | invalid | unsupported-version
+await deriveChangeIdentity({ change });       // { status: 'ok', changeIdentity: 'sha256:…', changeSha256, materials }
+const prepared = await prepare({ schema: 'urn:aihq:core:change-request:0.1.0', mode: 'vibe', scope: 'user', target: { project: null },
+  changes: [{ managementId: 'codex-approval-on-request', change, inputs: {}, requires: [] }],
+  groups: [{ id: 'team-settings', members: ['codex-approval-on-request'] }] });
+if (prepared.status === 'ready')
+  await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'codex-approval-on-request' }] });
+```
+
+- **One engine.** Each change is one management id and scope. Its operations go through the same Prepare, custody,
+  recovery and Apply as every other request, and its review and run are `urn:aihq:core:review:0.1.0` (`request: 'change'`)
+  and `urn:aihq:core:run:0.1.0`. In a change review and run, `step` is the operation id; each step has one sentence, the
+  operations it `requires`, and its exact `details` (target, edits, block, hook group, member, and for `process.run` the
+  executable and its sha256, argv, working folder, environment, accepted exit codes and bounds). Private values are
+  redacted. A command's effects are opaque (`effect: 'opaque-process'`), with the line that Core can't show or undo them;
+  a failed or cancelled command is reported `effectsUncertain` and never claims a rollback.
+- **Materials** are inline, or a change acquired by `reference` instead of `change`: a pinned local folder named by
+  `controls.materialRoots: { id: absolutePath }`, an HTTPS archive, or one exact GitHub commit archive, each checked by
+  length and sha256 exactly as in [Install from an exact git commit](#install-from-an-exact-git-commit). The referenced
+  member is itself a change document.
+- **Inputs.** Ordinary values sit in `changes[].inputs`. Secret values go in `controls.privateInputs`, keyed by management
+  id; they never appear in the review, history or receipts, and a changed value rejects Apply (`REVIEW_STALE` `input`).
+- **`requires`.** A required change cannot be removed while its dependant is installed: removal names it `retained`.
+- **Named groups (C50).** A group states the whole set it manages. Leaving a member out of the next request proposes,
+  after review, removing that member's content; an empty `members` proposes removing all the group's earlier members.
+  Unrelated content, and your edits to shared files, stay.
+- **Identity.** `deriveChangeIdentity` hashes the canonical change (or, for a reference, its exact bytes) and its
+  material closure; Prepare records the same identity in custody.
+- **Conflicts.** Your existing file or value is a conflict and Prepare is `blocked` with no handle. Prepare again with
+  `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt' | 'skip', observedSha256 }]`; `replace`
+  keeps your original and removal writes it back; `skip` leaves that operation out, with every operation of the change
+  that waits for it, and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Not yet.** `mode: 'enterprise'` is refused (`organization-required`) before any effect; Enterprise admission of changes
+  arrives later.
+
+```sh
+aih change change-request.json [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]...
+           [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]
+aih validate change change.json --json
+aih validate change-request change-request.json --json
+```
+
+Exit codes are those of the plan request commands above.
 
 ## Managed lifecycle
 
