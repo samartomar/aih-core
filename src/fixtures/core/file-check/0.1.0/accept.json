@@ -1,0 +1,45 @@
+{
+  "schema": "urn:aihq:core:file-check:0.1.0",
+  "status": "ok",
+  "request": "plan",
+  "package": {
+    "name": "@aihq/core",
+    "version": "0.1.0"
+  },
+  "authority": "not-evaluated",
+  "targets": [
+    {
+      "id": "step-0",
+      "steps": [
+        0
+      ],
+      "managementIds": [
+        "local-my-skills.skill.demo"
+      ],
+      "target": {
+        "root": "project",
+        "path": ".claude/skills/demo/SKILL.md"
+      },
+      "outcome": "absent",
+      "reason": "target-absent"
+    }
+  ],
+  "checks": [],
+  "notChecked": [],
+  "diagnostics": [],
+  "limits": {
+    "budgetMs": 60000,
+    "elapsedMs": 3,
+    "targetBytes": 0,
+    "materialBytes": 7
+  },
+  "observation": "complete",
+  "fileState": "changed",
+  "coverage": {
+    "comparedTargets": 1,
+    "unavailableTargets": 0,
+    "comparedChecks": 0,
+    "unavailableChecks": 0,
+    "notChecked": 0
+  }
+}

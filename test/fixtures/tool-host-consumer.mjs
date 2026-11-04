@@ -53,7 +53,7 @@ await check('requests outside the published shape are refused, and unobserved to
   host({ home: folder('refusals', 'home'), path: '' });
   assert.deepEqual(codes(await inspectToolHost({ tool: 'nope', project, items: [skill] })), [['INPUT_INVALID', 'unknown-tool']]);
   const cursor = await inspectToolHost({ tool: 'cursor', project, items: [skill] });
-  assert.equal(cursor.status, 'refused');
+  assert.deepEqual([cursor.status, cursor.code], ['refused', 'tool-not-observed'], 'the Cursor CLI has no observed layout');
   assert.deepEqual(codes(cursor), [['PREREQUISITE_UNAVAILABLE', 'tool-not-observed']]);
   assert.deepEqual(codes(await inspectToolHost({ tool: 'claude', project: 'project', items: [skill] })), [['INPUT_INVALID', 'project']]);
   assert.deepEqual(codes(await inspectToolHost({ tool: 'claude', project: join(project, 'missing'), items: [skill] })), [['INPUT_INVALID', 'project']]);
@@ -67,8 +67,8 @@ await check('unknown and unavailable facts make no works or duplicate claim, onl
   const project = folder('unknown', 'home', 'project');
   host({ home: folder('unknown', 'home') }); // no PATH at all
   const result = await inspectToolHost({ tool: 'claude-code', project, items: [skill, hook] });
-  assert.equal(result.status, 'complete');
-  assert.deepEqual(result.tool, { id: 'claude', label: 'Claude Code' });
+  assert.deepEqual([result.schema, result.status, result.observation], ['urn:aihq:core:inspection:0.1.0', 'ok', 'complete']);
+  assert.deepEqual(result.tool, { id: 'claude-code', label: 'Claude Code' });
   assert.equal(result.binding.digest, byTool.claude.digest);
   assert.deepEqual(result.installedVersion, { state: 'unknown', reason: 'tool-executable-unknown' });
   assert.equal(result.stale, 'unchecked');
@@ -217,7 +217,7 @@ await check('a cancelled inspection reports cancellation, not facts', async () =
   const controller = new AbortController(); controller.abort();
   host({ home: folder('cancel', 'home'), path: '' });
   const result = await inspectToolHost({ tool: 'claude', project, items: [skill] }, { signal: controller.signal });
-  assert.equal(result.status, 'cancelled');
+  assert.deepEqual([result.status, result.observation], ['ok', 'cancelled']);
   assert.deepEqual(codes(result), [['CANCELLED', 'cancelled']]);
 });
 

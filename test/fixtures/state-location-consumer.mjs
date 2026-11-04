@@ -30,7 +30,7 @@ process.stdout.write(JSON.stringify({
     Object.isFrozen(stateLocation.root.segments) && Object.isFrozen(stateLocation.projectMarkers) &&
     stateLocation.projectMarkers.every(Object.isFrozen),
   home: realpathSync.native(home), before, after, homeAfterRead, completion: result.completion,
-  markersPresent: after.projectMarkers.map(marker => existsSync(marker.path)),
+  markersPresent: after.markers.map(marker => existsSync(marker.path)),
   stateEntries: readdirSync(after.root).sort(),
   projectEntries: readdirSync(project).sort()
 }));

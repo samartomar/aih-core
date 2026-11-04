@@ -10,7 +10,8 @@ export declare const CLAIMS_SCHEMA: 'urn:aihq:report:claims:1.0.0';
 export declare const CLAIMS_SCHEMA_1_1_0: 'urn:aihq:report:claims:1.1.0';
 
 /** Every claim-set schema identity this version reads, oldest first. */
-export declare const CLAIMS_ACCEPTED_VERSIONS: readonly ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0'];
+export declare const CLAIMS_SCHEMA_0_1_0: 'urn:aihq:core:claims:0.1.0';
+export declare const CLAIMS_ACCEPTED_VERSIONS: readonly ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0', 'urn:aihq:core:claims:0.1.0'];
 
 /** Versioned identity of the claims projection of a claims 1.0.0 set. */
 export declare const CLAIMS_PROJECTION_SCHEMA: 'urn:aihq:report:claims-projection:1.0.0';

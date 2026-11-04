@@ -1,8 +1,8 @@
 // Installed public entries only. These are preparation/refusal checks, never native loading proof.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { checkCompatibility, deriveCellSupport, listTools, renderDelivery, selectBindingCell,
-  selectTool, toolRegistry, toolBindingKinds, toolBindings, validateToolBinding } from '@aihq/core/harness';
+import { checkCompatibility, deriveCellSupport, renderDelivery, selectBindingCell,
+  selectTool, toolBindingKinds, toolBindings, validateToolBinding } from '@aihq/core/harness';
 import candidates from '@aihq/core/fixtures/harness/tool-binding/1.0.0/editor-candidates.json' with { type: 'json' };
 const checks = [];
 const check = (name, body) => { body(); checks.push(name); };
@@ -20,9 +20,8 @@ check('exact editor and extension candidates have independent identities', () =>
   assert.equal(extension.engines.vscode, '^1.120.0');
   assert.equal(extension.pairObserved, false);
   for (const entry of candidates) {
-    assert.equal(toolRegistry.tools.find(tool => tool.id === entry.tool).surface, 'ide');
-    assert.equal(selectTool(entry.tool).reason, 'tool-not-observed');
-    assert.ok(!listTools().some(tool => tool.id === entry.tool));
+    // Candidates name editors in the retained binding vocabulary; each is an IDE in the 0.1.0 registry.
+    assert.equal(selectTool(entry.tool === 'cursor' ? 'cursor-ide' : entry.tool).tool.surface, 'ide');
     assert.ok(!toolBindings.some(binding => binding.tool === entry.tool));
   }
 });
@@ -57,8 +56,8 @@ check('exact rendering, mismatched versions, absent approval and unsupported kin
         platform: { os: 'linux', arch: 'x64' }, item: { kind } };
       // Tool admission precedes item parsing: neither fabricated material nor approval can enable an editor.
       const result = renderDelivery(request);
-      assert.deepEqual(result, { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed',
-        tool: toolRegistry.tools.find(tool => tool.id === entry.tool), path: '/tool' });
+      assert.deepEqual({ ...result, tool: result.tool?.id }, { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed',
+        tool: entry.tool, path: '/tool' });
       assert.equal(renderDelivery({ ...request, grantApproval: { framework: 'example', itemId: 'server' } }).reason, 'tool-not-observed');
       assert.equal(checkCompatibility({ tool: entry.tool, binding: entry.binding, platform: request.platform,
         installedVersion, items: [] }).reason, 'tool-not-observed');

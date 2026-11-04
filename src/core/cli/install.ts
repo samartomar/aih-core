@@ -15,7 +15,7 @@ import type { CatalogControls, PlanControls, PlanRequest } from '../plan/types.j
 const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]\n';
 interface LocalSource { status: string; files?: { path: string; bytes?: Uint8Array }[] }
 
-async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<LocalSource> | LocalSource } | undefined> {
+export async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<LocalSource> | LocalSource } | undefined> {
   try {
     const specifier = '@aihq/catalog/node';
     const module = await import(specifier) as { readLocalSource?: unknown };
@@ -28,7 +28,7 @@ async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<L
  * version from that package's own `package.json`. Absent, unreadable or without a version, none is passed, and a plan
  * that needs one is refused `catalog-required` by Prepare.
  */
-async function catalogReader(): Promise<CatalogControls | undefined> {
+export async function catalogReader(): Promise<CatalogControls | undefined> {
   try {
     const specifier = '@aihq/catalog/reader';
     const module = await import(specifier) as { renderStep?: unknown; planRecipe?: unknown };

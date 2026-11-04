@@ -9,6 +9,11 @@ import { isProxy } from 'node:util/types';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { deriveCellSupport, toolBindingKinds, toolBindings } from './tool-binding.mjs';
 import { selectTool } from './tool-registry.mjs';
+import { selectTool as selectBoundTool } from './tool-registry-legacy.mjs';
+
+const INSPECTION = 'urn:aihq:core:inspection:0.1.0';
+// The retained binding table still names tools by their pre-0.1.0 ids (samartomar/aih-core#181 removes it).
+const BINDING_IDS = Object.freeze({ 'claude-code': 'claude', 'cursor-ide': 'cursor', cursor: null });
 
 const DEFAULT_BUDGET_MS = 10000, MAX_BUDGET_MS = 60000, MAX_READS = 4096, MAX_ANCESTORS = 64;
 const MAX_ITEMS = 256, MAX_MANIFEST_BYTES = 65536, MAX_CONFIG_BYTES = 1048576, MAX_PACKAGE_LEVELS = 6;
@@ -92,15 +97,21 @@ export async function inspectToolHost(request, controls = {}) {
   const invalid = invalidRequest(request, controls);
   const budgetMs = invalid ? DEFAULT_BUDGET_MS : controls.budgetMs ?? DEFAULT_BUDGET_MS;
   const limits = reads => ({ budgetMs, elapsedMs: Math.round(performance.now() - started), reads, maxReads: MAX_READS });
-  if (invalid) return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: invalid,
-    message: 'Use a published tool, an absolute project folder and bounded item descriptions.' }], limits: limits(0) };
-  const selected = selectTool(request.tool);
-  if (selected.status === 'refused') return { status: 'refused', diagnostics: [{ code: selected.code, reason: selected.reason,
-    message: selected.reason === 'unknown-tool' ? 'The tool is not in the tool registry.'
-      : 'The tool has no observed binding; it is not offered as a target.' }], limits: limits(0) };
+  const problem = (reason, message, reads = 0) => ({ status: 'invalid', problems: [{ path: reason === 'project' ? '/project' : '', reason, message }],
+    diagnostics: [{ code: 'INPUT_INVALID', reason, message }], limits: limits(reads) });
+  if (invalid) return problem(invalid, 'Use a registry tool, an absolute project folder and bounded item descriptions.');
+  const chosen = selectTool(request.tool);
+  if (chosen.status === 'refused') return { status: 'refused', code: 'tool-unknown', reason: chosen.reason,
+    diagnostics: [{ code: 'INPUT_INVALID', reason: 'unknown-tool', message: 'The tool is not in the tool registry.' }], limits: limits(0) };
+  const bindingId = Object.hasOwn(BINDING_IDS, chosen.tool.id) ? BINDING_IDS[chosen.tool.id] : chosen.tool.id;
+  const selected = bindingId === null ? { status: 'refused' } : selectBoundTool(bindingId);
+  if (selected.status === 'refused') return { status: 'refused', code: 'tool-not-observed',
+    reason: `Core has no observed layout for ${chosen.tool.label}; its host is not inspected.`,
+    diagnostics: [{ code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed',
+      message: 'The tool has no observed binding; it is not offered as a target.' }], limits: limits(0) };
   const { signal } = controls;
-  if (signal?.aborted) return { status: 'cancelled', diagnostics: [{ code: 'CANCELLED', reason: 'cancelled',
-    message: 'Host inspection was cancelled.' }], limits: limits(0) };
+  if (signal?.aborted) return { schema: INSPECTION, subject: 'tool-host', status: 'ok', observation: 'cancelled',
+    diagnostics: [{ code: 'CANCELLED', reason: 'cancelled', message: 'Host inspection was cancelled.' }], limits: limits(0) };
 
   // Every filesystem read counts against one bound; past the deadline or the read limit, the remaining facts are
   // unchecked. Reads run synchronously, so a signal is honoured only when it is already aborted.
@@ -120,8 +131,7 @@ export async function inspectToolHost(request, controls = {}) {
     project = read(() => realpathSync.native(request.project));
     if (!read(() => statSync(project)).isDirectory()) project = undefined;
   } catch (error) { if (error instanceof Stop) project = null; else project = undefined; }
-  if (project === undefined) return { status: 'invalid', diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
-    message: 'The project must be an existing folder.' }], limits: limits(reads) };
+  if (project === undefined) return problem('project', 'The project must be an existing folder.', reads);
 
   let home;
   try { home = read(() => realpathSync.native(homedir())); } catch (error) { home = error instanceof Stop ? undefined : homedir(); }
@@ -391,8 +401,8 @@ export async function inspectToolHost(request, controls = {}) {
   const stale = items.some(item => item.stale === true) ? true : items.some(item => item.stale === 'unchecked') ? 'unchecked' : false;
   const reason = halt();
   return {
-    status: reason ? 'incomplete' : 'complete',
-    tool: { id: selected.tool.id, label: selected.tool.label }, binding: { digest: binding.digest },
+    schema: INSPECTION, subject: 'tool-host', status: 'ok', observation: reason ? 'incomplete' : 'complete',
+    tool: { id: chosen.tool.id, label: chosen.tool.label }, binding: { digest: binding.digest },
     ...(platform ? { platform } : {}), installedVersion, stale, items, hostBlockers, warnings, unchecked,
     diagnostics: reason ? [{ code: 'PREREQUISITE_UNAVAILABLE', reason, message: 'Host inspection stopped at its bound; the remaining facts are unchecked.' }] : [],
     limits: limits(reads)

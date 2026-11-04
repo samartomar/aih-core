@@ -2,7 +2,7 @@ import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import { gitSourceProblem } from './material-descriptors.js';
 import { nativeClients } from './native-clients.js';
-import { findTool } from '../../harness/tool-registry.mjs';
+import { findTool } from '../../harness/tool-registry-legacy.mjs';
 import { entriesOverlap, SetMembership } from './organization-content.js';
 import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationPolicy12, OrganizationSelection12, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 

@@ -234,3 +234,10 @@ export { limits } from './plan/limits.js';
 export { validateChange, deriveChangeIdentity } from './change/validate.js';
 export type { Change, ChangeReference, ChangeResult, ChangeIdentity, DeriveChangeIdentityRequest } from './change/validate.js';
 export type { Limit } from './plan/limits.js';
+// Report snapshots and claim sets (samartomar/aih-core#174): `report:0.1.0` and `claims:0.1.0`, never throwing.
+export { createReport, validateSnapshot, importSnapshot, exportSnapshot, validateClaimSet, readClaimSet, projectClaims,
+  REPORT as REPORT_SCHEMA, CLAIMS as CLAIMS_SCHEMA } from './report.js';
+export type { ReportResult, ReportSnapshot, ClaimSet, ClaimsProjection, CreateReportInput } from './report.js';
+// Support guidance and Markdown are part of this entry (C32); `/support` remains until it retires.
+export { getGuidance, renderSupportMarkdown } from './support.js';
+export type { SupportInput, SupportOptions, GuidanceResult, SupportMarkdownResult, GuidanceItem } from './support.js';

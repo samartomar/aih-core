@@ -60,6 +60,9 @@ const entries: RefusalCode[] = [
   // Local plugins and one-item switch-offs (samartomar/aih-core#173).
   { status: 'refused', code: 'switch-off-unsupported', fix: 'Remove the whole plugin; this CLI has no supported switch-off for one item.' },
   { status: 'invalid', code: 'switch-off-alone', fix: 'Prepare the switch-off as the only entry of its removal request.' },
+  // Inspection, file comparison and reporting (samartomar/aih-core#174).
+  { status: 'refused', code: 'tool-not-observed', fix: 'Inspect the host of a tool Core has an observed layout for.' },
+  { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },
   // Upstream setups, upstream installers and tool commands (samartomar/aih-core#176).
   { status: 'refused', code: 'setup-folder-occupied', fix: 'Move the files in the setup folder away, then Prepare again.' },
 ];

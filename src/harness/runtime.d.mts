@@ -10,6 +10,8 @@ export interface DiagnoseRequest {
    * checks unavailable. An applied `npm` entry replaces the roots for the `npm` target.
    */
   persistedTrust?: PersistedTrust;
+  /** Opt-in: report the version each AI tool's own version command printed, in `toolVersions`. */
+  toolVersions?: boolean;
 }
 export interface DiagnoseControls { signal?: AbortSignal; budgetMs?: number }
 export interface UserToolTrustRequest {
@@ -44,6 +46,8 @@ export interface DiagnoseResult {
   checks: { id: string; target: string; outcome: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string; detail: string }[];
   diagnostics: { code: string; reason: string; message: string }[];
   repairChoices: { target: string; kind: 'manual-guidance'; reason: string; guidance: string }[];
+  /** With `toolVersions: true`: each runnable AI tool target, the command that ran and the version it printed. */
+  toolVersions?: { target: string; binary: string; version: string | null }[];
   limits: { budgetMs: number; elapsedMs: number; maxActiveProbes: number };
 }
 export declare function validDiagnosticTargets(value: unknown): boolean;

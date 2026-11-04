@@ -36,7 +36,7 @@ test('a packed consumer inspects a disposable project and isolated home without 
       const item: ToolHostItem = { framework: 'example', itemId: 'review', kind: 'skill', key: 'review',
         executables: ['node'], inputs: ['TOKEN'], requires: [{ framework: 'example', itemId: 'base' }] };
       const result: ToolHostResult = await inspectToolHost({ tool: 'claude', project: '/project', items: [item] }, { budgetMs: 1000 });
-      if (result.status === 'complete') {
+      if (result.status === 'ok' && result.observation !== 'cancelled') {
         const blocker: ToolHostBlocker | undefined = result.hostBlockers[0];
         if (blocker?.code === 'executable-missing') blocker.executable satisfies string;
         const warning: ToolHostWarning | undefined = result.warnings[0];

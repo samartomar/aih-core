@@ -3,7 +3,7 @@
 // content, never Harness repair. This module never imports the Core engine and performs no host observation.
 import { SHA256_RE, canonicalJson, compareCodeUnits, isRecord, isSafeRelativePath, sha256Hex } from './native/canonical.mjs';
 import { deriveCellSupport, toolBindingKinds, validateToolBinding } from './tool-binding.mjs';
-import { selectTool } from './tool-registry.mjs';
+import { selectTool } from './tool-registry-legacy.mjs';
 import { permissionNotice } from './delivery-review.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
