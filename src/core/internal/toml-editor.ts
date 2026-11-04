@@ -352,10 +352,14 @@ export function tomlEntryText(before: Buffer | null, table: string[], redact: st
 export function restoreTomlValue(current: Buffer, path: string[], original: Buffer): Buffer | null {
   const raw = tomlMember(original, path);
   if (raw === null) return null;
+  return restoreTomlText(current, path, raw.toString('utf8'));
+}
+/** Writes one key's given value text in place of the value there now (a displaced value, C61). */
+export function restoreTomlText(current: Buffer, path: string[], value: string): Buffer | null {
   const text = decode(current);
   const member = parse(text).assignments.get(identity(path));
   if (!member) return null;
-  const output = text.slice(0, member.valueStart) + raw.toString('utf8') + text.slice(member.valueEnd);
+  const output = text.slice(0, member.valueStart) + value + text.slice(member.valueEnd);
   parse(output);
   return Buffer.from(output, 'utf8');
 }

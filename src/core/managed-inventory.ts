@@ -107,6 +107,9 @@ function addClaims(rows: Map<string, ManagedInventorySelection>, ownership: Owne
   };
   for (const claim of Object.values(ownership.selections ?? {})) if (visible(claim))
     row(claim.managementId, claim.scope, 'claim');
+  // A displaced claim (C61) is still an install, listed although it holds no member on disk.
+  for (const owner of Object.values(ownership.members)) for (const claim of owner.displaced?.claims ?? []) if (visible(claim))
+    row(claim.managementId, claim.scope, 'claim');
   // An interrupted install is listed from its pending receipt, also before it wrote any member.
   for (const item of Object.values(ownership.items ?? {}))
     if (item.installState === 'interrupted' && visible(interruptedClaim(item)))

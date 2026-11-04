@@ -14,6 +14,7 @@ import type { RecordStatus } from '../host-types.js';
 import { stateLocation } from '../state-location.js';
 import { refreshItems, resolvePending, validItems, type CustodyItem } from './custody-items.js';
 import { canonicalJson } from './canonical.js';
+import { validDisplaced, type DisplacedValue } from './displaced.js';
 import { OWNERSHIP_17, expandOwnership, ownershipText } from './ownership-storage.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
@@ -28,7 +29,9 @@ export interface Owner { managementId: string; recipeIdentity: string; sha256: s
   /** JSON object/array prefixes this run created on the way to an entry or hook group, deepest last. */
   createdContainers?: string[][];
   /** Project basics: the exact text Core wrote inside an aih:shared block, so an update can rescue a person's own lines. */
-  sharedContent?: string }
+  sharedContent?: string;
+  /** Plan claims a reviewed replace displaced (C61): the value they share, for the one level of restore. */
+  displaced?: DisplacedValue }
 export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
 export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
 export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
@@ -48,7 +51,7 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** Array members, approvals and shared-block content are recorded from 1.6. */
 const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
-  owner.createdFile !== undefined || owner.createdContainers !== undefined;
+  owner.createdFile !== undefined || owner.createdContainers !== undefined || owner.displaced !== undefined;
 /** Item custody, array members and approvals require 1.6, stored as 1.7 (see ownership-storage); directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
@@ -381,7 +384,10 @@ export function validateOwnership(input: unknown, target: string): asserts input
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
-    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'createdFile', 'createdContainers', 'sharedContent'].includes(key))) throw new Error('ownership-invalid');
+    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'createdFile', 'createdContainers', 'sharedContent', 'displaced'].includes(key))) throw new Error('ownership-invalid');
+    if (m.displaced !== undefined && (!validDisplaced(m.displaced) || m.claims === undefined || !(m.descriptor?.kind === 'entry' || m.descriptor?.kind === 'block') ||
+      m.displaced.claims.some(claim => m.claims!.some(live => live.scope === claim.scope && live.managementId === claim.managementId) ||
+        claim.scope === 'user' && target !== homeRoot()))) throw new Error('ownership-invalid');
     if (needs16(m) && !atLeast(value.schema, OWNERSHIP_16) ||
         m.approval !== undefined && (!m.approval || typeof m.approval !== 'object' || Object.keys(m.approval).length !== 1 || typeof m.approval.tool !== 'string' ||
           !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(m.approval.tool) || !(m.descriptor?.kind === 'member' || m.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(m.descriptor.format))) ||
@@ -580,6 +586,26 @@ export function lockTarget(target: string): () => void {
     try { unlinkSync(holder); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     rmdirSync(lock);
   };
+}
+/**
+ * `lockTarget`, waiting while another Apply in this process holds the root's lock (at most `waitMs`), so competing
+ * applies on one root run one after the other and the later one re-checks what it reviewed once it holds the lock.
+ * A lock any other process holds is refused at once, as `lockTarget` does.
+ */
+export async function waitLockTarget(target: string, signal?: AbortSignal, waitMs = 60_000): Promise<() => void> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try { return lockTarget(target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline || signal?.aborted || !heldHere(join(stateRoot(), `lock-${sha256(target)}`))) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+/** The lock's recorded holder is this very process. */
+function heldHere(lock: string): boolean {
+  try { return (JSON.parse(readFileSync(join(lock, LOCK_HOLDER), 'utf8')) as { pid?: unknown; host?: unknown }).pid === process.pid; }
+  catch { return false; }
 }
 /** The lock's recorded holder is on this host and no longer runs. */
 function holderGone(lock: string): boolean {

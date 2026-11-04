@@ -96,6 +96,8 @@ export function classifyStoredClaims(receipts: Iterable<[string, { value: Owners
     // An interrupted install is a claim even before it wrote a member: removal can name it and let it go.
     for (const claim of [...Object.values(stored.value.selections ?? {}),
       ...Object.values(stored.value.members).flatMap(owner => owner.claims ?? []),
+      // A displaced claim (C61) holds nothing on disk but is still an install: removal can name it and let it go.
+      ...Object.values(stored.value.members).flatMap(owner => owner.displaced?.claims ?? []),
       ...Object.values(stored.value.items ?? {}).filter(item => item.installState === 'interrupted').map(interruptedClaim)]) {
       const identity = claimIdentity(claim.scope, claim.managementId, root);
       dependencies.set(identity, [...new Set([...(dependencies.get(identity) ?? []), ...claim.requires])]);

@@ -1,11 +1,14 @@
 // `list` and `prepareRemoval` 0.1.0 (contract 12): the inventory and removal forms over the retained custody,
 // claim and removal rules (14.2). The place is always named; Core never guesses it from the working folder.
-import { bindPrivateInputs } from './inputs.js';
+import { bindPrivateInputs, privateInputValue } from './inputs.js';
+import { join } from 'node:path';
+import { memberPointer, publicKind } from '../internal/custody-items.js';
+import { codeUnitCompare } from '../internal/canonical.js';
 import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
-import { prepareManagedRemoval } from '../managed-removal.js';
+import { prepareManagedRemovals } from '../managed-removal.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
@@ -144,6 +147,25 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
       if (plan) known.clis = [...new Set([...known.clis ?? [], ...claimClis])].sort();
     }
   }
+  // A displaced claim (C61) holds nothing on disk: each member it shares is listed as displaced by the installs there now.
+  for (const root of new Set([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])])) {
+    const recorded = readOwnership(root).value;
+    const idOf = (claim: { scope: string; managementId: string }) => managementIdOf(claim.managementId, recorded.items?.[claimIdentity(claim.scope as 'project' | 'user', claim.managementId, root)]?.plan);
+    for (const [key, owner] of Object.entries(recorded.members)) for (const claim of owner.displaced?.claims ?? []) {
+      const entry = byId.get(`${claim.scope}\0${idOf(claim)}`);
+      if (!entry) continue;
+      const descriptor = owner.descriptor ?? { kind: 'file' as const, path: key };
+      const pointer = memberPointer(descriptor);
+      const path = join(root, descriptor.path);
+      if (entry.members.some(member => member.state === 'displaced-by' && member.path === path && member.pointer === pointer)) continue;
+      const plan = recorded.items?.[claimIdentity(claim.scope as 'project' | 'user', claim.managementId, root)]?.plan;
+      entry.members.push({ kind: publicKind(descriptor), path, ...(pointer === undefined ? {} : { pointer }),
+        ...(descriptor.kind === 'block' ? { blockId: descriptor.blockId } : {}), ...(plan ? { clis: plan.cli ? [plan.cli] : [...plan.clis] } : {}),
+        state: 'displaced-by', displacedBy: [...new Set((owner.claims ?? []).map(idOf))].sort(codeUnitCompare) });
+    }
+  }
+  for (const entry of entries) entry.members.sort((a, b) => (a.state === 'displaced-by' ? 1 : 0) - (b.state === 'displaced-by' ? 1 : 0) ||
+    order(a.path, b.path) || order(a.pointer ?? null, b.pointer ?? null));
   for (const entry of entries) entry.claims?.sort((a, b) => order(a.project, b.project) || order(a.cli, b.cli));
   const inventory: Inventory = { schema: INVENTORY, status: 'ok', target: { project: located.project }, scope,
     observation: listed.status === 'complete' ? 'complete' : 'incomplete', entries };
@@ -222,9 +244,21 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     });
   };
   if (!selectors.length) return { status: 'ok', entries: merged([]) };
+  // Writing a displaced value back needs each secret it held again (C64): receipts never keep one.
+  const released = new Set(selectors.flatMap(selector => selector.engineIds));
+  const receipt = readOwnership(scope === 'project' ? located.anchor : home).value;
+  for (const owner of Object.values(receipt.members)) {
+    if (!owner.displaced || !owner.claims?.length || !owner.claims.every(claim => released.has(claim.managementId))) continue;
+    if (owner.displaced.claims.every(claim => released.has(claim.managementId))) continue;
+    for (const secret of owner.displaced.secrets ?? []) if (privateInputValue(options.privateInputs, secret.item, secret.input) === undefined)
+      return { status: 'refused', code: 'input-missing', item: secret.item, input: secret.input,
+        reason: `Removing this gives \`${secret.item}\` its value back, which holds the secret \`${secret.input}\`; Core never kept it. Pass it in ` +
+          `\`controls.privateInputs\` (\`--private-input\`).` };
+  }
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
-  const prepared = await prepareManagedRemoval({ target: { project: located.anchor }, scope,
-    removals: selectors.flatMap(({ engineIds }) => engineIds.map(managementId => ({ managementId }))) }, engineControls(options));
+  const prepared = await prepareManagedRemovals({ target: { project: located.anchor }, scope,
+    removals: selectors.flatMap(({ engineIds }) => engineIds.map(managementId => ({ managementId }))) }, engineControls(options),
+    { displacedInput: (item, input) => privateInputValue(options.privateInputs, item, input) });
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   if (prepared.disposition === 'invalid') return { status: 'invalid', problems: prepared.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const engine = prepared.preparation;
@@ -257,7 +291,8 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     const target = operation.details.target ?? '';
     const effect: ReviewStep['effect'] = ['create-file', 'replace-file', 'remove-file', 'already-satisfied'].includes(operation.effects) ?
       operation.effects as ReviewStep['effect'] : operation.effects === 'conflict' ? 'conflict' : 'unchanged';
-    const sentence = effect === 'remove-file' ? `Removes \`${target}\`` : effect === 'replace-file' ? `Restores \`${target}\`` :
+    const sentence = operation.details.reason === 'release-displaced' ? `Releases a displaced claim on \`${target}\`; the value there now stays` :
+      effect === 'remove-file' ? `Removes \`${target}\`` : effect === 'replace-file' ? `Restores \`${target}\`` :
       effect === 'already-satisfied' ? `Releases \`${target}\`, already as it should be` : `Leaves \`${target}\` as it is`;
     return { step: index, op: 'remove', managementId, sentence, cantPromise: null, effect, path: target };
   })];

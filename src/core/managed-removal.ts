@@ -99,7 +99,7 @@ export function prepareManagedRemoval(request: ManagedRemovalsRequest, controls?
 export function prepareManagedRemoval(request: ManagedRemovalRequest, controls?: HostControls): Promise<ManagedRemovalPreparationResult>;
 export async function prepareManagedRemoval(request: ManagedRemovalRequest | ManagedRemovalsRequest, controls: HostControls = {}): Promise<ManagedRemovalPreparationResult | ManagedRemovalPreparationResult12> {
   forgetProvenState();
-  if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls);
+  if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls, {});
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
 async function prepareOne(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
@@ -231,8 +231,17 @@ const sameOrigin = (recorded: InclusionOrigin, origin: NonNullable<RemovalSelect
   recorded.reasonIncluded === 'in-set' && recorded.set.framework === origin.set.framework && recorded.set.setId === origin.set.setId &&
     recorded.set.setSha256 === origin.set.setSha256 : recorded.reasonIncluded === 'chosen';
 
+/**
+ * Removal preparation 1.2.0 for the 0.1.0 lifecycle: as `prepareManagedRemoval` with `removals`, plus the secrets a
+ * displaced value needs again when it is written back (C64). Not a public entry.
+ */
+export function prepareManagedRemovals(request: ManagedRemovalsRequest, controls: HostControls,
+    internal: { displacedInput?: (item: string, input: string) => string | undefined }): Promise<ManagedRemovalPreparationResult12> {
+  forgetProvenState();
+  return prepareRemovals(request, controls, internal);
+}
 /** Removal preparation 1.2.0: preflight every removal with the single-id safeguards, then one cleanup-only review. */
-async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult12> {
+async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostControls, internal: { displacedInput?: (item: string, input: string) => string | undefined }): Promise<ManagedRemovalPreparationResult12> {
   const { identity, valid: identityValid } = distributionIdentity();
   const known: Partial<ManagedRemovalPreparationResult12> = {};
   const done = (disposition: ManagedRemovalPreparationResult12['disposition'], diagnostics: Diagnostic[] = [], fields: Partial<ManagedRemovalPreparationResult12> = {}): ManagedRemovalPreparationResult12 =>
@@ -418,7 +427,7 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   let rows: CleanupPlanRow[] = [];
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
     ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwardedControls(controls),
-  undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; } });
+  undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; }, ...internal });
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
   if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');

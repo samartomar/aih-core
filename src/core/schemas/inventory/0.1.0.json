@@ -52,7 +52,8 @@
             "kind": { "type": "string" }, "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
             "linkType": { "enum": ["junction", "symlink", "copy"] },
             "clis": { "type": "array", "items": { "type": "string" }, "description": "The CLIs whose claims hold this member" },
-            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked"] }
+            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked", "displaced-by"] },
+            "displacedBy": { "type": "array", "items": { "type": "string" }, "description": "displaced-by (C61): the installs whose value is there now; this claim holds nothing on disk until they go" }
           } } },
         "plugins": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["step", "cli", "plugin", "commit", "contains", "undo", "presenceCheck"],

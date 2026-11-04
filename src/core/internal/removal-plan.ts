@@ -17,6 +17,8 @@ export interface CleanupOptions {
   originReleases: { root: string; id: string; facts: ItemFacts }[];
   /** Receives the planned rows once the review's cleanup steps are final. */
   plan(rows: CleanupPlanRow[]): void;
+  /** A secret a displaced value needs again when it is written back (C64), from the removal's private inputs. */
+  displacedInput?: (item: string, input: string) => string | undefined;
 }
 
 const TEXT_EXTENSIONS = new Set(['txt', 'text', 'md', 'markdown', 'rst', 'adoc', 'asciidoc', 'org', 'html', 'htm']);

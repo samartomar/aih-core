@@ -23,13 +23,14 @@ import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
 import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
-import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, ownershipText, OWNERSHIP_RECORD_BYTES, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
+import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, waitLockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, ownershipText, OWNERSHIP_RECORD_BYTES, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, restoreMemberBytes, tomlEntryPaths, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts } from './internal/custody-items.js';
+import { displacedText, restoredText, spliceMember, type DisplacedValue, type SecretSlot } from './internal/displaced.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { missingContainers, pruneEmptyContainers } from './internal/hook-group.js';
@@ -79,6 +80,8 @@ interface PreparedStep {
   redactedPaths?: Record<string, string>;
   /** A cleanup step that writes the recorded pre-existing value back instead of removing the member. */
   restores?: boolean;
+  /** Lifecycle: this step writes back the value displaced claims share (C61), or only releases displaced claims. */
+  displaced?: 'restore' | 'release';
   /** A reviewed replacement of a person's whole file: their bytes, kept as a protected original before the effect. */
   original?: Buffer;
   /** Removal preparation 1.2.0: a cleanup step that keeps its member and the claims on it, with the reason. */
@@ -283,6 +286,11 @@ export interface ObservedStep {
   /** A supplied resolution whose observed digest no longer matches the target: it was not used. */
   stale: boolean;
   before: Buffer | null; after: Buffer | null;
+  /**
+   * A step whose value other plans hold (C61): their engine management ids (`holders`), the claims those already displace
+   * (`displaced`, a live restoration level, C75), and whether a reviewed replace may displace the holders (`offered`).
+   */
+  displacing?: { holders: string[]; displaced: string[]; offered: boolean };
 }
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
@@ -731,6 +739,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let stepMembers: MemberDescriptor[] | undefined; let preExisting: Record<string, Json> | undefined;
         let original: Buffer | undefined; let staleChoice = false;
+        let displacing: ObservedStep['displacing'];
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined; let programClaim = false;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let createdContainer = false;
@@ -915,6 +924,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
                 ...(approval ? { approval: { tool: approval.tool } } : {}), ...(member.kind === 'member' && (createdContainer || prior?.createdContainer) ? { createdContainer: true as const } : {}),
                 ...(fileCreated ? { createdFile: true as const } : {}),
                 ...(sharedContent !== null && sharedContent.length <= 65536 ? { sharedContent } : {}),
+                // Claims an earlier reviewed replace displaced stay with the member while its holder changes it (C61).
+                ...(prior?.displaced ? { displaced: prior.displaced } : {}),
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
@@ -1036,9 +1047,30 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             (overlappingMembers(member, owner.descriptor, before) || overlappingMembers(member, owner.descriptor, after)))); }
           catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
 
+          // C61: a plan's reviewed replace of a value other plans hold, unchanged since they wrote it, displaces their claims:
+          // they hold nothing on disk until this install goes. A member that already records displaced claims never takes a
+          // different second level (C75), and another plan's value the person edited is never displaced (C58).
+          const mine = (claim: Claim) => claim.managementId === selection.managementId && claim.scope === selection.scope;
+          const holders = sharedChange && planned ? descriptors.flatMap(member => { const prior = projected.members[memberKey(member)];
+            return prior?.claims?.some(claim => !mine(claim)) ? [{ member, prior }] : []; }) : [];
+          const secondLevel = holders.some(({ prior }) => prior.displaced !== undefined);
+          const displacedRecords = new Map<string, DisplacedValue>();
+          let othersChanged = false;
+          if (holders.length && !secondLevel && !editConflict && !drift && !overlap && !foreign) try {
+            for (const { member, prior } of holders) {
+              const bytes = memberBytes(member, before!);
+              if (bytes === null || sha256(bytes) !== prior.sha256) { othersChanged = true; break; }
+              const slots: SecretSlot[] = prior.claims!.flatMap(claim => (claimPlan(claim) as { secretSlots?: SecretSlot[] } | undefined)?.secretSlots ?? []);
+              const kept = prior.approval || prior.claims!.some(mine) ? undefined : displacedText(member, bytes, slots);
+              if (!kept) break;
+              displacedRecords.set(memberKey(member), { managementId: prior.managementId, recipeIdentity: prior.recipeIdentity, sha256: prior.sha256,
+                claims: prior.claims!.map(claim => ({ ...claim })), ...kept });
+            }
+          } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
+          const displaceable = holders.length > 0 && displacedRecords.size === holders.length;
           const decide = (option: 'replace' | 'adopt' | undefined): ReviewOperation['effects'] => {
             // Your later edit to a member Core wrote is never overwritten by a plan request, whatever you choose (C58).
-            if (editConflict || sharedChange || overlap || drift && (!option || planned !== undefined) || foreign && !option) return 'conflict';
+            if (editConflict || sharedChange && !(option === 'replace' && displaceable) || overlap || drift && (!option || planned !== undefined) || foreign && !option) return 'conflict';
             if (same) return 'already-satisfied';
             if (before === null && after !== null) return 'create-file';
             if (before !== null && after === null) return changingOwned || option === 'replace' && descriptors.every(member => { const prior = projected.members[memberKey(member)]; return prior?.claims?.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); }) ? 'remove-file' : 'conflict';
@@ -1111,7 +1143,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }
           }
           // A member this selection installed whose bytes no longer match is the person's local edit.
-          if (effect === 'conflict') conflictReason = editConflict ?? (drift ? 'managed-content-changed' : sharedChange ? 'shared-member' : overlap ? 'overlapping-member' : 'existing-content');
+          if (resolution === 'replace' && displaceable && effect !== 'conflict' && custody) for (const [key, record] of displacedRecords) {
+            const owner = custody[key];
+            if (owner) custody[key] = { ...owner, claims: owner.claims!.filter(mine), displaced: record };
+          }
+          if (effect === 'conflict') conflictReason = editConflict ?? (drift ? 'managed-content-changed' : secondLevel ? 'second-displacement' :
+            othersChanged ? 'shared-member-changed' : sharedChange ? 'shared-member' : overlap ? 'overlapping-member' : 'existing-content');
+          if (holders.length) displacing = { holders: [...new Set(holders.flatMap(({ prior }) => prior.claims!.filter(claim => !mine(claim)).map(claim => claim.managementId)))],
+            displaced: [...new Set(holders.flatMap(({ prior }) => prior.displaced?.claims.map(claim => claim.managementId) ?? []))], offered: displaceable };
           if (effect === 'conflict') conflicts.push(editConflict === 'approval-denied' ? { ...diagnostic('STATE_CONFLICT', 'approval-denied',
             'The person already made a different choice for this server in the tool; Core never overwrites it.'), path: safeText(path, privateValues),
             guidance: 'Change the choice in the tool itself if you want the server allowed, then prepare again without the approval.' } :
@@ -1167,7 +1206,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
             item: selectionItem(selection, project!, privateValues, extension) });
           extension?.observe?.({ selectionId: selection.id, operationId: op.id, effect, ...(conflictReason ? { reason: conflictReason } : {}),
-            stale: staleChoice, before: before ?? null, after: after ?? null });
+            stale: staleChoice, before: before ?? null, after: after ?? null, ...(displacing ? { displacing } : {}) });
         }
       }
       selectionOps.set(selection.id, currentIds);
@@ -1320,8 +1359,35 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key) && !step.inherited?.includes(key));
       };
       const removed = claims.filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)) || obsolete(claim));
+      // Displaced claims (C61) hold nothing on disk: releasing one changes no byte, and the value they share comes back
+      // only when every live claim goes while one of them is still installed.
+      const releasedDisplaced = (owner.displaced?.claims ?? []).filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)));
+      const survivors = (owner.displaced?.claims ?? []).filter(claim => !releasedDisplaced.includes(claim));
+      const keptDisplaced = (base: Owner): Owner => { const { displaced: _old, ...rest } = base;
+        return survivors.length ? { ...rest, displaced: { ...owner.displaced!, claims: survivors } } : rest; };
+      if (!removed.length && releasedDisplaced.length) {
+        const descriptor = owner.descriptor!;
+        let id: string; do { id = `lifecycle/remove-${removalIndex++}`; } while (steps.some(step => step.review.id === id));
+        const live = transaction(root).inspect(descriptor.path);
+        if (live.state === 'unreadable') throw new Error('target-unreadable');
+        const destination = `${root}:${process.platform === 'win32' ? descriptor.path.toLowerCase() : descriptor.path}`;
+        const overlay = overlays.get(destination);
+        const initialBefore = live.state === 'present' ? Buffer.from(live.bytes) : null;
+        const before = overlay ? overlay.after : initialBefore;
+        steps.push({ review: { id, purpose: 'Release displaced claim', kind: descriptor.kind === 'entry' ? 'config.entries' : 'text.block', scope: releasedDisplaced[0]!.scope,
+          effects: 'already-satisfied', ownership: 'managed', requires: overlay ? [overlay.priorId] : [], checks: [],
+          details: { target: join(root, descriptor.path), reason: 'release-displaced' }, ...(namesSelections ? { selectionId: null } : {}) },
+          root, path: descriptor.path, ownerKey: key, initialBefore, before, after: before, pins: pathPins(join(root, descriptor.path)),
+          mode: live.state === 'present' ? live.mode : owner.mode, managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [],
+          lifecycle: true, members: [descriptor], displaced: 'release', custody: { [key]: keptDisplaced(owner) }, custodyOnly: true });
+        stepOwners.set(steps.at(-1)!, owner);
+        removedIdentities.set(steps.at(-1)!, releasedDisplaced.map(claim => claimId(claim, root)));
+        releasedIds.set(steps.at(-1)!, releasedDisplaced.map(claim => claim.managementId));
+        continue;
+      }
       if (!removed.length) continue;
       const remaining = claims.filter(claim => !removed.includes(claim));
+      let restoredOwner: Owner | undefined;
       const descriptor = owner.descriptor ?? { path: key, kind: 'file' as const };
       if (descriptor.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(descriptor.format) && policy.schema !== POLICY_12 && policy.schema !== POLICY_13 && policy.schema !== POLICY_14 && policy.schema !== POLICY_15 && policy.schema !== POLICY_16) {
         result.diagnostics = [{ code: 'SCHEMA_UNSUPPORTED', reason: 'bounded-config-policy-version',
@@ -1357,7 +1423,18 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           ...(priorHookConflict ? { forced: 'hook-prior-conflict' } : incompatibleHook ? { forced: 'hook-selector-overlap' } : {}) });
       } else try { const bytes = memberBytes(descriptor, before); matching = bytes === null || sha256(bytes) === owner.sha256;
         if (matching && Object.values(ownership.get(root)!.value.members).some(other => other.descriptor && memberKey(other.descriptor) !== key && overlappingMembers(descriptor, other.descriptor, before))) matching = false;
-        if (!remaining.length && matching) {
+        if (!remaining.length && matching && survivors.length && bytes !== null) {
+          // The value the displaced claims share is written back for them, its secrets filled from this removal (C64).
+          const text = restoredText(descriptor, owner.displaced!, cleanup?.displacedInput ?? (() => undefined));
+          if (text === undefined) throw new Error('displaced-input-missing');
+          const spliced = before ? spliceMember(descriptor, before, text) : null;
+          if (spliced) {
+            after = spliced; restores = true;
+            const { displaced: record, ...rest } = owner;
+            restoredOwner = { ...rest, managementId: record!.managementId, recipeIdentity: record!.recipeIdentity,
+              sha256: sha256(memberBytes(descriptor, spliced)!), claims: survivors };
+          }
+        } else if (!remaining.length && matching) {
           // A member that replaced the person's value gives that value back instead of leaving the pointer
           // empty; a member the person already deleted stays deleted: only Core's present, unchanged value
           // is given back. Shared blocks join this rule: the person's earlier block content is restored.
@@ -1436,7 +1513,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         managementId: owner.managementId, recipeIdentity: owner.recipeIdentity, checks: [], lifecycle: true, members: [descriptor], ...(restores ? { restores } : {}),
         ...(redactedPath ? { redactedPaths: { [key]: redactedPath } } : {}), ...(kept ? { kept } : {}),
         ...(effect === 'conflict' ? { conflictReason: hookDecision?.reason ?? 'managed-content-changed' } : {}),
-        custody: { [key]: kept ? owner : hookDecision ? hookDecision.custody : remaining.length ? { ...owner, claims: remaining } : null, ...inheritance },
+        custody: { [key]: kept ? owner : hookDecision ? hookDecision.custody : restoredOwner ?? (remaining.length ? keptDisplaced({ ...owner, claims: remaining }) : null), ...inheritance },
+        ...(restoredOwner ? { displaced: 'restore' as const } : {}),
         ...(inheritance ? { inherited: Object.keys(inheritance) } : {}),
         custodyOnly: kept ? false : hookDecision ? hookDecision.custodyOnly : matching && effect === 'already-satisfied' });
       stepOwners.set(steps.at(-1)!, owner);
@@ -1591,8 +1669,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     }
     cleanup?.plan([...removedIdentities].map(([step, removed]): CleanupPlanRow => {
       const owner = stepOwners.get(step)!; const remaining = step.custody?.[step.ownerKey!];
-      const action = step.kept?.action ?? (remaining ? 'keep-shared' : step.restores ? 'restore' : step.review.effects === 'already-satisfied' ? 'unregister' : 'remove');
-      const reason = step.kept?.reason ?? { 'keep-shared': 'another-selection', restore: 'pre-existing-value', unregister: 'already-absent', remove: undefined }[action as string];
+      const action = step.kept?.action ?? (step.displaced === 'restore' ? 'restore' : remaining ? 'keep-shared' : step.restores ? 'restore' : step.review.effects === 'already-satisfied' ? 'unregister' : 'remove');
+      const reason = step.kept?.reason ?? (step.displaced === 'restore' ? 'displaced-value' : step.displaced === 'release' ? 'displaced' :
+        { 'keep-shared': 'another-selection', restore: 'pre-existing-value', unregister: 'already-absent', remove: undefined }[action as string]);
       return { operationId: step.review.id, root: step.root!, descriptor: step.members![0]!, removed,
         ...(owner.approval ? { approval: { tool: owner.approval.tool } } : {}),
         ...(step.redactedPaths?.[step.ownerKey!] ? { redactedPath: step.redactedPaths[step.ownerKey!] } : {}),
@@ -1829,7 +1908,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       ...state.steps.filter(step => step.programClaim).map(step => step.root!)])].sort();
     if (mutatingRoots.length) protectState();
     // Acquire roots and the aggregate trust lock in one lexical order.
-    for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(lockTarget(root));
+    for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(await waitLockTarget(root, controls.signal));
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);

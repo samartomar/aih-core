@@ -110,6 +110,8 @@ export interface LoweredMerge {
   secrets: string[][];
   /** The slots that now hold a secret value: the review shows them `[REDACTED]`. */
   redact: string[][];
+  /** Those slots' authored text (C64): what a displaced value keeps instead of the secret. */
+  slots?: { path: string[]; item: string; input: string; template: string }[];
   /** The step's filled input bindings, when it has any. */
   bound?: BoundInputs;
   /** Whether the file is Codex's always-on guidance, whose resulting size Catalog bounds at 32 KiB (C72). */

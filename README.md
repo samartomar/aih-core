@@ -2522,6 +2522,21 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   (`~/.aih/core/content/<claim>/links/`); when the last claim goes, Core removes the link (only while it still points at its folder) and the parent folders it created
   for it, if empty. A copy's files are ordinary members. These are Core-side placement facts, not evidence that a CLI
   loads a linked folder.
+- **Displaced claims (one level of restore).** When another plan's `merge` entry or block holds a different value at
+  the same place, unchanged since Core wrote it, the conflict offers `replace` and names the installs it `displaces`.
+  After that reviewed replace, those installs hold nothing on disk: `list` shows their members as `state:
+  'displaced-by'` with `displacedBy` naming the install whose value is there now. Removing a displaced install only
+  drops its claim (`keep-shared`, reason `displaced`). Removing the overriding install writes the shared value back
+  (`restore`, reason `displaced-value`) while any displaced install remains, and their claims match again; otherwise
+  your original from before any install comes back, or the key goes. A secret the displaced value held by value is
+  never kept: the receipt records the slot's template, and that removal is refused `input-missing` (naming `item` and
+  `input`) until the secret is passed again in `controls.privateInputs` (`aih remove --private-input`). A value you
+  edited is never displaced (`managed-content-changed`, no choices), and an override you edited is kept on removal
+  (`keep-changed`). There is one level only: a different value over an install that already displaces others is
+  blocked (`second-displacement`, no handle) with `displacedBy`, `displaced` and a `fix`: remove the override through
+  review, which restores the displaced installs, then prepare again. Identical sharing and the override's own updates
+  add no level and stay allowed. Applies on one root take its lock and re-check the reviewed bytes and receipts, so a
+  competing Apply prepared before another changed the value is `rejected` `REVIEW_STALE`.
 - **AI setup folders** in `~/.aihq/ai-setup/` stay while any project's claim holds them.
 - **Changes** at user scope that name `target.project` are claimed for that project too: two projects pushing the same
   change hold two claims, and the value stays until both are removed. A user-scope change request without a project keeps

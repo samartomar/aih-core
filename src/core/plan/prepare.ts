@@ -15,7 +15,7 @@ import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { resolveExecutable } from '../internal/approved-process.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
-import { claimKey } from './claims.js';
+import { claimKey, managementIdOf } from './claims.js';
 import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeLink } from './links.js';
 import type { LinkFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin } from './steps/types.js';
@@ -249,7 +249,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
       ...pluginFacts(group.steps), ...localPluginFacts(group.steps),
-      ...inputFacts(group.managementId, group.steps),
+      ...inputFacts(group.managementId, group.steps), ...slotFacts(group.steps),
       ...linkFacts(group.steps, linkPlans) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
@@ -308,25 +308,41 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     const effect: ReviewStep['effect'] = conflict ? 'conflict' :
       ['create-file', 'replace-file', 'already-satisfied'].includes(operation.effects) ? operation.effects as ReviewStep['effect'] : 'unchanged';
     const replacing = !conflict && chosen.get(operation.id) === 'replace' && effect === 'replace-file';
-    const sentence = !replacing ? lowered.sentence : lowered.kind === 'merge' ?
+    // A reviewed replace of a value other plans hold displaces them (C61): named in the conflict and in the step.
+    const stepRoot = lowered.root === 'project' ? project! : home;
+    const displaces = facts?.displacing?.offered ? planIds(stepRoot, request.scope, facts.displacing.holders) : undefined;
+    const sentence = replacing && displaces ? `${lowered.sentence}, displacing ${named(displaces)}; removing this install gives their value back` :
+      !replacing ? lowered.sentence : lowered.kind === 'merge' ?
       `${lowered.sentence}, replacing your ${lowered.format === 'markdown' ? 'block' : 'entry'}; your original is kept for restore` :
       `${lowered.sentence}, replacing your file; your original is kept for restore`;
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence, cantPromise: lowered.cantPromise, effect,
-      root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed)) });
+      root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed)),
+      ...(replacing && displaces ? { displaces } : {}) });
     if (lowered.kind === 'merge' && lowered.codexGuidance && !conflict && facts?.after)
       guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length });
     if (!conflict) continue;
     const before = facts?.before ?? null;
     const reason = facts?.reason;
-    const kept = reason === 'managed-content-changed';
-    const editor = !!reason && !['existing-content', 'managed-content-changed', 'shared-member', 'overlapping-member'].includes(reason);
+    // Another plan's value you edited is yours now: never displaced (C58).
+    const kept = reason === 'managed-content-changed' || reason === 'shared-member-changed';
+    const shown = presentExisting(lowered, before, privateValues);
+    if (reason === 'second-displacement') {
+      // One live restoration level (C75): a different value over an install that already displaces others is blocked.
+      const holders = planIds(stepRoot, request.scope, facts!.displacing!.holders);
+      const displaced = planIds(stepRoot, request.scope, facts!.displacing!.displaced);
+      conflicts.push({ code: 'STATE_CONFLICT', reason: 'second-displacement', managementId: ref.managementId, step: ref.step, target: lowered.path,
+        ...(lowered.kind === 'merge' ? { key: lowered.key } : {}), observedSha256: before === null ? null : sha256(before), existing: shown.text,
+        redacted: shown.redacted, choices: [], displacedBy: holders, displaced,
+        fix: `${named(holders)} already displaces ${named(displaced)} here, and Core keeps one level of restore. Remove ${named(holders)} through a reviewed removal first, which gives ${named(displaced)} their value back, then prepare this install again.` });
+      continue;
+    }
+    const editor = !!reason && !['existing-content', 'managed-content-changed', 'shared-member-changed', 'shared-member', 'overlapping-member'].includes(reason);
     const choices: ReviewConflict['choices'] = kept ? [] : unresolvedAdopt ? ['adopt', 'skip'] :
       editor ? ['skip'] : [...(hint?.availableChoices ?? []), 'skip'];
-    const shown = presentExisting(lowered, before, privateValues);
     conflicts.push({ code: 'STATE_CONFLICT', reason: kept ? 'managed-content-changed' : 'existing-content', managementId: ref.managementId,
       step: ref.step, target: lowered.path, ...(lowered.kind === 'merge' ? { key: lowered.key } : {}),
       observedSha256: before === null ? null : sha256(before), existing: shown.text, redacted: shown.redacted, choices,
-      ...(facts?.stale ? { detail: 'resolution-stale' } : editor ? { detail: reason! } : {}) });
+      ...(facts?.stale ? { detail: 'resolution-stale' } : editor ? { detail: reason! } : {}), ...(displaces ? { displaces } : {}) });
   }
   // Something already at a link's place that isn't Core's link is yours: never replaced, offered as skip only.
   for (const step of steps) {
@@ -378,7 +394,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   // Unowned content needs the person's choice and a new Prepare: no handle (section 7).
-  if (conflicts.some(conflict => conflict.reason === 'existing-content')) return { status: 'blocked', review };
+  if (conflicts.some(conflict => conflict.reason === 'existing-content' || conflict.reason === 'second-displacement')) return { status: 'blocked', review };
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
@@ -453,6 +469,19 @@ function inputFacts(managementId: string, steps: CheckedStep[]): { inputs?: NonN
   const inputs = [...rows.values()].sort((a, b) => codeUnitCompare(a.input, b.input));
   return inputs.length ? { inputs } : {};
 }
+/** The receipt's secret slots of one claim's merge steps (C64): where a secret value was written, never the value. */
+function slotFacts(steps: CheckedStep[]): { secretSlots?: NonNullable<PlanItemFacts['secretSlots']> } {
+  const slots = steps.flatMap(({ lowered, skipped }) => lowered.kind === 'merge' && !skipped ?
+    (lowered.slots ?? []).map(slot => ({ file: lowered.path, path: [...slot.path], item: slot.item, input: slot.input, template: slot.template })) : []);
+  return slots.length ? { secretSlots: slots } : {};
+}
+/** The management ids of recorded engine claims in one root's receipts, unique, in code-unit order. */
+function planIds(root: string, scope: 'project' | 'user', engineIds: string[]): string[] {
+  const items = readOwnership(root).value.items ?? {};
+  return [...new Set(engineIds.map(id => managementIdOf(id, items[claimIdentity(scope, id, root)]?.plan)))].sort(codeUnitCompare);
+}
+/** Management ids as a review sentence names them. */
+const named = (ids: string[]): string => ids.map(id => `\`${id}\``).join(', ');
 /** "this file will hold a secret", once per file a secret value is written into (C59). */
 function secretWarnings(steps: CheckedStep[]): string[] {
   const files = [...new Set(steps.flatMap(step => step.lowered.bound?.secretFiles ?? []))].sort(codeUnitCompare);

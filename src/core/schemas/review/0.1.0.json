@@ -86,6 +86,7 @@
         "sentence": { "type": "string" },
         "cantPromise": { "type": ["string", "null"] },
         "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged", "run-program", "opaque-process", "unavailable"] },
+        "displaces": { "type": "array", "items": { "type": "string" }, "description": "A reviewed replace that displaces other installs' shared value (C61): their management ids" },
         "root": { "enum": ["project", "user"] },
         "path": { "type": "string" },
         "item": { "type": "string" },
@@ -165,7 +166,7 @@
       "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "existing", "redacted", "choices"],
       "properties": {
         "code": { "const": "STATE_CONFLICT" },
-        "reason": { "enum": ["existing-content", "managed-content-changed"] },
+        "reason": { "enum": ["existing-content", "managed-content-changed", "second-displacement"] },
         "managementId": { "type": "string" },
         "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
         "target": { "type": "string" },
@@ -174,7 +175,11 @@
         "existing": { "type": ["string", "null"] },
         "redacted": { "type": "array", "items": { "type": "string" } },
         "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } },
-        "detail": { "type": "string" }
+        "detail": { "type": "string" },
+        "displaces": { "type": "array", "items": { "type": "string" }, "description": "The installs whose shared value a reviewed replace would displace (C61)" },
+        "displacedBy": { "type": "array", "items": { "type": "string" }, "description": "second-displacement (C75): the installs that hold the value now" },
+        "displaced": { "type": "array", "items": { "type": "string" }, "description": "second-displacement (C75): the installs those already displace" },
+        "fix": { "type": "string", "description": "second-displacement: remove the overriding install through review first, then prepare again" }
       }
     }
   }

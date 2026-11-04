@@ -76,6 +76,8 @@ export interface ReviewStep {
   step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A reviewed replace that displaces other installs' shared value (C61): their management ids. */
+  displaces?: string[];
   /** A link step: the folder it points to, and how it lands on this host (C29). */
   to?: string; linkType?: 'junction' | 'symlink' | 'copy';
   /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
@@ -105,7 +107,7 @@ export interface ReviewStep {
 }
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
-  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number | string;
+  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed' | 'second-displacement'; managementId: string; step: number | string;
   target: string;
   /** A merge's key: the entry or block the conflict is about. */
   key?: string;
@@ -118,6 +120,12 @@ export interface ReviewConflict {
   choices: ('replace' | 'adopt' | 'skip')[];
   /** Why only some fixes are offered: `resolution-stale` (the bytes changed since the choice), or the editor's reason. */
   detail?: string;
+  /** The installs whose shared value a reviewed replace would displace (C61): they hold nothing on disk until this one goes. */
+  displaces?: string[];
+  /** `second-displacement` (C75): the installs that hold the value now, and the installs they already displace. */
+  displacedBy?: string[]; displaced?: string[];
+  /** `second-displacement`: how to get there (remove the overriding install through review, then prepare again). */
+  fix?: string;
 }
 export interface Review {
   schema: typeof REVIEW;
@@ -184,7 +192,9 @@ export interface InventoryMember { kind: string; path: string; pointer?: string;
   linkType?: 'junction' | 'symlink' | 'copy';
   /** The CLIs whose claims hold this member (contract 5); a claim that recorded none counts for every CLI of its plan. */
   clis?: string[];
-  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
+  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' | 'displaced-by';
+  /** `displaced-by` (C61): the installs whose value is there now; this claim holds nothing on disk until they go. */
+  displacedBy?: string[] }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
   items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];

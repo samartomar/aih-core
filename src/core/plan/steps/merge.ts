@@ -6,7 +6,7 @@
 // Secret-bound slots are presented redacted in a conflict.
 import { basename } from 'node:path/posix';
 import { clis, owners, problem, target } from './common.js';
-import { bindEntry, bindText, parseBindings, type BoundInputs } from '../inputs.js';
+import { bindEntry, bindText, parseBindings, type BoundInputs, type SlotTemplate } from '../inputs.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
 
@@ -56,12 +56,13 @@ export const merge: StepHandler = {
     let segments: string[] | undefined;
     let tableLeaves: { path: string[]; value: Json }[] | undefined;
     let secrets: string[][] = [], redact: string[][] = [];
+    let slots: SlotTemplate[] = [];
     let bound: BoundInputs | undefined;
     const fill = () => {
       if (!parsed.bindings.length) return undefined;
       const done = bindEntry(entry as Json, segments!, parsed.bindings, inputs, placed.path);
       if (!('entry' in done)) return done;
-      ({ entry, secrets, redact, bound } = done);
+      ({ entry, secrets, redact, bound, slots } = done);
       return undefined;
     };
     if (format === 'json') {
@@ -94,7 +95,7 @@ export const merge: StepHandler = {
       (served.clis.includes('codex') || !served.clis.length && context.request.profiles.some(profile => profile.id === 'codex'));
     const sentence = format === 'markdown' ? `Adds the \`${key}\` block to \`${placed.path}\`` : `Adds \`${key}\` to \`${placed.path}\``;
     return { lowered: { kind: 'merge', managementIds: owner.ids, root: placed.root, path: placed.path, format, key, segments,
-      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(bound ? { bound } : {}), codexGuidance, sentence,
+      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(slots.length ? { slots } : {}), ...(bound ? { bound } : {}), codexGuidance, sentence,
       cantPromise: null, review: { ...owner.review, clis: served.clis, format, key, ...(bound ? { inputs: bound.review } : {}) } } };
   }
 };

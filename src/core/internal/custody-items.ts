@@ -86,6 +86,11 @@ export interface PlanItemFacts {
    * turns the skill `name` (`<plugin>:<skill>`) off; the framework's own install stays. Removing this claim turns it back on.
    */
   switchOff?: { framework: string; item: string; cli: string; name: string };
+  /**
+   * The slots of this claim's merge entries that hold a secret written by value (C59, C64): the file, the full editor
+   * path, the input and the slot's authored text with its `{NAME}` marker. Never the secret itself.
+   */
+  secretSlots?: { file: string; path: string[]; item: string; input: string; template: string }[];
 }
 /** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
 export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
@@ -114,7 +119,7 @@ export interface PendingMember { key: string; descriptor: MemberDescriptor; owne
 /** An interrupted install counts as a claim of its selection, also before it wrote a member. */
 export const interruptedClaim = (item: Pick<CustodyItem, 'managementId' | 'scope'>): Claim =>
   ({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] });
-interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
+interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string }; displaced?: { claims: Claim[] } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
 /** Custody data with the same own keys in the same order and identical values: it serializes identically. */
@@ -170,6 +175,9 @@ export function typedMembers(key: string, owner: Owned): TypedMember[] {
 const claimed = (owner: Owned, scope: string, managementId: string): boolean =>
   !!owner.claims?.some(claim => claim.scope === scope && claim.managementId === managementId);
 const byKey = ([a]: [string, Owned], [b]: [string, Owned]): number => a < b ? -1 : a > b ? 1 : 0;
+/** Whether a claim a reviewed replace displaced (C61) is recorded on some member: its install is kept, holding nothing on disk. */
+export const displacedClaim = (value: Custody, scope: string, managementId: string): boolean =>
+  Object.values(value.members).some(owner => owner.displaced?.claims.some(claim => claim.scope === scope && claim.managementId === managementId));
 /** Target-keyed members a claim owns, in key order. */
 export function claimedMembers(value: Custody, scope: string, managementId: string): [string, Owned][] {
   return Object.entries(value.members).filter(([, owner]) => claimed(owner, scope, managementId)).sort(byKey);
@@ -214,7 +222,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     const keys = new Set(owned.map(([key]) => key));
     for (const field of ['preExisting', 'redactedPaths'] as const)
       for (const [key, entry] of Object.entries(item[field] ?? {})) if (!keys.has(key) && value.members[key]) (orphaned[field] as Record<string, unknown>)[key] ??= entry;
-    if (!owned.length && !value.selections?.[id] && !item.installState) continue;
+    if (!owned.length && !value.selections?.[id] && !item.installState && !displacedClaim(value, item.scope, item.managementId)) continue;
     const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
     const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
     const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
@@ -263,7 +271,12 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'secretSlots'])) return false;
+  if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&
+      value.secretSlots.every(slot => exact(slot, ['file', 'path', 'item', 'input', 'template']) && text(slot.file, 4096) &&
+        Array.isArray(slot.path) && slot.path.length > 0 && slot.path.length <= 64 && slot.path.every(part => typeof part === 'string' && part.length <= 256) &&
+        typeof slot.item === 'string' && PLAN_ID.test(slot.item) && typeof slot.input === 'string' && PLAN_ID.test(slot.input) &&
+        typeof slot.template === 'string' && slot.template.length <= 4096 && slot.template.includes(`{${slot.input}}`)))) return false;
   if (value.managementId !== undefined && !(typeof value.managementId === 'string' && PLAN_ID.test(value.managementId))) return false;
   if (value.cli !== undefined && value.cli !== null && !(typeof value.cli === 'string' && PLAN_ID.test(value.cli))) return false;
   if (value.project !== undefined && value.project !== null && !text(value.project, 4096)) return false;
@@ -374,7 +387,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         PLAN_ID.test(item.claim.managementId) && (item.claim.project === null || text(item.claim.project, 4096)))) return false;
     if (!validProjectFacts(item.projectFacts)) return false;
     const owned = claimedBy(item.scope as string, item.managementId);
-    if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
+    if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted' && !displacedClaim(value, item.scope as string, item.managementId)) return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {

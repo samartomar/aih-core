@@ -32,6 +32,8 @@ export interface ReviewInput {
   value?: Json;
 }
 /** What binding one step's inputs did: the review rows, the secret values written (for redaction), and the warning files. */
+/** A slot that holds a secret value: its full editor path, the input, and the slot's authored text with the marker. */
+export interface SlotTemplate { path: string[]; item: string; input: string; template: string }
 export interface BoundInputs { review: ReviewInput[]; secretValues: string[]; secretFiles: string[] }
 type Fail = { refusal: Refusal } | { problem: Problem };
 type Landing = { written: 'value'; text: Json; secret: boolean; from: 'inputs' | 'default' | 'privateInputs' } |
@@ -203,9 +205,9 @@ function pointerSurface(relative: string[], fields: ReturnType<typeof mcpFields>
  * returned `secrets` (every secret-bound slot) and `redact` (slots that now hold a secret value) are full editor paths.
  */
 export function bindEntry(entry: Json, segments: string[], bindings: Binding[], context: InputContext, file: string):
-    { entry: Json; secrets: string[][]; redact: string[][]; bound: BoundInputs } | Fail {
+    { entry: Json; secrets: string[][]; redact: string[][]; bound: BoundInputs; slots: SlotTemplate[] } | Fail {
   const out = cloneJsonValueStructureV1(entry, 'merge entry', 32) as Json;
-  const secrets: string[][] = []; const redact: string[][] = [];
+  const secrets: string[][] = []; const redact: string[][] = []; const slots: SlotTemplate[] = [];
   const bound: BoundInputs = { review: [], secretValues: [], secretFiles: [] };
   const removals: { array: Json[]; at: number }[] = [];
   const conflicting = (message: string) => problemAt(context.index, 'inputs', 'input-binding', message);
@@ -268,11 +270,16 @@ export function bindEntry(entry: Json, segments: string[], bindings: Binding[], 
     }
     const path = [...segments, ...relative];
     if (declaration.isSecret) secrets.push(path);
-    if (landing.written === 'value' && landing.secret) { redact.push(path); bound.secretValues.push(landing.text as string); bound.secretFiles.push(file); }
+    if (landing.written === 'value' && landing.secret) {
+      redact.push(path); bound.secretValues.push(landing.text as string); bound.secretFiles.push(file);
+      // The slot as the plan wrote it, marker and all: a displaced value keeps this instead of the secret (C64).
+      const authored = relative.reduce<Json | undefined>((node, name) => Array.isArray(node) ? node[Number(name)] : plain(node) ? node[name] : undefined, entry);
+      slots.push({ path, item: binding.item, input: binding.input, template: typeof authored === 'string' ? authored : marker(binding.input) });
+    }
     bound.review.push(reviewRow(binding, landing, declaration.isSecret));
   }
   for (const { array, at } of removals.sort((a, b) => b.at - a.at)) array.splice(at, 1);
-  return { entry: out, secrets, redact, bound };
+  return { entry: out, secrets, redact, bound, slots };
 }
 
 /** `true` when a binding's slot is absent (and creatable) or a string holding its marker; otherwise the path that is not. */
