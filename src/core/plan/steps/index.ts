@@ -7,6 +7,9 @@ import { write } from './write.js';
 import { plugin } from './plugin.js';
 import { merge } from './merge.js';
 import { link } from './link.js';
+import { toolCommand } from './tool-command.js';
+import { upstreamInstaller } from './upstream-installer.js';
+import { upstreamSetup } from './upstream-setup.js';
 import type { StepHandler } from './types.js';
 
 const handlers: Readonly<Record<string, StepHandler>> = Object.freeze({
@@ -16,6 +19,9 @@ const handlers: Readonly<Record<string, StepHandler>> = Object.freeze({
   [plugin.op]: plugin,
   [merge.op]: merge,
   [link.op]: link,
+  [toolCommand.op]: toolCommand,
+  [upstreamInstaller.op]: upstreamInstaller,
+  [upstreamSetup.op]: upstreamSetup,
 });
 /** Catalog's other step kinds (D92); named so the refusal can say they are known but not carried out here yet. */
 const CATALOG_KINDS = new Set(['link', 'merge', 'upstream-setup', 'upstream-installer', 'tool-command']);

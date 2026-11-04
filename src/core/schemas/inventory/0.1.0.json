@@ -64,6 +64,16 @@
             "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "array", "minItems": 1, "items": { "type": "string" } } }] },
             "presenceCheck": { "oneOf": [{ "const": "none" }, { "type": "object", "additionalProperties": false, "required": ["argv", "expect"],
               "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "expect": { "type": "string" } } }] }
+          } } },
+        "programs": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["step", "op", "argv", "executable", "managed", "undo"],
+          "properties": {
+            "step": { "type": "integer", "minimum": 0 }, "op": { "enum": ["tool-command", "upstream-installer", "upstream-setup"] },
+            "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "executable": { "type": ["string", "null"] }, "managed": { "type": "boolean" },
+            "undo": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "readback"],
+              "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "readback": { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "expected": { "type": "string" } } } } }] },
+            "clone": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "into"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string" }, "into": { "type": "string" } } }
           } } }
       } } }
   }

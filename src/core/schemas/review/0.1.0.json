@@ -131,7 +131,26 @@
           "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256", "expect"],
           "properties": { "argv": { "$ref": "#/$defs/argv" }, "executable": { "type": "string" },
             "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expect": { "type": "string", "minLength": 1 } } }] },
-        "previous": { "const": "interrupted" }
+        "previous": { "const": "interrupted" },
+        "program": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "argv", "executable", "executableSha256", "from", "cwd", "env", "managed", "readback", "undo", "cantRemove"],
+          "properties": {
+            "kind": { "enum": ["tool-command", "upstream-installer", "upstream-setup"] }, "argv": { "$ref": "#/$defs/argv" },
+            "executable": { "type": "string" }, "executableSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+            "from": { "enum": ["path", "acquired", "clone"] }, "cwd": { "type": "string" },
+            "env": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "value"],
+              "properties": { "name": { "type": "string" }, "value": { "type": "string" } } } },
+            "managed": { "type": "boolean" }, "readback": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "$ref": "#/$defs/argv" }, "expected": { "type": "string" } } }] },
+            "undo": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "readback"],
+              "properties": { "argv": { "$ref": "#/$defs/argv" }, "readback": { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "$ref": "#/$defs/argv" }, "expected": { "type": "string" } } } } }] },
+            "cantRemove": { "type": "string" },
+            "clone": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "into", "git", "gitSha256"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }, "into": { "type": "string" },
+                "git": { "type": "string" }, "gitSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "needs": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       }
     },
     "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },

@@ -18,8 +18,13 @@ import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
 import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeLink } from './links.js';
 import type { LinkFacts } from '../internal/custody-items.js';
-import type { LoweredPlugin } from './steps/types.js';
-import type { PluginFacts } from '../internal/custody-items.js';
+import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
+import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
+import { SETUP_MARKER } from './steps/upstream-setup.js';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ResolvedExecutable } from '../internal/approved-process.js';
+import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
 import { bindPrivateInputs } from './inputs.js';
 import { limitValue } from './limits.js';
@@ -107,6 +112,29 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     }
     if (spec.interpreter) installed.set(step.index, await discoverInterpreter(spec.interpreter.range, controls.signal));
   }
+  // Program steps (8.1): what this host must be able to run is found now, never halfway through Apply.
+  const rootOf = (root: 'project' | 'user') => root === 'project' ? project! : home;
+  const pinnedPrograms = new Map<number, ResolvedExecutable>();
+  let git: ResolvedExecutable | undefined;
+  for (const step of checked.steps) {
+    const lowered = step.lowered;
+    if (lowered.kind !== 'program' || step.skipped) continue;
+    if (lowered.root === 'project' && project === null) return { status: 'invalid', problems: [{ path: `/plan/plan/${step.index}/root`,
+      reason: 'project', message: 'A project-rooted step needs the request to name its project.' }] };
+    if (lowered.clone) {
+      git ??= resolveExecutable('git');
+      if (!git) return { status: 'refused', code: 'program-unavailable', step: step.index, reason: `Step ${step.index} clones with \`git\`, which this host cannot run.` };
+      const folder = join(rootOf(lowered.root), ...lowered.clone.into.split('/'));
+      if (existsSync(folder) && !existsSync(join(folder, SETUP_MARKER))) return { status: 'refused', code: 'setup-folder-occupied', step: step.index,
+        reason: `Step ${step.index} clones into \`${lowered.clone.into}\`, which already holds files Core didn't clone. Move them away, then Prepare again.` };
+    }
+    if (lowered.executable.from === 'path' && lowered.op === 'upstream-setup') {
+      const found = resolveExecutable(lowered.executable.name);
+      if (!found) return { status: 'refused', code: 'program-unavailable', step: step.index, reason: `Step ${step.index} runs \`${lowered.executable.name}\`, which this host cannot run.` };
+      pinnedPrograms.set(step.index, found);
+    }
+  }
+  const verifications: Verifications = new Map();
   const acquired = new Map<number, AcquireFacts>();
   const effects = new Map<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>();
   // Acquisition progress goes to the Apply call's `onProgress` (C38), which Apply sets here.
@@ -165,7 +193,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   }
   /** The last engine operation a step lowers to, which the next step of its claim waits for (C60). */
   const lastOp = (step: CheckedStep): string => step.lowered.kind === 'plugin' ? `step-${step.index}-${step.lowered.commands.length - 1}` :
-    step.lowered.kind === 'link' && step.lowered.linkType === 'copy' ? `step-${step.index}-${linkPlans.get(step.index)!.files.length - 1}` : `step-${step.index}`;
+    step.lowered.kind === 'link' && step.lowered.linkType === 'copy' ? `step-${step.index}-${linkPlans.get(step.index)!.files.length - 1}` :
+    step.lowered.kind === 'program' && step.lowered.clone ? `step-${step.index}-run` : `step-${step.index}`;
   const planClis = [...new Set(checked.profiles.map(profile => profile.id))].sort(codeUnitCompare);
   const supplied = new Map<string, NonNullable<EngineExtension['supplied']> extends ReadonlyMap<string, infer V> ? V : never>();
   const plans = new Map<string, PlanItemFacts>();
@@ -181,6 +210,17 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     const ops: Recipe['operations'] = group.steps.flatMap((step, at): Recipe['operations'] => {
       const lowered = step.lowered;
       if (lowered.kind === 'plugin') return programOperations(lowered, step.index, group, operations);
+      if (lowered.kind === 'program') {
+        const prior = group.steps[at - 1];
+        const ops = commandOperations(lowered, step.index, group, operations, prior ? [lastOp(prior)] : []);
+        if (lowered.clone) {
+          const material = { id: `m${String(materials.length).padStart(6, '0')}`, path: `plan/${materials.length}`, sha256: sha256(lowered.clone.marker),
+            byteLength: lowered.clone.marker.length, bytes: lowered.clone.marker };
+          materials.push(material);
+          (ops[0] as { material?: string }).material = material.id;
+        }
+        return ops;
+      }
       const id = `step-${step.index}`;
       operations.set(`${group.selectionId}/${id}`, { step: step.index, managementId: group.managementId });
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
@@ -228,6 +268,15 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         return outcome;
       } });
     }
+    for (const step of group.steps) {
+      const lowered = step.lowered;
+      if (lowered.kind !== 'program' || step.skipped) continue;
+      const root = rootOf(lowered.root);
+      if (lowered.clone) effects.set(`${group.selectionId}/step-${step.index}`, cloneEffect(lowered.clone, root, git!));
+      if (lowered.executable.from !== 'path' || lowered.op === 'upstream-setup')
+        effects.set(`${group.selectionId}/${lowered.clone ? `step-${step.index}-run` : `step-${step.index}`}`,
+          commandEffect(lowered, root, pinnedPrograms.get(step.index), step.index, verifications));
+    }
     const secretValues = [...new Set(group.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
     const secretInputs: Recipe['inputs'] = Object.fromEntries(secretValues.map((_value, at) => [`secret-${at}`,
       { type: 'string' as const, required: false, sensitive: true }]));
@@ -248,7 +297,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
-      ...pluginFacts(group.steps), ...localPluginFacts(group.steps),
+      ...pluginFacts(group.steps), ...programFacts(group.steps), ...localPluginFacts(group.steps),
       ...inputFacts(group.managementId, group.steps), ...slotFacts(group.steps),
       ...linkFacts(group.steps, linkPlans) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
@@ -262,12 +311,18 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     return group ? [{ selectionId: group.selectionId, operationId: `step-${item.step}`, choice: item.choice as 'replace' | 'adopt',
       observedSha256: item.observedSha256 }] : [];
   });
+  // The plan's order (D92, C17) across every item: an operation runs at its step's place in the plan.
+  const order = new Map([...operations.keys()].map(key => {
+    const parts = /\/step-(\d+)(?:-(run|\d+))?$/.exec(key);
+    const index = Number(parts?.[1] ?? 0); const sub = parts?.[2];
+    return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
+  }));
   const observed = new Map<string, ObservedStep>();
   const engine = await prepareEngine({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections },
     target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...engineControls(controls), ...(Object.keys(enginePrivate).length ? { privateInputs: enginePrivate } : {}) },
     undefined, undefined, undefined, undefined, undefined,
-    { supplied, plans, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
+    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))
@@ -295,6 +350,17 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         return { status: 'refused', code: 'program-unavailable', reason: `Step ${ref.step} runs \`${step.lowered.cli}\`, which this host cannot run.`, step: ref.step as number };
       const commands = programCommands.get(ref.step as number) ?? []; programCommands.set(ref.step as number, commands);
       commands.push({ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 });
+      continue;
+    }
+    if (step.lowered.kind === 'program') {
+      if (step.lowered.clone && operation.id.endsWith(`/step-${ref.step}`) && (operation.effects === 'conflict' || operation.effects === 'unavailable'))
+        return { status: 'refused', code: 'setup-folder-occupied', step: ref.step as number,
+          reason: `Step ${ref.step} clones into \`${step.lowered.clone.into}\`, whose marker file is not Core's. Move the folder away, then Prepare again.` };
+      if (step.lowered.op === 'upstream-installer') {
+        if (operation.effects === 'unavailable' || typeof operation.details.executableSha256 !== 'string')
+          return { status: 'refused', code: 'program-unavailable', reason: `Step ${ref.step} runs \`${step.lowered.argv[0]}\`, which this host cannot run.`, step: ref.step as number };
+        programCommands.set(ref.step as number, [{ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 }]);
+      }
       continue;
     }
     const lowered = step.lowered;
@@ -378,7 +444,19 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
       presenceCheck: presence, ...(interrupted ? { previous: 'interrupted' as const } : {}) });
   }
-  for (const step of checked.steps) if (step.skipped && step.lowered.kind !== 'plugin') for (const managementId of step.lowered.managementIds)
+  for (const step of checked.steps) {
+    const lowered = step.lowered;
+    if (lowered.kind !== 'program' || step.skipped) continue;
+    const root = rootOf(lowered.root);
+    const interrupted = readOwnership(root).value.items?.[claimIdentity(lowered.root, claimKey(lowered.managementIds[0], lowered.root, lowered.review.clis?.[0] ?? null, project), project ?? home)]?.installState === 'interrupted';
+    const pinned = lowered.op === 'upstream-installer' ? programCommands.get(step.index)?.[0] :
+      pinnedPrograms.has(step.index) ? { executable: pinnedPrograms.get(step.index)!.launchPath, executableSha256: pinnedPrograms.get(step.index)!.sha256 } : undefined;
+    steps.push({ step: step.index, op: step.op, managementId: lowered.managementIds[0], sentence: lowered.sentence,
+      cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
+      effect: 'run-program', root: lowered.root, ...lowered.review, program: programReview(lowered, root, pinned, git),
+      ...(interrupted ? { previous: 'interrupted' as const } : {}) });
+  }
+  for (const step of checked.steps) if (step.skipped && step.lowered.kind !== 'plugin' && step.lowered.kind !== 'program') for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review,
       ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed)) });
@@ -398,7 +476,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
-    reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}),
+    reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}), verifications,
     privateInputs: bindPrivateInputs(controls.privateInputs),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
   return { status: partial ? 'partial' : 'ready', review, handle };
@@ -418,6 +496,51 @@ function programOperations(lowered: LoweredPlugin, index: number, group: { selec
       cwd: { root: group.scope === 'project' ? 'project' : 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0],
       effects: [`The ${lowered.cli} CLI's own plugin command; Core can't show its effects`], requires: at ? [`step-${index}-${at - 1}`] : [], checks: [] };
   });
+}
+/**
+ * A program step as engine operations: an `upstream-setup`'s marker file (its clone runs first, as that write's effect),
+ * then the command as one `process.run` in the step's root. A command whose program is made by an earlier step is
+ * carried out by its reviewed effect; a PATH program is pinned by the engine at Prepare.
+ */
+function commandOperations(lowered: LoweredProgram, index: number, group: { selectionId: string; managementId: string; scope: 'project' | 'user' },
+    operations: Map<string, StepRef>, requires: string[]): Recipe['operations'] {
+  const root = group.scope === 'project' ? 'project' as const : 'userHome' as const;
+  const run = lowered.clone ? `step-${index}-run` : `step-${index}`;
+  const ops: Recipe['operations'] = [];
+  if (lowered.clone) {
+    operations.set(`${group.selectionId}/step-${index}`, { step: index, managementId: group.managementId, command: true });
+    ops.push({ id: `step-${index}`, purpose: `Clones ${lowered.clone.repository} at ${lowered.clone.commit}`, kind: 'file.write', scope: group.scope,
+      target: { root, segments: [...lowered.clone.into.split('/'), SETUP_MARKER].map(literal => ({ literal })) }, material: '', requires, checks: [] });
+  }
+  operations.set(`${group.selectionId}/${run}`, { step: index, managementId: group.managementId, command: true });
+  const program = lowered.executable.from === 'path' ? lowered.executable.name : lowered.executable.from === 'acquired' ?
+    join(homedir(), ...lowered.executable.path.split('/')) : lowered.argv[0]!;
+  ops.push({ id: run, purpose: `Runs \`${lowered.shown.join(' ')}\``, kind: 'process.run', scope: group.scope, executable: { name: program },
+    args: (lowered.op === 'tool-command' ? lowered.argv : lowered.argv.slice(1)).map(literal => ({ literal })), cwd: { root, segments: [] },
+    env: Object.fromEntries(Object.entries(lowered.env).map(([key, value]) => [key, { literal: value }])), acceptedExitCodes: [0],
+    effects: [lowered.op === 'upstream-installer' ? 'The upstream installer; Core can\'t show or remove its effects' : 'The command\'s own effects; Core can\'t show them'],
+    requires: lowered.clone ? [`step-${index}`] : requires, checks: [] });
+  return ops;
+}
+/** How the review shows one program step: the exact command, its program, folder, environment names, checks and undo. */
+function programReview(lowered: LoweredProgram, root: string, pinned: { executable: string; executableSha256: string } | undefined,
+    git: ResolvedExecutable | undefined): NonNullable<ReviewStep['program']> {
+  const executable = lowered.executable.from === 'acquired' ? { executable: join(root, ...lowered.executable.path.split('/')), executableSha256: lowered.executable.sha256,
+    from: 'acquired' as const } : lowered.executable.from === 'clone' ? { executable: join(root, ...lowered.cwd.split('/'), ...lowered.executable.path.split('/')),
+    executableSha256: null, from: 'clone' as const } : { executable: pinned?.executable ?? lowered.executable.name, executableSha256: pinned?.executableSha256 ?? null, from: 'path' as const };
+  return { kind: lowered.op, argv: lowered.shown, ...executable, cwd: lowered.cwd ? join(root, ...lowered.cwd.split('/')) : root,
+    env: Object.keys(lowered.shownEnv).sort(codeUnitCompare).map(name => ({ name, value: lowered.shownEnv[name]! })), managed: lowered.managed,
+    readback: lowered.readback ?? null, undo: lowered.undo ?? null, cantRemove: lowered.cantRemove,
+    ...(lowered.clone ? { clone: { repository: lowered.clone.repository, commit: lowered.clone.commit, into: lowered.clone.into,
+      git: git!.launchPath, gitSha256: git!.sha256 } } : {}), ...(lowered.needs ? { needs: lowered.needs } : {}) };
+}
+/** The receipt's program facts for one management id's steps (C30, C54): the command, and how (or that it can't) be undone. */
+function programFacts(steps: CheckedStep[]): { programs?: ProgramFacts[] } {
+  const programs = steps.flatMap(step => step.lowered.kind === 'program' && !step.skipped ? [{ step: step.index, op: step.lowered.op,
+    argv: step.lowered.shown, executable: step.lowered.executable.from === 'acquired' ? step.lowered.executable.path : null,
+    managed: step.lowered.managed, undo: step.lowered.undo ? structuredClone(step.lowered.undo) : null,
+    ...(step.lowered.clone ? { clone: { repository: step.lowered.clone.repository, commit: step.lowered.clone.commit, into: step.lowered.clone.into } } : {}) }] : []);
+  return programs.length ? { programs } : {};
 }
 /** The receipt's plugin undo facts for one management id's steps (C54). */
 function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
@@ -515,7 +638,7 @@ function presentExisting(lowered: Lowered, before: Buffer | null, privateValues:
   return { text, redacted: shown.redacted };
 }
 function existingText(lowered: Lowered, before: Buffer | null): { text: string | null; redacted: string[] } {
-  if (before === null || lowered.kind === 'plugin' || lowered.kind === 'link') return { text: null, redacted: [] };
+  if (before === null || lowered.kind === 'plugin' || lowered.kind === 'link' || lowered.kind === 'program') return { text: null, redacted: [] };
   try {
     if (lowered.kind === 'write') return { text: before.length <= 1_048_576 ? new TextDecoder('utf-8', { fatal: true }).decode(before) : null, redacted: [] };
     if (lowered.format === 'markdown') {

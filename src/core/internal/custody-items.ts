@@ -11,8 +11,8 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
-import type { PluginFacts } from '../plan/types.js';
-export type { PluginFacts } from '../plan/types.js';
+import type { PluginFacts, ProgramFacts } from '../plan/types.js';
+export type { PluginFacts, ProgramFacts } from '../plan/types.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -66,6 +66,8 @@ export interface PlanItemFacts {
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
    */
   plugins?: PluginFacts[];
+  /** Program steps (`tool-command`, `upstream-installer`, `upstream-setup`) and their undo facts (C30, C54). */
+  programs?: ProgramFacts[];
   /** The management id this claim belongs to (C48); the engine keeps the claim under its claim key. */
   managementId?: string;
   /** The one CLI that makes this claim (from the steps' `clis`), or `null` when the steps recorded none (C55). */
@@ -271,7 +273,7 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'secretSlots'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots'])) return false;
   if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&
       value.secretSlots.every(slot => exact(slot, ['file', 'path', 'item', 'input', 'template']) && text(slot.file, 4096) &&
         Array.isArray(slot.path) && slot.path.length > 0 && slot.path.length <= 64 && slot.path.every(part => typeof part === 'string' && part.length <= 256) &&
@@ -281,6 +283,8 @@ export function validPlanFacts(value: unknown): boolean {
   if (value.cli !== undefined && value.cli !== null && !(typeof value.cli === 'string' && PLAN_ID.test(value.cli))) return false;
   if (value.project !== undefined && value.project !== null && !text(value.project, 4096)) return false;
   if (value.links !== undefined && !(Array.isArray(value.links) && value.links.length > 0 && value.links.length <= 4096 && value.links.every(validLinkFacts))) return false;
+  if (value.programs !== undefined && !(Array.isArray(value.programs) && value.programs.length > 0 && value.programs.length <= 256 &&
+    value.programs.every(validProgramFacts))) return false;
   if (value.inputs !== undefined && !validInputFacts(value.inputs)) return false;
   if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
   if (value.localPlugin !== undefined && !(exact(value.localPlugin, ['contains']) && (value.localPlugin.contains === null ||
@@ -345,6 +349,15 @@ function validPluginFacts(value: unknown): boolean {
   return check === 'none' || exact(check, ['argv', 'expect']) && argv(check.argv) && text(check.expect, 4096);
 }
 
+function validProgramFacts(value: unknown): boolean {
+  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone'])) return false;
+  const readback = (entry: unknown): boolean => exact(entry, ['argv', 'expected']) && argv(entry.argv) && typeof entry.expected === 'string' && entry.expected.length <= 4096;
+  return Number.isSafeInteger(value.step) && (value.step as number) >= 0 && ['tool-command', 'upstream-installer', 'upstream-setup'].includes(value.op as string) &&
+    argv(value.argv) && (value.executable === null || text(value.executable, 4096)) && typeof value.managed === 'boolean' &&
+    (value.undo === null || exact(value.undo, ['argv', 'readback']) && argv(value.undo.argv) && readback(value.undo.readback)) &&
+    (value.clone === undefined || exact(value.clone, ['repository', 'commit', 'into']) && text(value.clone.repository, 512) &&
+      typeof value.clone.commit === 'string' && /^[a-f0-9]{40}$/.test(value.clone.commit) && text(value.clone.into, 4096));
+}
 function validProvenance(value: unknown): boolean {
   if (!exact(value, ['kind', 'repository', 'commit', 'identity']) || value.kind !== 'git' ||
       typeof value.commit !== 'string' || !/^[a-f0-9]{40}$/.test(value.commit)) return false;
