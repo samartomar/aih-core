@@ -1,0 +1,4 @@
+{
+  "schema": "urn:aihq:core:signer-records:0.1.0",
+  "signers": [ { "identity": "label only", "issuer": "https://token.actions.githubusercontent.com" } ]
+}

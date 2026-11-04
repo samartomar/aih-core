@@ -273,6 +273,14 @@
     "pkijs": "3.4.1",
     "tuf-js": "6.0.0"
   },
+  "peerDependencies": {
+    "@aihq/scan": ">=0.1.0 <0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@aihq/scan": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "24.10.1",
     "esbuild": "0.28.2",

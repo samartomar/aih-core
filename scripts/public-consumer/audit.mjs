@@ -48,6 +48,13 @@ export async function auditInstalledPackages(root) {
   assert.equal(existsSync(join(root, 'node_modules/@aihq/harness')), false);
   const coreManifest = JSON.parse(readFileSync(join(root, 'node_modules/@aihq/core/package.json'), 'utf8'));
   for (const name of ['@aihq/harness', '@aihq/catalog', '@aihq/scan']) assert.equal(coreManifest.dependencies[name], undefined);
+  // Core reaches Scan only through `@aihq/scan/read`, as an optional peer it loads when Scan evidence is supplied.
+  assert.deepEqual(Object.keys(coreManifest.peerDependencies ?? {}), ['@aihq/scan']);
+  assert.deepEqual(coreManifest.peerDependenciesMeta?.['@aihq/scan'], { optional: true });
+  const scanImports = new Set();
+  for (const file of files(join(root, 'node_modules/@aihq/core/dist')).filter(path => /\.(?:m?js)$/.test(path)))
+    for (const found of readFileSync(join(root, 'node_modules/@aihq/core/dist', file), 'utf8').matchAll(/['"](@aihq\/scan(?:\/[\w./-]*)?)['"]/g)) scanImports.add(found[1]);
+  assert.deepEqual([...scanImports], ['@aihq/scan/read']);
   return { packages: Object.fromEntries(Object.entries(declarations).map(([name, value]) => [name, value.package])),
     schemas: Object.fromEntries(schemas), nodeRange: '>=26.12.1 <27', noSeparateHarness: true, privateFilesExcluded: true, declaredMaterialFiles: materialCount,
     roles: Object.fromEntries(Object.entries(declarations).map(([name, value]) =>

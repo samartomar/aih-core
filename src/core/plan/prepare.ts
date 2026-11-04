@@ -26,6 +26,9 @@ import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
+import { evaluateScans, notScanned, type ScanEvaluation, type ScanInput } from '../scan/evidence.js';
+import { allowedSigners } from '../enterprise/admission.js';
+import { signerRecords } from '../../harness/signer-records.mjs';
 import { enterpriseControls, denialReason } from '../enterprise/host.js';
 import { admitPlanRequest, contentFacts, enterpriseContext } from '../enterprise/plan.js';
 import type { PlanUpdateContext, UpdateSelection } from './update.js';
@@ -197,6 +200,12 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const admission = enterprise ? admitPlanRequest(enterprise, request, checked.steps, proven.origin, [...groups.values()],
     (selected?.removals ?? []).map(removal => removal.key), request.scope === 'project' ? project! : home, project) : undefined;
   const itemFacts = contentFacts(request);
+  // Scan evidence (contract 13): verified and matched now, shown in the review and recorded in the receipts; never a gate.
+  const scanned: ScanEvaluation | undefined = request.scans?.length ? await evaluateScans({ scans: request.scans as unknown as ScanInput[],
+    inventories: checked.inventories, contents: request.contents, files: checked.sourceBytes,
+    planned: new Set([...groups.values()].map(group => group.managementId)),
+    signers: allowedSigners(signerRecords.signers as never, enterprise?.state.bound.organization).map(signer =>
+      ({ ...signer, identity: signer.identity ?? signer.subject }) as never) }) : undefined;
   // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
   // last can remove them; a copy holds the files the plan writes into the linked folder.
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
@@ -351,7 +360,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
       ...pluginFacts(group.steps), ...programFacts(group.steps), ...localPluginFacts(group.steps),
       ...inputFacts(group.managementId, group.steps), ...slotFacts(group.steps),
-      ...linkFacts(group.steps, linkPlans) });
+      ...linkFacts(group.steps, linkPlans),
+      ...(scanned?.facts.has(group.managementId) ? { scans: structuredClone(scanned.facts.get(group.managementId)!) } : {}) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
     selections.push({ id: group.selectionId, managementId: group.key, scope: group.scope, configuration: {}, requires,
@@ -535,7 +545,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
     ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...heldWarnings, ...(compared?.warnings ?? [])],
-    ...(compared ? { versions: compared.versions as unknown as Json[] } : {}), ...(admission ? { organization: admission.review } : {}) };
+    ...(compared ? { versions: compared.versions as unknown as Json[] } : {}), ...(admission ? { organization: admission.review } : {}),
+    ...(scanned ? { scans: scanned.scans, notScanned: notScanned(request.plan.plan) } : {}) };
+  if (scanned) body.warnings.push(...scanned.remember(heldScanKeys(home)));
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   // An organization denial blocks the whole request: no subset runs (contract 11).
@@ -772,4 +784,14 @@ function heldWarning(path: string, from: string, holders: string[]): string {
   const named = [...new Set(holders)].sort(codeUnitCompare).map(id => '`' + id + '`').join(', ');
   return '`' + path + '` stays linked to `' + from + '`: ' + named + ' installed elsewhere still links it there. ' +
     'Update or remove that install too, then update again to link the new version.';
+}
+
+/** The scan keys any receipt here holds: their memory entries go last when the memory is full (C53). */
+function heldScanKeys(home: string): Set<string> {
+  const held = new Set<string>();
+  try {
+    for (const root of new Set([home, ...ownershipInventory().targets]))
+      for (const item of Object.values(readOwnership(root).value.items ?? {})) for (const row of item.plan?.scans ?? []) held.add(row.scanKey);
+  } catch { /* an unreadable receipt only weakens which memory entries are kept */ }
+  return held;
 }

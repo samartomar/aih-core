@@ -21,7 +21,7 @@
     "qualifications": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
     "inputs": { "type": "object", "additionalProperties": { "type": "object" } },
     "recipeProof": { "$ref": "#/$defs/recipeProof" },
-    "scans": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
+    "scans": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/scan" } },
     "resolutions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/resolution" } }
   },
   "$defs": {
@@ -98,6 +98,22 @@
         "options": { "type": "object", "propertyNames": { "not": { "enum": ["scope", "source"] } } }
       }
     },
+    "scan": {
+      "description": "One Scan summary to show (contract 13): its exact text and Sigstore bundle, any withdrawals each with its own bundle at the same position, and optionally the complete inventory of the scanned tree, used only for matching. In the Node API each inventory entry also carries `bytes`; a saved document never does. Scan informs and never blocks.",
+      "type": "object", "additionalProperties": false, "required": ["summary", "bundle"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "bundle": { "$ref": "#/$defs/scanBundle" },
+        "withdrawn": { "oneOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 1048576 },
+          { "type": "array", "maxItems": 64, "items": { "type": "string", "minLength": 1, "maxLength": 1048576 } }] },
+        "withdrawnBundle": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/scanBundle" },
+          { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/scanBundle" } }] },
+        "inventory": { "oneOf": [{ "type": "null" }, { "type": "array", "maxItems": 65536, "items": {
+          "type": "object", "additionalProperties": false, "required": ["path", "mode"],
+          "properties": { "path": { "$ref": "#/$defs/sourcePath" }, "mode": { "enum": ["100644", "100755"] } } } }] }
+      }
+    },
+    "scanBundle": { "oneOf": [{ "type": "object" }, { "type": "string", "minLength": 2, "maxLength": 1048576 }] },
     "resolution": {
       "type": "object", "additionalProperties": false, "required": ["managementId", "step", "choice", "observedSha256"],
       "properties": { "managementId": { "$ref": "#/$defs/id" }, "step": { "type": "integer", "minimum": 0 },

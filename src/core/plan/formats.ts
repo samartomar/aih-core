@@ -87,6 +87,10 @@ import nativeTestIdentityInvalid from '../../fixtures/core/native-test-identity/
 import organizationSchema from '../schemas/organization/0.1.0.json' with { type: 'json' };
 import organizationValid from '../../fixtures/core/organization/0.1.0/accept.json' with { type: 'json' };
 import organizationInvalid from '../../fixtures/core/organization/0.1.0/refuse.json' with { type: 'json' };
+// Scan evidence: the default allowed signers (samartomar/aih-core#180).
+import signerRecordsSchema from '../schemas/signer-records/0.1.0.json' with { type: 'json' };
+import signerRecordsValid from '../../fixtures/core/signer-records/0.1.0/accept.json' with { type: 'json' };
+import signerRecordsInvalid from '../../fixtures/core/signer-records/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -127,6 +131,8 @@ const entries: FormatEntry[] = [
   { id: nativeTestIdentitySchema.$id, schema: nativeTestIdentitySchema, fixtures: { valid: nativeTestIdentityValid, invalid: nativeTestIdentityInvalid } },
   // Enterprise admission (samartomar/aih-core#179).
   { id: organizationSchema.$id, schema: organizationSchema, fixtures: { valid: organizationValid, invalid: organizationInvalid } },
+  // Scan evidence (samartomar/aih-core#180).
+  { id: signerRecordsSchema.$id, schema: signerRecordsSchema, fixtures: { valid: signerRecordsValid, invalid: signerRecordsInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

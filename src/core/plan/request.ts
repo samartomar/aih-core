@@ -31,6 +31,10 @@ export interface CheckedPlan {
   steps: CheckedStep[];
   ignoredFiles: { sourceId: string; sourcePath: string }[];
   profiles: { id: string; version: string | number }[];
+  /** Each `scans` entry's supplied inventory with its bytes (Node API), or `null` when it has none or lacks bytes. */
+  inventories: ({ path: string; mode: '100644' | '100755'; bytes: Uint8Array }[] | null)[];
+  /** The supplied source bytes by source id and path, for matching a source tree (contract 13); never authority. */
+  sourceBytes: Map<string, Uint8Array>;
 }
 
 /** Admits a plan request; `files[].bytes` are copied, never kept by reference. */
@@ -56,10 +60,33 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     }
     projection = { ...raw, files };
   }
+  // Scan inventories carry their bytes the same way; they are only for matching (C66).
+  const inventories: CheckedPlan['inventories'] = [];
+  if (Array.isArray(raw.scans)) {
+    const scans: unknown[] = [];
+    for (const [index, entry] of raw.scans.entries()) {
+      const list = entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as { inventory?: unknown }).inventory : undefined;
+      if (!Array.isArray(list)) { inventories.push(null); scans.push(entry); continue; }
+      const rows: unknown[] = []; const bytes: Uint8Array[] = [];
+      for (const [at, row] of list.entries()) {
+        if (row && typeof row === 'object' && !Array.isArray(row) && Object.hasOwn(row, 'bytes')) {
+          const { bytes: value, ...rest } = row as Record<string, unknown>;
+          if (!(value instanceof Uint8Array)) return invalid([{ path: `/scans/${index}/inventory/${at}/bytes`, reason: 'type', message: 'Inventory bytes are a Uint8Array.' }]);
+          if (value.byteLength > limitValue('file-bytes')) return limit('file-bytes', `Inventory file ${at} of scan ${index} is larger than one file may be.`);
+          bytes.push(Buffer.from(value)); rows.push(rest);
+        } else rows.push(row);
+      }
+      inventories.push(bytes.length === list.length ? (rows as { path: string; mode: '100644' | '100755' }[]).map((row, at) => ({ path: row.path, mode: row.mode, bytes: bytes[at]! })) : null);
+      scans.push({ ...(entry as object), inventory: rows });
+    }
+    projection = { ...(projection as object), scans };
+  }
   let document: PlanRequest;
   try { document = cloneJsonValueStructureV1(projection, 'plan request', 32) as unknown as PlanRequest; }
   catch { return invalid([{ path: '', reason: 'strict-json', message: 'Expected bounded, plain strict JSON data.' }]); }
   const text = canonicalJson(document as unknown as Json);
+  // Scan evidence is never re-checked at Apply (C18): it is not part of what Apply binds.
+  const boundText = canonicalJson(withoutScans(document) as unknown as Json);
   if (Buffer.byteLength(text) > limitValue('request-bytes')) return limit('request-bytes', 'The plan request is larger than one request may be.');
   const problems = schemaProblems(PLAN_REQUEST, document);
   if (problems) return invalid(problems);
@@ -157,16 +184,20 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
   const ignoredFiles = document.files.filter(entry => !named.has(key(entry.sourceId, entry.sourcePath)))
     .map(entry => ({ sourceId: entry.sourceId, sourcePath: entry.sourcePath }));
   const bytesDigest = createHash('sha256').update(supplied.map(bytes => bytes ? sha256(bytes) : '-').join(',')).digest('hex');
-  return { checked: { document, documentDigest: createHash('sha256').update(text).digest('hex'), bytesDigest, steps, ignoredFiles,
-    profiles: document.profiles.map(profile => ({ id: profile.id as string, version: profile.version as string | number })) } };
+  const sourceBytes = new Map<string, Uint8Array>();
+  for (const [id, entry] of files) if (entry.bytes) sourceBytes.set(id, entry.bytes);
+  return { checked: { document, documentDigest: createHash('sha256').update(boundText).digest('hex'), bytesDigest, steps, ignoredFiles,
+    profiles: document.profiles.map(profile => ({ id: profile.id as string, version: profile.version as string | number })), inventories, sourceBytes } };
 }
+
+const withoutScans = <T extends object>(value: T): T => { const { scans: _scans, ...rest } = value as T & { scans?: unknown }; return rest as T; };
 
 /** The same digests for a request handed to Apply's re-check: `undefined` when it can no longer be read. */
 export function requestDigests(input: unknown): { documentDigest: string; bytesDigest: string } | undefined {
   try {
     const raw = input as Record<string, unknown>;
     const files = Array.isArray(raw.files) ? raw.files : [];
-    const projection = { ...raw, files: files.map(entry => {
+    const projection = { ...withoutScans(raw), files: files.map(entry => {
       if (!entry || typeof entry !== 'object' || !Object.hasOwn(entry, 'bytes')) return entry;
       const { bytes: _bytes, ...rest } = entry as Record<string, unknown>; return rest;
     }) };

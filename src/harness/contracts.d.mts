@@ -14,6 +14,8 @@ export type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
+export { signerRecords } from './signer-records.mjs';
+export type { SignerRecord, SignerRecords } from './signer-records.mjs';
 export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface, ToolList, ToolRegistryResult, RegistryProblem } from './tool-registry.mjs';
 export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
 export type { ApprovalLocation, BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';

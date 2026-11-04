@@ -2825,6 +2825,47 @@ const run = await apply(update.handle, { approved: true, origin: 'interactive', 
 - The retained replacement-selection form (`updates: [{ managementId, replacement }]`, below) keeps its own result until
   it retires.
 
+### Scan evidence with a plan request (`scans`)
+
+A plan request may carry the Scan summaries you want shown, each with its Sigstore bundle, any withdrawals (each with
+its own bundle at the same position) and, optionally, the complete inventory of the scanned tree. Core never fetches
+evidence or trees, and Scan never decides what runs: no status, refusal or exit code depends on a score, a label, a
+signer, a match, or whether Scan is installed.
+
+```js
+const prepared = await prepare({ ...planRequest, scans: [{ summary: summaryText, bundle,
+  withdrawn: null, withdrawnBundle: null,
+  inventory: null /* or [{ path, mode: '100644' | '100755', bytes }] for a tree the plan's files don't make up */ }] });
+// prepared.review.scans: [{ index, status: 'verified' | 'not-verified' | 'unavailable', reason?, sentence, scanKey, revision,
+//   label, coverage, score, signer: { identity, trusted, issuer, subject } | null, withdrawn, older, lastSeen, withdrawals,
+//   managementIds, match: { status: 'matches' | 'differs' | 'refused' | 'not-checked', reason?, source?, differences? } }]
+// prepared.review.notScanned: [{ step, op, reason: 'rendered' | 'fetched' | 'program' | 'not-scanned', sentence }]
+```
+
+- **One dependency.** Core imports only `@aihq/scan/read` (`verifySummary`, `matchScan`), declared as an optional peer
+  (`@aihq/scan` 0.1.x). It is loaded only when `scans` are supplied. Without it each entry is `unavailable`
+  (`scan-unavailable`), and the install goes ahead as reviewed.
+- **Signers.** Core passes the allowed signers: the default `signerRecords` (`@aihq/core/harness`,
+  `urn:aihq:core:signer-records:0.1.0`: AIHQ's Scan publishing workflow), replaced or extended by an Enterprise
+  organization's `scanSigners`. `identity` is only a label: trust comes from the authenticated issuer and certificate
+  subject. A valid signature by anyone else shows `trusted: false` ("not by a trusted publisher").
+- **Matching.** Core passes the exact verified result to `matchScan` with the key's **source** tree: the item's (or
+  edition's, bundle's or plugin folder's) files at their item-relative paths with the source bytes Core checked and their
+  modes from `executable`. Where the plan's files don't make up the tree, the entry's `inventory` is used; without it
+  the match is `not-checked` (`inventory-not-supplied`, "match not checked: inventory not supplied"). Rendered output,
+  fetched files and program effects are listed in `notScanned` and never presented as covered by the source's scan.
+- **Memory.** `~/.aih/core/scans.json` keeps the highest revision and withdrawn-through seen per scan key and
+  authenticated issuer and subject, so it outlives removal and reinstall. A summary below a revision seen before is
+  `older` ("older than the last result seen"); a summary at or below a remembered withdrawn-through is `withdrawn`. Only
+  authenticated summaries and withdrawals move it: a withdrawal for the same key and signer moves withdrawn-through even
+  when it arrives with a later revision; one for another key or signer moves nothing. It is bounded at 2 MiB: the oldest
+  entries for keys no receipt holds go first; if only held keys remain, the oldest of those goes too and the review warns
+  `scan-memory-full`. Nothing is refused for memory pressure, and the memory is never sent anywhere.
+- **Receipts and inventory.** Each management id's receipt records the key, revision, signer, label, coverage,
+  withdrawal and match shown; `list` shows them as the entry's `scans`. Apply never re-checks Scan evidence (C18):
+  changing `scans`, the memory or the installed Scan after Prepare does not reject the reviewed Apply.
+- The retained execution-policy evidence and scan-record paths (below) are unchanged until the older formats retire.
+
 ## Apply authored changes through a change request (0.1.0, in development)
 
 A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an

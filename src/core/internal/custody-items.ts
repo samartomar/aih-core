@@ -11,7 +11,7 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
-import type { PluginFacts, ProgramFacts } from '../plan/types.js';
+import type { PluginFacts, ProgramFacts, ScanFacts } from '../plan/types.js';
 export type { PluginFacts, ProgramFacts } from '../plan/types.js';
 
 export type TypedMember =
@@ -98,6 +98,8 @@ export interface PlanItemFacts {
    * path, the input and the slot's authored text with its `{NAME}` marker. Never the secret itself.
    */
   secretSlots?: { file: string; path: string[]; item: string; input: string; template: string }[];
+  /** The Scan results the review showed for this management id: key, revision, signer (contract 5, 13). Never authority. */
+  scans?: ScanFacts[];
 }
 /** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
 export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
@@ -278,7 +280,8 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework', 'scans'])) return false;
+  if (value.scans !== undefined && !(Array.isArray(value.scans) && value.scans.length > 0 && value.scans.length <= 64 && value.scans.every(validScanFacts))) return false;
   for (const fact of [value.kind, value.framework]) if (fact !== undefined && fact !== null && !(typeof fact === 'string' && PLAN_ID.test(fact))) return false;
   if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&
       value.secretSlots.every(slot => exact(slot, ['file', 'path', 'item', 'input', 'template']) && text(slot.file, 4096) &&
@@ -321,6 +324,15 @@ export function validPlanFacts(value: unknown): boolean {
 }
 
 const relativePath = (value: unknown): boolean => text(value, 4096) && (value as string).split('/').every(part => part.length > 0 && part !== '.' && part !== '..');
+const SCAN_KEY = /^git-(sha1:[0-9a-f]{40}|sha256:[0-9a-f]{64})$/;
+function validScanFacts(value: unknown): boolean {
+  if (!exact(value, ['scanKey', 'revision', 'signer', 'label', 'coverage', 'withdrawn', 'match'])) return false;
+  const signer = value.signer;
+  return typeof value.scanKey === 'string' && SCAN_KEY.test(value.scanKey) && Number.isSafeInteger(value.revision) && (value.revision as number) >= 1 &&
+    exact(signer, ['identity', 'trusted', 'issuer', 'subject']) && text(signer.identity, 2048) && typeof signer.trusted === 'boolean' &&
+    text(signer.issuer, 2048) && text(signer.subject, 2048) && text(value.label, 64) && ['complete', 'partial'].includes(value.coverage as string) &&
+    typeof value.withdrawn === 'boolean' && ['matches', 'differs', 'refused', 'not-checked'].includes(value.match as string);
+}
 function validLinkFacts(value: unknown): boolean {
   return exact(value, ['step', 'path', 'to', 'linkType', 'created']) && Number.isSafeInteger(value.step) && (value.step as number) >= 0 &&
     relativePath(value.path) && relativePath(value.to) && ['junction', 'symlink', 'copy'].includes(value.linkType as string) &&

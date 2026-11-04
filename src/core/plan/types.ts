@@ -203,7 +203,44 @@ export interface Review {
   updates?: { update: number; request: 'plan' | 'change'; plan?: Omit<Plan, 'plan'>; origin?: Origin; originNote?: string | null; reviewDigest: string }[];
   /** Enterprise requests only (contract 11). */
   organization?: OrganizationReview;
+  /** The Scan results seen (contract 13, C18): shown with their signer, revision, label, coverage and match; never a gate. */
+  scans?: ReviewScan[];
+  /** With Scan results: the steps whose output no source scan covers (rendered, fetched or program-made). */
+  notScanned?: ReviewNotScanned[];
   reviewDigest: string;
+}
+/**
+ * One supplied Scan summary as the review shows it (contract 13). `verified` results carry what Scan authenticated;
+ * `not-verified` ones carry only Scan's reason, and `unavailable` ones mean `@aihq/scan/read` is not installed.
+ */
+export interface ReviewScan {
+  /** The entry's position in the request's `scans`. */
+  index: number;
+  status: 'verified' | 'not-verified' | 'unavailable';
+  reason?: string;
+  sentence: string;
+  scanKey: string | null; revision: number | null; label: string | null; coverage: 'complete' | 'partial' | null; score: number | null;
+  /** The authenticated signer: `identity` is only a label; `trusted` means an allowed signer whose result is not withdrawn. */
+  signer: { identity: string; trusted: boolean; issuer: string; subject: string } | null;
+  /** Withdrawn by a supplied authenticated withdrawal, or by one remembered for this key and signer. */
+  withdrawn: boolean;
+  /** "Older than the last result seen": a higher revision was seen before for this key and signer. */
+  older: boolean;
+  /** The highest revision seen before for this key and signer, or `null`. */
+  lastSeen: number | null;
+  /** What happened to each supplied withdrawal, as Scan reports it. */
+  withdrawals: { status: string; reason?: string; throughRevision?: number }[];
+  /** The planned management ids whose content this key is. */
+  managementIds: string[];
+  /** Scan's match of the source tree (the plan's files, or the supplied inventory), or why it was not checked. */
+  match: { status: 'matches' | 'differs' | 'refused' | 'not-checked'; reason?: string; source?: 'files' | 'inventory';
+    differences?: { missing: string[]; extra: string[]; changed: string[]; modeChanged: string[] } };
+}
+export interface ReviewNotScanned { step: number; op: string; reason: 'rendered' | 'fetched' | 'program' | 'not-scanned'; sentence: string }
+/** The Scan result a receipt records for one management id (contract 5 "What it saw"). */
+export interface ScanFacts {
+  scanKey: string; revision: number; signer: { identity: string; trusted: boolean; issuer: string; subject: string };
+  label: string; coverage: 'complete' | 'partial'; withdrawn: boolean; match: 'matches' | 'differs' | 'refused' | 'not-checked';
 }
 export interface Preparation {
   status: 'ready' | 'partial' | 'blocked';
@@ -276,6 +313,8 @@ export interface InventoryEntry {
   localPlugin?: { contains: string[] | null; files: string[] };
   /** A switch-off of one plugin item (C45, C69): removing this entry turns the item back on. */
   switchOff?: { framework: string; item: string; cli: string; name: string };
+  /** The last Scan results seen for this install, as its receipts recorded them (contract 12, 13). */
+  scans?: ScanFacts[];
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';

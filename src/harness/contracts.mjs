@@ -18,6 +18,7 @@ export { trustRepairIndex, trustLimits, trustPlatformMatrix, consumerProfiles,
 // native and file repair cells stay absent until their own published evidence exists.
 export const trustCapabilities = buildTrustCapabilities(distribution, trustCellRecords);
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
+export { signerRecords } from './signer-records.mjs';
 export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
 export { renderDelivery, renderSelectionDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
 export { nativeClientIds, nativeVerificationDefinitions } from './native/contracts.mjs';

@@ -134,6 +134,11 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     if (plan?.plugins) current.plugins = [...current.plugins ?? [], ...plan.plugins
       .filter(item => !current.plugins?.some(known => known.step === item.step && known.cli === item.cli))
       .map(item => JSON.parse(JSON.stringify(item)) as PluginFacts)];
+    // The last Scan results seen (contract 12, 13): one per key and signer across this install's claims.
+    if (plan?.scans) current.scans = [...current.scans ?? [], ...plan.scans
+      .filter(item => !current.scans?.some(known => known.scanKey === item.scanKey && known.signer.issuer === item.signer.issuer &&
+        known.signer.subject === item.signer.subject))
+      .map(item => structuredClone(item))];
     if (plan?.programs) current.programs = [...current.programs ?? [], ...plan.programs
       .filter(item => !current.programs?.some(known => known.step === item.step))
       .map(item => JSON.parse(JSON.stringify(item)) as ProgramFacts)];
