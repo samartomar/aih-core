@@ -58,6 +58,25 @@
         "item": { "type": "string" },
         "items": { "type": "array", "items": { "type": "string" } },
         "clis": { "type": "array", "items": { "type": "string" } },
+        "acquire": { "type": "object", "additionalProperties": false,
+          "required": ["aiSetup", "version", "cell", "kind", "qualification", "artifact", "into", "members", "closure"],
+          "properties": {
+            "aiSetup": { "type": "string" }, "version": { "type": "string" }, "cell": { "type": "string" },
+            "kind": { "enum": ["pypi-wheel", "native-archive"] },
+            "qualification": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "artifact": { "type": "object", "additionalProperties": false, "required": ["file", "sha256"],
+              "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "into": { "type": "string" }, "members": { "type": "integer", "minimum": 0 }, "closure": { "type": "integer", "minimum": 0 }
+          } },
+        "interpreter": { "type": "object", "additionalProperties": false, "required": ["installed", "range", "fallback", "switchesOn"],
+          "properties": {
+            "installed": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version", "note"],
+              "properties": { "path": { "type": "string" }, "version": { "type": "string" }, "note": { "const": "in range, not qualified" } } }] },
+            "range": { "type": "string" },
+            "fallback": { "type": "object", "additionalProperties": false, "required": ["version", "file", "sha256"],
+              "properties": { "version": { "type": "string" }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "switchesOn": { "type": "array", "items": { "enum": ["none-found", "outside-range", "wheel-install-failed", "readback-failed"] } }
+          } },
         "format": { "enum": ["json", "toml", "markdown"] },
         "key": { "type": "string" },
         "entry": {}

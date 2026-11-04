@@ -33,6 +33,11 @@
           "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
         "clis": { "type": "array", "items": { "type": "string" } },
         "installState": { "enum": ["complete", "interrupted"] },
+        "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
+          "properties": { "branch": { "enum": ["installed", "fallback", null] },
+            "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
+              "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
+            "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] } } },
         "members": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["kind", "path", "state"],
           "properties": {

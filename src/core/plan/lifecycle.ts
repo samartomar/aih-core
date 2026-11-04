@@ -63,6 +63,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     return { managementId: row.managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
       data: plan?.data ? { ...plan.data } : null, clis: plan ? [...plan.clis] : [],
       ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}), installState: row.installState,
+      ...(plan?.aiSetup ? { aiSetup: { ...plan.aiSetup, interpreter: plan.aiSetup.interpreter ? { ...plan.aiSetup.interpreter } : null } } : {}),
       members: row.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
         ...(member.blockId === undefined ? {} : { blockId: member.blockId }),
         state: member.fileState === 'matches' ? 'matching' : member.fileState === 'changed' || member.fileState === 'block-changed' ? 'changed-by-you' :

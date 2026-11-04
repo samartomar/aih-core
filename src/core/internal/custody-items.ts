@@ -52,6 +52,8 @@ export interface PlanItemFacts {
   profiles: { id: string; version: string | number }[];
   /** The plan step indexes grouped under this management id, ascending. */
   steps: number[];
+  /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -219,8 +221,16 @@ function validOrigin(value: unknown): boolean {
 const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
 /** Plan-request receipt facts, bounded like the rest of an item record. */
+function validAiSetupFacts(value: unknown): boolean {
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'])) return false;
+  const interpreter = value.interpreter;
+  return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
+    (value.fallbackReason === null || text(value.fallbackReason, 64)) &&
+    (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
+}
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup'])) return false;
+  if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
     list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
   if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
