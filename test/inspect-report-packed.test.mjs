@@ -30,7 +30,7 @@ test('a packed consumer inspects, compares files and reports through the public 
       copyFileSync(new URL(`./fixtures/${name}`, import.meta.url), join(consumer, name));
     const receipt = JSON.parse(run(['inspect-report-consumer.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 12, JSON.stringify(receipt.checks));
+    assert.equal(receipt.checks.length, 13, JSON.stringify(receipt.checks));
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });

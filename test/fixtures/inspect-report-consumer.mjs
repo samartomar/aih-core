@@ -13,7 +13,7 @@ import { createReport, exportSnapshot, importSnapshot, projectClaims, readClaimS
   validateFormat, validateSnapshot, refusalCodes } from '@aihq/core/contracts';
 import { listTools, selectTool, toolRegistry, validateToolRegistry } from '@aihq/core/harness';
 import { detectProjectFacts, diagnose, inspectToolHost } from '@aihq/core/harness/runtime';
-import { ownRequest, sha256 } from './plan-fixture.mjs';
+import { mergeRequest, ownRequest, sha256 } from './plan-fixture.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'aih-inspect-report-'));
@@ -176,6 +176,35 @@ await check('checkFiles compares a plan with the disk and changes nothing', asyn
   assert.equal((await checkFiles({ schema: 'urn:aihq:core:plan-request:9.0.0' })).status, 'unsupported-version');
   assert.equal((await checkFiles({ schema: 'something-else' })).status, 'invalid');
   assert.equal((await checkFiles(request, { logging: 'on' })).status, 'invalid');
+});
+
+await check('checkFiles compares merged entries and blocks, never your other content', async () => {
+  freshHome('check-merge');
+  const folder = project('check-merge');
+  const request = mergeRequest(folder, [
+    { item: 'local-my-setup.mcp.docs', file: '.mcp.json', format: 'json', key: '/mcpServers/docs', entry: { command: 'docs-mcp' } },
+    { item: 'local-my-setup.rule.style', file: 'AGENTS.md', format: 'markdown', key: 'local-my-setup.rule.style', entry: 'Prefer small functions.\n', clis: ['codex'] }]);
+  const absent = await checkFiles(request);
+  assert.equal(validateFormat(absent).status, 'ok', JSON.stringify(absent));
+  assert.deepEqual(absent.targets.map(item => [item.target.path, item.outcome]), [['.mcp.json', 'absent'], ['AGENTS.md', 'absent']]);
+  writeFileSync(join(folder, '.mcp.json'), JSON.stringify({ mcpServers: { mine: { command: 'my-mcp' } } }, null, 2) + '\n');
+  writeFileSync(join(folder, 'AGENTS.md'), '# My project\n');
+  const missing = await checkFiles(request);
+  assert.deepEqual(missing.targets.map(item => [item.outcome, item.reason]), [['changed', 'entry-changed'], ['changed', 'entry-changed']]);
+  const ready = await prepare(request, { logging: 'off' });
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  assert.equal((await apply(ready.handle, { approved: true, origin: 'automation', reviewDigest: ready.review.reviewDigest }, { logging: 'off' })).completion, 'complete');
+  const merged = await checkFiles(request);
+  assert.deepEqual([merged.observation, merged.fileState, merged.targets.map(item => item.outcome)], ['complete', 'match', ['match', 'match']]);
+  const settings = JSON.parse(readFileSync(join(folder, '.mcp.json'), 'utf8'));
+  settings.mcpServers.mine.args = ['--verbose'];
+  writeFileSync(join(folder, '.mcp.json'), JSON.stringify(settings, null, 2) + '\n');
+  writeFileSync(join(folder, 'AGENTS.md'), readFileSync(join(folder, 'AGENTS.md'), 'utf8') + '\nUse tabs.\n');
+  assert.equal((await checkFiles(request)).fileState, 'match', 'your own entries and lines are not compared');
+  settings.mcpServers.docs.command = 'other-mcp';
+  writeFileSync(join(folder, '.mcp.json'), JSON.stringify(settings, null, 2) + '\n');
+  const edited = await checkFiles(request);
+  assert.deepEqual([edited.fileState, edited.targets.map(item => item.outcome)], ['changed', ['changed', 'match']]);
 });
 
 await check('checkFiles compares a change and aih check-files exits by its outcome', async () => {

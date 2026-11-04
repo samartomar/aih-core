@@ -12,6 +12,7 @@ import { installedDistribution } from './internal/installed-distribution.js';
 import { projectRoot } from './internal/host-files.js';
 import { readRegularFile } from './internal/fsxn.js';
 import { cloneJsonValueStructureV1 } from './internal/strict-json.js';
+import { renderConfigEntries, renderTextBlock, RecipeEditError } from './internal/recipe-editors.js';
 import { checkPlanRequest } from './plan/request.js';
 import { planControls } from './plan/prepare.js';
 import { schemaProblems, schemas } from './plan/formats.js';
@@ -50,7 +51,7 @@ export interface FileCheckControls {
   signal?: AbortSignal;
   /** Plan requests: the caller's Catalog, for render steps. */
   catalog?: PlanControls['catalog'];
-  /** Change requests: secret values by management id, and local material folders by id. */
+  /** Secret input values by management id (plan and change requests), and local material folders by id (changes). */
   privateInputs?: Record<string, Record<string, Json>>;
   materialRoots?: Record<string, string>;
   budgetMs?: number;
@@ -115,7 +116,8 @@ function conclude(base: Omit<FileCheck, 'observation' | 'fileState' | 'coverage'
 
 async function checkPlan(request: unknown, controls: FileCheckControls, identity: { name: string; version: string }): Promise<FileCheckResult> {
   const started = performance.now();
-  const plan = planControls({ ...(controls.signal ? { signal: controls.signal } : {}), ...(controls.catalog ? { catalog: controls.catalog } : {}) });
+  const plan = planControls({ ...(controls.signal ? { signal: controls.signal } : {}), ...(controls.catalog ? { catalog: controls.catalog } : {}),
+    ...(controls.privateInputs ? { privateInputs: controls.privateInputs } : {}) });
   if (!plan) return invalid([{ path: '/catalog', reason: 'controls', message: 'The Catalog control is not valid.' }]);
   const admitted = await checkPlanRequest(request, plan);
   if ('status' in admitted) return admitted;
@@ -132,8 +134,23 @@ async function checkPlan(request: unknown, controls: FileCheckControls, identity
   const notChecked: FileCheck['notChecked'] = [];
   // One row per target file; a later write to the same file is what the comparison expects.
   const rows = new Map<string, { root: 'project' | 'user'; path: string; steps: number[]; managementIds: Set<string>; bytes: Buffer }>();
+  // A merge is compared by what its entry, table or block would make of the file as it is: unchanged bytes mean the
+  // planned entry is already there (C27: the person's other content is never part of the comparison).
+  const merges: { step: number; root: 'project' | 'user'; path: string; managementIds: string[]; edit: (before: Buffer | null) => Buffer | null }[] = [];
   for (const step of checked.steps) {
     const lowered = step.lowered as { kind: string; root?: 'project' | 'user'; path?: string; bytes?: Buffer; acquire?: unknown; managementIds: string[] };
+    if (step.lowered.kind === 'merge' && !step.skipped) {
+      const merge = step.lowered;
+      if (merge.root === 'project' && projectFolder === null)
+        return invalid([{ path: `/plan/plan/${step.index}/root`, reason: 'project', message: 'A project-rooted step needs the request to name its project.' }]);
+      merges.push({ step: step.index, root: merge.root, path: merge.path, managementIds: [...merge.managementIds].sort(),
+        edit: merge.format === 'markdown' ? before => renderTextBlock(before, { blockId: merge.key, startMarker: `<!-- aih:begin ${merge.key} -->`,
+          endMarker: `<!-- aih:end ${merge.key} -->`, action: 'set', content: merge.entry as string }) :
+          before => renderConfigEntries(merge.format === 'json' ? 'jsonc' : 'toml', before, merge.format === 'json' ?
+            [{ path: merge.segments, action: 'set', value: merge.entry }] :
+            merge.leaves!.map(leaf => ({ path: [...merge.segments, ...leaf.path], action: 'set' as const, value: leaf.value }))) });
+      continue;
+    }
     if (step.skipped) { notChecked.push({ kind: 'step', id: `step-${step.index}`, reason: 'skipped' }); continue; }
     if (lowered.kind === 'plugin') { notChecked.push({ kind: 'process', id: `step-${step.index}`, reason: 'program-not-run' }); continue; }
     if (lowered.kind !== 'write' || !lowered.bytes || !lowered.path || !lowered.root) {
@@ -148,7 +165,7 @@ async function checkPlan(request: unknown, controls: FileCheckControls, identity
     for (const id of lowered.managementIds) row.managementIds.add(id);
     rows.set(key, row);
   }
-  if (rows.size > limitValue('check-files-targets'))
+  if (rows.size + merges.length > limitValue('check-files-targets'))
     return { status: 'refused', code: 'limit-exceeded', reason: 'The request names more files than one check compares.', limit: 'check-files-targets', value: limitValue('check-files-targets') };
   const targets: FileCheckTarget[] = [];
   let targetBytes = 0, materialBytes = 0, cancelled = false, stopped: string | undefined;
@@ -167,6 +184,25 @@ async function checkPlan(request: unknown, controls: FileCheckControls, identity
       targets.push({ ...base, outcome: same ? 'match' : 'changed', reason: same ? 'content-match' : 'content-changed' });
     }
   }
+  for (const merge of merges) {
+    const base = { id: `step-${merge.step}`, steps: [merge.step], managementIds: merge.managementIds, target: { root: merge.root, path: merge.path } };
+    if (!stopped && controls.signal?.aborted) { cancelled = true; stopped = 'cancelled'; }
+    if (!stopped && performance.now() - started > budgetMs) stopped = 'budget-exhausted';
+    if (stopped) { targets.push({ ...base, outcome: 'unavailable', reason: stopped }); continue; }
+    const read = readTarget(merge.root === 'project' ? projectFolder! : home, merge.path, limitValue('file-bytes'));
+    if (read.outcome === 'unavailable') { targets.push({ ...base, outcome: 'unavailable', reason: read.reason }); continue; }
+    if (read.outcome === 'absent') { targets.push({ ...base, outcome: 'absent', reason: 'target-absent' }); continue; }
+    targetBytes += read.bytes.length;
+    let after: Buffer | null;
+    try { after = merge.edit(read.bytes); }
+    catch (error) {
+      targets.push({ ...base, outcome: 'unavailable', reason: error instanceof RecipeEditError && /^[a-z][a-z0-9-]{0,63}$/.test(error.reason) ? error.reason : 'editor-failed' });
+      continue;
+    }
+    const same = after !== null && after.equals(read.bytes);
+    targets.push({ ...base, outcome: same ? 'match' : 'changed', reason: same ? 'entry-match' : 'entry-changed' });
+  }
+  targets.sort((a, b) => Number(a.id.slice(5)) - Number(b.id.slice(5)));
   return conclude({ schema: FILE_CHECK, status: 'ok', request: 'plan', package: identity, authority: 'not-evaluated', targets, checks: [], notChecked,
     diagnostics: cancelled ? [{ code: 'CANCELLED', reason: 'cancelled', message: 'The file check was cancelled.' }] : [],
     limits: { budgetMs, elapsedMs: Math.round(performance.now() - started), targetBytes, materialBytes } }, cancelled);
