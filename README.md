@@ -2883,8 +2883,8 @@ await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'co
   `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt' | 'skip', observedSha256 }]`; `replace`
   keeps your original and removal writes it back; `skip` leaves that operation out, with every operation of the change
   that waits for it, and makes the review `partial` (Apply then needs `allowPartial: true`).
-- **Not yet.** `mode: 'enterprise'` is refused (`organization-required`) before any effect; Enterprise admission of changes
-  arrives later.
+- **Enterprise.** With `mode: 'enterprise'` and `controls.organization`, each change is admitted by its identity, inputs
+  and lifecycle permissions (see [Enterprise admission](#enterprise-admission-010-in-development)).
 
 ```sh
 aih change change-request.json [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]...
@@ -2894,6 +2894,85 @@ aih validate change-request change-request.json --json
 ```
 
 Exit codes are those of the plan request commands above.
+
+## Enterprise admission (0.1.0, in development)
+
+Enterprise applies only when a plan, change or removal request says `mode: 'enterprise'` **and** the controls name the
+organization source: `controls.organization` is `{ provider: 'local', path }` (an absolute path to one regular file, read
+offline) or `{ provider: 'github', repository: { owner, name }, path, revision: { kind: 'branch' | 'tag' | 'commit', value } }`
+(read through the Harness GitHub reader; `controls.authentication` may carry `{ kind: 'bearer', token }` for a private
+repository). Either one alone is not admitted: the mode without a source is `refused` `organization-required`, a source
+without the mode is `invalid` (`organization-vibe`). Core reads the document fresh at Prepare and again at Apply; a
+different document, or the same path at another commit, makes Apply `rejected` `REVIEW_STALE` `changed: policy` before
+anything runs. A source that can't be read is `refused` `organization-unavailable`; a document over 1,000,000 bytes is
+`refused` `limit-exceeded` (`document-bytes`); one deeper than 32 levels or otherwise malformed is `invalid`.
+
+```js
+import { prepare, apply } from '@aihq/core';
+const request = { ...planRequest, mode: 'enterprise',
+  target: { project: '/work/app', client: { id: 'codex', surface: 'cli' }, repository: 'github.com/acme/app' } };
+const controls = { organization: { provider: 'local', path: '/etc/acme/organization.json' }, catalog };
+const prepared = await prepare(request, controls);
+// prepared.review.organization: { id, source, contentDigest, target, admitted, denials, advisory, fulfilment, scanSigners }
+// A denial: { status: 'blocked', code: 'AUTHORITY_DENIED', reason, review } with no handle.
+const run = await apply(prepared.handle, approval, controls);
+// run.organization: { id, fulfilment } over the claims the run left.
+```
+
+The organization document `urn:aihq:core:organization:0.1.0` holds `entries`, `sources` and `scanSigners`:
+
+- **Content entries** `{ id, obligation, scopes?, clients?, repositories?, content: { item?, kind?, framework?, recipe? } }`
+  (C31). `obligation` is `permitted`, `recommended`, `required` or `prohibited`. Every named field must match: `item`
+  matches a step's `item` or `items` (or a framework step's `contains`), `framework` and `kind` come from the content
+  documents the plan was made from, and `recipe: { id, sha256?, commit? }` matches **only an origin Core proved** (C44).
+  A plan that merely names a recipe, unproven, never satisfies a recipe selector; a prohibition on that recipe fails
+  closed on it. `scopes`, `clients` (registry ids) and `repositories` narrow an entry; omitted, they impose nothing.
+- **Change entries** `{ id, obligation, change: { identity }, inputs?, lifecycle?: { replace?, adopt?, remove? } }` admit
+  changes by `deriveChangeIdentity`, as recipe entries did: a change no entry admits is denied
+  (`change-not-admitted`); each explicit, default or secret input needs a permission (`allowDeclared`, `fixed` or
+  `choices`; a secret only `allowDeclared`); a reviewed `replace` or `adopt` needs that lifecycle permission; removing
+  a change needs `lifecycle.remove`. Content entries govern plans and change entries govern changes.
+- **Sources** (C31): `sources.published: [{ repository, commit? }]` lists the data repositories a plan may come from,
+  optionally pinned (`source-published`, `source-pin`); `sources.own.kinds` lists the kinds own content (`data: null`)
+  may have (`own-content`). Without a rule, any repository and all own content are allowed.
+- **Scan signers** (C35): `scanSigners.replace` and `scanSigners.add` are carried into the review as declared; they change
+  which Scan results show as trusted and never block anything.
+- A `required` and a `prohibited` entry that provably select the same content on overlapping targets make the document
+  `invalid` (`obligation-contradiction`); so do duplicate entry ids and client ids that are not registry ids.
+
+**Targets.** The caller declares `target.client` (`{ id, surface }`, a registry tool) and optionally `target.repository`;
+Core never infers them. A plan step's client is the CLI the plan records for it, and the declared client otherwise.
+
+**Three kinds of result.**
+- **Enforced:** a prohibition that applies, a disallowed source or an unpermitted change input or lifecycle denies the
+  whole request: Prepare is `blocked` with `code: 'AUTHORITY_DENIED'`, its `reason` naming the entry or source rule,
+  and no handle; a removal is `ok` with every prepared entry `blocked`, `code: 'AUTHORITY_DENIED'` and no handle. A
+  prohibition that needs a fact that was not declared or recorded (a client, a repository, an item's kind) fails closed
+  (`target-unknown`). Removing plan content is not gated.
+- **Advisory:** each `recommended` entry is `taken` or `not-taken` by what this request adds. Never a gate.
+- **Fulfilment:** each `required` entry is `fulfilled`, `not-fulfilled`, `not-applicable` or `unknown`, projected in the
+  review over the claims after the request (the receipts for this project, scope and client, plus what it adds, minus
+  what it removes or replaces), and reported in the run over the claims the run actually left (C71). `unknown` (with the
+  missing facts) never means fulfilled. Never a gate.
+
+Updates are admitted like installs: each update's request carries its own `mode` and is prepared with the same controls;
+a denial leaves every entry `blocked` and the update without a handle.
+
+**Preview.** `previewAdmission({ organization, request, target?, installed? })` from `@aihq/core/contracts` answers the
+enforced, advisory and fulfilment results for a plan or change request document in one call, with no host effects
+(asynchronous: change identities use Web Crypto). `installed` is the caller's copy of `list`'s inventory for that target;
+without it, fulfilment counts only this request. A preview proves no recipe origin, so a required recipe reads
+`unknown`. `validateOrganizationPolicy` reads an organization 0.1.0 document as `{ status }` (older documents keep their
+retained result).
+
+**CLI.** `aih install`, `aih change`, `aih update` and `aih remove` take `--mode enterprise` with `--org-file <path>`, or
+`--org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>]`.
+`aih validate organization <file>` reads a document (exit 0 `ok`, 2 otherwise). A denial exits 1, like any blocked
+preparation.
+
+Receipts of plan installs now record the item's `kind` and `framework` (from the content documents) so fulfilment can
+count installs made before; `list` shows them. Receipts made before they were recorded read as `unknown` for kind and
+framework selectors.
 
 ## Repair, export and the macOS session through the 0.1.0 review (in development)
 

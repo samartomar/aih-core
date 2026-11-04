@@ -24,7 +24,7 @@ const expectedRuntimeNames = {
     'CLAIMS_SCHEMA', 'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
     'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'REPORT_SCHEMA', 'checkContracts', 'contractSupport', 'createReport', 'deriveChangeIdentity', 'deriveRecipeIdentity', 'exportSnapshot', 'getGuidance', 'importSnapshot', 'limits', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationContent', 'previewOrganizationObligations', 'projectClaims', 'readClaimSet', 'recipeOperationKinds', 'refusalCodes', 'removalClaims', 'renderSupportMarkdown', 'runMemberClaims', 'schemas', 'stateLocation',
+    'parsePolicy', 'previewAdmission', 'previewOrganizationAdmission', 'previewOrganizationContent', 'previewOrganizationObligations', 'projectClaims', 'readClaimSet', 'recipeOperationKinds', 'refusalCodes', 'removalClaims', 'renderSupportMarkdown', 'runMemberClaims', 'schemas', 'stateLocation',
     'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateChange', 'validateClaimSet', 'validateFileStateResult', 'validateFormat', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
