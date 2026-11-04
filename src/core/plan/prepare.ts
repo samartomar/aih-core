@@ -314,6 +314,14 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       observedSha256: before === null ? null : sha256(before), existing: shown.text, redacted: shown.redacted, choices,
       ...(facts?.stale ? { detail: 'resolution-stale' } : editor ? { detail: reason! } : {}) });
   }
+  // Something already at a link's place that isn't Core's link is yours: never replaced, offered as skip only.
+  for (const step of steps) {
+    const planned = step.op === 'link' && step.effect !== 'conflict' ? linkPlans.get(step.step as number) : undefined;
+    if (planned?.place !== 'other') continue;
+    step.effect = 'conflict';
+    conflicts.push({ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: step.managementId, step: step.step, target: planned.facts.path,
+      observedSha256: null, existing: null, redacted: [], choices: ['skip'] });
+  }
   for (const found of guidance.values()) if (found.size > CODEX_GUIDANCE_BYTES)
     return { status: 'refused', code: 'file-too-large-for-client', step: found.step, file: found.path, size: found.size, value: CODEX_GUIDANCE_BYTES,
       reason: `\`${found.path}\` would be ${found.size} bytes with your bytes and the planned blocks; Codex reads at most ${CODEX_GUIDANCE_BYTES}.` };

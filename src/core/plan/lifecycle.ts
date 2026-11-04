@@ -97,6 +97,9 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     const claimClis = plan ? plan.cli !== undefined && plan.cli !== null ? [plan.cli] : plan.clis : [];
     current.clis = [...new Set([...current.clis, ...claimClis])].sort();
     if (plan) current.claims!.push({ cli: plan.cli ?? null, project: plan.project ?? null });
+    if (plan && current.profiles) for (const profile of plan.profiles)
+      if (!current.profiles.some(known => known.id === profile.id)) current.profiles.push({ ...profile });
+    current.profiles?.sort((a, b) => order(a.id, b.id));
     if (plan?.plugins) current.plugins = [...current.plugins ?? [], ...plan.plugins
       .filter(item => !current.plugins?.some(known => known.step === item.step && known.cli === item.cli))
       .map(item => JSON.parse(JSON.stringify(item)) as PluginFacts)];
@@ -239,7 +242,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
  */
 function itemInPlugin(managementId: string, item: string, scope: 'project' | 'user', anchor: string): RemovalEntry | undefined {
   const root = scope === 'project' ? anchor : projectRoot(homedir());
-  const plan = planFacts([root]).get(`${scope}\0${managementId}`);
+  const plan = claimsOf(planFacts([root]), scope, managementId).find(claim => claim.plan.plugins)?.plan ?? claimsOf(planFacts([root]), scope, managementId)[0]?.plan;
   if (!plan) return { managementId, item, disposition: 'absent', members: [] };
   if (!plan.plugins) return undefined;
   const holding = plan.plugins.filter(plugin => plugin.contains.includes(item));

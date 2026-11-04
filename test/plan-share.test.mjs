@@ -161,3 +161,24 @@ test('a shared place whose CLIs the plan did not record refuses removal by CLI (
   assert.deepEqual(homeEntries(), start);
 });
 const canonical = value => JSON.stringify(value);
+
+test('your own folder at a link place is never replaced: Prepare is blocked offering skip only, and a skip places the rest', async () => {
+  const target = project();
+  const mine = join(home, '.claude', 'skills', 'ecc-plan');
+  mkdirSync(mine, { recursive: true });
+  writeFileSync(join(mine, 'SKILL.md'), 'mine\n');
+  const blocked = await prepare(linkRequest(target));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  assert.equal(blocked.handle, undefined);
+  const [conflict] = blocked.review.conflicts;
+  assert.deepEqual([conflict.reason, conflict.target, conflict.choices], ['existing-content', '.claude/skills/ecc-plan', ['skip']]);
+  const skipped = await prepare({ ...linkRequest(target), resolutions: [{ managementId: PLAN, step: conflict.step, choice: 'skip', observedSha256: null }] });
+  assert.equal(skipped.status, 'partial', JSON.stringify(skipped));
+  const run = await apply(skipped.handle, { ...approve(skipped.review), allowPartial: true });
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.equal(readFileSync(join(mine, 'SKILL.md'), 'utf8'), 'mine\n');
+  assert.equal(isLink(join(home, '.agents/skills/ecc-plan')), true);
+  await remove(target, [{ managementId: PLAN }]);
+  assert.equal(readFileSync(join(mine, 'SKILL.md'), 'utf8'), 'mine\n');
+  rmSync(join(home, '.claude'), { recursive: true });
+});
