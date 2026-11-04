@@ -23,8 +23,18 @@ import { forgetProvenState } from './internal/state.js';
 import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
 import { prepareTrust, applyTrust, isTrustHandle } from './trust.js';
 import { prepareMacosSession, applyMacosSession, isMacosSessionHandle } from './macos-session.js';
-import type { MacosRepairRequest } from './macos-session-contracts.js';
-export { verifyMacosSession } from './macos-session.js';
+import type { MacosRepairRequest, MacosSessionVerificationRequest, MacosSessionVerificationResult } from './macos-session-contracts.js';
+import { verifyMacosSession as verifyMacosSessionRetained } from './macos-session.js';
+import { isSessionVerificationRequest, verifyMacosSessionRequest, type MacosSessionVerificationResult010 } from './environment/index.js';
+export type { MacosSessionVerificationResult010 } from './environment/index.js';
+/** A `macos-session-verification-request:0.1.0` returns the 0.1.0 result; the retained 1.0.0 request keeps its own. */
+export function verifyMacosSession(request: { schema: 'urn:aihq:core:macos-session-verification-request:0.1.0'; managementId: string },
+  controls?: Pick<HostControls, 'signal' | 'logging'>): Promise<MacosSessionVerificationResult010>;
+export function verifyMacosSession(request: MacosSessionVerificationRequest, controls?: Pick<HostControls, 'signal' | 'logging'>): Promise<MacosSessionVerificationResult>;
+export function verifyMacosSession(request: unknown, controls: Pick<HostControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult | MacosSessionVerificationResult010> {
+  return isSessionVerificationRequest(request) ? verifyMacosSessionRequest(request, controls) :
+    verifyMacosSessionRetained(request as MacosSessionVerificationRequest, controls);
+}
 export type { MacosSessionClientId, MacosSessionContext, MacosSessionLaunch, MacosSessionApplication, MacosSessionSelection,
   MacosRepairRequest, MacosSessionState, MacosSessionApplicationReview, MacosSessionEffect, MacosSessionReview,
   MacosSessionConfiguration, MacosSessionVerification, MacosSessionApplicationRun, MacosSessionRun,

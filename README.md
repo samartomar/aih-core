@@ -2502,6 +2502,10 @@ if (prepared.status === 'ready')
 - **Apply** binds the exact `reviewDigest` and the request object, then re-checks sources, configuration files,
   executables, helpers and custody; a change is `rejected` `REVIEW_STALE`.
 - **Custody** is stored as `urn:aihq:core:trust-custody:0.1.0` and `urn:aihq:core:macos-session-custody:0.1.0`.
+- **The macOS session check.** `verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0',
+  managementId })` returns `urn:aihq:core:macos-session-verification-result:0.1.0`; it only observes, and an unsupported
+  host is `incomplete` with its reason. Admitted session profiles are described by `urn:aihq:core:macos-session-profiles:0.1.0`;
+  the bundled list admits none.
 
 The CLI takes 0.1.0 inputs files whose supplied paths resolve from the file's own folder:
 

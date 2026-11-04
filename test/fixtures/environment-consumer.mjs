@@ -90,4 +90,11 @@ await check('routes and hosts without admission stay explicit, with no effects',
   } else assert.equal(value.status, 'ready');
 });
 
+await check('the macOS session check answers the 0.1.0 request with the 0.1.0 result', async () => {
+  const { verifyMacosSession } = await import('@aihq/core');
+  const result = conforms(await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-trust' }, { logging: 'off' }));
+  assert.equal(result.schema, 'urn:aihq:core:macos-session-verification-result:0.1.0');
+  if (process.platform !== 'darwin') { assert.equal(result.status, 'incomplete'); assert.equal(result.configuration, 'not-applied'); }
+});
+
 console.log(JSON.stringify({ status: 'passed', checks }));

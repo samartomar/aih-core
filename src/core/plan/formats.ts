@@ -38,6 +38,15 @@ import trustCustodyInvalid from '../../fixtures/core/trust-custody/0.1.0/refuse.
 import macosSessionCustodySchema from '../schemas/macos-session-custody/0.1.0.json' with { type: 'json' };
 import macosSessionCustodyValid from '../../fixtures/core/macos-session-custody/0.1.0/accept.json' with { type: 'json' };
 import macosSessionCustodyInvalid from '../../fixtures/core/macos-session-custody/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionVerificationRequestSchema from '../schemas/macos-session-verification-request/0.1.0.json' with { type: 'json' };
+import macosSessionVerificationRequestValid from '../../fixtures/core/macos-session-verification-request/0.1.0/accept.json' with { type: 'json' };
+import macosSessionVerificationRequestInvalid from '../../fixtures/core/macos-session-verification-request/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionVerificationResultSchema from '../schemas/macos-session-verification-result/0.1.0.json' with { type: 'json' };
+import macosSessionVerificationResultValid from '../../fixtures/core/macos-session-verification-result/0.1.0/accept.json' with { type: 'json' };
+import macosSessionVerificationResultInvalid from '../../fixtures/core/macos-session-verification-result/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionProfilesSchema from '../schemas/macos-session-profiles/0.1.0.json' with { type: 'json' };
+import macosSessionProfilesValid from '../../fixtures/core/macos-session-profiles/0.1.0/accept.json' with { type: 'json' };
+import macosSessionProfilesInvalid from '../../fixtures/core/macos-session-profiles/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -58,6 +67,9 @@ const entries: FormatEntry[] = [
   { id: macosSessionInputsSchema.$id, schema: macosSessionInputsSchema, fixtures: { valid: macosSessionInputsValid, invalid: macosSessionInputsInvalid } },
   { id: trustCustodySchema.$id, schema: trustCustodySchema, fixtures: { valid: trustCustodyValid, invalid: trustCustodyInvalid } },
   { id: macosSessionCustodySchema.$id, schema: macosSessionCustodySchema, fixtures: { valid: macosSessionCustodyValid, invalid: macosSessionCustodyInvalid } },
+  { id: macosSessionVerificationRequestSchema.$id, schema: macosSessionVerificationRequestSchema, fixtures: { valid: macosSessionVerificationRequestValid, invalid: macosSessionVerificationRequestInvalid } },
+  { id: macosSessionVerificationResultSchema.$id, schema: macosSessionVerificationResultSchema, fixtures: { valid: macosSessionVerificationResultValid, invalid: macosSessionVerificationResultInvalid } },
+  { id: macosSessionProfilesSchema.$id, schema: macosSessionProfilesSchema, fixtures: { valid: macosSessionProfilesValid, invalid: macosSessionProfilesInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

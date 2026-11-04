@@ -32,7 +32,8 @@ const approve = (preparation, extra = {}) => ({ approved: true, origin: 'automat
 
 test('every environment format ships one schema with a valid and an invalid fixture', () => {
   for (const name of ['repair-request', 'repair-inputs', 'export-request', 'export-inputs', 'macos-session-request',
-    'macos-session-inputs', 'trust-custody', 'macos-session-custody']) {
+    'macos-session-inputs', 'trust-custody', 'macos-session-custody', 'macos-session-verification-request',
+    'macos-session-verification-result', 'macos-session-profiles']) {
     const id = `urn:aihq:core:${name}:0.1.0`;
     assert.ok(schemas[id], id);
     assert.deepEqual(validateFormat(schemas[id].fixtures.valid), { status: 'ok', schema: id });
@@ -188,4 +189,23 @@ test('standalone repair takes no organization controls', async () => {
   const { file } = setup();
   const result = await prepare(gitRepair(file), { logging: 'off', organization: { kind: 'local', file } });
   assert.equal(result.status, 'invalid');
+});
+
+test('the macOS session check answers the 0.1.0 request with the 0.1.0 result and names an unsupported host', async () => {
+  setup();
+  const { verifyMacosSession } = await import('../dist/core/index.js');
+  const { macosSessionProfiles } = await import('../dist/harness/contracts.mjs');
+  const result = await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-trust' },
+    { logging: 'off' });
+  assert.deepEqual(validateFormat(result), { status: 'ok', schema: 'urn:aihq:core:macos-session-verification-result:0.1.0' });
+  if (process.platform !== 'darwin') {
+    assert.equal(result.status, 'incomplete');
+    assert.equal(result.configuration, 'not-applied');
+    assert.equal(result.diagnostics[0].code, 'PREREQUISITE_UNAVAILABLE');
+  }
+  const invalid = await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'x', extra: 1 });
+  assert.equal(invalid.status, 'invalid'); assert.equal(invalid.schema, 'urn:aihq:core:macos-session-verification-result:0.1.0');
+  // The bundled profiles (none admitted) read as the 0.1.0 profiles format.
+  assert.equal(validateFormat({ ...macosSessionProfiles, schema: 'urn:aihq:core:macos-session-profiles:0.1.0' }).status, 'ok');
+  assert.deepEqual(macosSessionProfiles.profiles, []);
 });

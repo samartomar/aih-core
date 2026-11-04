@@ -29,7 +29,7 @@ test('a packed consumer repairs, rejects stale reviews, removes, and reports una
     copyFileSync(new URL('./fixtures/root-a.pem', import.meta.url), join(consumer, 'team.pem'));
     const receipt = JSON.parse(run(['environment-consumer.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 5, JSON.stringify(receipt.checks));
+    assert.equal(receipt.checks.length, 6, JSON.stringify(receipt.checks));
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });

@@ -8,7 +8,7 @@ import { isAbsolute, relative } from 'node:path';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { prepareRepair, applyRepair } from '../repair.js';
 import { prepareTrust, applyTrust, disposeTrustHandle } from '../trust.js';
-import { prepareMacosSession, applyMacosSession, disposeMacosSessionHandle } from '../macos-session.js';
+import { prepareMacosSession, applyMacosSession, disposeMacosSessionHandle, verifyMacosSession } from '../macos-session.js';
 import { forgetProvenState } from '../internal/state.js';
 import { nodeRuntimeSupported } from '../internal/node-runtime.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -241,3 +241,19 @@ function runOf(result: RunResult, state: State): Run {
 
 /** Whether `prepare` should take this request on the environment path. */
 export const isEnvironmentRequest = (value: unknown): boolean => environmentJob(value) !== undefined;
+
+// The macOS session check (contract 3, 10): `urn:aihq:core:macos-session-verification-request:0.1.0` in, the 0.1.0
+// verification result out. The retained check observes the host and custody; it never changes session state, and an
+// unsupported host stays `incomplete` with its reason.
+export const MACOS_SESSION_VERIFICATION_REQUEST = 'urn:aihq:core:macos-session-verification-request:0.1.0' as const;
+export const MACOS_SESSION_VERIFICATION_RESULT = 'urn:aihq:core:macos-session-verification-result:0.1.0' as const;
+export const isSessionVerificationRequest = (value: unknown): boolean =>
+  !!value && typeof value === 'object' && !Array.isArray(value) &&
+  Object.getOwnPropertyDescriptor(value, 'schema')?.value === MACOS_SESSION_VERIFICATION_REQUEST;
+export async function verifyMacosSessionRequest(input: unknown, controls: Pick<HostControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult010> {
+  // The retained check reads the same fields; its schema field names the retained version it validates.
+  const lowered = { ...(input as Record<string, unknown>), schema: 'urn:aihq:core:macos-session-verification-request:1.0.0' };
+  const result = await verifyMacosSession(lowered as unknown as Parameters<typeof verifyMacosSession>[0], controls);
+  return { ...result, schema: MACOS_SESSION_VERIFICATION_RESULT };
+}
+export type MacosSessionVerificationResult010 = Omit<Awaited<ReturnType<typeof verifyMacosSession>>, 'schema'> & { schema: typeof MACOS_SESSION_VERIFICATION_RESULT };
