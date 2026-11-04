@@ -68,6 +68,18 @@ function keyedClaims(roots: string[]): Map<string, { managementId: string; proje
     if (item.claim && !item.plan) found.set(`${item.scope}\0${item.managementId}`, item.claim);
   return found;
 }
+/**
+ * The identity each change claim here was installed with (`deriveChangeIdentity`, recorded on its members), by scope and
+ * engine id. Enterprise counts a change entry as fulfilled only by that identity (contract 11).
+ */
+function changeIdentities(roots: { root: string; scope: 'project' | 'user' }[]): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const { root, scope } of roots) for (const owner of Object.values(readOwnership(root).value.members))
+    for (const claim of owner.claims ?? [{ managementId: owner.managementId, scope }])
+      if (claim.scope === scope && !found.has(`${scope}\0${claim.managementId}`)) found.set(`${scope}\0${claim.managementId}`, owner.recipeIdentity);
+  return found;
+}
+const REPAIR_IDS = new Set(repairIndex.map((repair: { id: string }) => repair.id));
 /** The recorded claims of one management id in one scope's receipts: engine id and plan facts (C28). */
 function claimsOf(facts: Map<string, PlanItemFacts>, scope: string, managementId: string): { engineId: string; plan: PlanItemFacts }[] {
   const found: { engineId: string; plan: PlanItemFacts }[] = [];
@@ -103,6 +115,8 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   if (listed.status === 'invalid') return { status: 'invalid', problems: listed.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const facts = planFacts([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])]);
   const keyed = keyedClaims(scope !== 'project' ? [home] : []);
+  const identities = changeIdentities([...(scope !== 'user' && located.project ? [{ root: located.project, scope: 'project' as const }] : []),
+    ...(scope !== 'project' ? [{ root: home, scope: 'user' as const }] : [])]);
   // One entry per management id and scope, over every claim that holds it: each CLI and project (C28, C38).
   const entries: InventoryEntry[] = [];
   const byId = new Map<string, InventoryEntry>();
@@ -113,7 +127,9 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     const managementId = changeClaim?.managementId ?? publicManagementId(managementIdOf(row.managementId, plan));
     let entry = byId.get(`${row.scope}\0${managementId}`);
     if (!entry) {
-      entry = { managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
+      // A change (no plan facts, not a repair) is listed with the identity it was installed with.
+      const identity = plan || REPAIR_IDS.has(managementId) ? undefined : identities.get(`${row.scope}\0${row.managementId}`);
+      entry = { managementId, scope: row.scope, ...(identity ? { change: { identity } } : {}), items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
         data: plan?.data ? { ...plan.data } : null, clis: [], ...(plan || changeClaim ? { claims: [] } : {}),
         ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}),
         ...(plan && plan.kind !== undefined ? { kind: plan.kind, framework: plan.framework ?? null } : {}), installState: row.installState,

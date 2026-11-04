@@ -315,6 +315,8 @@ export interface InventoryEntry {
   switchOff?: { framework: string; item: string; cli: string; name: string };
   /** The last Scan results seen for this install, as its receipts recorded them (contract 12, 13). */
   scans?: ScanFacts[];
+  /** A change: the identity it was installed with (`deriveChangeIdentity`), which Enterprise change entries admit and count. */
+  change?: { identity: string };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';

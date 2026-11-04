@@ -88,9 +88,14 @@ function installedClaims(inventory: Doc, scope: 'project' | 'user'): ClaimFacts[
     return claims.map(claim => ({ key: `${String(entry.managementId)}\0${claim.cli ?? ''}`, managementId: String(entry.managementId), scope,
       clis: claim.cli ? [claim.cli] : strings(entry.clis), origin: (entry.origin ?? null) as ClaimFacts['origin'], items: strings(entry.items),
       kind: typeof entry.kind === 'string' ? entry.kind : null, framework: typeof entry.framework === 'string' ? entry.framework : null,
-      // The inventory names no change identity: a change entry counts for no content entry, and fulfils no change entry here.
-      change: plan ? null : 'unknown' }));
+      // A change entry counts for no content entry, and fulfils a change entry only by the identity the inventory names.
+      change: plan ? null : changeIdentity(entry) }));
   });
+}
+
+function changeIdentity(entry: Doc): string {
+  const identity = (entry.change as Doc | undefined)?.identity;
+  return typeof identity === 'string' && /^sha256:[a-f0-9]{64}$/.test(identity) ? identity : 'unknown';
 }
 
 function previewPlan(organization: Organization, target: DeclaredTarget, request: Doc): { denials: Denial[]; added: ClaimFacts[] } {

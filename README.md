@@ -1111,7 +1111,8 @@ a denial leaves every entry `blocked` and the update without a handle.
 **Preview.** `previewAdmission({ organization, request, target?, installed? })` from `@aihq/core/contracts` answers the
 enforced, advisory and fulfilment results for a plan or change request document in one call, with no host effects
 (asynchronous: change identities use Web Crypto). `installed` is the caller's copy of `list`'s inventory for that target;
-without it, fulfilment counts only this request. A preview proves no recipe origin, so a required recipe reads
+without it, fulfilment counts only this request. `list` names each installed change's identity (`change: { identity }`, as
+`deriveChangeIdentity` derived it at install), so a required change entry reads `fulfilled` from the inventory. A preview proves no recipe origin, so a required recipe reads
 `unknown`. `validateOrganizationPolicy` reads an organization 0.1.0 document as `{ status }` (older documents keep their
 retained result).
 

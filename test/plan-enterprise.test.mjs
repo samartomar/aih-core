@@ -210,6 +210,16 @@ test('changes are admitted by identity with input and lifecycle permissions; a r
   const run = conforms(await apply(prepared.handle, approve(prepared.review), { organization: source }));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
   assert.deepEqual(run.organization.fulfilment.map(item => [item.status, item.managementIds]), [['fulfilled', ['team-notes']]]);
+  // The inventory names the installed change's identity, so a preview over it projects the required change as fulfilled.
+  const inventory = conforms(await list({ target: { project: target }, scope: 'project' }));
+  assert.deepEqual(inventory.entries.find(entry => entry.managementId === 'team-notes').change, { identity });
+  const { previewAdmission } = await import('../dist/core/contracts.js');
+  const organizationDocument = { schema: ORGANIZATION, id: 'acme', entries: [{ id: 'team-notes', obligation: 'required', change: { identity },
+    inputs: { text: { choices: ['Read the guide.\n'] } } }] };
+  const empty = enterprise({ ...changeRequest([], { project: target }) });
+  const preview = await previewAdmission({ organization: organizationDocument, request: empty, installed: inventory });
+  assert.equal(preview.status, 'ok', JSON.stringify(preview));
+  assert.deepEqual(preview.value.fulfilment.map(item => item.status), ['fulfilled']);
   // The entry does not permit removing the change: the removal is blocked as a whole.
   const removal = { target: { project: target }, scope: 'project', mode: 'enterprise', removals: [{ managementId: 'team-notes' }] };
   const blocked = await prepareRemoval(removal, { organization: source });

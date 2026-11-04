@@ -47,6 +47,8 @@
           "files": { "type": "array", "items": { "type": "string" } } } },
         "switchOff": { "type": "object", "additionalProperties": false, "required": ["framework", "item", "cli", "name"], "properties": {
           "framework": { "type": "string" }, "item": { "type": "string" }, "cli": { "type": "string" }, "name": { "type": "string" } } },
+        "change": { "type": "object", "additionalProperties": false, "required": ["identity"], "description": "A change: the identity it was installed with (deriveChangeIdentity)",
+          "properties": { "identity": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } } },
         "members": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["kind", "path", "state"],
           "properties": {
