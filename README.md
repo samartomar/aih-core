@@ -2450,7 +2450,7 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   between `<!-- aih:begin <key> -->` and `<!-- aih:end <key> -->`. Every other byte is kept, and removal takes away only
   what Core added, including a TOML table header it created. For Codex's `AGENTS.md`, Prepare checks the resulting file,
   your bytes plus every planned block, against 32 KiB and refuses before any write (`file-too-large-for-client`, naming
-  the `file` and `size`). An `inputs` binding whose declared input `isSecret` marks a secret slot in the entry.
+  the `file` and `size`). A slot an `inputs` binding fills with a secret is a known secret slot of the entry.
 - **Conflicts.** A file, entry, table or block Core didn't write makes Prepare `blocked`, with no handle. Each conflict
   carries its `target`, a merge's `key`, `observedSha256` (the whole file's digest, or `null`), the `existing` bytes
   exactly as they are (known secret slots read `[REDACTED]` and are listed in `redacted`) and its `choices`. Prepare
@@ -2467,6 +2467,38 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+
+### Input values (`inputs` bindings)
+
+An item's declared inputs (`requirements.inputs`: `isRequired`, `isSecret`, optional `default` and `placeholder`) land
+only where the plan marks them. A step's `inputs` lists bindings `{ item, input, at }` with exactly one destination:
+
+- `{ pointer }` in a `json` or `toml` merge entry: an absent slot is set (intermediate objects created), a string
+  holding the input's marker `{NAME}` has that marker replaced; anything else is `invalid` (`input-binding`).
+- `{ argv: n }` in a merge entry: slot `n` of the command and its arguments, where the step's profiles' `mcpFile.stdio`
+  say they are (`command` + `args`, or one `argv` array); the slot must hold `{NAME}`.
+- `{ env: NAME }` in a merge entry: that variable in the entry's environment field (`mcpFile.stdio.env`).
+- `{ placeholder }` in a `write` (after any render) or a Markdown merge: the marker the item declares for that source
+  file, which must occur; every occurrence is replaced. In `.json`, `.jsonc` and `.toml` files the value is written with
+  JSON string escapes; elsewhere it must be one line without control characters, otherwise `invalid` (`input-value`).
+
+Core does no other substitution. **Values.** Ordinary values come from the request's `inputs` (keyed by item id, then
+input), else the `default`; secrets come only from `controls.privateInputs` (same keys) and are `invalid` in the
+request. A required input with no value is refused `input-missing` (naming `item` and `input`); an optional one is
+left out (an absent slot stays absent, a slot that is only the marker is dropped, other marker text becomes empty).
+Undeclared names, a secret passed as an ordinary value or the reverse are `invalid`. An input of a planned item that no
+step marks is refused `input-binding-missing`, never guessed. **References.** A secret is written as the client's own
+environment reference when every profile the step serves declares one for that surface under `inputReferences`
+(`mcp-env`, `mcp-header`, `mcp-argv` for merge entries, by the `mcpFile` field the slot sits in; `file` for
+placeholders), for example `{ "syntax": "${<name>}" }` → `${GITHUB_TOKEN}`; then no value is needed. Otherwise its
+value is written and the review's `warnings` name the file: "this file will hold a secret". **Where values show.** Each
+review step lists its bindings (`inputs`: `at`, `secret`, `written: value|reference|omitted`, `from`, and the ordinary
+`value`); a slot holding a secret reads `[REDACTED]` in the review's `entry` and in conflicts. Receipts record the same
+facts per management id with ordinary values only; secrets appear in no review, run, history or receipt. Apply
+re-checks the private inputs by digest (those passed to Apply, or the object Prepare read): any change is `rejected`
+`REVIEW_STALE` `input`. `prepareRemoval` takes `privateInputs` the same way and binds them to its review.
+`aih install` and `aih remove` take `--private-input <item>.<input>=<ENV>` (the last literal dot separates the input; a
+dot inside either may be written `%2E`), reading the secret from that set environment variable.
 
 ### Renders and recipe origins through your Catalog
 
@@ -2532,7 +2564,7 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
 
 ```sh
 aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--resolutions choices.json]
-            [--apply --yes [--allow-partial]] [--json]
+            [--private-input local-my-setup.mcp.github.GITHUB_TOKEN=GITHUB_TOKEN]... [--apply --yes [--allow-partial]] [--json]
 aih list --project /work/app --scope project --json
 aih remove local-my-skills.skill.notes --scope project --project /work/app [--apply --yes] [--json]
 ```

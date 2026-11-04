@@ -61,6 +61,11 @@ export interface PlanItemFacts {
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
    */
   plugins?: PluginFacts[];
+  /**
+   * The item's input bindings as installed (C59): how each was written and where its value came from. Only an ordinary
+   * value is kept; a secret's value never is. Absent when the item binds no inputs.
+   */
+  inputs?: { input: string; secret: boolean; written: 'value' | 'reference' | 'omitted'; from: 'inputs' | 'default' | 'privateInputs' | null; value?: Json }[];
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -236,7 +241,8 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'inputs'])) return false;
+  if (value.inputs !== undefined && !validInputFacts(value.inputs)) return false;
   if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
   if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
     value.plugins.every(validPluginFacts))) return false;
@@ -259,6 +265,16 @@ export function validPlanFacts(value: unknown): boolean {
     steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
 }
 
+function validInputFacts(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 256) return false;
+  return value.every((row, index) => exact(row, ['input', 'secret', 'written', 'from'], ['value']) &&
+    typeof row.input === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/.test(row.input) &&
+    (index === 0 || (value[index - 1] as { input: string }).input < row.input) && typeof row.secret === 'boolean' &&
+    ['value', 'reference', 'omitted'].includes(row.written as string) && [null, 'inputs', 'default', 'privateInputs'].includes(row.from as string | null) &&
+    // A secret's value is never kept.
+    (row.value === undefined || !row.secret && (typeof row.value === 'string' && row.value.length <= 65_536 || typeof row.value === 'boolean' ||
+      typeof row.value === 'number' && Number.isFinite(row.value))));
+}
 const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
   value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
 function validPluginFacts(value: unknown): boolean {

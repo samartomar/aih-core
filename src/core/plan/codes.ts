@@ -51,6 +51,9 @@ const entries: RefusalCode[] = [
   { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
   // Merges with reviewed conflict choices (samartomar/aih-core#165).
   { status: 'refused', code: 'file-too-large-for-client', fix: 'Shorten your file, or choose fewer always-on rules.' },
+  // Typed input bindings (samartomar/aih-core#172).
+  { status: 'refused', code: 'input-missing', fix: 'Pass the value: an ordinary one in the request `inputs`, a secret in `controls.privateInputs` (`--private-input`).' },
+  { status: 'refused', code: 'input-binding-missing', fix: 'Replan with a Catalog that marks where each input value goes.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

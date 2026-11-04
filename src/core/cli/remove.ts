@@ -1,12 +1,12 @@
 // aih remove <managementId>... --scope project|user [--project <path>] [--item <item-id>] [--origin chosen]
-//            [--cli <id>]... [--apply [--yes] [--allow-partial]] [--no-log] [--json]      (contract 22)
+//            [--cli <id>]... [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]      (contract 22)
 import { parseArgs } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { apply, prepareRemoval } from '../index.js';
-import { approved, emit, exitCode, printable, progressLine, refusal } from './common.js';
+import { approved, emit, exitCode, printable, privateInputMappings, progressLine, refusal } from './common.js';
 import type { PlanControls } from '../plan/types.js';
 
-const USAGE = 'aih remove <managementId>... --scope project|user [--project <path>] [--item <item-id>] [--origin chosen] [--cli <id>]... [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
+const USAGE = 'aih remove <managementId>... --scope project|user [--project <path>] [--item <item-id>] [--origin chosen] [--cli <id>]... [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]\n';
 
 export async function run(args: string[], signal: AbortSignal): Promise<void> {
   const output = { json: args.includes('--json') };
@@ -15,7 +15,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
     parsed = parseArgs({ args, allowPositionals: true, strict: true, options: {
       project: { type: 'string' }, scope: { type: 'string' }, item: { type: 'string' }, origin: { type: 'string' },
       cli: { type: 'string', multiple: true }, apply: { type: 'boolean' }, yes: { type: 'boolean' },
-      'allow-partial': { type: 'boolean' }, 'no-log': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+      'allow-partial': { type: 'boolean' }, 'no-log': { type: 'boolean' }, 'private-input': { type: 'string', multiple: true }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The remove options are not valid.'), 2); }
   const { values, positionals } = parsed;
   if (values.help) { process.stdout.write(USAGE); return; }
@@ -23,7 +23,9 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
   const project = values.project === undefined ? undefined : isAbsolute(values.project) ? values.project : resolve(values.project);
   const removals = positionals.map(managementId => ({ managementId, ...(values.item ? { item: values.item } : {}),
     ...(values.origin ? { origin: values.origin } : {}), ...(values.cli?.length ? { clis: values.cli } : {}) }));
-  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
+  const privateInputs = privateInputMappings(values['private-input']);
+  if (!privateInputs) return emit(output, refusal('usage', '`--private-input` is `<item>.<input>=<ENV>` naming a set environment variable, once per input.'), 2);
+  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(Object.keys(privateInputs).length ? { privateInputs } : {}) };
   const preparation = await prepareRemoval({ target: project ? { project } : {}, scope: values.scope, removals }, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle || !preparation.review)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));

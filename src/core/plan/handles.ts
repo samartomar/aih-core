@@ -4,6 +4,7 @@ import type { PreparedHandle } from '../host-types.js';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PlanHandle } from './types.js';
 import type { AcquireFacts } from './acquire/types.js';
+import type { PrivateInputBinding } from './inputs.js';
 
 export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
@@ -31,6 +32,8 @@ export interface HandleState {
   progress?: { onProgress?: (event: import('../types.js').Json) => void };
   /** The caller's request object and the digests Prepare read from it (plan requests only). */
   request?: { value: unknown; documentDigest: string; bytesDigest: string };
+  /** The private inputs the review was prepared with: Apply re-checks them by digest (`REVIEW_STALE` `input`). */
+  privateInputs?: PrivateInputBinding;
 }
 const handles = new WeakMap<PreparedHandle, HandleState>();
 /** Every handle this module issued, also once consumed, so a second Apply still gets a 0.1.0 rejection. */

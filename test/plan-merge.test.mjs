@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
-import { mergeRequest, sha256 } from './fixtures/plan-fixture.mjs';
+import { ENV_REFERENCE, inputProfile, mergeRequest, sha256 } from './fixtures/plan-fixture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-merge-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -56,10 +56,13 @@ const SECRET = 'ghp_0123456789abcdefSECRET';
 const MINE = '{\n  "mcpServers": {\n    "github": { "command": "my-github", "env": { "GITHUB_TOKEN": "' + SECRET + '" } },\n' +
   '    "other": {"command":"keep-me"}\n  }\n}\n';
 const github = (extra = {}) => ({ item: GITHUB, file: '.mcp.json', format: 'json', key: '/mcpServers/github',
-  entry: { command: 'npx', args: ['-y', '@example/github-mcp'], env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' } },
+  entry: { command: 'npx', args: ['-y', '@example/github-mcp'] },
   inputs: [{ item: GITHUB, input: 'GITHUB_TOKEN', at: { pointer: '/env/GITHUB_TOKEN' } }], ...extra });
+/** The entry as written: the fixture profile declares Claude's `${NAME}` reference for MCP environment values. */
+const writtenEntry = () => ({ ...github().entry, env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' } });
+const githubProfiles = [inputProfile('claude-code', { 'mcp-env': ENV_REFERENCE })];
 const githubInputs = { [GITHUB]: { GITHUB_TOKEN: { description: 'Token', isRequired: true, isSecret: true } } };
-const githubRequest = (target, resolutions) => ({ ...mergeRequest(target, [github()], { inputs: githubInputs }), ...(resolutions ? { resolutions } : {}) });
+const githubRequest = (target, resolutions) => ({ ...mergeRequest(target, [github()], { inputs: githubInputs, profiles: githubProfiles }), ...(resolutions ? { resolutions } : {}) });
 
 test('your own .mcp.json entry blocks with its exact bytes (secret slot redacted), a replace resolution is reviewed and applied, and removal writes your bytes back', async () => {
   const target = project({ '.mcp.json': MINE });
@@ -86,7 +89,7 @@ test('your own .mcp.json entry blocks with its exact bytes (secret slot redacted
   const run = await apply(ready.handle, approve(ready.review));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
   const written = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'));
-  assert.deepEqual(written.mcpServers.github, github().entry);
+  assert.deepEqual(written.mcpServers.github, writtenEntry());
   assert.match(readFileSync(join(target, '.mcp.json'), 'utf8'), /"other": \{"command":"keep-me"\}/, 'neighbouring bytes are kept byte for byte');
   assert.equal(stateText().includes(SECRET), false, 'receipts and history never hold the replaced secret');
   const listed = await list({ target: { project: target }, scope: 'project' });
@@ -252,7 +255,7 @@ test('a malformed merge step is invalid, and a merge leaving its root is refused
     ['a file leaving its root', { file: '../.mcp.json' }, 'refused'],
   ];
   for (const [name, change, status] of cases) {
-    const result = await prepare(mergeRequest(target, [github(change)], { inputs: githubInputs }));
+    const result = await prepare(mergeRequest(target, [github(change)], { inputs: githubInputs, profiles: githubProfiles }));
     assert.equal(result.status, status, `${name}: ${JSON.stringify(result)}`);
     assert.equal(result.handle, undefined, name);
   }

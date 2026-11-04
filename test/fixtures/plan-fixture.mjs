@@ -137,7 +137,7 @@ export function pluginRequest(verify = 'none', { scope = 'user', project = null,
  * declared inputs (`requirements.inputs`) come from `inputs[itemId]`. Steps are sorted by root, then file, as Catalog orders
  * them. FIXTURE documents in the accepted Catalog shapes, not Catalog output.
  */
-export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [] } = {}) {
+export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [], profiles } = {}) {
   const ids = [...new Set(merges.map(merge => merge.item))];
   const items = ids.map(id => ({ id, kind: 'mcp', name: id.split('.').at(-1), description: `Fixture item ${id}`, files: [],
     ...(inputs[id] ? { requirements: { inputs: inputs[id] } } : {}), contentSha256: sha256(id), behaviourSha256: sha256(id) }));
@@ -147,5 +147,17 @@ export function mergeRequest(project, merges, { scope = 'project', inputs = {}, 
   return { schema: PLAN_REQUEST, scope, target: { project },
     plan: { status: 'ok', data: null, plan: [...plan, ...extra], missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
     contents: [{ schema: CONTENT, framework: { id: framework, name: 'My setup' }, sources: [{ id: framework, kind: 'local', notices: [] }], items }],
-    profiles: clis.map(id => profile(id)), files: [] };
+    profiles: profiles ?? clis.map(id => profile(id)), files: [] };
 }
+
+// Typed input bindings (Catalog D121): steps carry `inputs: [{ item, input, at }]` with exactly one of `{ pointer }`,
+// `{ placeholder }`, `{ argv }` or `{ env }`; profiles describe native environment references per destination surface
+// under `inputReferences` (`file`, `mcp-argv`, `mcp-env`, `mcp-header`: `none`, `unknown` or `{ syntax }` with `<name>`).
+// The field names follow Catalog's in-progress implementation; these are FIXTURE profiles, not evidenced client facts.
+export const MCP_FILE = { stdio: { command: 'command', args: 'args', env: 'env', set: { type: 'stdio' } },
+  remote: { 'streamable-http': { url: 'url', headers: 'headers', set: { type: 'http' } } } };
+export const NO_REFERENCES = { file: 'unknown', 'mcp-argv': 'unknown', 'mcp-env': 'unknown', 'mcp-header': 'unknown' };
+/** A tool profile FIXTURE with an MCP file description and the given `inputReferences` overrides. */
+export const inputProfile = (id, references = {}, { mcpFile = MCP_FILE, version = 1 } = {}) =>
+  ({ ...profile(id, version), mcpFile, inputReferences: { ...NO_REFERENCES, ...references } });
+export const ENV_REFERENCE = { syntax: '${<name>}' };

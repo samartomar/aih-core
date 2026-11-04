@@ -1,10 +1,12 @@
 // `merge` (Catalog 9, D84, D93; contract 8.1): adds one entry to a file the person may already have, and never replaces
 // the file. `json` sets one JSON Pointer, `toml` one table, `markdown` one block between `<!-- aih:begin <id> -->` and
 // `<!-- aih:end <id> -->`. The engine's bounded editors keep every other byte; an existing entry Core didn't write is a
-// reviewed conflict (section 7). Input bindings (`inputs`, D121) name the entry's known secret slots, which a conflict
-// presents redacted; putting input values in place is a later slice's work.
+// reviewed conflict (section 7). Input bindings (`inputs`, D121) are filled before lowering (`../inputs.ts`): a JSON or
+// TOML entry takes them at a pointer, an argv slot or an environment name, a Markdown block at a declared placeholder.
+// Secret-bound slots are presented redacted in a conflict.
 import { basename } from 'node:path/posix';
 import { clis, owners, problem, target } from './common.js';
+import { bindEntry, bindText, parseBindings, type BoundInputs } from '../inputs.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
 
@@ -43,40 +45,48 @@ export const merge: StepHandler = {
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index, 'file'); if (!('root' in placed)) return placed;
     const served = clis(step, index); if (!('clis' in served)) return served;
-    const { format, key, entry } = step;
+    const { format, key } = step;
+    let entry = step.entry;
     if (format !== 'json' && format !== 'toml' && format !== 'markdown')
-      return problem(index, 'format', 'format', 'A merge step\'s `format` is `json`, `toml` or `markdown`.');
+      return problem(index, 'format', 'format', "A merge step's `format` is `json`, `toml` or `markdown`.");
     if (typeof key !== 'string') return problem(index, 'key', 'key', 'A merge step names its `key`.');
+    const parsed = parseBindings(step.inputs, index, format === 'markdown' ? ['placeholder'] : ['pointer', 'argv', 'env']);
+    if ('problem' in parsed) return parsed;
+    const inputs = context.inputs(served.clis);
     let segments: string[] | undefined;
     let tableLeaves: { path: string[]; value: Json }[] | undefined;
+    let secrets: string[][] = [], redact: string[][] = [];
+    let bound: BoundInputs | undefined;
+    const fill = () => {
+      if (!parsed.bindings.length) return undefined;
+      const done = bindEntry(entry as Json, segments!, parsed.bindings, inputs, placed.path);
+      if (!('entry' in done)) return done;
+      ({ entry, secrets, redact, bound } = done);
+      return undefined;
+    };
     if (format === 'json') {
       segments = pointerSegments(key);
       if (!segments) return problem(index, 'key', 'key', 'A JSON merge `key` is a JSON Pointer below the document root.');
       if (entry === undefined) return problem(index, 'entry', 'entry', 'A merge step names its `entry`.');
+      const failed = fill(); if (failed) return failed;
     } else if (format === 'toml') {
       segments = key.split('.');
       if (segments.length > 16 || !segments.every(segment => TOML_KEY.test(segment)))
         return problem(index, 'key', 'key', 'A TOML merge `key` is one table of bare keys, such as `mcp_servers.github`.');
+      if (!plain(entry)) return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
+      const failed = fill(); if (failed) return failed;
       tableLeaves = plain(entry) ? leaves(entry) : undefined;
       if (!tableLeaves || !tableLeaves.length)
         return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
     } else {
       if (!ID.test(key)) return problem(index, 'key', 'key', 'A Markdown merge `key` is the item id that names its block.');
       if (typeof entry !== 'string' || entry.length > 1_048_576)
-        return problem(index, 'entry', 'entry', 'A Markdown merge `entry` is the block\'s text.');
+        return problem(index, 'entry', 'entry', "A Markdown merge `entry` is the block's text.");
       segments = [key];
-    }
-    // Known secret slots: bindings whose declared input is a secret, at a pointer inside the structured entry.
-    const secrets: string[][] = [];
-    if (step.inputs !== undefined) {
-      if (!Array.isArray(step.inputs) || step.inputs.length > 256)
-        return problem(index, 'inputs', 'inputs', 'A step\'s `inputs` is a list of input bindings.');
-      for (const [at, binding] of step.inputs.entries()) {
-        const pointer = plain(binding) && plain(binding.at) && Object.keys(binding.at).length === 1 && typeof binding.at.pointer === 'string' ?
-          (format === 'markdown' ? undefined : pointerSegments(binding.at.pointer)) : undefined;
-        if (!plain(binding) || typeof binding.item !== 'string' || typeof binding.input !== 'string' || !pointer)
-          return problem(index, `inputs/${at}`, 'input-binding', 'A merge step binds an input at a `pointer` inside its structured entry.');
-        if (context.itemInput(binding.item, binding.input)?.isSecret) secrets.push([...segments, ...pointer]);
+      if (parsed.bindings.length) {
+        const done = bindText(entry, placed.path, parsed.bindings, inputs);
+        if (!('text' in done)) return done;
+        entry = done.text; bound = done.bound;
       }
     }
     const name = basename(placed.path);
@@ -84,7 +94,7 @@ export const merge: StepHandler = {
       (served.clis.includes('codex') || !served.clis.length && context.request.profiles.some(profile => profile.id === 'codex'));
     const sentence = format === 'markdown' ? `Adds the \`${key}\` block to \`${placed.path}\`` : `Adds \`${key}\` to \`${placed.path}\``;
     return { lowered: { kind: 'merge', managementIds: owner.ids, root: placed.root, path: placed.path, format, key, segments,
-      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, codexGuidance, sentence, cantPromise: null,
-      review: { ...owner.review, clis: served.clis, format, key } } };
+      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(bound ? { bound } : {}), codexGuidance, sentence,
+      cantPromise: null, review: { ...owner.review, clis: served.clis, format, key, ...(bound ? { inputs: bound.review } : {}) } } };
   }
 };

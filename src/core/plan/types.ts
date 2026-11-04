@@ -3,6 +3,7 @@ declare const planHandle: unique symbol;
 /** The private, in-process key for one 0.1.0 review; consumed by its first Apply. */
 export interface PlanHandle { readonly [planHandle]: true }
 import type { Json } from '../types.js';
+import type { ReviewInput } from './inputs.js';
 
 export const PLAN_REQUEST = 'urn:aihq:core:plan-request:0.1.0' as const;
 export const REVIEW = 'urn:aihq:core:review:0.1.0' as const;
@@ -64,7 +65,9 @@ export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
 export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string;
   /** `file-too-large-for-client`: the file and the size it would have. */
-  file?: string; size?: number }
+  file?: string; size?: number;
+  /** `input-missing` and `input-binding-missing`: the item and the input. */
+  item?: string; input?: string }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
@@ -93,6 +96,8 @@ export interface ReviewStep {
     fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
   /** A merge: its format, key, and the entry it adds (known secret slots read `[REDACTED]`). */
   format?: 'json' | 'toml' | 'markdown'; key?: string; entry?: Json;
+  /** The step's input bindings: where each value lands, how it is written, and an ordinary value (never a secret's). */
+  inputs?: ReviewInput[];
 }
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {

@@ -1,5 +1,6 @@
 // `list` and `prepareRemoval` 0.1.0 (contract 12): the inventory and removal forms over the retained custody,
 // claim and removal rules (14.2). The place is always named; Core never guesses it from the working folder.
+import { bindPrivateInputs } from './inputs.js';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { isProxy } from 'node:util/types';
@@ -154,7 +155,9 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const reviewDigest = digestOf(body, engine.review.reviewDigest + (program ? '\0' + program.engineDigest : ''));
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   const partial = engine.status === 'partial';
+  // Private inputs passed for a removal (such as a secret a restored value needs again, C64) bind its review.
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial, operations,
+    privateInputs: bindPrivateInputs(options.privateInputs),
     ...(program ? { before: { engine: program.engine, engineDigest: program.engineDigest, operations: program.operations, programs: program.programs,
       unremovable: program.unremovable } } : {}) });
   return { status: 'ok', entries, review, handle };

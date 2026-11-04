@@ -4,6 +4,7 @@
 import type { Json } from '../../types.js';
 import type { PlanControls, PlanRequest, PlanStep, Problem, Refusal } from '../types.js';
 import type { AcquireSpec } from '../acquire/types.js';
+import type { BoundInputs, InputContext, ReviewInput } from '../inputs.js';
 
 /** A source file the plan's documents name, with what they say about it. */
 export interface SourceFacts { sourceId: string; sourcePath: string; sha256: string; executable: boolean }
@@ -21,6 +22,8 @@ export interface StepContext {
   qualification(sha256: string): { [field: string]: Json } | undefined;
   /** An item's declared input (`requirements.inputs[name]`), as its content document states it. */
   itemInput(item: string, input: string): { isSecret: boolean } | undefined;
+  /** What filling this step's input bindings needs, for the CLIs it serves (contract 4.1, C59). */
+  inputs(clis: string[]): InputContext;
 }
 /** One owned file effect the engine carries out as a `file.write`. */
 export interface LoweredWrite {
@@ -32,7 +35,9 @@ export interface LoweredWrite {
   executable: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[] };
+  review: { item?: string; items?: string[]; clis?: string[]; inputs?: ReviewInput[] };
+  /** The step's filled input bindings, when it has any. */
+  bound?: BoundInputs;
   /** An `acquire` step: the acquisition Apply carries out immediately before writing this marker file. */
   acquire?: AcquireSpec;
   /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
@@ -55,9 +60,10 @@ export interface LoweredPlugin {
   sentence: string;
   cantPromise: string;
   review: { framework: string; clis: string[] };
-  /** Never an acquisition or a render. */
+  /** Never an acquisition or a render, and binds no inputs. */
   profiles?: undefined;
   acquire?: undefined;
+  bound?: undefined;
 }
 export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge;
 /**
@@ -80,11 +86,15 @@ export interface LoweredMerge {
   leaves?: { path: string[]; value: Json }[];
   /** Known secret slots: full editor paths whose value is a declared secret input (redacted in conflicts, never in receipts). */
   secrets: string[][];
+  /** The slots that now hold a secret value: the review shows them `[REDACTED]`. */
+  redact: string[][];
+  /** The step's filled input bindings, when it has any. */
+  bound?: BoundInputs;
   /** Whether the file is Codex's always-on guidance, whose resulting size Catalog bounds at 32 KiB (C72). */
   codexGuidance: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[]; format: 'json' | 'toml' | 'markdown'; key: string };
+  review: { item?: string; items?: string[]; clis?: string[]; format: 'json' | 'toml' | 'markdown'; key: string; inputs?: ReviewInput[] };
   /** Only writes acquire or render. */
   acquire?: never; profiles?: never;
 }

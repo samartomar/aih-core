@@ -12,6 +12,7 @@ import { removeAcquiredFolder } from './acquire/effect.js';
 import { MANIFEST } from './acquire/types.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
+import { privateInputsHold } from './inputs.js';
 import { changeControls } from '../change/prepare.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
@@ -42,6 +43,8 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     if (!now || now.documentDigest !== state.request.documentDigest || now.bytesDigest !== state.request.bytesDigest)
       return stale('binding', state.reviewDigest);
   }
+  // Exact private-input changes invalidate the approval: Apply's values, or the object Prepare read when it passes none.
+  if (state.privateInputs && !privateInputsHold(state.privateInputs, controls.privateInputs)) return stale('input', state.reviewDigest);
   if (state.progress && controls.onProgress) state.progress.onProgress = controls.onProgress;
   if (controls.signal?.aborted) return { ...rejected('cancelled', { reviewDigest: state.reviewDigest }), completion: 'cancelled' };
   const origin = value.origin as 'interactive' | 'automation';
