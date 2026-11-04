@@ -17,8 +17,11 @@ export function readbackOf(value: unknown): Readback | undefined {
       value.expected.length > 4096) return undefined;
   return { argv: [...value.argv as string[]], expected: value.expected };
 }
-/** Whether this host can launch a program by this path: on Windows only `.exe` and `.com` files run without a shell. */
-export const launchable = (path: string): boolean => process.platform !== 'win32' || /\.(exe|com)$/i.test(path);
+/**
+ * Whether this host can launch a program by this path: on Windows `.exe` and `.com` files, or a `.cmd`/`.bat` command
+ * shim, which runs through the system command processor with its pinned bytes and quoted arguments.
+ */
+export const launchable = (path: string): boolean => process.platform !== 'win32' || /\.(exe|com|cmd|bat)$/i.test(path);
 
 /**
  * Fills a command's `inputs` bindings (argv slots index the step's argv; env bindings set variables). Secret values

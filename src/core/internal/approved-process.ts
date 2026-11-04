@@ -101,6 +101,42 @@ export function resolveLauncher(name: string): ResolvedExecutable | undefined {
   return undefined;
 }
 
+/** A Windows `.cmd`/`.bat` command shim: run by the system command processor, never directly. */
+const isCommandShim = (path: string): boolean => process.platform === 'win32' && /\.(cmd|bat)$/i.test(path);
+
+/**
+ * A program a plan runs (a client's plugin commands, an upstream installer, a tool command): an executable, or on
+ * Windows also the `.cmd`/`.bat` command shim a package manager installs a CLI as (npm's `claude.cmd`). The shim is
+ * captured and pinned by its exact path and sha256 like any other program (`resolveLauncher`). On Windows each PATH
+ * folder is searched in the system's order (`.exe`, `.com`, `.cmd`, `.bat`), so the program that runs is the one found.
+ */
+export function resolveProgram(name: string): ResolvedExecutable | undefined {
+  if (process.platform !== 'win32') return resolveExecutable(name);
+  if (!name || /[\r\n\0]/.test(name)) return undefined;
+  const found = (path: string) => /\.(exe|com)$/i.test(path) ? resolveExecutable(path) : /\.(cmd|bat)$/i.test(path) ? resolveLauncher(path) : undefined;
+  if (isAbsolute(name)) return found(name);
+  if (/[\\/]/.test(name) || name === '.' || name === '..') return undefined;
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir || !isAbsolute(dir)) continue;
+    for (const suffix of /\.(exe|com|cmd|bat)$/i.test(name) ? [''] : ['.exe', '.com', '.cmd', '.bat']) {
+      const program = found(join(dir, name + suffix));
+      if (program) return program;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The command line that runs a command shim through `cmd.exe /d /s /c`, every argument quoted. Text the command
+ * processor would still read inside quotes (`"`, `%`, line breaks) is refused (`undefined`): Core never runs a command
+ * other than the one reviewed. Backslashes before a closing quote are doubled, so the program reads each argument back.
+ */
+function shimCommandLine(path: string, args: string[]): string | undefined {
+  const quoted = (value: string) => /["%\r\n\0]/.test(value) ? undefined : `"${value.replace(/(\\+)$/, '$1$1')}"`;
+  const parts = [path, ...args].map(quoted);
+  return parts.every(part => part !== undefined) ? `"${parts.join(' ')}"` : undefined;
+}
+
 export async function runApprovedProcess(request: {
   executable: ResolvedExecutable; args: string[]; cwd: string; env: Record<string, string>;
   stdin?: string; timeoutMs: number; maxOutputBytes: number; acceptedExitCodes: number[];
@@ -111,6 +147,9 @@ export async function runApprovedProcess(request: {
     readRegularFileWithStats(request.executable.path, { maxBytes: 512 * 1024 * 1024 }) : undefined;
   if (!live || sha256(live.contents) !== request.executable.sha256 || !executableIdentityMatches(request.executable))
     return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
+  const shim = isCommandShim(request.executable.launchPath);
+  const line = shim ? shimCommandLine(request.executable.launchPath, request.args) : undefined;
+  if (shim && line === undefined) return { status: 'unavailable', reason: 'shim-argument-unsafe', effectsUncertain: false, terminationUnconfirmed: false };
   return new Promise(resolve => {
     let child: ReturnType<typeof spawn>;
     let byteCount = 0; let settled = false; const captured: Buffer[] = []; let closing = false; let forcedReason: string | undefined;
@@ -134,8 +173,11 @@ export async function runApprovedProcess(request: {
     try {
       // Dispatchers such as rustup select the tool by the original launcher name.
       // The launcher still resolves to the reviewed, byte-pinned executable.
-      child = spawn(request.executable.launchPath, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
-        env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+      // A command shim runs through the system's command processor with the pinned shim and its quoted arguments.
+      child = shim ? spawn(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe'), ['/d', '/v:off', '/s', '/c', line!], { shell: false,
+        windowsHide: true, windowsVerbatimArguments: true, cwd: request.cwd, env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] }) :
+        spawn(request.executable.launchPath, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
+          env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { finish('unavailable', 'spawn-failed'); return; }
     const observe = (chunk: Buffer) => { byteCount += chunk.byteLength; if (byteCount > request.maxOutputBytes) stop('output-bytes'); };
     child.stdout?.on('data', (chunk: Buffer) => { if (request.capture) captured.push(chunk); observe(chunk); });

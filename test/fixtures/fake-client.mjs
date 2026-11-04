@@ -27,6 +27,16 @@ export function installFakeClient(bin, name) {
     chmodSync(join(bin, name), 0o755);
   }
 }
+/**
+ * Windows only: the fake client as a `<name>.cmd` command shim, the way npm installs a CLI (`claude.cmd`), which runs this
+ * module with the running Node. Returns the shim's path.
+ */
+export function installFakeCommandShim(bin, name) {
+  mkdirSync(bin, { recursive: true });
+  const path = join(bin, `${name}.cmd`);
+  writeFileSync(path, `@echo off\r\n"${process.execPath}" "${self}" --fake-client ${name} %*\r\n`);
+  return path;
+}
 /** The environment a process needs so that the fake clients in `bin` run, with state kept under `state`. */
 export function fakeClientEnv(bin, state, mode = '') {
   mkdirSync(state, { recursive: true });

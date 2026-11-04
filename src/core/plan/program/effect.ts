@@ -6,7 +6,7 @@
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
-import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
+import { resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
 import { SETUP_MARKER } from '../steps/upstream-setup.js';
 import type { LoweredProgram, Readback } from '../steps/types.js';
 
@@ -86,11 +86,11 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
     async run(signal) {
       let executable = pinned;
       if (lowered.executable.from === 'acquired') {
-        executable = resolveExecutable(join(root, ...lowered.executable.path.split('/')));
+        executable = resolveProgram(join(root, ...lowered.executable.path.split('/')));
         if (executable && lowered.executable.sha256 && executable.sha256 !== lowered.executable.sha256) executable = undefined;
       } else if (lowered.executable.from === 'clone') {
         if (!contained(root, `${lowered.cwd}/${lowered.executable.path}`)) return { status: 'failed', reason: 'unsafe-path', effectsUncertain: false };
-        executable = resolveExecutable(join(cwd, ...lowered.executable.path.split('/')));
+        executable = resolveProgram(join(cwd, ...lowered.executable.path.split('/')));
       }
       if (!executable) return { status: 'failed', reason: 'program-unavailable', effectsUncertain: false };
       // A tool-command's argv follows its executable; the other kinds name the program first.

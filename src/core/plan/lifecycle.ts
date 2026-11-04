@@ -18,7 +18,7 @@ import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { prepareSwitchOff, switchOffClaims, switchOffId } from './switch-off.js';
 import { prepare as prepareEngine } from '../recipe-engine.js';
-import { resolveExecutable } from '../internal/approved-process.js';
+import { resolveProgram } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
@@ -478,7 +478,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
   let engine: Awaited<ReturnType<typeof prepareEngine>> | undefined;
   if (selections.length) {
     engine = await prepareEngine({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections },
-      target: { project: anchor } }, engineControls(controls));
+      target: { project: anchor } }, engineControls(controls), undefined, undefined, undefined, undefined, undefined, undefined, { commandShims: true });
     if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
     if (!engine.review || !engine.prepared) return { status: 'invalid', problems: problemsOf(engine) };
   }
@@ -494,7 +494,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
   for (const [index, { managementId, plugin }] of plugins.entries()) {
     let presence: ReviewStep['presenceCheck'] = 'none';
     if (plugin.presenceCheck !== 'none' && plugin.undo) {
-      const executable = resolveExecutable(plugin.presenceCheck.argv[0]!);
+      const executable = resolveProgram(plugin.presenceCheck.argv[0]!);
       if (!executable) return { status: 'refused', code: 'program-unavailable',
         reason: `The presence check of \`${managementId}\` runs \`${plugin.presenceCheck.argv[0]}\`, which this host cannot run.` };
       presence = { ...plugin.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
@@ -534,10 +534,10 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
 }
 /** The reverse command's executable as the removal's engine pinned it. */
 function pinnedReverse(engine: Awaited<ReturnType<typeof prepareEngine>> | undefined, index: number, operations: Map<string, StepRef>):
-    { resolved: NonNullable<ReturnType<typeof resolveExecutable>> } | undefined {
+    { resolved: NonNullable<ReturnType<typeof resolveProgram>> } | undefined {
   const operation = engine?.review?.operations.find(entry => operations.get(entry.id)?.step === index && operations.get(entry.id)?.command);
   if (!operation || typeof operation.details.executable !== 'string') return undefined;
-  const resolved = resolveExecutable(operation.details.executable);
+  const resolved = resolveProgram(operation.details.executable);
   return resolved && resolved.sha256 === operation.details.executableSha256 ? { resolved } : undefined;
 }
 interface ProgramRemoval {

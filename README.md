@@ -884,7 +884,12 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   command `needs`. Removal removes the clone with its marker; what the command wrote elsewhere stays. A folder holding
   files Core didn't clone is `refused` `setup-folder-occupied`.
 - **Host support** is checked at Prepare, never halfway through Apply: a program this host can't run (no `git`, an
-  installer not on `PATH`, or on Windows a program that is not an `.exe` or `.com`) is `program-unavailable`.
+  installer not on `PATH`, or on Windows a program that is not an `.exe`, `.com`, `.cmd` or `.bat`) is
+  `program-unavailable`. On Windows a client, installer or tool command installed as a `.cmd`/`.bat` command shim (as
+  npm installs `claude.cmd`) is found in each `PATH` folder in the system's order and pinned like any program: the review
+  names the exact shim path and its sha256, and Apply runs that shim through `cmd.exe /d /v:off /s /c` with every
+  argument quoted. An argument the command processor would still read inside quotes (`"`, `%`, a line break) is not run
+  (`shim-argument-unsafe`).
 - **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
   phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
   path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`

@@ -3,13 +3,14 @@
 // evidence about a real client's plugin commands, which stay a pending live check.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { PRESENCE, pluginRequest } from './fixtures/plan-fixture.mjs';
-import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
+import { fakeClientEnv, fakeClientState, installFakeClient, installFakeCommandShim } from './fixtures/fake-client.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-plugin-'));
 const keys = ['HOME', 'USERPROFILE', 'PATH', 'FAKE_CLIENT_STATE', 'FAKE_CLIENT_MODE', 'NODE_OPTIONS'];
@@ -79,6 +80,39 @@ const install = async (verify, options) => {
   return conforms(await apply(prepared.handle, approve(prepared.review)));
 };
 const removal = request => prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'superpowers', ...request }] });
+
+test('on Windows a client installed as a .cmd command shim is pinned by its exact path and sha256, run, and removed', { skip: process.platform !== 'win32' }, async () => {
+  fresh();
+  const shims = join(scratch, `shims-${counter++}`);
+  const shim = installFakeCommandShim(shims, 'claude');
+  process.env.PATH = `${shims};${join(process.execPath, '..')}`;
+  const prepared = await prepare(pluginRequest(PRESENCE));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  const [step] = prepared.review.steps;
+  const digest = createHash('sha256').update(readFileSync(shim)).digest('hex');
+  for (const command of [...step.commands, step.presenceCheck]) {
+    assert.equal(command.executable.toLowerCase(), shim.toLowerCase());
+    assert.equal(command.executableSha256, digest);
+  }
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(fakeClientState(state, 'claude').calls, [
+    ['plugin', 'marketplace', 'add', 'https://github.com/obra/superpowers-marketplace', '--scope', 'user'],
+    ['plugin', 'install', SPEC, '--scope', 'user'], ['plugin', 'list']]);
+  const removing = await removal();
+  assert.equal(removing.status, 'ok', JSON.stringify(removing));
+  assert.equal(removing.review.steps.find(item => item.op === 'plugin').commands[0].executable.toLowerCase(), shim.toLowerCase());
+  const removed = conforms(await apply(removing.handle, approve(removing.review)));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.deepEqual(fakeClientState(state, 'claude').plugins, []);
+  // A changed shim after Prepare is a different program: Apply does not run it.
+  const again = await prepare(pluginRequest(PRESENCE));
+  writeFileSync(shim, readFileSync(shim, 'utf8') + 'rem changed\r\n');
+  const stale = await apply(again.handle, approve(again.review));
+  assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
+  assert.deepEqual(fakeClientState(state, 'claude').plugins, []);
+});
 
 test('removal runs the uninstall command saved in the receipt and says "removed" only when the presence check says it is gone', async () => {
   fresh();

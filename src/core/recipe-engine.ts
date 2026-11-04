@@ -31,7 +31,7 @@ import { missingContainers, pruneEmptyContainers } from './internal/hook-group.j
 import { USER_NOTES_FILE, extractBlockBody, personLinesInside, sharedBlockRole } from './internal/shared-blocks.js';
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
-import { resolveExecutable, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
+import { resolveExecutable, resolveProgram, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
 /** A selection's own material, as reviewed. */
@@ -200,6 +200,11 @@ export interface EngineExtension {
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
   observe?: (facts: ObservedStep) => void;
 }
+/** How an engine preparation finds programs. */
+export interface EngineOptions {
+  /** A plan's programs (plugin commands, upstream installers, tool commands) may be Windows `.cmd`/`.bat` shims, pinned like any program. */
+  commandShims?: boolean;
+}
 export interface ObservedStep {
   selectionId: string; operationId: string; effect: ReviewOperation['effects']; reason?: string;
   /** A supplied resolution whose observed digest no longer matches the target: it was not used. */
@@ -293,9 +298,10 @@ export function resolvePath(target: TargetPath, scope: 'project' | 'user', bound
   return { root, path: segments.join('/'), absolute: join(root, ...segments) };
 }
 function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Json>, project: string, selectionKey: string,
-    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], capturedMissing?: string): { process: PreparedProcess; review: ReviewOperation['details'] } {
+    material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], capturedMissing?: string,
+    resolve: (name: string) => ResolvedExecutable | undefined = resolveExecutable): { process: PreparedProcess; review: ReviewOperation['details'] } {
   const cwd = resolvePath(invocation.cwd, invocation.cwd.root === 'project' ? 'project' : 'user', bound, project, selectionKey);
-  const executable = 'name' in invocation.executable ? resolveExecutable(invocation.executable.name) : undefined;
+  const executable = 'name' in invocation.executable ? resolve(invocation.executable.name) : undefined;
   const materialId = 'material' in invocation.executable ? invocation.executable.material : undefined;
   const materialBytes = materialId ? material.readMaterial(materialId) : undefined;
   const resolvedExecutable: PreparedProcess['executable'] = executable ?? (materialBytes ?
@@ -427,7 +433,8 @@ function stageRecovery(runId: string, steps: PreparedStep[], project: string): s
 export async function prepare(request: PolicyRequest, controls: HostControls = {},
     unavailableInvocations?: CapturedUnavailableInvocations,
     custodyImageStillCurrent?: () => boolean,
-    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, update?: UpdateOptions, extension?: EngineExtension): Promise<PreparationResult> {
+    trustParticipant?: TrustEngineParticipant, cleanup?: CleanupOptions, update?: UpdateOptions, extension?: EngineExtension,
+    options?: EngineOptions): Promise<PreparationResult> {
   const runId = randomUUID();
   // Only repair adapts this engine through captured invocations; its trust-resolution contract has no keyed hints.
   const hinted = unavailableInvocations === undefined;
@@ -589,7 +596,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let rescuedLines: string[] | null = null;
         let rescueStep: { path: string; initial: Buffer | null; before: Buffer | null; after: Buffer; mode: number } | null = null;
         if (op.kind === 'process.run') {
-          const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
+          const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id],
+            options?.commandShims ? resolveProgram : resolveExecutable);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
           effect = 'opaque-process';
           if (extension?.plans?.has(selection.id)) { root = selection.scope === 'project' ? project : userHomeRoot(); programClaim = true; }

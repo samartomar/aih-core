@@ -13,7 +13,7 @@ import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type HandleState, type ProgramCheck, type StepRef } from './handles.js';
-import { resolveExecutable } from '../internal/approved-process.js';
+import { resolveExecutable, resolveProgram } from '../internal/approved-process.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
 import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
@@ -148,7 +148,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         reason: `Step ${step.index} clones into \`${lowered.clone.into}\`, which already holds files Core didn't clone. Move them away, then Prepare again.` };
     }
     if (lowered.executable.from === 'path' && lowered.op === 'upstream-setup') {
-      const found = resolveExecutable(lowered.executable.name);
+      const found = resolveProgram(lowered.executable.name);
       if (!found) return { status: 'refused', code: 'program-unavailable', step: step.index, reason: `Step ${step.index} runs \`${lowered.executable.name}\`, which this host cannot run.` };
       pinnedPrograms.set(step.index, found);
     }
@@ -390,7 +390,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     update ? { originReleases: [], plan: (rows: CleanupPlanRow[]) => { update.cleanupRows = rows; } } : undefined,
     update ? { plan: (rows: PlannedMember[]) => { update.rows = rows; } } : undefined,
     { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, ...(update ? { owners: lifecycleOwners } : {}),
-      observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
+      observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } }, { commandShims: true });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))
@@ -506,7 +506,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     const pinned = programCommands.get(step.index) ?? [];
     let presence: ReviewStep['presenceCheck'] = 'none';
     if (lowered.presenceCheck !== 'none') {
-      const executable = resolveExecutable(lowered.presenceCheck.argv[0]!);
+      const executable = resolveProgram(lowered.presenceCheck.argv[0]!);
       if (!executable) return { status: 'refused', code: 'program-unavailable',
         reason: `Step ${step.index}'s presence check runs \`${lowered.presenceCheck.argv[0]}\`, which this host cannot run.`, step: step.index };
       presence = { ...lowered.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
