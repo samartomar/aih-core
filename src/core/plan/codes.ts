@@ -72,6 +72,7 @@ const entries: RefusalCode[] = [
   // Updates from explicit new requests (samartomar/aih-core#178).
   { status: 'refused', code: 'update-target-required', fix: 'Name the `managementIds` the update replaces.' },
   { status: 'refused', code: 'update-ambiguous', fix: 'Name the `managementIds` of the one install to update.' },
+  { status: 'refused', code: 'update-conflict', fix: 'Prepare updates that act on one install or one file in separate calls.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { apply, list, prepare, prepareUpdate } from '../dist/core/index.js';
+import { apply, list, prepare, prepareRemoval, prepareUpdate } from '../dist/core/index.js';
 import { linkRequest, mergeRequest, ownRequest, renderRequest } from './fixtures/plan-fixture.mjs';
 import { changeRequest, projectSetting } from './fixtures/change-fixture.mjs';
 import * as reader from './fixtures/catalog-node-fixture/reader.mjs';
@@ -282,4 +282,108 @@ test('an AI setup moved to a new version is acquired into its new folder before 
     assert.equal(readFileSync(join(home, v2.folder, 'memory-mcp'), 'utf8'), '#!/bin/sh\necho memory 13\n');
     assert.equal(existsSync(join(home, v1.folder)), false, 'the old version folder goes once no claim holds it');
   } finally { await server.close(); }
+});
+
+test('several updates in one call: one review and one handle; target errors and conflicting updates are reported per entry', async () => {
+  freshHome();
+  const where = project();
+  await install(ownRequest(where, { a: { 'SKILL.md': 'A1\n' } }, ['claude-code']));
+  const setting = (id, value) => ({ managementId: id, change: projectSetting(id, id, value) });
+  await install(changeRequest([setting('approval', 'on-request')], { project: where }));
+  const updates = [
+    { managementIds: [ID('a')], request: ownRequest(where, { a: { 'SKILL.md': 'A2\n' } }, ['claude-code']) },
+    { managementIds: ['approval'], request: changeRequest([setting('approval', 'never')], { project: where }) },
+    // No target named for an unproven plan: refused for this entry only.
+    { request: ownRequest(where, { q: { 'SKILL.md': 'Q\n' } }, ['claude-code']) },
+  ];
+  const result = await prepareUpdate({ target: { project: where }, scope: 'project', updates });
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.deepEqual(result.entries.map(entry => [entry.update, entry.managementId, entry.disposition, entry.code ?? entry.change]),
+    [[0, ID('a'), 'prepared', 'update'], [1, 'approval', 'prepared', 'update'], [2, null, 'unavailable', 'update-target-required']]);
+  assert.equal(result.review.request, 'update');
+  assert.deepEqual(result.review.updates.map(part => [part.update, part.request]), [[0, 'plan'], [1, 'change']]);
+  assert.deepEqual([...new Set(result.review.steps.map(step => step.update))], [0, 1]);
+  const { validateFormat } = await import('../dist/core/contracts.js');
+  assert.equal(validateFormat(result.review).status, 'ok', JSON.stringify(validateFormat(result.review)));
+  // The one approval binds the combined review, never a part's own digest.
+  const wrong = await apply(result.handle, approve({ reviewDigest: result.review.updates[0].reviewDigest }));
+  assert.equal(wrong.completion, 'rejected');
+  const again = await prepareUpdate({ target: { project: where }, scope: 'project', updates: updates.slice(0, 2) });
+  const run = await apply(again.handle, approve(again.review));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.equal(validateFormat(run).status, 'ok', JSON.stringify(validateFormat(run)));
+  assert.deepEqual([...new Set(run.steps.map(step => step.update))], [0, 1]);
+  assert.equal(readFileSync(join(where, '.claude/skills/a/SKILL.md'), 'utf8'), 'A2\n');
+  assert.match(readFileSync(join(where, '.team/settings.json'), 'utf8'), /"approval": "never"/);
+
+  // A later update whose files changed after the review is stale: the earlier one runs, the later one is not attempted.
+  const later = await prepareUpdate({ target: { project: where }, scope: 'project', updates: [
+    { managementIds: [ID('a')], request: ownRequest(where, { a: { 'SKILL.md': 'A5\n' } }, ['claude-code']) },
+    { managementIds: ['approval'], request: changeRequest([setting('approval', 'untrusted')], { project: where }) }] });
+  const settings = readFileSync(join(where, '.team/settings.json'));
+  writeFileSync(join(where, '.team/settings.json'), '{ "approval": "edited" }\n');
+  const stale = await apply(later.handle, approve(later.review));
+  assert.deepEqual([stale.completion, stale.code], ['incomplete', 'REVIEW_STALE'], JSON.stringify(stale));
+  assert.deepEqual(stale.steps.filter(step => step.update === 1).map(step => step.application), ['not-attempted']);
+  assert.equal(readFileSync(join(where, '.claude/skills/a/SKILL.md'), 'utf8'), 'A5\n');
+  assert.equal(readFileSync(join(where, '.team/settings.json'), 'utf8'), '{ "approval": "edited" }\n');
+  writeFileSync(join(where, '.team/settings.json'), settings);
+
+  // Two updates of one management id conflict: both are rejected with `update-conflict`; the other update goes ahead.
+  const conflicting = await prepareUpdate({ target: { project: where }, scope: 'project', updates: [
+    { managementIds: [ID('a')], request: ownRequest(where, { a: { 'SKILL.md': 'A3\n' } }, ['claude-code']) },
+    { managementIds: [ID('a')], request: ownRequest(where, { a: { 'SKILL.md': 'A4\n' } }, ['claude-code']) },
+    { managementIds: ['approval'], request: changeRequest([setting('approval', 'on-failure')], { project: where }) }] });
+  assert.deepEqual(conflicting.entries.map(entry => [entry.update, entry.disposition, entry.code ?? entry.status]),
+    [[0, 'unavailable', 'update-conflict'], [1, 'unavailable', 'update-conflict'], [2, 'prepared', 'ready']]);
+  assert.ok(conflicting.handle);
+});
+
+test('relinking leaves the link another project still holds to the old version, and that folder, in place', async () => {
+  freshHome();
+  const one = project(), two = project();
+  await install(linkRequest(one, ['claude-code', 'codex'], { version: 'v1' }));
+  await install(linkRequest(two, ['claude-code', 'codex'], { version: 'v1' }));
+  const old = join(home, '.aihq/shared/ecc/skill/plan/v1');
+  const result = await prepareUpdate({ target: { project: one }, scope: 'user',
+    updates: [{ managementIds: ['ecc.skill.plan'], request: linkRequest(one, ['claude-code', 'codex'], { version: 'v2' }) }] });
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.deepEqual(result.review.steps.filter(step => step.op === 'link').map(step => step.effect), ['skipped', 'skipped']);
+  assert.ok(result.review.warnings.some(warning => /stays linked to/.test(warning)), JSON.stringify(result.review.warnings));
+  assert.ok(result.entries[0].members.filter(member => member.path.includes('v1')).every(member => member.action === 'keep-shared'),
+    JSON.stringify(result.entries[0].members));
+  const run = await apply(result.handle, approve(result.review, true));
+  assert.notEqual(run.completion, 'rejected', JSON.stringify(run));
+  for (const place of ['.claude/skills/ecc-plan', '.agents/skills/ecc-plan'])
+    assert.equal(target(join(home, place)).toLowerCase(), old.toLowerCase(), `${place} still serves the other project's version`);
+  assert.ok(existsSync(join(old, 'SKILL.md')), 'the old folder stays while the other project claims it');
+  assert.ok(existsSync(join(home, '.aihq/shared/ecc/skill/plan/v2/SKILL.md')));
+  const listed = (await list({ target: { project: two }, scope: 'user' })).entries[0];
+  assert.ok(listed.members.every(member => member.state === 'matching'), JSON.stringify(listed.members));
+});
+
+test('a holder updating its own value keeps the claims it displaces, and removing it still restores them', async () => {
+  freshHome();
+  const a = project(), c = project();
+  const file = join(home, '.codex', 'config.toml');
+  const server = (item, command) => ({ item, root: 'user', file: '.codex/config.toml', format: 'toml', key: 'mcp_servers.github',
+    entry: { command, args: ['-y'] }, clis: ['codex'] });
+  const SHARED_ID = 'local-team.mcp.github', OVERRIDE = 'local-mine.mcp.github';
+  await install(mergeRequest(a, [server(SHARED_ID, 'npx')], { scope: 'user' }));
+  const blocked = await prepare(mergeRequest(c, [server(OVERRIDE, 'my-npx')], { scope: 'user' }));
+  const [conflict] = blocked.review.conflicts;
+  const ready = await prepare({ ...mergeRequest(c, [server(OVERRIDE, 'my-npx')], { scope: 'user' }),
+    resolutions: [{ managementId: OVERRIDE, step: conflict.step, choice: 'replace', observedSha256: conflict.observedSha256 }] });
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  assert.equal((await apply(ready.handle, approve(ready.review))).completion, 'complete');
+  const result = await prepareUpdate({ target: { project: c }, scope: 'user',
+    updates: [{ managementIds: [OVERRIDE], request: mergeRequest(c, [server(OVERRIDE, 'my-npx-2')], { scope: 'user' }) }] });
+  assert.equal(result.entries[0].status, 'ready', JSON.stringify(result));
+  assert.equal((await apply(result.handle, approve(result.review))).completion, 'complete');
+  assert.match(readFileSync(file, 'utf8'), /command = "my-npx-2"/);
+  const displaced = (await list({ target: { project: a }, scope: 'user' })).entries.find(entry => entry.managementId === SHARED_ID);
+  assert.ok(displaced.members.length && displaced.members.every(member => member.state === 'displaced-by'), JSON.stringify(displaced));
+  const removal = await prepareRemoval({ target: { project: c }, scope: 'user', removals: [{ managementId: OVERRIDE }] });
+  assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.match(readFileSync(file, 'utf8'), /command = "npx"/, 'the displaced value comes back');
 });

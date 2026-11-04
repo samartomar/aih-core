@@ -18,6 +18,7 @@
       "type": "object", "additionalProperties": false, "required": ["step", "managementId", "application", "verification"],
       "properties": {
         "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
         "managementId": { "type": "string" },
         "application": { "enum": ["applied", "already-satisfied", "failed", "not-attempted"] },
         "verification": { "type": "object", "additionalProperties": false, "required": ["status", "reason"],

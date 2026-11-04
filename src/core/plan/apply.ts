@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { apply as applyEngine } from '../recipe-engine.js';
 import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
-import { take, type HandleState, type ProgramCheck } from './handles.js';
+import { take, takeComposite, type CompositeState, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, relative } from 'node:path';
@@ -35,6 +35,8 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   forgetProvenState();
   // A change request's own controls (material roots) are accepted too; Apply reads only cancellation and logging.
   const controls = planControls(rawControls) ?? changeControls(rawControls);
+  const composite = takeComposite(handle);
+  if (composite) return applyComposite(composite, approval, rawControls, !!controls);
   const state = take(handle);
   if (!state) return rejected('handle-unavailable', { code: 'REVIEW_STALE' });
   if (!controls) return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
@@ -93,6 +95,45 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     if (run.completion === 'complete' && before.completion !== 'complete') run.completion = 'incomplete';
   }
   return run;
+}
+
+/**
+ * Several updates in one review (contract 12): the approval binds the combined digest; each update's own reviewed work is
+ * then applied in order, each re-checked by its own Apply. A part rejected before anything ran rejects the run; a part
+ * that can't run after others did leaves the run `incomplete`, its steps `not-attempted`.
+ */
+async function applyComposite(state: CompositeState, approval: unknown, rawControls: unknown, controlsValid: boolean): Promise<Run> {
+  if (!controlsValid) return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
+  const value = approval as { approved?: unknown; origin?: unknown; reviewDigest?: unknown; allowPartial?: unknown } | null;
+  const release = () => { for (const part of state.parts) if (part.handle) take(part.handle); };
+  if (!value || typeof value !== 'object' || Object.keys(value).some(key => !['approved', 'origin', 'reviewDigest', 'allowPartial'].includes(key)) ||
+      value.approved !== true || !['interactive', 'automation'].includes(value.origin as string) ||
+      value.allowPartial !== undefined && typeof value.allowPartial !== 'boolean') { release(); return rejected('approval-required', { reviewDigest: state.reviewDigest }); }
+  if (value.reviewDigest !== state.reviewDigest) { release(); return rejected('digest-mismatch', { code: 'REVIEW_STALE', reviewDigest: state.reviewDigest }); }
+  if (state.partial && value.allowPartial !== true) { release(); return rejected('partial-approval-required', { reviewDigest: state.reviewDigest }); }
+  const runs: { update: number; run: Run }[] = [];
+  let stopped: Run | undefined;
+  for (const part of state.parts) {
+    if (stopped) { if (part.handle) take(part.handle); continue; }
+    const current = part.handle ? { handle: part.handle, reviewDigest: part.reviewDigest, partial: part.partial } : await part.renew?.();
+    if (!current) { stopped = rejected('binding-changed', { code: 'REVIEW_STALE', changed: 'target-file', reviewDigest: state.reviewDigest }); continue; }
+    const run = await applyPlan(current.handle, { approved: true, origin: value.origin, reviewDigest: current.reviewDigest,
+      ...(current.partial || part.partial ? { allowPartial: true } : {}) }, rawControls);
+    if (run.completion === 'rejected' || run.completion === 'cancelled') stopped = run;
+    else runs.push({ update: part.update, run });
+  }
+  if (stopped && !runs.length) return { ...stopped, reviewDigest: state.reviewDigest };
+  const ran = new Set(runs.map(item => item.update));
+  const steps: RunStep[] = [...runs.flatMap(({ update, run }) => run.steps.map(step => ({ ...step, update }))),
+    ...state.parts.filter(part => !ran.has(part.update)).flatMap(part => [...new Map(part.steps.map(step => [`${step.step}\0${step.managementId}`, step])).values()]
+      .map(step => ({ step: step.step, managementId: step.managementId, update: part.update, application: 'not-attempted' as const,
+        verification: { status: 'not-checked', reason: 'not-attempted' } })))];
+  const completion: Run['completion'] = stopped?.completion === 'cancelled' ? 'cancelled' : stopped || runs.some(({ run }) => run.completion !== 'complete') ? 'incomplete' : 'complete';
+  const histories = runs.map(({ run }) => run.history);
+  return { schema: RUN, status: 'ok', runId: randomUUID(), completion, reviewDigest: state.reviewDigest, steps,
+    members: runs.flatMap(({ run }) => run.members), ...(stopped?.code ? { code: stopped.code } : {}), ...(stopped?.changed ? { changed: stopped.changed } : {}),
+    ...(stopped?.reason ? { reason: stopped.reason } : {}),
+    history: histories.find(item => item.status === 'not-recorded') ?? histories.find(item => item.status === 'recorded') ?? { status: 'disabled' } };
 }
 
 /** `onProgress` events for program steps: each command's start and finish, by plan step. */

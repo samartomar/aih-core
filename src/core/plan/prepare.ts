@@ -192,9 +192,17 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
   const recordedLinks = new Map<string, string[]>();
   const relinks = new Map<number, string>();
+  // Which claims (engine keys) record each link place, and what they point it at: an update repoints only its own.
+  const linkHolders = new Map<string, { key: string; managementId: string; to: string }[]>();
+  const foldPath = (path: string) => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+  const heldWarnings: string[] = [];
   if (checked.steps.some(step => step.lowered.kind === 'link')) for (const root of [home, ...ownershipInventory().targets])
     for (const item of Object.values(readOwnership(root).value.items ?? {}))
-      for (const link of item.plan?.links ?? []) if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
+      for (const link of item.plan?.links ?? []) {
+        if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
+        const list = linkHolders.get(foldPath(link.path)) ?? []; linkHolders.set(foldPath(link.path), list);
+        list.push({ key: item.managementId, managementId: managementIdOf(item.managementId, item.plan), to: link.to });
+      }
   for (const step of checked.steps) {
     const lowered = step.lowered;
     if (lowered.kind !== 'link' || step.skipped) continue;
@@ -206,6 +214,15 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     // An update repoints a link the replaced claims placed to an earlier version folder (contract 12 "Version folder moved").
     const moved = lowered.linkType === 'copy' ? undefined : [...selected?.prior.values() ?? []].flatMap(facts => facts.links ?? [])
       .find(link => link.path === lowered.path && link.linkType === lowered.linkType && link.to !== lowered.to && inspectLink(home, link.path, link.to) === 'ours');
+    // A claim this update doesn't replace (another project's or CLI's) that links this place to the earlier version keeps
+    // its link, and with it the earlier folder (C28, shared copies remain while any claim holds them): the step is left out.
+    const others = moved ? (linkHolders.get(foldPath(lowered.path)) ?? []).filter(holder => !selected!.prior.has(holder.key) && !claims.has(holder.key)) : [];
+    if (moved && others.length) {
+      step.skipped = true;
+      for (const group of groups.values()) group.steps = group.steps.filter(other => other !== step);
+      heldWarnings.push(heldWarning(lowered.path, moved.to, others.map(holder => holder.managementId)));
+      continue;
+    }
     if (moved) relinks.set(step.index, moved.to);
     linkPlans.set(step.index, { files, place: lowered.linkType === 'copy' ? 'absent' : moved ? 'absent' : inspectLink(home, lowered.path, lowered.to),
       facts: { step: step.index, path: lowered.path, to: lowered.to, linkType: lowered.linkType,
@@ -506,7 +523,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
-    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...(compared?.warnings ?? [])],
+    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...heldWarnings, ...(compared?.warnings ?? [])],
     ...(compared ? { versions: compared.versions as unknown as Json[] } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
@@ -735,4 +752,10 @@ function existingText(lowered: Lowered, before: Buffer | null): { text: string |
     for (const span of spans) text = text.slice(0, span.offset) + JSON.stringify(REDACTED) + text.slice(span.offset + span.length);
     return { text, redacted: spans.map(span => pointerOf(span.path)).sort(codeUnitCompare) };
   } catch { return { text: null, redacted: [] }; }
+}
+/** Why an update leaves a link out: claims it doesn't replace still link the place to the earlier version. */
+function heldWarning(path: string, from: string, holders: string[]): string {
+  const named = [...new Set(holders)].sort(codeUnitCompare).map(id => '`' + id + '`').join(', ');
+  return '`' + path + '` stays linked to `' + from + '`: ' + named + ' installed elsewhere still links it there. ' +
+    'Update or remove that install too, then update again to link the new version.';
 }

@@ -74,6 +74,8 @@ export type UnsupportedVersion = { status: 'unsupported-version'; encountered: s
 export interface ReviewStep {
   /** A plan step index; for a change, the operation id. */
   step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
+  /** Several updates in one review: the index of the update this step belongs to. */
+  update?: number;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
   /** A reviewed replace that displaces other installs' shared value (C61): their management ids. */
@@ -132,6 +134,8 @@ export interface ReviewProgram {
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed' | 'second-displacement'; managementId: string; step: number | string;
+  /** Several updates in one review: the index of the update this conflict belongs to. */
+  update?: number;
   target: string;
   /** A merge's key: the entry or block the conflict is about. */
   key?: string;
@@ -172,6 +176,8 @@ export interface Review {
   versions?: Json[];
   /** Repair, export and macOS session reviews only (contract 10). */
   environment?: EnvironmentReview;
+  /** Several updates in one review: each update's request kind, plan reports, origin and own review digest. */
+  updates?: { update: number; request: 'plan' | 'change'; plan?: Omit<Plan, 'plan'>; origin?: Origin; originNote?: string | null; reviewDigest: string }[];
   reviewDigest: string;
 }
 export interface Preparation {
@@ -184,6 +190,8 @@ export interface Approval { approved: true; origin: 'interactive' | 'automation'
 
 export interface RunStep {
   step: number | string; managementId: string;
+  /** Several updates in one run: the index of the update this step belongs to. */
+  update?: number;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
   /** A program step that may have changed something although it did not finish: never claimed as rolled back. */
@@ -274,7 +282,12 @@ export interface UpdateSelector { managementIds?: string[]; request: Json }
  */
 export interface UpdateMember { kind: string; path: string; pointer?: string; blockId?: string; action: string; reason?: string }
 export interface UpdateEntry {
-  managementId: string;
+  /** The management id; `null` for an update that named none and could not be prepared. */
+  managementId: string | null;
+  /** The index of the update (in `updates`) this entry belongs to. */
+  update: number;
+  /** An update that could not be prepared: its refusal or problems (`disposition: unavailable`). */
+  code?: string; reason?: string; problems?: Problem[];
   disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
   status?: 'ready' | 'partial' | 'blocked';
   /** `add`: new in this request; `update`: installed and in the request; `remove`: installed, and left out of the request. */

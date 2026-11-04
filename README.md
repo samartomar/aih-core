@@ -2797,7 +2797,14 @@ const run = await apply(update.handle, { approved: true, origin: 'interactive', 
   has the same recipe `id` and `repository`, whatever their recipe or data commit. An unproven plan, or a change, replaces
   exactly the `managementIds` it names; none named is `refused` `update-target-required`, and so is a request item
   installed here that the update doesn't name. Two different installed origins of that recipe here are `refused`
-  `update-ambiguous`, naming them. A named id with no claim here is an `absent` entry. One update per call.
+  `update-ambiguous`, naming them. A named id with no claim here is an `absent` entry.
+- **Several updates in one call.** Each update targets its own receipts and its entries carry its `update` index; one
+  review (`updates` lists each update's request, plan, origin and own digest; steps and conflicts carry `update`) and one
+  handle cover them all. With several updates, a target error is that update's `unavailable` entry (`code`, `reason`), and
+  two updates that act on one management id or one file are both `unavailable` `update-conflict`; the others go ahead.
+  Apply runs them in order. Each later update is prepared again once the earlier ones ran and runs only if that shows
+  exactly the reviewed work and its files are as reviewed; otherwise it is `not-attempted` and the run `incomplete`
+  (`REVIEW_STALE`).
 - **What happens to members (C39, C58).** New members are added; members Core wrote and the request changes are replaced;
   members the request no longer has are removed, unless another claim (another CLI, project or install) still holds
   them (`keep-shared`). A member you edited is never overwritten: a changed one is a `managed-content-changed` conflict
@@ -2805,7 +2812,9 @@ const run = await apply(update.handle, { approved: true, origin: 'interactive', 
   kept (`keep-changed`). An item the request no longer has is an entry with `change: remove` and the note "removed in
   data commit X". The review is `request: update` and lists each cleanup as its own step.
 - **Moved version folders.** A `link` whose target folder moved (a new version) is repointed after the new version's
-  files are written; the old version's files go once no claim holds them, and a file you edited there stays.
+  files are written; the old version's files go once no claim holds them, and a file you edited there stays. A link
+  another install (another project's or CLI's claim this update doesn't replace) still holds to the old version keeps
+  pointing there, with the old folder: that link step is left out (`skipped`, partial) with a warning naming the install.
 - **Data and origin.** The receipts record the new data commit and origin only after the update's run carried out
   every reviewed step (your kept edits aside). A rejected, failed, cancelled or interrupted run keeps the earlier ones.
 - **CLI.** `aih update <plan-request.json | change-request.json> --scope project|user [--project <path>]

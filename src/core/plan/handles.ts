@@ -65,6 +65,29 @@ export function register(state: HandleState): PlanHandle {
   return handle;
 }
 export const isPlanHandle = (value: unknown): boolean => !!value && typeof value === 'object' && issued.has(value);
+/**
+ * Several updates in one review (contract 12): one handle over each update's own handle, applied in order. `steps` are
+ * each part's review steps, so a part that never runs is reported `not-attempted`.
+ */
+export interface CompositeState {
+  reviewDigest: string; partial: boolean;
+  parts: { update: number; handle?: PlanHandle; reviewDigest: string; partial: boolean; steps: { step: number | string; managementId: string }[];
+    /** A later update: prepared again after the ones before it ran; `undefined` when that shows other work (stale). */
+    renew?: () => Promise<{ handle: PlanHandle; reviewDigest: string; partial: boolean } | undefined> }[];
+}
+const composites = new WeakMap<object, CompositeState>();
+export function registerComposite(state: CompositeState): PlanHandle {
+  const handle = Object.freeze({}) as PlanHandle;
+  composites.set(handle, state); issued.add(handle);
+  return handle;
+}
+/** Takes a composite handle's state and consumes it. */
+export function takeComposite(handle: unknown): CompositeState | undefined {
+  if (!handle || typeof handle !== 'object') return undefined;
+  const state = composites.get(handle);
+  composites.delete(handle);
+  return state;
+}
 /** Takes the handle's state and consumes it. */
 export function take(handle: unknown): HandleState | undefined {
   if (!handle || typeof handle !== 'object') return undefined;

@@ -26,6 +26,7 @@
         "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
       }
     },
+    "updates": { "type": "array", "description": "Several updates in one review: each one's request kind, plan reports, origin and own review digest", "items": { "type": "object", "additionalProperties": false, "required": ["update", "request", "reviewDigest"], "properties": { "update": { "type": "integer", "minimum": 0 }, "request": { "enum": ["plan", "change"] }, "plan": { "$ref": "#/properties/plan" }, "origin": { "$ref": "#/properties/origin" }, "originNote": { "type": ["string", "null"] }, "reviewDigest": { "type": "string" } } } },
     "origin": { "oneOf": [{ "const": "chosen" }, { "type": "object", "additionalProperties": false, "required": ["recipe", "data"],
           "description": "A proven recipe origin (8.2)",
           "properties": {
@@ -81,6 +82,7 @@
       "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
       "properties": {
         "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
         "op": { "type": "string" },
         "managementId": { "type": "string" },
         "sentence": { "type": "string" },
@@ -188,6 +190,7 @@
         "reason": { "enum": ["existing-content", "managed-content-changed", "second-displacement"] },
         "managementId": { "type": "string" },
         "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
         "target": { "type": "string" },
         "key": { "type": "string" },
         "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
