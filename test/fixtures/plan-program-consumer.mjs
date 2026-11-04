@@ -95,7 +95,7 @@ try {
     server.serve(`/${failing.acquire.distribution.file}`, Buffer.from('not the qualified archive'));
     const out = await child(['install', write('failing', programRequest(project, { setups: [failing], skills: [{ name: 'other', text: '# other\n' }] })), project],
       environment());
-    assert.equal(out.run.completion, 'incomplete', JSON.stringify(out));
+    assert.equal(out.run?.completion, 'incomplete', JSON.stringify(out));
     assert.deepEqual([step(out.run, 0).application, step(out.run, 3).application, step(out.run, 2).application, step(out.run, 1).application],
       ['failed', 'not-attempted', 'not-attempted', 'applied']);
   });
@@ -127,7 +127,7 @@ try {
     const upstream = upstreamRepository(root, home);
     const installer = installerStep('packed-other');
     const out = await child(['install', write('upstream', programRequest(project, { upstream: [upstream], installers: [installer] })), project], environment());
-    assert.equal(out.run.completion, 'complete', JSON.stringify(out));
+    assert.equal(out.run?.completion, 'complete', JSON.stringify(out));
     assert.ok(existsSync(join(home, '.claude', 'skills', 'gstack', 'built.txt')));
     assert.equal(out.review.steps.find(entry => entry.op === 'upstream-installer').program.managed, false);
     const removed = await child(['remove', 'gstack', project, 'user'], environment());
