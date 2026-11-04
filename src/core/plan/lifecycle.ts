@@ -31,7 +31,7 @@ import { join } from 'node:path';
 import { managementIdOf, sameProject } from './claims.js';
 import { linkRecordPath, linkState } from './links.js';
 import type { Json } from '../types.js';
-import { INVENTORY, REVIEW, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type InventoryMember, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
+import { INVENTORY, REMOVAL_CHOICES, REVIEW, type RemovalResolution, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type InventoryMember, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
   type Review, type ReviewStep } from './types.js';
 
 const invalid = (path: string, reason: string, message: string): { status: 'invalid'; problems: Problem[] } =>
@@ -205,7 +205,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
 
 export async function prepareRemoval(request: unknown, controls: unknown = {}): Promise<RemovalResult> {
   forgetProvenState();
-  if (!plain(request, ['target', 'scope', 'removals', 'mode'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals, mode? }`.');
+  if (!plain(request, ['target', 'scope', 'removals', 'mode', 'resolutions'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals, mode?, resolutions? }`.');
   const located = place(request, ['project', 'user']);
   if ('status' in located) return located;
   const options = planControls(controls);
@@ -216,6 +216,16 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   if (enterprise && 'status' in enterprise) return enterprise;
   const removals = request.removals;
   if (!Array.isArray(removals) || removals.length === 0 || removals.length > 4096) return invalid('/removals', 'removals', 'Name one or more removals.');
+  // A second preparation's choices for one-item entries (section 7's resolve-and-prepare-again): `{ managementId, item, choice }`.
+  const resolutions = request.resolutions ?? [];
+  if (!Array.isArray(resolutions) || resolutions.length > 4096 || !resolutions.every(item => plain(item, ['managementId', 'item', 'choice']) &&
+      typeof item.managementId === 'string' && ID.test(item.managementId) && typeof item.item === 'string' && ID.test(item.item) &&
+      (REMOVAL_CHOICES as readonly unknown[]).includes(item.choice)))
+    return invalid('/resolutions', 'resolutions', `Each resolution is \`{ managementId, item, choice }\` with a choice of ${REMOVAL_CHOICES.join(', ')}.`);
+  const resolutionFor = (managementId: string, item: string) => (resolutions as RemovalResolution[]).find(entry => entry.managementId === managementId && entry.item === item);
+  for (const [index, resolution] of (resolutions as RemovalResolution[]).entries())
+    if (!removals.some(entry => plain(entry, ['managementId', 'item', 'origin', 'clis']) && entry.managementId === resolution.managementId && entry.item === resolution.item))
+      return invalid(`/resolutions/${index}`, 'resolution-unknown', `No removal entry names \`${resolution.managementId}\` with item \`${resolution.item}\`.`);
   const scope = located.scope as 'project' | 'user';
   const home = projectRoot(homedir());
   const facts = planFacts([scope === 'project' ? located.anchor : home]);
@@ -227,24 +237,26 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   // One item inside an indivisible plugin (C45, C68): never split; the entry offers the whole plugin instead.
   const itemEntries = new Map<number, RemovalEntry>();
   for (const [index, entry] of removals.entries()) {
-    if (!plain(entry, ['managementId', 'item', 'origin', 'clis', 'switchOff']) || typeof entry.managementId !== 'string' || !ID.test(entry.managementId))
+    if (!plain(entry, ['managementId', 'item', 'origin', 'clis']) || typeof entry.managementId !== 'string' || !ID.test(entry.managementId))
       return invalid(`/removals/${index}`, 'removal', 'A removal names a `managementId`.');
-    if (entry.switchOff !== undefined) {
-      if (entry.switchOff !== true || typeof entry.item !== 'string' || !ID.test(entry.item) || entry.origin !== undefined || entry.clis !== undefined)
-        return invalid(`/removals/${index}/switchOff`, 'switch-off', 'A switch-off is `{ managementId, item, switchOff: true }`.');
-      if (removals.length !== 1) return invalid('/removals', 'switch-off-alone', 'A switch-off is prepared on its own.');
-      return switchOff(entry.managementId, entry.item, located.scope as 'project' | 'user', located.anchor, options);
-    }
     if (entry.clis !== undefined && !(Array.isArray(entry.clis) && entry.clis.length > 0 && entry.clis.length <= 64 &&
         entry.clis.every(cli => typeof cli === 'string' && ID.test(cli)) && new Set(entry.clis).size === entry.clis.length))
       return invalid(`/removals/${index}/clis`, 'clis', 'Name one or more CLI ids.');
     if (entry.origin !== undefined && entry.origin !== 'chosen') return invalid(`/removals/${index}/origin`, 'origin', 'Only the `chosen` origin can be recorded by this Core.');
-    if (entry.item !== undefined) {
+    const resolution = typeof entry.item === 'string' ? resolutionFor(entry.managementId, entry.item) : undefined;
+    if (resolution?.choice === 'switch-off') {
+      // The item's switch-off (C45) is reviewed on its own: one entry, one marked block.
+      if (entry.origin !== undefined || entry.clis !== undefined) return invalid(`/removals/${index}`, 'switch-off', 'A switch-off names only `{ managementId, item }`.');
+      if (removals.length !== 1) return invalid('/removals', 'switch-off-alone', 'A switch-off is prepared on its own.');
+      return switchOff(entry.managementId, resolution.item, located.scope as 'project' | 'user', located.anchor, options);
+    }
+    if (entry.item !== undefined && !resolution) {
       if (typeof entry.item !== 'string' || !ID.test(entry.item)) return invalid(`/removals/${index}/item`, 'item', 'An item is named by its id.');
       const found = itemInPlugin(entry.managementId, entry.item, located.scope as 'project' | 'user', located.anchor);
       if (!found) return invalid(`/removals/${index}/item`, 'item-removal-unavailable', 'Only an item inside a plugin is removed by item.');
       itemEntries.set(index, found); continue;
     }
+    // With `remove-plugin` chosen for one item, the entry is the whole plugin's removal.
     // A user-scope change's claim has no CLI: it counts as unattributed for removal by CLI.
     const changeClaims = [...keyed].filter(([key, claim]) => key.startsWith(`${scope}\0`) && claim.managementId === entry.managementId)
       .map(([key, claim]) => ({ engineId: key.slice(scope.length + 1), plan: { managementId: claim.managementId, cli: null, project: claim.project } as PlanItemFacts }));
@@ -387,19 +399,22 @@ function itemInPlugin(managementId: string, item: string, scope: 'project' | 'us
     // Without the route's contained-item metadata Core can't say what the plugin holds; it lists its files (C68).
     if (plan.localPlugin.contains === null) {
       const row = readOwnership(root).value.items?.[claimIdentity(scope, claim!.engineId, anchor)];
-      return { ...whole, files: pluginFiles((row?.members ?? []).map(member => ({ kind: member.kind, path: 'path' in member ? member.path : '' })), root), offers: [{ managementId }] };
+      return { ...whole, files: pluginFiles((row?.members ?? []).map(member => ({ kind: member.kind, path: 'path' in member ? member.path : '' })), root),
+        offers: [{ managementId }], choices: ['remove-plugin'] };
     }
     if (!plan.localPlugin.contains.includes(item)) return { managementId, item, disposition: 'absent', members: [] };
-    return { ...whole, contains: [...plan.localPlugin.contains], offers: [{ managementId }] };
+    return { ...whole, contains: [...plan.localPlugin.contains], offers: [{ managementId }], choices: ['remove-plugin'] };
   }
   if (!plan.plugins) return undefined;
   const holding = plan.plugins.filter(plugin => plugin.contains.includes(item));
   if (!holding.length) return { managementId, item, disposition: 'absent', members: [] };
+  // Where the CLI can switch the one item off, that is a choice for this entry; once it is off, its own removal is offered.
   const offers: NonNullable<RemovalEntry['offers']> = [{ managementId }];
-  if (switchable(holding, item)) offers.push(switchedOff(facts, scope, managementId, item) ? { managementId: item } : { managementId, item, switchOff: true });
-  return { ...whole, contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers };
+  const choices: NonNullable<RemovalEntry['choices']> = ['remove-plugin'];
+  if (switchable(holding, item)) { if (switchedOff(facts, scope, managementId, item)) offers.push({ managementId: item }); else choices.push('switch-off'); }
+  return { ...whole, contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers, choices };
 }
-/** `{ managementId, item, switchOff: true }`: `absent` when the install doesn't record the item, else its reviewed switch-off. */
+/** The `switch-off` resolution for `{ managementId, item }`: `absent` when the install doesn't record the item, else its reviewed switch-off. */
 async function switchOff(framework: string, item: string, scope: 'project' | 'user', anchor: string, controls: PlanControls): Promise<RemovalResult> {
   const root = scope === 'project' ? anchor : projectRoot(homedir());
   const claims = claimsOf(planFacts([root]), scope, framework);

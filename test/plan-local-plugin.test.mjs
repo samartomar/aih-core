@@ -60,9 +60,9 @@ test('a local-plugin route is one indivisible install: its files and registratio
   // One item inside it: the plugin can't be split, and Claude has no supported switch-off, so only the whole plugin is offered.
   const one = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: 'superpowers', item: ITEMS[0] }] });
   assert.deepEqual(one, { status: 'ok', entries: [{ managementId: 'superpowers', item: ITEMS[0], disposition: 'unavailable',
-    reason: 'plugin-indivisible', members: [], contains: ITEMS, offers: [{ managementId: 'superpowers' }] }] });
+    reason: 'plugin-indivisible', members: [], contains: ITEMS, offers: [{ managementId: 'superpowers' }], choices: ['remove-plugin'] }] });
   const refused = await prepareRemoval({ target: { project }, scope: 'project',
-    removals: [{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }] });
+    removals: [{ managementId: 'superpowers', item: ITEMS[0] }], resolutions: [{ managementId: 'superpowers', item: ITEMS[0], choice: 'switch-off' }] });
   assert.deepEqual([refused.status, refused.code], ['refused', 'switch-off-unsupported'], JSON.stringify(refused));
 
   const whole = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: 'superpowers' }] });
@@ -88,12 +88,13 @@ test('without the route\'s contained-item metadata, Core lists the plugin files 
   assert.deepEqual(listed.entries[0].localPlugin, { contains: null, files: FILES });
   const one = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: 'superpowers', item: ITEMS[0] }] });
   assert.deepEqual(one.entries, [{ managementId: 'superpowers', item: ITEMS[0], disposition: 'unavailable', reason: 'plugin-indivisible',
-    members: [], files: FILES, offers: [{ managementId: 'superpowers' }] }]);
+    members: [], files: FILES, offers: [{ managementId: 'superpowers' }], choices: ['remove-plugin'] }]);
 });
 
 const NAME = 'superpowers:brainstorming';
 const codexConfig = () => join(home, '.codex', 'config.toml');
-const userRemoval = removals => prepareRemoval({ target: {}, scope: 'user', removals });
+const userRemoval = (removals, resolutions) => prepareRemoval({ target: {}, scope: 'user', removals, ...(resolutions ? { resolutions } : {}) });
+const SWITCH_OFF = [{ managementId: 'superpowers', item: ITEMS[0], choice: 'switch-off' }];
 async function installCodexPlugin() {
   const prepared = await prepare(codexPluginRequest());
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
@@ -110,10 +111,14 @@ test('one Codex plugin skill is switched off by a marked [[skills.config]] block
   writeFileSync(codexConfig(), yours);
 
   const offered = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }]);
-  assert.deepEqual(offered.entries[0].offers, [{ managementId: 'superpowers' }, { managementId: 'superpowers', item: ITEMS[0], switchOff: true }]);
+  assert.deepEqual([offered.entries[0].reason, offered.entries[0].choices, offered.entries[0].offers],
+    ['plugin-indivisible', ['remove-plugin', 'switch-off'], [{ managementId: 'superpowers' }]]);
   assert.equal(offered.handle, undefined);
+  // Switching off is not a removal entry of its own: it is the resolution chosen for that entry, prepared again.
+  const entryForm = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }]);
+  assert.equal(entryForm.status, 'invalid', JSON.stringify(entryForm));
 
-  const prepared = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }]);
+  const prepared = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }], SWITCH_OFF);
   assert.equal(prepared.status, 'ok', JSON.stringify(prepared));
   assert.deepEqual(prepared.entries.map(entry => [entry.managementId, entry.item, entry.disposition, entry.status]),
     [['superpowers', ITEMS[0], 'prepared', 'ready']]);
@@ -138,7 +143,8 @@ test('one Codex plugin skill is switched off by a marked [[skills.config]] block
   assert.deepEqual(listed.entries.find(entry => entry.managementId === ITEMS[0]).switchOff,
     { framework: 'superpowers', item: ITEMS[0], cli: 'codex', name: NAME });
   const again = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }]);
-  assert.deepEqual(again.entries[0].offers, [{ managementId: 'superpowers' }, { managementId: ITEMS[0] }], 'once off, its removal is offered');
+  assert.deepEqual([again.entries[0].choices, again.entries[0].offers], [['remove-plugin'], [{ managementId: 'superpowers' }, { managementId: ITEMS[0] }]],
+    'once off, its removal is offered');
 
   const on = await userRemoval([{ managementId: ITEMS[0] }]);
   assert.equal(on.status, 'ok', JSON.stringify(on));
@@ -154,8 +160,8 @@ test('your own unmarked entry for the skill, or two marked blocks for it, block 
   mkdirSync(join(home, '.codex'));
   const unmarked = `[[skills.config]]\nname = "${NAME}"\nenabled = true\n`;
   writeFileSync(codexConfig(), unmarked);
-  const request = [{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }];
-  let blocked = await userRemoval(request);
+  const request = [{ managementId: 'superpowers', item: ITEMS[0] }];
+  let blocked = await userRemoval(request, SWITCH_OFF);
   assert.equal(blocked.status, 'ok', JSON.stringify(blocked));
   assert.equal(blocked.handle, undefined);
   assert.equal(blocked.entries[0].status, 'blocked');
@@ -166,7 +172,7 @@ test('your own unmarked entry for the skill, or two marked blocks for it, block 
 
   const marked = `# aih:begin superpowers/${ITEMS[0]}\n[[skills.config]]\nname = "${NAME}"\nenabled = false\n# aih:end superpowers/${ITEMS[0]}\n`;
   writeFileSync(codexConfig(), marked + marked);
-  blocked = await userRemoval(request);
+  blocked = await userRemoval(request, SWITCH_OFF);
   assert.equal(blocked.handle, undefined);
   assert.deepEqual(blocked.review.conflicts.map(conflict => [conflict.reason, conflict.choices]), [['existing-content', ['skip']]]);
   assert.equal(readFileSync(codexConfig(), 'utf8'), marked + marked);
@@ -177,14 +183,19 @@ test('a CLI without a supported switch-off gets no invented toggle, and removing
   const claude = await prepare(pluginRequest('none'));
   conforms(await apply(claude.handle, approve(claude.review)));
   const offered = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }]);
-  assert.deepEqual(offered.entries[0].offers, [{ managementId: 'superpowers' }]);
-  const refused = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }]);
+  assert.deepEqual([offered.entries[0].choices, offered.entries[0].offers], [['remove-plugin'], [{ managementId: 'superpowers' }]]);
+  const refused = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }], SWITCH_OFF);
   assert.deepEqual([refused.status, refused.code], ['refused', 'switch-off-unsupported']);
+  // Choosing the whole plugin for that entry prepares the plugin's removal; a resolution for no entry is invalid.
+  const plugin = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }], [{ managementId: 'superpowers', item: ITEMS[0], choice: 'remove-plugin' }]);
+  assert.deepEqual([plugin.status, plugin.entries[0].managementId, plugin.entries[0].disposition, !!plugin.handle], ['ok', 'superpowers', 'prepared', true], JSON.stringify(plugin));
+  const stray = await userRemoval([{ managementId: 'superpowers' }], SWITCH_OFF);
+  assert.deepEqual([stray.status, stray.problems?.[0]?.reason], ['invalid', 'resolution-unknown']);
   assert.equal(existsSync(codexConfig()), false);
 
   fresh();
   await installCodexPlugin();
-  const off = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0], switchOff: true }]);
+  const off = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }], SWITCH_OFF);
   assert.equal(off.review.steps[0].effect, 'create-file');
   conforms(await apply(off.handle, approve(off.review)));
   const whole = await userRemoval([{ managementId: 'superpowers' }]);

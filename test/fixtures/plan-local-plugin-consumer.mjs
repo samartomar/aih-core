@@ -54,8 +54,11 @@ await check('the aih CLI switches one Codex plugin skill off and on again, keepi
   const yours = 'model = "o3"\n\n[mcp_servers.github]\ncommand = "gh"\n';
   writeFileSync(config, yours);
   const offered = aih(['remove', 'superpowers', '--scope', 'user', '--item', ITEM, '--json']);
-  assert.deepEqual(offered.result.entries[0].offers, [{ managementId: 'superpowers' }, { managementId: 'superpowers', item: ITEM, switchOff: true }]);
-  const off = aih(['remove', 'superpowers', '--scope', 'user', '--item', ITEM, '--switch-off', '--apply', '--yes', '--json']);
+  assert.deepEqual([offered.result.entries[0].choices, offered.result.entries[0].offers], [['remove-plugin', 'switch-off'], [{ managementId: 'superpowers' }]]);
+  // The choice is a resolution for that entry, passed to a second preparation (`--resolutions`).
+  const resolutions = join(here, 'switch-off.json');
+  writeFileSync(resolutions, JSON.stringify({ resolutions: [{ managementId: 'superpowers', item: ITEM, choice: 'switch-off' }] }));
+  const off = aih(['remove', 'superpowers', '--scope', 'user', '--item', ITEM, '--resolutions', resolutions, '--apply', '--yes', '--json']);
   assert.deepEqual([off.code, off.result.completion, off.result.steps[0].verification.reason], [0, 'complete', 'readback-matched'], JSON.stringify(off));
   const after = readFileSync(config, 'utf8');
   assert.ok(after.startsWith(yours));
@@ -63,7 +66,7 @@ await check('the aih CLI switches one Codex plugin skill off and on again, keepi
   const inventory = aih(['list', '--scope', 'user', '--json']);
   assert.deepEqual(inventory.result.entries.map(entry => entry.managementId).sort(), ['superpowers', ITEM]);
   const usage = aih(['remove', 'superpowers', '--scope', 'user', '--switch-off', '--json']);
-  assert.deepEqual([usage.code, usage.result.code], [2, 'usage']);
+  assert.deepEqual([usage.code, usage.result.code], [2, 'usage'], 'there is no switch-off flag');
   const on = aih(['remove', ITEM, '--scope', 'user', '--apply', '--yes', '--json']);
   assert.deepEqual([on.code, on.result.completion], [0, 'complete'], JSON.stringify(on));
   assert.equal(readFileSync(config, 'utf8'), yours);

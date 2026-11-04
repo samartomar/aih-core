@@ -35,6 +35,15 @@ export function readDocument(path: string, maxBytes: number): Record<string, unk
   return parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes), 'document');
 }
 
+/** A `--resolutions <file>` document (`{ "resolutions": [...] }`): the choices for a second preparation, or `undefined` when unreadable. */
+export function readResolutions(path: string): unknown[] | undefined {
+  try {
+    const document = readDocument(path, 1_000_000);
+    return Object.keys(document).length === 1 && Array.isArray(document.resolutions) ? document.resolutions as unknown[] : undefined;
+  } catch { return undefined; }
+}
+export const RESOLUTIONS_UNREADABLE = 'The resolutions file holds `{ "resolutions": [...] }`.';
+
 /** `--yes` approves; otherwise an interactive terminal asks. Anything else is not approval. */
 export async function approved(review: Review, yes: boolean, signal: AbortSignal): Promise<boolean> {
   if (yes) return true;

@@ -784,9 +784,13 @@ such as Claude's `extraKnownMarketplaces` and `enabledPlugins`), each naming the
 - **Inventory.** `list` shows `localPlugin: { contains, files }`. Without the route's `contains` (an older plan),
   `contains` is `null` and only the files are listed; Core never infers which items the plugin holds.
 - **One item.** `{ managementId: <framework>, item }` is `unavailable` `plugin-indivisible`, with `contains` (or, without
-  it, the plugin's `files`) and `offers`: the whole plugin's removal and, where the CLI supports it, the item's switch-off.
-- **Switching off** (`{ managementId, item, switchOff: true }`, alone in its request; `aih remove <framework> --item <id>
-  --switch-off`) is offered only for a Codex native plugin whose recorded folder holds the item as a skill: Codex keys
+  it, the plugin's `files`), `offers` (the whole plugin's removal) and `choices`: `remove-plugin` and, where the CLI
+  supports it, `switch-off`. The person chooses, and the caller prepares the same removal again with
+  `resolutions: [{ managementId, item, choice }]` (as for conflicts, section 7; `aih remove <framework> --item <id>
+  --resolutions <file>`). `remove-plugin` prepares the whole plugin's removal for that entry; a resolution naming no
+  entry is invalid `resolution-unknown`.
+- **Switching off** (the `switch-off` choice, alone in its request) is offered only for a Codex native plugin whose
+  recorded folder holds the item as a skill: Codex keys
   `[[skills.config]]` by the plugin-qualified `plugin:skill` name. Anything else is refused `switch-off-unsupported`;
   Claude and the other CLIs get no invented toggle. The switch-off is a reviewed change owned by the item's own claim:
   one marked block (`# aih:begin <framework>/<item>` … `# aih:end <framework>/<item>`) appended to

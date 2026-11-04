@@ -323,9 +323,11 @@ export interface Inventory {
   observation: 'complete' | 'incomplete'; entries: InventoryEntry[];
 }
 export type ListResult = Inventory | Refusal | Invalid;
-export interface RemovalSelector { managementId: string; item?: string; origin?: string; clis?: string[];
-  /** With `item`: switch that one plugin item off where its CLI supports it, instead of removing anything (C45). */
-  switchOff?: true }
+export interface RemovalSelector { managementId: string; item?: string; origin?: string; clis?: string[] }
+/** What can be chosen for one item inside a plugin (C45): the whole plugin's removal, or the item's switch-off where the CLI supports it. */
+export const REMOVAL_CHOICES = ['remove-plugin', 'switch-off'] as const;
+/** A removal request's choice for a one-item entry, passed to a second preparation (section 7's resolve-and-prepare-again). */
+export interface RemovalResolution { managementId: string; item: string; choice: typeof REMOVAL_CHOICES[number] }
 export interface RemovalMember { kind: string; path: string; pointer?: string; action: string; reason?: string }
 export interface RemovalEntry {
   managementId: string; disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
@@ -339,10 +341,12 @@ export interface RemovalEntry {
   /** A local plugin whose plan named no contained items: its files, listed instead of guessing membership. */
   files?: string[];
   /**
-   * The removals the person can prepare instead: the whole plugin, the item's switch-off where the CLI supports one, or,
-   * once it is off, the switch-off's own removal (`{ managementId: <item> }`), which turns it back on.
+   * The removals the person can prepare instead: the whole plugin, or, once the item is switched off, the switch-off's
+   * own removal, which turns it back on.
    */
-  offers?: { managementId: string; item?: string; switchOff?: true }[];
+  offers?: { managementId: string }[];
+  /** The resolutions this one-item entry accepts in `resolutions` (`remove-plugin`, and `switch-off` where supported). */
+  choices?: RemovalResolution['choice'][];
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle;
   /** `AUTHORITY_DENIED` when the organization denies the removal (no handle), naming the entry in `reason`. */

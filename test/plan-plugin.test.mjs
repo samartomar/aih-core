@@ -176,7 +176,7 @@ test('one item inside a plugin offers removal of the whole plugin, never a silen
   assert.equal(result.handle, undefined);
   assert.deepEqual(result.entries, [{ managementId: 'superpowers', item: 'superpowers.skill.brainstorming', disposition: 'unavailable',
     reason: 'plugin-indivisible', members: [], contains: ['superpowers.skill.brainstorming', 'superpowers.skill.writing-plans'],
-    offers: [{ managementId: 'superpowers' }] }]);
+    offers: [{ managementId: 'superpowers' }], choices: ['remove-plugin'] }]);
   assert.equal(fakeClientState(state, 'claude').calls.length, calls, 'nothing ran');
   const other = await removal({ item: 'superpowers.skill.unknown' });
   assert.equal(other.entries[0].disposition, 'absent');
