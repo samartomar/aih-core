@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { contractSupport as harnessSupport, deriveCellSupport, listTools, selectBindingCell, toolBindingKinds, toolBindings,
-  toolRegistry, validateToolBinding } from '@aihq/core/harness';
+  toolRegistry, validateToolBinding, selectTool } from '@aihq/core/harness';
 import bindingSchema from '@aihq/core/harness/schemas/tool-binding/1.0.0.json' with { type: 'json' };
 import acceptBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/accept.json' with { type: 'json' };
 import refuseBinding from '@aihq/core/fixtures/harness/tool-binding/1.0.0/refuse.json' with { type: 'json' };
@@ -51,7 +51,8 @@ check('the binding table is published with its schema, one binding per observed 
   for (const binding of toolBindings) {
     assert.equal(ajv.validate(bindingSchema, binding), true, JSON.stringify(ajv.errors));
     assert.deepEqual(validateToolBinding(binding), { valid: true, diagnostics: [] });
-    assert.ok(registryIds.includes(binding.tool));
+    // Bindings keep the retained tool vocabulary (`claude` is now the registry alias of `claude-code`).
+    assert.equal(selectTool(binding.tool).status, 'ok', binding.tool);
     assert.deepEqual(Object.keys(binding.layouts), KINDS);
     assert.ok(Object.isFrozen(binding) && Object.isFrozen(binding.layouts) && Object.values(binding.layouts).every(Object.isFrozen));
   }

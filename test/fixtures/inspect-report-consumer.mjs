@@ -198,7 +198,7 @@ await check('checkFiles compares a change and aih check-files exits by its outco
   assert.deepEqual([matched.code, matched.result.observation, matched.result.fileState], [0, 'complete', 'match'], matched.stderr);
   writeFileSync(join(folder, '.team', 'settings.json'), '{ "formatter": "biome" }\n');
   assert.equal(aih(['check-files', file, '--json']).code, 1);
-  assert.equal(aih(['check-files', join(scratch, 'missing.json'), '--json']).result.code, 'request-unreadable');
+  assert.equal(aih(['check-files', join(scratch, 'missing.json'), '--json']).code, 2);
   assert.equal(tree(join(home, '.aih')), null, 'no state, history or receipts');
 });
 

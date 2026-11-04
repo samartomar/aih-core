@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { repairIndex, selectVerificationKeys, selectVerificationPublishers } from '../harness/contracts.mjs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe,
@@ -183,12 +184,22 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
   change: () => import('./cli/change.js'),
-  'check-files': () => import('./cli/check-files.js'),
 };
 // `aih inspect` is the 0.1.0 inspection unless a retained-only option asks for the retained result.
-const RETAINED_INSPECT = /^--(?:probe-configured-mcp|project|support-markdown)(?:=|$)/;
+const RETAINED_INSPECT = /^--(?:probe-configured-mcp|project)(?:=|$)/;
+/** `aih check-files` reads a plan or change request with the 0.1.0 comparison; an execution policy keeps the retained one. */
+function requestKind(args: string[]): boolean {
+  return args.filter(arg => !arg.startsWith('-')).some(file => {
+    try {
+      const schema = (JSON.parse(readFileSync(resolve(file), 'utf8')) as { schema?: unknown }).schema;
+      return typeof schema === 'string' && /^urn:aihq:core:(?:plan|change)-request:/.test(schema);
+    } catch { return false; }
+  });
+}
 if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(process.argv[3] ?? '')) {
   await (await import('./cli/validate.js')).run(process.argv.slice(3));
+} else if (process.argv[2] === 'check-files' && requestKind(process.argv.slice(3))) {
+  await (await import('./cli/check-files.js')).run(process.argv.slice(3), controller.signal);
 } else if (process.argv[2] === 'inspect' && !process.argv.slice(3).some(arg => RETAINED_INSPECT.test(arg))) {
   await (await import('./cli/inspect.js')).run(process.argv.slice(3), controller.signal);
 } else if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {

@@ -1,8 +1,11 @@
-// Which CLI ids a plan may name (C37, C73): a Catalog profile id must be a registry id with surface `cli`.
-// Only the id counts: an alias (such as `claude`) is accepted for selection by name, never in a plan.
+// Which CLI ids a plan may name (C37, C73): a Catalog profile id must be a registry id with surface `cli`, and content
+// steps target only the registry tools Catalog has a profile for (contract 6). Only the id counts: an alias (such as
+// `claude`) is accepted for selection by name, never in a plan. A registry change that drops one of these CLIs fails here.
 import { findTool } from '../../harness/tool-registry.mjs';
+
+const PROFILED = new Set(['claude-code', 'codex', 'copilot', 'kiro', 'antigravity', 'opencode', 'kimi', 'cursor', 'dsh']);
 
 export function knownCli(id: string): boolean {
   const found = findTool(id);
-  return !!found && found.via === 'id' && found.tool.surface === 'cli';
+  return PROFILED.has(id) && !!found && found.via === 'id' && found.tool.surface === 'cli';
 }
