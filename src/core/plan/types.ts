@@ -53,7 +53,7 @@ export type UnsupportedVersion = { status: 'unsupported-version'; encountered: s
 
 export interface ReviewStep {
   step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
-  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged';
+  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-process';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
 }
 export interface ReviewConflict {
@@ -62,7 +62,7 @@ export interface ReviewConflict {
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal';
+  request: 'plan' | 'removal' | 'repair' | 'export' | 'macos-session';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
@@ -75,6 +75,8 @@ export interface Review {
   ignoredFiles?: { sourceId: string; sourcePath: string }[];
   failureRule: string;
   warnings: string[];
+  /** Repair, export and macOS session reviews only (contract 10). */
+  environment?: EnvironmentReview;
   reviewDigest: string;
 }
 export interface Preparation {
@@ -104,6 +106,8 @@ export interface Run {
   reviewDigest: string | null;
   steps: RunStep[]; members: RunMember[];
   history: { status: 'recorded' | 'disabled' | 'not-recorded'; limit?: string };
+  /** Repair, export and macOS session runs only (contract 10). */
+  environment?: EnvironmentRun;
 }
 
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
@@ -125,3 +129,25 @@ export interface RemovalEntry {
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+
+/** A problem that keeps environment work from being admitted on this host, named by its retained code and reason. */
+export interface EnvironmentProblem { code: string; reason: string; message: string; path?: string }
+/** The retained facts of a repair, certificate export or macOS session review (contract 10). */
+export interface EnvironmentReview {
+  job: 'repair' | 'export' | 'macos-session';
+  repair: string | null;
+  targets: string[];
+  route: 'file' | 'native' | 'os' | 'export';
+  network: 'declared' | 'off';
+  /** The job's reviewed trust facts: sources, certificates, outputs and per-target admission, or the macOS session facts. */
+  facts: { [field: string]: Json };
+  observations: { id: string; reason: string }[];
+  unavailable: EnvironmentProblem[];
+}
+export interface EnvironmentRun {
+  job: 'repair' | 'export' | 'macos-session';
+  outputs: { [field: string]: Json }[];
+  targets: { [field: string]: Json }[];
+  session?: { [field: string]: Json };
+  diagnostics: EnvironmentProblem[];
+}

@@ -12,7 +12,7 @@ const fixture = (root, output) => {
 };
 
 // Protocol fixtures exercise public decisions, never qualify an installed tool or platform.
-test('effective trust refuses missing and incompatible selected Python without substituting PATH', async () => {
+test('effective trust refuses a missing selected Python and tries an untested installed one without substituting PATH', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-effective-'));
   try {
     const absent = await runtime.inspectUserToolTrust({ target: 'python', executable: join(root, 'missing'), project: root, network: 'off' });
@@ -22,10 +22,15 @@ test('effective trust refuses missing and incompatible selected Python without s
     const script = join(root, 'python.cjs');
     writeFileSync(script, `#!/usr/bin/env node\nconsole.log(JSON.stringify({version:'3.12.3',executable:${JSON.stringify(script)},prefix:'/fixture',basePrefix:'/fixture',openssl:'OpenSSL fixture',defaultPaths:{},pip:null}));\n`, { mode: 0o755 });
     if (process.platform === 'win32') return; // POSIX protocol launcher only.
+    // A version other than the tested one is tried, never refused (C20); the tested version is only a hint.
     const old = await runtime.inspectUserToolTrust({ target: 'python', executable: script, project: root, network: 'off' });
-    assert.equal(old.decision, 'blocked');
-    assert.equal(old.reason, 'runtime-incompatible');
+    assert.equal(old.decision, 'unconfirmed');
+    assert.equal(old.reason, 'network-off');
     assert.equal(old.observation.version, '3.12.3');
+    assert.deepEqual(old.observation.testedWith, { python: '3.15.2' });
+    assert.equal(old.hint, undefined);
+    const removed = await runtime.inspectUserToolTrust({ target: 'python', executable: script, project: root, network: 'off', pythonRecipe: 'serena' });
+    assert.equal(removed.reason, 'input-invalid');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -16,7 +16,6 @@ export interface UserToolTrustRequest {
   target: 'python' | 'pip' | 'conda' | 'git' | 'cargo';
   /** Python interpreter for python/pip; the selected tool executable otherwise. */
   executable: string; project: string; network: 'declared' | 'off'; endpoint?: string;
-  pythonRecipe?: 'general' | 'pyyaml-onnx' | 'code-review-graph' | 'serena';
   /** Caller declaration, reported separately from observed process paths; never native admission. */
   interpreterSource?: 'system' | 'uv-managed' | 'unknown';
   /** Required for Cargo: independently observed in the same selected project. */
@@ -26,6 +25,8 @@ export interface UserToolTrustResult {
   decision: 'blocked' | 'unconfirmed' | 'no-repair' | 'bundle-fallback' | 'native-truststore'; reason: string;
   observation: Record<string, unknown>;
   recommendation?: {scope:'observed-conda-environment';key:'ssl_verify';value:'truststore'};
+  /** After a real failure on a version other than the one these checks were tested on: both versions, as a hint only (C20). */
+  hint?: { testedWith: string; observed: string };
 }
 export declare function inspectUserToolTrust(request: UserToolTrustRequest, controls?: DiagnoseControls): Promise<UserToolTrustResult>;
 /** Explicit launcher discovery; never establishes effective manager TLS or native admission. */

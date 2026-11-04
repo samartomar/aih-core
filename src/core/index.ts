@@ -42,7 +42,9 @@ import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { preparePlan } from './plan/prepare.js';
 import { applyPlan } from './plan/apply.js';
 import { isPlanHandle } from './plan/handles.js';
+import { applyEnvironment, isEnvironmentHandle, isEnvironmentRequest, prepareEnvironment } from './environment/index.js';
 import type { PreparationResult, RunResult } from './host-types.js';
+import type { EnvironmentRequest } from './environment/request.js';
 import { PLAN_REQUEST, type Approval, type PlanControls, type PlanHandle, type PlanPreparation, type PlanRequest, type Run } from './plan/types.js';
 /** Any `urn:aihq:core:plan-request:*` document goes to the plan path, which answers `unsupported-version` for other versions. */
 const isPlanRequest = (request: unknown): boolean => {
@@ -53,9 +55,12 @@ const isPlanRequest = (request: unknown): boolean => {
 export type { RepairRequest } from './repair.js';
 /** A plan request (`urn:aihq:core:plan-request:0.1.0`) returns the 0.1.0 preparation (contract 3, 14.1). */
 export function prepare(request: PlanRequest, controls?: PlanControls): Promise<PlanPreparation>;
+/** A repair, export or macOS session request (`urn:aihq:core:{repair,export,macos-session}-request:0.1.0`, contract 10). */
+export function prepare(request: EnvironmentRequest, controls?: Pick<PlanControls, 'signal' | 'logging'>): Promise<PlanPreparation>;
 export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls?: HostControls): Promise<PreparationResult>;
-export function prepare(request: PlanRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls = {}): Promise<PreparationResult | PlanPreparation> {
+export function prepare(request: PlanRequest | EnvironmentRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls = {}): Promise<PreparationResult | PlanPreparation> {
   if (isPlanRequest(request)) return preparePlan(request, controls);
+  if (isEnvironmentRequest(request)) return prepareEnvironment(request, controls);
   return prepareOlder(request as PolicyRequest, controls as HostControls);
 }
 function prepareOlder(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
@@ -73,6 +78,7 @@ export function apply(handle: PlanHandle, approval: Approval, controls?: PlanCon
 export function apply(prepared: PreparedHandle, authorization: Authorization, controls?: HostControls): Promise<RunResult>;
 export function apply(prepared: PreparedHandle | PlanHandle, authorization: Authorization | Approval, controls: HostControls | PlanControls = {}): Promise<RunResult | Run> {
   if (isPlanHandle(prepared)) return applyPlan(prepared, authorization, controls);
+  if (isEnvironmentHandle(prepared)) return applyEnvironment(prepared, authorization, controls);
   return applyOlder(prepared as PreparedHandle, authorization as Authorization, controls as HostControls);
 }
 function applyOlder(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}): Promise<RunResult> {
@@ -84,7 +90,9 @@ export { list, prepareRemoval } from './plan/lifecycle.js';
 export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFile, PlanResolution, Preparation, Refusal, Invalid,
   UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember as PlanRunMember, StaleChange, PlanHandle,
   Inventory, InventoryEntry, InventoryMember, ListResult, RemovalSelector as PlanRemovalSelector, RemovalMember as PlanRemovalMember, RemovalEntry as PlanRemovalEntry,
-  RemovalPreparation, RemovalResult } from './plan/types.js';
+  RemovalPreparation, RemovalResult, EnvironmentReview, EnvironmentRun, EnvironmentProblem } from './plan/types.js';
+export type { EnvironmentRequest, RepairRequest010 as EnvironmentRepairRequest, ExportRequest010 as EnvironmentExportRequest,
+  MacosSessionRequest010 as EnvironmentMacosSessionRequest, EnvironmentResolution } from './environment/request.js';
 export { inspect } from './inspection.js';
 export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
 export { writeSupportReport } from './support-report.js';

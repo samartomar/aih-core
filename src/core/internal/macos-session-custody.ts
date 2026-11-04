@@ -6,7 +6,7 @@ import { pathPins, pinsMatch, sha256, userHomeRoot, type PathPin } from './host-
 import { stateFiles, stateRoot, protectState, readOwnership } from './state.js';
 import { memberBytes } from './recipe-lifecycle.js';
 import { readRegularFile } from './fsxn.js';
-import { validateMacosSessionCustody, type MacosSessionCustody,
+import { validateMacosSessionCustodyRecord, type MacosSessionCustody,
   type MacosSessionCustodyEntry, type MacosSessionEffect } from '../macos-session-contracts.js';
 import type { TrustEngineParticipant, TrustEngineStep } from './trust-participant.js';
 import { readTrustCustody } from './trust-custody.js';
@@ -22,12 +22,12 @@ interface SessionIntent { schema: string; runId: string; managementId: string; b
   previousIntent?: { reference: string; sha256: string } }
 export interface MacosPendingImage { intent: SessionIntent; digest: string; before: MacosSessionCustody;
   after: MacosSessionCustody; pins: PathPin[] }
-const empty = (): MacosSessionCustody => ({ schema: 'urn:aihq:core:macos-session-custody:1.0.0', entries: [] });
+const empty = (): MacosSessionCustody => ({ schema: 'urn:aihq:core:macos-session-custody:0.1.0', entries: [] });
 const byPathKey = (a: { pathKey: string }, b: { pathKey: string }): number => a.pathKey < b.pathKey ? -1 : a.pathKey > b.pathKey ? 1 : 0;
 
 function encode(value: MacosSessionCustody): Buffer {
   const bytes = Buffer.from(canonicalJson(value));
-  if (bytes.length > LIMIT || !validateMacosSessionCustody(value).valid) throw new Error('session-custody-unavailable');
+  if (bytes.length > LIMIT || !validateMacosSessionCustodyRecord(value).valid) throw new Error('session-custody-unavailable');
   return bytes;
 }
 

@@ -182,8 +182,12 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
 };
+// 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
+const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;
 if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
   await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
+} else if (environmentCli?.accepts(process.argv[2]!, process.argv.slice(3))) {
+  await environmentCli.run(process.argv[2] as 'repair' | 'export-ca', process.argv.slice(3), controller.signal);
 } else if (process.argv[2] === 'verify-macos-session') {
   const { runMacosSessionCli } = await import('./macos-session-cli.js');
   await runMacosSessionCli(process.argv.slice(3), controller.signal);

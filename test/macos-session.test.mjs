@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validatePreparedWork13, validateRunResult13, validateMacosSessionCustody,
+import { validatePreparedWork13, validateRunResult13, validateFormat,
   validateMacosSessionVerificationResult } from '../dist/core/contracts.js';
 
 const request = () => ({
@@ -63,7 +63,7 @@ test('terminal session applies real configuration, retains custody without histo
     assert.match(managedProfile, /NODE_EXTRA_CA_CERTS/);
     assert.match(managedProfile, /AIHQ_UNRELATED=preserve/);
     const custody = JSON.parse(readFileSync(join(home, '.aih/core/macos-session-custody.json'), 'utf8'));
-    assert.equal(validateMacosSessionCustody(custody).valid, true, JSON.stringify(validateMacosSessionCustody(custody)));
+    assert.deepEqual(validateFormat(custody), { status: 'ok', schema: 'urn:aihq:core:macos-session-custody:0.1.0' });
     assert.equal(custody.entries[0].managementId, 'node-npm-trust');
     assert.equal(existsSync(join(home, '.aih/core/history')), false);
     const legacyRequest = { ...selected, schema: 'urn:aihq:core:repair-request:1.0.0' };

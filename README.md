@@ -24,14 +24,14 @@ never establishes working TLS. HTTPS queries preserve verification and inherited
 trust; package managers may update ordinary query caches. Use disposable homes
 and projects for fixtures.
 
-The qualification candidates are Python 3.15.2, pip 26.2.2, Conda 26.9.4,
-Git 2.56.0 (Windows 2.56.0.windows.4), and Rust 1.99.1. Cargo's version and
-reported TLS backend are observed separately from the required selected rustc
-executable. Python's explicit `pythonRecipe` exceptions are `pyyaml-onnx` and
-`code-review-graph` (3.14.10), and `serena` (3.13.18). The optional
-`interpreterSource` is a caller declaration: process paths are observed, but a
-uv-managed versus system distribution is never certified from its path alone.
-Exact interpreter/distributor/dependency artifacts still need qualification.
+Installed tools are tried first; versions are hints, not gates. The checks were tested on
+Python 3.15.2, pip 26.2.2, Conda 26.9.4, Git 2.56.0 (Windows 2.56.0.windows.4) and Rust 1.99.1; each observation
+reports these as `testedWith`. Another installed version is observed and used as it is, and no second copy is ever
+installed. When a selected tool really fails (a blocked observation or a certificate-chain failure) on a version other
+than the tested one, the result carries `hint: { testedWith, observed }`; the hint never changes the decision. Cargo's
+version and reported TLS backend are observed separately from the required selected rustc executable. The optional
+`interpreterSource` is a caller declaration: process paths are observed, but a uv-managed versus system distribution
+is never certified from its path alone. The earlier per-tool Python pins (`pythonRecipe`) are removed.
 
 Online user-tool CA repair runs the effective-process gate before rendering
 persistent changes. A working endpoint reports `REPAIR_NOT_NEEDED`; ambiguous
@@ -39,8 +39,7 @@ configuration, explicit trust overrides or unknown backends block fallback.
 Offline repair remains an explicitly unverified supplied-bundle path, and refuses
 known Conda truststore/Git Schannel modes. Cargo HTTP repair preserves its Git
 transport choice; Git CLI dependency fetches require a separate Git decision.
-Python recipe exceptions can be inspected explicitly; automatic repair currently
-uses the general candidate and refuses incompatible interpreters. Online pip
+Online pip
 inspection and repair verification both use the selected Python's `-m pip`.
 Conda inspection currently selects base and refuses a conflicting active environment.
 The Windows observer process/cleanup protocol remains unqualified and refuses
@@ -2465,6 +2464,57 @@ aih remove local-my-skills.skill.notes --scope project --project /work/app [--ap
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
 command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
+
+## Repair, export and the macOS session through the 0.1.0 review (in development)
+
+Environment work takes the shared review and run: `prepare` returns `ready`, `partial`, `blocked`, `refused`, `invalid`
+or `unsupported-version`, the review is `urn:aihq:core:review:0.1.0` with `request` set to `repair`, `export` or
+`macos-session`, and `apply` returns `urn:aihq:core:run:0.1.0`. Each request is carried out by the retained repair,
+trust or session preparation below, so source, host, target and custody checks, restoration and managed removal are
+unchanged. Standalone repair takes no organization document.
+
+```js
+import { prepare, apply } from '@aihq/core';
+
+const prepared = await prepare({ schema: 'urn:aihq:core:repair-request:0.1.0', repair: 'user-tools-ca', targets: ['git'],
+  route: 'file', sources: { os: false, supplied: [{ id: 'company', file: '/abs/company-ca.pem' }] } });
+// prepared.review.environment: job, repair, targets, route, network, facts (sources, certificates, outputs and each
+// target's admission), observations and anything `unavailable` on this host.
+if (prepared.status === 'ready')
+  await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+```
+
+| Request | Carries |
+| --- | --- |
+| `urn:aihq:core:repair-request:0.1.0` | `repair` (`node-npm-ca`, `node-os-trust`, `user-tools-ca`, `jvm-ca`), `targets`, `route` (`file` by default, or `native`), `sources` (by default the OS trust), `inputs` (such as `baselineStore`), `network`, `resolutions` |
+| `urn:aihq:core:export-request:0.1.0` | `format`, `output`, `sources`, `network`, `resolutions` |
+| `urn:aihq:core:macos-session-request:0.1.0` | a trust repair's fields plus `session` (`context`, `applications`) |
+
+- **Supplied file trust is not native trust.** A supplied-file route is admitted per target only for that file route;
+  `native` routes and OS-sourced file routes stay `blocked`, naming the reason in `environment.unavailable`, until a real
+  client binding is admitted. Certificate export needs an admitted platform cell; elsewhere it is `blocked`
+  (`trust-platform-unsupported` or `trust-format-unavailable`) with no effects. The macOS session is admitted only on
+  macOS with an admitted profile. No new native profile or platform is admitted by this format.
+- **Conflicts.** An edited managed output whose bytes still read as certificates is `existing-content` with `replace`;
+  prepare again with `resolutions: [{ managementId, step, choice: 'replace', observedSha256 }]` taken from the review.
+  Bytes that no longer read back are `managed-content-changed` with no choices and are kept. A resolution that names no
+  reviewed conflict is refused (`resolution-unknown`).
+- **Apply** binds the exact `reviewDigest` and the request object, then re-checks sources, configuration files,
+  executables, helpers and custody; a change is `rejected` `REVIEW_STALE`.
+- **Custody** is stored as `urn:aihq:core:trust-custody:0.1.0` and `urn:aihq:core:macos-session-custody:0.1.0`.
+
+The CLI takes 0.1.0 inputs files whose supplied paths resolve from the file's own folder:
+
+```sh
+aih repair user-tools-ca --target git --inputs-file repair-inputs.json [--offline] [--apply --yes] [--json]
+aih export-ca --format pem --output exports/company.pem --inputs-file export-inputs.json [--apply --yes] [--json]
+```
+
+`repair-inputs.json` is `{ "schema": "urn:aihq:core:repair-inputs:0.1.0", "route": "file", "sources": { "os": false,
+"supplied": [{ "id": "company", "file": "company-ca.pem" }] } }`; `export-inputs.json` uses
+`urn:aihq:core:export-inputs:0.1.0` with `sources`, and a macOS session uses `urn:aihq:core:macos-session-inputs:0.1.0`
+with `session`. Without an inputs file, `aih repair` prepares the OS-sourced file route. Older inputs files keep their
+earlier commands until those formats are removed.
 
 ## Managed lifecycle
 

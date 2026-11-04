@@ -13,6 +13,31 @@ import runInvalid from '../../fixtures/core/run/0.1.0/refuse.json' with { type: 
 import inventorySchema from '../schemas/inventory/0.1.0.json' with { type: 'json' };
 import inventoryValid from '../../fixtures/core/inventory/0.1.0/accept.json' with { type: 'json' };
 import inventoryInvalid from '../../fixtures/core/inventory/0.1.0/refuse.json' with { type: 'json' };
+// Environment work: repair, certificate export and the macOS session (samartomar/aih-core#170).
+import repairRequestSchema from '../schemas/repair-request/0.1.0.json' with { type: 'json' };
+import repairRequestValid from '../../fixtures/core/repair-request/0.1.0/accept.json' with { type: 'json' };
+import repairRequestInvalid from '../../fixtures/core/repair-request/0.1.0/refuse.json' with { type: 'json' };
+import repairInputsSchema from '../schemas/repair-inputs/0.1.0.json' with { type: 'json' };
+import repairInputsValid from '../../fixtures/core/repair-inputs/0.1.0/accept.json' with { type: 'json' };
+import repairInputsInvalid from '../../fixtures/core/repair-inputs/0.1.0/refuse.json' with { type: 'json' };
+import exportRequestSchema from '../schemas/export-request/0.1.0.json' with { type: 'json' };
+import exportRequestValid from '../../fixtures/core/export-request/0.1.0/accept.json' with { type: 'json' };
+import exportRequestInvalid from '../../fixtures/core/export-request/0.1.0/refuse.json' with { type: 'json' };
+import exportInputsSchema from '../schemas/export-inputs/0.1.0.json' with { type: 'json' };
+import exportInputsValid from '../../fixtures/core/export-inputs/0.1.0/accept.json' with { type: 'json' };
+import exportInputsInvalid from '../../fixtures/core/export-inputs/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionRequestSchema from '../schemas/macos-session-request/0.1.0.json' with { type: 'json' };
+import macosSessionRequestValid from '../../fixtures/core/macos-session-request/0.1.0/accept.json' with { type: 'json' };
+import macosSessionRequestInvalid from '../../fixtures/core/macos-session-request/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionInputsSchema from '../schemas/macos-session-inputs/0.1.0.json' with { type: 'json' };
+import macosSessionInputsValid from '../../fixtures/core/macos-session-inputs/0.1.0/accept.json' with { type: 'json' };
+import macosSessionInputsInvalid from '../../fixtures/core/macos-session-inputs/0.1.0/refuse.json' with { type: 'json' };
+import trustCustodySchema from '../schemas/trust-custody/0.1.0.json' with { type: 'json' };
+import trustCustodyValid from '../../fixtures/core/trust-custody/0.1.0/accept.json' with { type: 'json' };
+import trustCustodyInvalid from '../../fixtures/core/trust-custody/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionCustodySchema from '../schemas/macos-session-custody/0.1.0.json' with { type: 'json' };
+import macosSessionCustodyValid from '../../fixtures/core/macos-session-custody/0.1.0/accept.json' with { type: 'json' };
+import macosSessionCustodyInvalid from '../../fixtures/core/macos-session-custody/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -25,6 +50,14 @@ const entries: FormatEntry[] = [
   { id: reviewSchema.$id, schema: reviewSchema, fixtures: { valid: reviewValid, invalid: reviewInvalid } },
   { id: runSchema.$id, schema: runSchema, fixtures: { valid: runValid, invalid: runInvalid } },
   { id: inventorySchema.$id, schema: inventorySchema, fixtures: { valid: inventoryValid, invalid: inventoryInvalid } },
+  { id: repairRequestSchema.$id, schema: repairRequestSchema, fixtures: { valid: repairRequestValid, invalid: repairRequestInvalid } },
+  { id: repairInputsSchema.$id, schema: repairInputsSchema, fixtures: { valid: repairInputsValid, invalid: repairInputsInvalid } },
+  { id: exportRequestSchema.$id, schema: exportRequestSchema, fixtures: { valid: exportRequestValid, invalid: exportRequestInvalid } },
+  { id: exportInputsSchema.$id, schema: exportInputsSchema, fixtures: { valid: exportInputsValid, invalid: exportInputsInvalid } },
+  { id: macosSessionRequestSchema.$id, schema: macosSessionRequestSchema, fixtures: { valid: macosSessionRequestValid, invalid: macosSessionRequestInvalid } },
+  { id: macosSessionInputsSchema.$id, schema: macosSessionInputsSchema, fixtures: { valid: macosSessionInputsValid, invalid: macosSessionInputsInvalid } },
+  { id: trustCustodySchema.$id, schema: trustCustodySchema, fixtures: { valid: trustCustodyValid, invalid: trustCustodyInvalid } },
+  { id: macosSessionCustodySchema.$id, schema: macosSessionCustodySchema, fixtures: { valid: macosSessionCustodyValid, invalid: macosSessionCustodyInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

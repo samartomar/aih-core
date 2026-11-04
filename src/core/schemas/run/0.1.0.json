@@ -33,6 +33,18 @@
         "check": { "enum": ["present-matching", "present-different", "absent", "unchecked"] }
       } } },
     "history": { "type": "object", "additionalProperties": false, "required": ["status"],
-      "properties": { "status": { "enum": ["recorded", "disabled", "not-recorded"] }, "limit": { "type": "string" } } }
+      "properties": { "status": { "enum": ["recorded", "disabled", "not-recorded"] }, "limit": { "type": "string" } } },
+    "environment": {
+      "description": "What a repair, certificate export or macOS session run wrote and verified (contract 10)",
+      "type": "object", "additionalProperties": false, "required": ["job", "outputs", "targets", "diagnostics"],
+      "properties": {
+        "job": { "enum": ["repair", "export", "macos-session"] },
+        "outputs": { "type": "array", "items": { "type": "object" } },
+        "targets": { "type": "array", "items": { "type": "object" } },
+        "session": { "type": "object" },
+        "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+          "properties": { "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" } } } }
+      }
+    }
   }
 }

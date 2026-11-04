@@ -29,6 +29,9 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'existing-content', fix: 'Prepare again with a resolution: replace, adopt if identical, or skip.' },
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
+  // Environment work: repair, certificate export and the macOS session (samartomar/aih-core#170).
+  { status: 'refused', code: 'host-unsupported', fix: 'Run on a supported Node runtime and host.' },
+  { status: 'refused', code: 'resolution-unknown', fix: 'Prepare again with resolutions taken from the conflicts of the review.' },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
