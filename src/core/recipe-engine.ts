@@ -271,6 +271,7 @@ export interface EngineExtension {
    * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1).
    */
   effects?: ReadonlyMap<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
+  // A `process.run` operation with an effect is carried out by that effect instead of its own executable (plan programs).
   /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
   merges?: ReadonlyMap<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
@@ -1135,7 +1136,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           currentIds.push(rescueId);
         }
         function emit(): void {
-          const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable ? 'executable-missing' :
+          // A plan program carried out by its effect resolves its executable at Apply (an earlier step makes it).
+          const unavailable = prerequisite ?? (preparedProcess && 'missing' in preparedProcess.executable && !extension?.effects?.has(id) ? 'executable-missing' :
             checks.some(check => check.process && 'missing' in check.process.executable) ? 'check-executable-missing' : undefined);
           if (unavailable) { effect = 'unavailable'; omissions.push(diagnostic('PREREQUISITE_UNAVAILABLE', unavailable, 'This operation cannot run on the selected host.')); }
           const review: ReviewOperation = { id, purpose: safeText(op.purpose, privateValues), kind: op.kind, scope: op.scope,
@@ -2025,7 +2027,9 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertInputs();
         writePending(); started = true;
         try { observe?.(step.review.id, 'start'); } catch { /* An observer never changes the run. */ }
-        const processResult = await executeProcess(step.process, runId, controls.signal);
+        // A plan program whose executable an earlier step makes (or that runs in a clone) is run by its reviewed effect.
+        const processResult = effect ? { ...await effect.run(controls.signal), terminationUnconfirmed: false } :
+          await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
         try { observe?.(step.review.id, 'finish', operation.application); } catch { /* An observer never changes the run. */ }
         if (processResult.status !== 'passed') {

@@ -17,7 +17,8 @@ import { resolveExecutable } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
-import type { PlanItemFacts, PluginFacts } from '../internal/custody-items.js';
+import type { PlanItemFacts, PluginFacts, ProgramFacts } from '../internal/custody-items.js';
+import { join } from 'node:path';
 import type { Json } from '../types.js';
 import { INVENTORY, REVIEW, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
   type Review, type ReviewStep } from './types.js';
@@ -83,6 +84,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
         state: member.fileState === 'matches' ? 'matching' : member.fileState === 'changed' || member.fileState === 'block-changed' ? 'changed-by-you' :
           member.fileState === 'missing' || member.fileState === 'block-missing' ? 'missing' : 'unchecked' })),
       ...(plan?.plugins ? { plugins: plan.plugins.map(facts => JSON.parse(JSON.stringify(facts)) as PluginFacts) } : {}),
+      ...(plan?.programs ? { programs: plan.programs.map(facts => JSON.parse(JSON.stringify(facts)) as ProgramFacts) } : {}),
       ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
         files: pluginFiles(row.members, row.scope === 'project' ? located.anchor : home) } } : {}),
       ...(plan?.switchOff ? { switchOff: { ...plan.switchOff } } : {}) };
@@ -155,7 +157,10 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const facts = planFacts([scope === 'project' ? located.anchor : home]);
   const plugins = entries.filter(entry => entry.disposition === 'prepared' && entry.item === undefined).flatMap(entry =>
     (facts.get(`${scope}\0${entry.managementId}`)?.plugins ?? []).map(plugin => ({ managementId: entry.managementId, plugin })));
-  const program = plugins.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options) : undefined;
+  // Program steps (C30): a tool-command's saved reverse command and readback run here; the rest can't be undone, and say so.
+  const commands = entries.filter(entry => entry.disposition === 'prepared' && entry.item === undefined).flatMap(entry =>
+    (facts.get(`${scope}\0${entry.managementId}`)?.programs ?? []).map(program => ({ managementId: entry.managementId, program })));
+  const program = plugins.length || commands.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options, commands) : undefined;
   if (program && 'status' in program) return program;
   // Each review operation carries one listed member's action; its management id is that member's entry.
   const owners = new Map<string, string>();
@@ -236,7 +241,7 @@ const switchedOff = (facts: Map<string, PlanItemFacts>, scope: string, framework
  * removal command, run before the receipt is released, then the saved presence check. Nothing here writes custody.
  */
 async function prepareProgramRemoval(plugins: { managementId: string; plugin: PluginFacts }[], scope: 'project' | 'user', anchor: string,
-    controls: PlanControls): Promise<ProgramRemoval | Refusal | { status: 'invalid'; problems: Problem[] }> {
+    controls: PlanControls, commands: { managementId: string; program: ProgramFacts }[] = []): Promise<ProgramRemoval | Refusal | { status: 'invalid'; problems: Problem[] }> {
   const operations = new Map<string, StepRef>();
   const programs = new Map<number, ProgramCheck>();
   const unremovable: StepRef[] = [];
@@ -256,6 +261,22 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'plugin-removal', description: 'Removes a native plugin', inputs: {}, materials: [],
       targets: [scope], prerequisites: [], operations: ops, checks: [] } } });
   });
+  // A tool-command's reverse runs the acquired program it was installed with, from home, before the AI setup folder goes.
+  const home = projectRoot(homedir());
+  const offset = plugins.length;
+  commands.forEach(({ managementId, program }, at) => {
+    const index = offset + at;
+    if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); return; }
+    const selectionId = `c${index}`;
+    operations.set(`${selectionId}/reverse`, { step: index, managementId, command: true });
+    // Its own engine management id: running the reverse must not rewrite the AI setup's claim before its release.
+    selections.push({ id: selectionId, managementId: `aih-reverse-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
+      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-reverse', description: 'Reverses a tool command', inputs: {}, materials: [],
+      targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'reverse', purpose: `Runs \`${program.undo.argv.join(' ')}\``, kind: 'process.run',
+        scope: 'user', executable: { name: join(home, ...program.executable.split('/')) }, args: program.undo.argv.map(literal => ({ literal })),
+        cwd: { root: 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0], effects: ['The tool\'s own reverse command; Core can\'t show its effects'],
+        requires: [], checks: [] }] } } });
+  });
   const steps: ReviewStep[] = [];
   let engine: Awaited<ReturnType<typeof prepareEngine>> | undefined;
   if (selections.length) {
@@ -269,7 +290,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     const ref = operations.get(operation.id);
     if (!ref) continue;
     if (operation.effects === 'unavailable' || typeof operation.details.executableSha256 !== 'string')
-      return { status: 'refused', code: 'program-unavailable', reason: `Removing \`${ref.managementId}\` runs a CLI this host cannot run.` };
+      return { status: 'refused', code: 'program-unavailable', reason: `Removing \`${ref.managementId}\` runs a ${ref.command ? 'program' : 'CLI'} this host cannot run.` };
     const list = pinned.get(ref.step as number) ?? []; pinned.set(ref.step as number, list);
     list.push({ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 });
   }
@@ -292,7 +313,35 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
         (presence === 'none' ? 'The receipt has no presence check, so the removal stays unverified.' : 'Core checks only that the plugin is no longer listed.') :
         'The plugin stays installed in the CLI; remove it there yourself.' });
   }
+  for (const [at, { managementId, program }] of commands.entries()) {
+    const index = offset + at;
+    const pinned = pinnedReverse(engine, index, operations);
+    const reversible = !!(program.undo && program.executable && pinned);
+    if (reversible) programs.set(index, { executable: pinned!.resolved, argv: [pinned!.resolved.launchPath, ...program.undo!.readback.argv],
+      expect: program.undo!.readback.expected, cwd: home, readback: true });
+    const command = program.argv.join(' ');
+    steps.push({ step: index, op: program.op, managementId, item: managementId, effect: reversible ? 'run-program' : 'unchanged',
+      sentence: reversible ? `Runs \`${program.undo!.argv.join(' ')}\`, then checks that \`${program.undo!.readback.argv.join(' ')}\` reads \`${program.undo!.readback.expected}\`` :
+        program.op === 'upstream-setup' ? `Removes the clone \`${program.clone?.into ?? ''}\` with the install` : `Releases the record of \`${command}\``,
+      cantPromise: reversible ? 'Core can\'t show or roll back what the reverse command changes; it checks only the readback.' :
+        program.op === 'tool-command' ? `Core can't undo \`${command}\`: the AI setup named no reverse command.` :
+        program.op === 'upstream-installer' ? `Core can't remove what \`${command}\` installed: it is not managed by Core. Remove it with the tool's own uninstaller.` :
+        `Core removes only its clone; it can't remove what \`${command}\` wrote elsewhere.`,
+      program: { kind: program.op, argv: reversible ? program.undo!.argv : program.argv,
+        executable: reversible ? pinned!.resolved.launchPath : program.executable ? join(home, ...program.executable.split('/')) : program.argv[0]!,
+        executableSha256: reversible ? pinned!.resolved.sha256 : null, from: program.executable ? 'acquired' : 'path', cwd: home, env: [], managed: program.managed,
+        readback: reversible ? program.undo!.readback : null, undo: program.undo, cantRemove: reversible ? 'Nothing else the command changed is rolled back.' :
+          program.op === 'upstream-setup' ? 'What the setup command wrote outside its clone stays.' : 'What the command changed stays.' } });
+  }
   return { steps, engine: engine?.prepared, engineDigest: engine?.review?.reviewDigest ?? '', operations, programs, unremovable };
+}
+/** The reverse command's executable as the removal's engine pinned it. */
+function pinnedReverse(engine: Awaited<ReturnType<typeof prepareEngine>> | undefined, index: number, operations: Map<string, StepRef>):
+    { resolved: NonNullable<ReturnType<typeof resolveExecutable>> } | undefined {
+  const operation = engine?.review?.operations.find(entry => operations.get(entry.id)?.step === index && operations.get(entry.id)?.command);
+  if (!operation || typeof operation.details.executable !== 'string') return undefined;
+  const resolved = resolveExecutable(operation.details.executable);
+  return resolved && resolved.sha256 === operation.details.executableSha256 ? { resolved } : undefined;
 }
 interface ProgramRemoval {
   steps: ReviewStep[]; engine: PreparedHandle | undefined; engineDigest: string; operations: Map<string, StepRef>;

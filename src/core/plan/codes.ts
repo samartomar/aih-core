@@ -60,6 +60,8 @@ const entries: RefusalCode[] = [
   // Local plugins and one-item switch-offs (samartomar/aih-core#173).
   { status: 'refused', code: 'switch-off-unsupported', fix: 'Remove the whole plugin; this CLI has no supported switch-off for one item.' },
   { status: 'invalid', code: 'switch-off-alone', fix: 'Prepare the switch-off as the only entry of its removal request.' },
+  // Upstream setups, upstream installers and tool commands (samartomar/aih-core#176).
+  { status: 'refused', code: 'setup-folder-occupied', fix: 'Move the files in the setup folder away, then Prepare again.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

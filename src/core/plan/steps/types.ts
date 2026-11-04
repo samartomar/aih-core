@@ -69,7 +69,48 @@ export interface LoweredPlugin {
   acquire?: undefined;
   bound?: undefined;
 }
-export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge;
+export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge | LoweredProgram;
+/** A command and the value its output must show (D57): the readback of a `tool-command`, or of its reverse. */
+export interface Readback { argv: string[]; expected: string }
+/**
+ * One reviewed program step (Catalog 9 `tool-command`, `upstream-installer`, `upstream-setup`; contract 8.1, 12): an exact
+ * argv run after approval. Its effects are never known to Core (C30); only a `tool-command`'s readback is checked. An
+ * `upstream-setup` first clones its repository at the exact commit into a Core-owned folder, marked by one file.
+ */
+export interface LoweredProgram {
+  kind: 'program';
+  op: 'tool-command' | 'upstream-installer' | 'upstream-setup';
+  managementIds: [string];
+  /** Where the receipt is kept and the command runs from. */
+  root: 'project' | 'user';
+  /** The command as it runs (input values filled) and as the review shows it (secret values `[REDACTED]`). */
+  argv: string[]; shown: string[];
+  /** Environment values a binding sets, as they run and as shown. */
+  env: Record<string, string>; shownEnv: Record<string, string>;
+  /**
+   * The executable: a PATH program pinned at Prepare; the AI setup's acquired program (from the user root, with the
+   * qualified sha256 when the qualification lists that member); or a program inside the clone, both resolved at Apply.
+   */
+  executable: { from: 'path'; name: string } | { from: 'acquired'; path: string; sha256: string | null } | { from: 'clone'; path: string };
+  /** The folder the command runs in, relative to the root ('' is the root itself). */
+  cwd: string;
+  readback?: Readback;
+  /** A `tool-command`'s reverse command and its readback, copied into the receipt; `null` when the AI setup names none. */
+  undo?: { argv: string[]; readback: Readback } | null;
+  /** An `upstream-setup`'s clone: the repository at the exact commit, into a folder marked by `marker`. */
+  clone?: { repository: string; commit: string; into: string; marker: Buffer };
+  needs?: string[];
+  /** `false` for an `upstream-installer`: Core can't remove what it writes (D53). */
+  managed: boolean;
+  /** What Core can't remove around this program, said in the review and at removal. */
+  cantRemove: string;
+  sentence: string;
+  cantPromise: string;
+  review: { item?: string; framework?: string; clis?: string[]; inputs?: ReviewInput[]; route?: undefined; contains?: undefined };
+  bound?: BoundInputs;
+  profiles?: undefined;
+  acquire?: undefined;
+}
 /**
  * One planned entry the engine adds to a file the person may already have (Catalog 9 `merge`): a JSON value at a JSON
  * Pointer (engine `config.entries`, JSONC-tolerant so a person's comments survive), the leaves of one TOML table
