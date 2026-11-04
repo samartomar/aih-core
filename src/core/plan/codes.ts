@@ -30,7 +30,7 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
   // Authored changes (samartomar/aih-core#166).
-  { status: 'refused', code: 'organization-required', fix: 'Prepare the change in Vibe mode; Enterprise admission of changes needs a newer Core.' },
+  { status: 'refused', code: 'organization-required', fix: 'Pass the organization source in `controls.organization` (`--org-file`, or `--org-repository`, `--org-path` and `--org-ref`).' },
   // Native plugin steps (samartomar/aih-core#168).
   { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog profile the plan was made with.' },
   { status: 'refused', code: 'plugin-command-unresolved', fix: 'Replan with a Catalog whose plugin step and profile give every value of an unattended, pinned install.' },
@@ -73,6 +73,9 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'update-target-required', fix: 'Name the `managementIds` the update replaces.' },
   { status: 'refused', code: 'update-ambiguous', fix: 'Name the `managementIds` of the one install to update.' },
   { status: 'refused', code: 'update-conflict', fix: 'Prepare updates that act on one install or one file in separate calls.' },
+  // Enterprise admission (samartomar/aih-core#179).
+  { status: 'blocked', code: 'AUTHORITY_DENIED', fix: 'None from Core: the organization entry or source rule the result names decides; ask its owner.' },
+  { status: 'refused', code: 'organization-unavailable', fix: 'Make the organization source readable (path, repository, ref or credential), then Prepare again.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

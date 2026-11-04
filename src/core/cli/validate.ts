@@ -1,4 +1,4 @@
-// aih validate <change|change-request> <file> [--json]      (contract 22)
+// aih validate <change|change-request|organization> <file> [--json]      (contract 22)
 // Reads one 0.1.0 document read-only: exit 0 for `ok`, 2 for `invalid` or `unsupported-version`. The older document
 // kinds of `aih validate` stay with the older CLI until they are removed.
 import { parseArgs } from 'node:util';
@@ -6,9 +6,10 @@ import { validateChange } from '../change/validate.js';
 import { validateFormat } from '../plan/formats.js';
 import { CHANGE_REQUEST } from '../change/validate.js';
 import { emit, readDocument, refusal } from './common.js';
+import { validateOrganization } from '../enterprise/organization.js';
 
-export const kinds = ['change', 'change-request'];
-const USAGE = 'aih validate <change|change-request> <file> [--json]\n';
+export const kinds = ['change', 'change-request', 'organization'];
+const USAGE = 'aih validate <change|change-request|organization> <file> [--json]\n';
 
 export async function run(args: string[]): Promise<void> {
   const output = { json: args.includes('--json') };
@@ -18,10 +19,11 @@ export async function run(args: string[]): Promise<void> {
   const [kind, file, ...rest] = parsed.positionals;
   if (!kind || !kinds.includes(kind) || !file || rest.length) { process.stderr.write(USAGE); return emit(output, refusal('usage', 'Name the kind and one file.'), 2); }
   let document: Record<string, unknown>;
-  try { document = readDocument(file, kind === 'change' ? 1_000_000 : 16 * 1_048_576); }
+  try { document = readDocument(file, kind === 'change-request' ? 16 * 1_048_576 : 1_000_000); }
   catch { return emit(output, refusal('request-unreadable', 'The file could not be read as strict JSON.'), 2); }
   let result: { status: string; [field: string]: unknown };
   if (kind === 'change') result = validateChange(document);
+  else if (kind === 'organization') result = validateOrganization(document);
   else if (typeof document.schema === 'string' && document.schema !== CHANGE_REQUEST)
     result = { status: 'unsupported-version', encountered: document.schema, supported: [CHANGE_REQUEST] };
   else {

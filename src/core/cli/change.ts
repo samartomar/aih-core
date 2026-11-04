@@ -4,10 +4,10 @@
 import { parseArgs } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { apply, prepare } from '../index.js';
-import { approved, emit, exitCode, printable, readDocument, refusal } from './common.js';
+import { approved, emit, exitCode, organizationFrom, ORGANIZATION_OPTIONS, ORGANIZATION_USAGE, printable, readDocument, refusal } from './common.js';
 import type { ChangeControls, ChangeRequest } from '../change/prepare.js';
 
-const USAGE = 'aih change <change-request.json> [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
+const USAGE = `aih change <change-request.json> [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] ${ORGANIZATION_USAGE} [--no-log] [--json]\n`;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export async function run(args: string[], signal: AbortSignal): Promise<void> {
@@ -17,8 +17,10 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
     parsed = parseArgs({ args, allowPositionals: true, strict: true, options: {
       project: { type: 'string' }, 'material-root': { type: 'string', multiple: true }, 'private-input': { type: 'string', multiple: true },
       resolutions: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' },
-      'no-log': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+      'no-log': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, ...ORGANIZATION_OPTIONS } });
   } catch { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The change options are not valid.'), 2); }
+  const enterprise = organizationFrom(parsed.values);
+  if (enterprise === 'usage') { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The Enterprise options name `--mode enterprise` and one organization source.'), 2); }
   const { values, positionals } = parsed;
   if (values.help) { process.stdout.write(USAGE); return; }
   if (positionals.length !== 1) { process.stderr.write(USAGE); return emit(output, refusal('usage', 'Name exactly one change request file.'), 2); }
@@ -34,7 +36,8 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
       request.resolutions = document.resolutions as ChangeRequest['resolutions'];
     } catch { return emit(output, refusal('request-unreadable', 'The resolutions file holds `{ "resolutions": [...] }`.'), 2); }
   }
-  const controls: ChangeControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
+  if (enterprise.mode) request.mode = enterprise.mode;
+  const controls: ChangeControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(enterprise.organization ? { organization: enterprise.organization } : {}), ...(enterprise.authentication ? { authentication: enterprise.authentication } : {}) };
   if (values['material-root']?.length) {
     const roots: Record<string, string> = Object.create(null);
     for (const spec of values['material-root']) {

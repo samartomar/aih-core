@@ -200,7 +200,7 @@ function requestKind(args: string[]): boolean {
     } catch { return false; }
   });
 }
-if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(process.argv[3] ?? '')) {
+if (process.argv[2] === 'validate' && ['change', 'change-request', 'organization'].includes(process.argv[3] ?? '')) {
   await (await import('./cli/validate.js')).run(process.argv.slice(3));
 } else if (process.argv[2] === 'check-files' && requestKind(process.argv.slice(3))) {
   await (await import('./cli/check-files.js')).run(process.argv.slice(3), controller.signal);

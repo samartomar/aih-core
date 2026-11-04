@@ -43,6 +43,7 @@ import type { ExecutionPolicy, OrganizationParseResult, OrganizationPolicy, Orga
 import { organizationSemantics, organizationTargetSemantics, policySemantics, recipeSemantics } from './internal/policy-validation.js';
 import { contentEntries, SetMembership } from './internal/organization-content.js';
 import { trustContractSchemas } from './trust-contracts.js';
+import { ORGANIZATION, validateOrganization, type OrganizationResult } from './enterprise/organization.js';
 import macosRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
 import macosInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
 import macosPreparedSchema from './schemas/prepared-work/1.3.0.json' with { type: 'json' };
@@ -176,7 +177,11 @@ export const validateRecipe = (value: unknown): ValidationResult =>
  * Organization documents 1.0.0–1.2.0. `setMembers` is Catalog-resolved set membership supplied as data; a 1.2.0 set
  * selector without it is reported in `unavailable` and never matched, so contradictions it could hide are not guessed.
  */
-export function validateOrganizationPolicy(value: unknown, options: OrganizationPolicyOptions = {}): OrganizationValidationResult {
+export function validateOrganizationPolicy(value: { schema: typeof ORGANIZATION }): OrganizationResult;
+export function validateOrganizationPolicy(value: unknown, options?: OrganizationPolicyOptions): OrganizationValidationResult;
+export function validateOrganizationPolicy(value: unknown, options: OrganizationPolicyOptions = {}): OrganizationValidationResult | OrganizationResult {
+  // `urn:aihq:core:organization:0.1.0` (contract 11) reads with its own validator; the 1.x documents stay until #181.
+  if (value && typeof value === 'object' && (value as { schema?: unknown }).schema === ORGANIZATION) return validateOrganization(value);
   let membership: SetMembership;
   // Only a plain options object is read, so `documents.map(validateOrganizationPolicy)` still validates each document.
   if (options === null || typeof options !== 'object' || Array.isArray(options)) options = {};
@@ -232,6 +237,10 @@ export type { RefusalCode } from './plan/codes.js';
 export { limits } from './plan/limits.js';
 // Authored changes (samartomar/aih-core#166): read a change and derive its canonical, material-bound identity.
 export { validateChange, deriveChangeIdentity } from './change/validate.js';
+// Enterprise admission (samartomar/aih-core#179).
+export { previewAdmission } from './enterprise/preview.js';
+export type { PreviewAdmissionRequest, PreviewAdmissionResult, AdmissionPreview } from './enterprise/preview.js';
+export type { Organization, OrganizationEntry, OrganizationResult } from './enterprise/organization.js';
 export type { Change, ChangeReference, ChangeResult, ChangeIdentity, DeriveChangeIdentityRequest } from './change/validate.js';
 export type { Limit } from './plan/limits.js';
 // Report snapshots and claim sets (samartomar/aih-core#174): `report:0.1.0` and `claims:0.1.0`, never throwing.

@@ -31,6 +31,8 @@ export interface ClaimFacts {
   origin: Origin | null; items: string[]; kind: string | null; framework: string | null;
   /** A change claim's identity (`sha256:…`); `null` for plan claims. */
   change: string | null;
+  /** A preview's planned claim: the recipe its plan names but nobody proved, so a recipe selector reads `unknown` for it. */
+  claimed?: PlanFacts['recipe'];
 }
 export interface ChangeFacts {
   managementId: string; identity: string; scope: 'project' | 'user';
@@ -226,7 +228,7 @@ function claimMeets(entry: OrganizationEntry, claim: ClaimFacts, target: Declare
   else {
     const subjects: Subject[] = claim.items.length ? claim.items.map(item => ({ item, framework: claim.framework, kind: claim.kind })) :
       [{ item: null, framework: claim.framework, kind: claim.kind }];
-    const states = subjects.map(subject => contentMatch(entry.content, subject, claim.origin));
+    const states = subjects.map(subject => contentMatch(entry.content, subject, claim.origin, claim.claimed));
     match = states.includes('matches') ? 'matches' : states.includes('unknown') ? 'unknown' : 'mismatch';
   }
   if (match === 'mismatch') return { match, unknown: [] };

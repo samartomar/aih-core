@@ -213,3 +213,44 @@ test('changes are admitted by identity with input and lifecycle permissions; a r
   assert.ok(allowed.handle, JSON.stringify(allowed));
   assert.equal((await apply(allowed.handle, approve(allowed.review), { organization: removable })).completion, 'complete');
 });
+
+test('previewAdmission answers all three results with no host effects; without an inventory it counts only the request', async () => {
+  const { previewAdmission, validateOrganizationPolicy, schemas } = await import('../dist/core/contracts.js');
+  const id = 'urn:aihq:core:organization:0.1.0';
+  assert.equal(validateOrganizationPolicy(schemas[id].fixtures.valid).status, 'ok');
+  assert.equal(validateOrganizationPolicy(schemas[id].fixtures.invalid).status, 'invalid');
+  const document = { schema: ORGANIZATION, id: 'acme', entries: [
+    { id: 'need-notes', obligation: 'required', content: { item: 'local-my-skills.skill.notes' } },
+    { id: 'need-review', obligation: 'required', content: { item: 'local-my-skills.skill.review' } },
+    { id: 'no-hooks', obligation: 'prohibited', content: { kind: 'hook' } }],
+  scanSigners: { add: [{ issuer: 'https://token.actions.githubusercontent.com', subject: 'https://github.com/acme/scan' }] } };
+  const target = project();
+  const request = ({ files, ...rest }) => ({ ...rest, files: files.map(({ bytes: _bytes, ...entry }) => entry) });
+  const notes = request(ownRequest(target, SKILLS, ['codex']));
+  const alone = await previewAdmission({ organization: document, request: notes, target: { client: CODEX } });
+  assert.equal(alone.status, 'ok', JSON.stringify(alone));
+  assert.deepEqual([alone.value.admitted, alone.value.fulfilment.map(item => item.status)], [true, ['fulfilled', 'not-fulfilled']]);
+  assert.deepEqual(alone.value.scanSigners, document.scanSigners);
+  // With an installed inventory, what is already there counts too.
+  const review = { review: { 'SKILL.md': 'Review.\n' } };
+  const installed = await prepare(ownRequest(target, review, ['codex']));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const inventory = await list({ target: { project: target }, scope: 'project' });
+  const both = await previewAdmission({ organization: document, request: notes, target: { client: CODEX }, installed: inventory });
+  assert.deepEqual(both.value.fulfilment.map(item => item.status), ['fulfilled', 'fulfilled']);
+  const hooks = await previewAdmission({ organization: document, request: request(withKind(ownRequest(target, SKILLS, ['codex']), 'hook')) });
+  assert.deepEqual([hooks.value.admitted, hooks.value.denials[0].entry], [false, 'no-hooks']);
+  // A preview proves no recipe origin: a required recipe reads unknown, never fulfilled.
+  const recipe = { schema: ORGANIZATION, id: 'acme', entries: [{ id: 'need-recipe', obligation: 'required', content: { recipe: { id: 'notes-base' } } }] };
+  const planned = await previewAdmission({ organization: recipe, request: request(renderRequest(reader, target, SKILLS, ['codex'], { recipe: true })) });
+  assert.deepEqual(planned.value.fulfilment.map(item => item.status), ['unknown']);
+  assert.equal((await previewAdmission({ organization: { ...document, schema: 'urn:aihq:core:organization:9.0.0' }, request: notes })).status, 'unsupported-version');
+});
+
+test('organization Scan signers are carried in the review and never gate the request', async () => {
+  const signers = { replace: [{ identity: 'acme-scan', issuer: 'https://token.actions.githubusercontent.com', subject: 'https://github.com/acme/scan/.github/workflows/scan.yml@refs/heads/main' }] };
+  const source = organization([], { scanSigners: signers });
+  const prepared = await prepare(enterprise(ownRequest(project(), SKILLS, ['codex'])), { organization: source });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.organization.scanSigners, signers);
+});

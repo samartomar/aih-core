@@ -6,12 +6,12 @@
 import { parseArgs } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { apply, prepareUpdate } from '../index.js';
-import { approved, emit, exitCode, printable, privateInputMappings, progressLine, readDocument, refusal } from './common.js';
+import { approved, emit, exitCode, organizationFrom, ORGANIZATION_OPTIONS, ORGANIZATION_USAGE, printable, privateInputMappings, progressLine, readDocument, refusal } from './common.js';
 import { catalogNode, catalogReader } from './install.js';
 import type { PlanControls, PlanRequest } from '../plan/types.js';
 import type { ChangeControls } from '../change/prepare.js';
 
-const USAGE = 'aih update <plan-request.json | change-request.json> --scope project|user [--project <path>] [--management-id <id>]... [--source <sourceId>=<folder>]... [--material-root <id>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <name>=<ENV>]... [--no-log] [--json]\n';
+const USAGE = `aih update <plan-request.json | change-request.json> --scope project|user [--project <path>] [--management-id <id>]... [--source <sourceId>=<folder>]... [--material-root <id>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <name>=<ENV>]... ${ORGANIZATION_USAGE} [--no-log] [--json]\n`;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export async function run(args: string[], signal: AbortSignal): Promise<void> {
@@ -22,8 +22,10 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
       project: { type: 'string' }, scope: { type: 'string' }, 'management-id': { type: 'string', multiple: true },
       source: { type: 'string', multiple: true }, 'material-root': { type: 'string', multiple: true }, resolutions: { type: 'string' },
       apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' }, 'no-log': { type: 'boolean' },
-      'private-input': { type: 'string', multiple: true }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+      'private-input': { type: 'string', multiple: true }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' }, ...ORGANIZATION_OPTIONS } });
   } catch { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The update options are not valid.'), 2); }
+  const enterprise = organizationFrom(parsed.values);
+  if (enterprise === 'usage') { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The Enterprise options name `--mode enterprise` and one organization source.'), 2); }
   const { values, positionals } = parsed;
   if (values.help) { process.stdout.write(USAGE); return; }
   if (positionals.length !== 1 || values.scope === undefined) { process.stderr.write(USAGE); return emit(output, refusal('usage', 'Name exactly one request file and `--scope`.'), 2); }
@@ -31,6 +33,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
   let request: PlanRequest & { changes?: unknown };
   try { request = readDocument(positionals[0]!, 16 * 1_048_576) as unknown as PlanRequest; }
   catch { return emit(output, refusal('request-unreadable', 'The request file could not be read as strict JSON.'), 2); }
+  if (enterprise.mode) (request as { mode?: string }).mode = enterprise.mode;
   const change = typeof request.schema === 'string' && request.schema.startsWith('urn:aihq:core:change-request:');
   const project = values.project === undefined ? undefined : isAbsolute(values.project) ? values.project : resolve(values.project);
   if (project !== undefined) request.target = { ...(request.target && typeof request.target === 'object' ? request.target : {}), project };
@@ -79,6 +82,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
     controls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}),
       ...(Object.keys(privateInputs).length ? { privateInputs } : {}), ...(catalog ? { catalog } : {}) };
   }
+  Object.assign(controls, { ...(enterprise.organization ? { organization: enterprise.organization } : {}), ...(enterprise.authentication ? { authentication: enterprise.authentication } : {}) });
   const managementIds = values['management-id'];
   const preparation = await prepareUpdate({ target: project ? { project } : {}, scope: values.scope as 'project' | 'user',
     updates: [{ ...(managementIds?.length ? { managementIds } : {}), request: request as never }] }, controls);

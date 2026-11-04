@@ -68,3 +68,37 @@ export function privateInputMappings(mappings: string[] | undefined): Record<str
   }
   return inputs;
 }
+
+/** The Enterprise options every request command takes (contract 22): `--mode enterprise` and one organization source. */
+export const ORGANIZATION_OPTIONS = { mode: { type: 'string' }, 'org-repository': { type: 'string' }, 'org-path': { type: 'string' },
+  'org-ref': { type: 'string' }, 'org-token-env': { type: 'string' }, 'org-file': { type: 'string' } } as const;
+export const ORGANIZATION_USAGE = '[--mode enterprise --org-repository <owner/repo> --org-path <path> --org-ref <branch:name|tag:name|commit:sha> [--org-token-env <NAME>] | --org-file <path>]';
+/**
+ * The organization source and credential from the Enterprise options, or `undefined` for Vibe. A GitHub source names the
+ * repository, path and ref; a local one the file. The token is read only from the named environment variable.
+ */
+export function organizationFrom(values: Record<string, unknown>): { mode?: 'vibe' | 'enterprise'; organization?: import('../plan/types.js').OrganizationSource;
+    authentication?: { kind: 'bearer'; token: string } } | 'usage' {
+  const mode = values.mode;
+  const github = ['org-repository', 'org-path', 'org-ref'].filter(name => values[name] !== undefined);
+  const named = github.length || values['org-file'] !== undefined || values['org-token-env'] !== undefined;
+  if (mode === undefined) return named ? 'usage' : {};
+  if (mode === 'vibe') return named ? 'usage' : { mode: 'vibe' };
+  if (mode !== 'enterprise') return 'usage';
+  let authentication: { kind: 'bearer'; token: string } | undefined;
+  if (values['org-token-env'] !== undefined) {
+    const name = String(values['org-token-env']);
+    const token = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? process.env[name] : undefined;
+    if (!token || values['org-file'] !== undefined) return 'usage';
+    authentication = { kind: 'bearer', token };
+  }
+  if (values['org-file'] !== undefined) {
+    if (github.length) return 'usage';
+    return { mode, organization: { provider: 'local', path: resolve(String(values['org-file'])) } };
+  }
+  const repository = /^([^/\s]+)\/([^/\s]+)$/.exec(String(values['org-repository'] ?? ''));
+  const revision = /^(branch|tag|commit):(.+)$/s.exec(String(values['org-ref'] ?? ''));
+  if (!repository || !revision || typeof values['org-path'] !== 'string' || !values['org-path']) return 'usage';
+  return { mode, organization: { provider: 'github', repository: { owner: repository[1]!, name: repository[2]! }, path: values['org-path'],
+    revision: { kind: revision[1] as 'branch' | 'tag' | 'commit', value: revision[2]! } }, ...(authentication ? { authentication } : {}) };
+}
