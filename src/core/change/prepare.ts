@@ -14,7 +14,7 @@ import { forgetProvenState } from '../internal/state.js';
 import { schemaProblems, schemas } from '../plan/formats.js';
 import { limitValue } from '../plan/limits.js';
 import { register, type StepRef } from '../plan/handles.js';
-import { FAILURE_RULE, digestOf, problemsOf } from '../plan/prepare.js';
+import { FAILURE_RULE, digestOf, presentFile, problemsOf } from '../plan/prepare.js';
 import { requestDigests } from '../plan/request.js';
 import { REVIEW, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from '../plan/types.js';
 import { CHANGE, CHANGE_REQUEST, engineRecipe, leftOut, validateChange, type Change, type ChangeReference } from './validate.js';
@@ -181,6 +181,9 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
   const resolutions = (request.resolutions ?? []).filter(item => item.choice !== 'skip').map(item => ({ selectionId: item.managementId, operationId: item.step,
     choice: item.choice as 'replace' | 'adopt', observedSha256: item.observedSha256 }));
   const owners = new Map<string, string[]>();
+  // The target bytes each authored operation compared, so a conflict can show them exactly (contract 7).
+  const observed = new Map<string, Buffer | null>();
+  const observe = (facts: { selectionId: string; operationId: string; before: Buffer | null }) => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts.before); };
   // Referenced changes as the engine read them: Enterprise admits each by its identity, inputs and lifecycle.
   const acquired = new Map<string, Change>();
   const read = (document: unknown, managementId: string): Recipe | undefined => {
@@ -196,7 +199,7 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
       ...(controls.privateInputs ? { privateInputs: controls.privateInputs } : {}), ...(controls.materialRoots ? { materialRoots: controls.materialRoots } : {}) },
     undefined, undefined, undefined,
     update ? { originReleases: [], plan: (rows: unknown[]) => { update.cleanupRows = rows; } } : undefined,
-    update ? { plan: (rows: unknown[]) => { update.rows = rows; } } : undefined, { change: { inline, read }, owners,
+    update ? { plan: (rows: unknown[]) => { update.rows = rows; } } : undefined, { change: { inline, read }, owners, observe,
       ...(attributed ? { claims: new Map(request.changes.map(entry => [entry.managementId, { managementId: entry.managementId, project }])) } : {}) });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
@@ -237,8 +240,11 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
     if (operation.effects === 'conflict') {
       const hint = hints.get(operation.id);
       const replaceable = !!hint && hint.availableChoices.length > 0;
+      const before = authored?.selectionId ? observed.get(`${authored.selectionId}/${authored.operationId}`) ?? null : null;
+      const shown = presentFile(before, operation.details.format, secretSlots(request.changes.find(entry => entry.managementId === managementId), acquired, step),
+        privateValues(controls, managementId));
       conflicts.push({ code: 'STATE_CONFLICT', reason: replaceable ? 'existing-content' : 'managed-content-changed', managementId, step,
-        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, existing: null, redacted: [], choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
+        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, ...shown, choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
     }
   }
   for (const [managementId, { change, ids }] of skipped) for (const id of ids) {
@@ -263,6 +269,17 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
 
+/** The paths one change operation sets from a sensitive input: its known secret slots. */
+function secretSlots(entry: ChangeRequest['changes'][number] | undefined, acquired: Map<string, Change>, operationId: string): string[][] {
+  const change = entry?.change ?? (entry ? acquired.get(entry.managementId) : undefined);
+  const op = change?.operations.find(candidate => candidate.id === operationId) as { kind: string; set?: ({ path: string[]; input?: string })[] } | undefined;
+  if (!change || op?.kind !== 'config.entries') return [];
+  const inputs = change.inputs as Record<string, { sensitive?: boolean }>;
+  return (op.set ?? []).filter(item => item.input !== undefined && inputs[item.input]?.sensitive === true).map(item => [...item.path]);
+}
+/** The secret values supplied for one change: never shown in a conflict's existing bytes. */
+const privateValues = (controls: ChangeControls, managementId: string): string[] =>
+  Object.values(controls.privateInputs?.[managementId] ?? {}).filter((value): value is string => typeof value === 'string');
 
 /** A change's identity (C26, `deriveChangeIdentity`): over its canonical text, or a reference's pinned bytes, and its materials. */
 function identityOf(entry: ChangeRequest['changes'][number], acquired: Change | undefined): string | undefined {

@@ -3,7 +3,7 @@
 // Core's private state (its own `~/.aih/core/content/<claim>/links/` folder, contract 5); the link itself is placed just
 // before the first record is written, and removed once no claim's record names it any more.
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { canonicalJson } from '../internal/canonical.js';
 import type { LinkFacts } from '../internal/custody-items.js';
@@ -37,6 +37,11 @@ export function inspectLink(home: string, path: string, to: string): 'absent' | 
     const found = resolve(at, '..', readlinkSync(at)).replace(/[\\/]+$/, '');
     return fold(found) === fold(resolve(home, ...to.split('/'))) ? 'ours' : 'other';
   } catch { return 'other'; }
+}
+/** The bytes of a file you keep at a link's place, to show in its conflict; `null` for a folder, a link or nothing. */
+export function placeBytes(home: string, path: string): Buffer | null {
+  const at = join(home, ...path.split('/'));
+  try { return lstatSync(at).isFile() ? readFileSync(at) : null; } catch { return null; }
 }
 export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-by-you' | 'missing' {
   const found = inspectLink(home, link.path, link.to);

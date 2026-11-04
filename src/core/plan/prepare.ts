@@ -16,7 +16,7 @@ import { register, type HandleState, type ProgramCheck, type StepRef } from './h
 import { resolveExecutable } from '../internal/approved-process.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
-import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeLink } from './links.js';
+import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
 import type { LinkFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
 import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
@@ -490,8 +490,10 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     const planned = step.op === 'link' && step.effect !== 'conflict' ? linkPlans.get(step.step as number) : undefined;
     if (planned?.place !== 'other') continue;
     step.effect = 'conflict';
+    // A file there is shown with its exact bytes; a folder or another link has none to show.
+    const found = placeBytes(home, planned.facts.path);
     conflicts.push({ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: step.managementId, step: step.step, target: planned.facts.path,
-      observedSha256: null, existing: null, redacted: [], choices: ['skip'] });
+      observedSha256: found === null ? null : sha256(found), ...presentFile(found, undefined, [], privateValues), choices: ['skip'] });
   }
   for (const found of guidance.values()) if (found.size > CODEX_GUIDANCE_BYTES)
     return { status: 'refused', code: 'file-too-large-for-client', step: found.step, file: found.path, size: found.size, value: CODEX_GUIDANCE_BYTES,
@@ -778,6 +780,28 @@ function existingText(lowered: Lowered, before: Buffer | null): { text: string |
     for (const span of spans) text = text.slice(0, span.offset) + JSON.stringify(REDACTED) + text.slice(span.offset + span.length);
     return { text, redacted: spans.map(span => pointerOf(span.path)).sort(codeUnitCompare) };
   } catch { return { text: null, redacted: [] }; }
+}
+/**
+ * A whole file's existing bytes as a conflict shows them (contract 7): exactly as on disk, with the known secret slots
+ * (`secrets`, JSON paths) and any supplied secret value read as `[REDACTED]`. A file that is not text, or is over 1 MiB,
+ * is not presented (`null`); the observed digest still binds the real bytes.
+ */
+export function presentFile(before: Uint8Array | null, format: string | undefined, secrets: string[][], privateValues: string[]): { existing: string | null; redacted: string[] } {
+  if (before === null || before.length > 1_048_576) return { existing: null, redacted: [] };
+  let text: string;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(before); } catch { return { existing: null, redacted: [] }; }
+  let redacted: string[] = [];
+  if ((format === 'json' || format === 'jsonc') && secrets.length) {
+    const tree = parseTree(text);
+    const spans = secrets.flatMap(path => {
+      const node = tree && findNodeAtLocation(tree, path);
+      return node ? [{ path, offset: node.offset, length: node.length }] : [];
+    }).sort((a, b) => b.offset - a.offset);
+    for (const span of spans) text = text.slice(0, span.offset) + JSON.stringify(REDACTED) + text.slice(span.offset + span.length);
+    redacted = spans.map(span => pointerOf(span.path)).sort(codeUnitCompare);
+  }
+  for (const value of privateValues) if (value) text = text.split(value).join(REDACTED);
+  return { existing: text, redacted };
 }
 /** Why an update leaves a link out: claims it doesn't replace still link the place to the earlier version. */
 function heldWarning(path: string, from: string, holders: string[]): string {

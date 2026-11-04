@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
+import { validateFormat } from '../dist/core/contracts.js';
 import { linkRequest, mergeRequest } from './fixtures/plan-fixture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-share-'));
@@ -181,5 +183,20 @@ test('your own folder at a link place is never replaced: Prepare is blocked offe
   assert.equal(isLink(join(home, '.agents/skills/ecc-plan')), true);
   await remove(target, [{ managementId: PLAN }]);
   assert.equal(readFileSync(join(mine, 'SKILL.md'), 'utf8'), 'mine\n');
+  rmSync(join(home, '.claude'), { recursive: true });
+});
+
+test('your own file at a link place is a conflict carrying its exact bytes and their digest', async () => {
+  const target = project();
+  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
+  const mine = join(home, '.claude', 'skills', 'ecc-plan');
+  writeFileSync(mine, 'my own notes\n');
+  const blocked = await prepare(linkRequest(target));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const [conflict] = blocked.review.conflicts;
+  assert.deepEqual([conflict.reason, conflict.target, conflict.choices, conflict.existing, conflict.redacted],
+    ['existing-content', '.claude/skills/ecc-plan', ['skip'], 'my own notes\n', []]);
+  assert.equal(conflict.observedSha256, createHash('sha256').update('my own notes\n').digest('hex'));
+  assert.equal(validateFormat(blocked.review).status, 'ok');
   rmSync(join(home, '.claude'), { recursive: true });
 });

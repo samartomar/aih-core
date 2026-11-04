@@ -169,12 +169,33 @@ test('your existing file is a conflict; a replace chosen in a second Prepare kee
   const [conflict] = conforms(blocked.review).conflicts;
   assert.deepEqual([conflict.reason, conflict.managementId, conflict.step, conflict.target], ['existing-content', 'team-guide', 'write', 'TEAM.md']);
   assert.ok(conflict.choices.includes('replace'));
+  // The conflict carries the exact bytes you have there, bound by its observed digest (contract 7).
+  assert.deepEqual([conflict.existing, conflict.redacted], ['my own team notes\n', []]);
+  assert.equal(conflict.observedSha256, createHash('sha256').update('my own team notes\n').digest('hex'));
   const replace = { ...request, resolutions: [{ managementId: 'team-guide', step: 'write', choice: 'replace', observedSha256: conflict.observedSha256 }] };
   await applied(replace);
   assert.equal(readFileSync(join(target, 'TEAM.md'), 'utf8'), 'Shared.\n');
   const { run } = await removed({ project: target }, 'project', ['team-guide']);
   assert.equal(run.completion, 'complete');
   assert.equal(readFileSync(join(target, 'TEAM.md'), 'utf8'), 'my own team notes\n');
+});
+
+test('a change conflict shows your existing settings with the secret slots it would fill redacted', async () => {
+  const target = project();
+  mkdirSync(join(target, '.team'));
+  const mine = '{\n  "token": "my-own-token",\n  "other": "kept"\n}\n';
+  writeFileSync(join(target, '.team', 'settings.json'), mine);
+  const change = projectSetting('tokened', 'token', 'x');
+  change.inputs = { token: { type: 'string', required: true, sensitive: true } };
+  change.operations[0].set = [{ path: ['token'], input: 'token' }];
+  const blocked = await prepare(changeRequest([{ managementId: 'tokened', change }], { project: target }),
+    { privateInputs: { tokened: { token: 'hunter2-value' } } });
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const [conflict] = conforms(blocked.review).conflicts;
+  assert.deepEqual(conflict.redacted, ['/token']);
+  assert.equal(conflict.existing, '{\n  "token": "[REDACTED]",\n  "other": "kept"\n}\n');
+  assert.equal(conflict.observedSha256, createHash('sha256').update(mine).digest('hex'));
+  assert.equal(JSON.stringify(blocked.review).includes('my-own-token'), false);
 });
 
 test('one-server approval and its server land together, and the request a review was made from cannot change before Apply', async () => {
