@@ -8,6 +8,7 @@ import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
+import { proveOrigin } from './origin.js';
 import { register, type StepRef } from './handles.js';
 import { limitValue } from './limits.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
@@ -28,7 +29,14 @@ export function planControls(controls: unknown): PlanControls | undefined {
   if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'catalog', 'onProgress'].includes(key))) return undefined;
   if (value.signal !== undefined && !(value.signal instanceof AbortSignal)) return undefined;
   if (value.logging !== undefined && !['on', 'off'].includes(value.logging)) return undefined;
-  if (value.catalog !== undefined && (!value.catalog || typeof value.catalog !== 'object' || typeof value.catalog.version !== 'string')) return undefined;
+  if (value.catalog !== undefined) {
+    const catalog = value.catalog;
+    if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog) || typeof catalog.version !== 'string' ||
+        catalog.version.length === 0 || catalog.version.length > 64 ||
+        Object.keys(catalog).some(key => !['version', 'renderStep', 'planRecipe'].includes(key)) ||
+        catalog.renderStep !== undefined && typeof catalog.renderStep !== 'function' ||
+        catalog.planRecipe !== undefined && typeof catalog.planRecipe !== 'function') return undefined;
+  }
   if (value.onProgress !== undefined && typeof value.onProgress !== 'function') return undefined;
   return value;
 }
@@ -40,6 +48,12 @@ export const problemsOf = (result: PreparationResult): Problem[] =>
 export const digestOf = (review: Omit<Review, 'reviewDigest'>, engineDigest: string): string =>
   sha256(canonicalJson({ review: review as unknown as Json, engineDigest }));
 
+/** The supplied profiles for a group's CLIs and every profile its renders record, by id. */
+function profilesOf(supplied: { id: string; version: string | number }[], clis: string[], steps: CheckedStep[]) {
+  const ids = new Set([...clis, ...steps.flatMap(step => (step.lowered.profiles ?? []).map(profile => profile.id))]);
+  return supplied.filter(profile => ids.has(profile.id)).map(profile => ({ ...profile })).sort((a, b) => codeUnitCompare(a.id, b.id));
+}
+
 interface Group { selectionId: string; managementId: string; scope: 'project' | 'user'; steps: CheckedStep[] }
 
 export async function preparePlan(input: unknown, rawControls?: unknown): Promise<PlanPreparation> {
@@ -47,10 +61,12 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const controls = planControls(rawControls);
   if (!controls) return { status: 'invalid', problems: [{ path: '', reason: 'controls', message: 'The plan controls are not valid.' }] };
   if (controls.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
-  const admitted = checkPlanRequest(input, controls);
+  const admitted = await checkPlanRequest(input, controls);
   if ('status' in admitted) return admitted;
   const { checked } = admitted;
   const request = checked.document;
+  const proven = await proveOrigin(request, controls);
+  if ('status' in proven) return proven;
   let home: string;
   try { home = projectRoot(homedir()); } catch { return { status: 'refused', code: 'home-unavailable', reason: 'The home folder is not usable.' }; }
   let project: string | null;
@@ -93,8 +109,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       recheck: async () => true }));
     const clis = [...new Set(group.steps.flatMap(step => step.lowered.review.clis ?? []))].sort(codeUnitCompare);
     plans.set(group.selectionId, { items: [group.managementId], clis, data: request.plan.data === null ? null : { ...request.plan.data },
-      origin: 'chosen', catalog: controls.catalog?.version ?? null,
-      profiles: checked.profiles.filter(profile => clis.includes(profile.id)).sort((a, b) => codeUnitCompare(a.id, b.id)),
+      origin: proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
+      profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b) });
     selections.push({ id: group.selectionId, managementId: group.managementId, scope: group.scope, configuration: {}, requires: [],
       recipe: { inline: recipe } });
@@ -142,7 +158,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   steps.sort((a, b) => (a.step as number) - (b.step as number) || codeUnitCompare(a.managementId, b.managementId));
   const { plan: _steps, ...reports } = request.plan;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
-    plan: reports, origin: 'chosen', originNote: request.plan.recipe ? 'origin not proven' : null, steps, conflicts,
+    plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
     ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [] };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;

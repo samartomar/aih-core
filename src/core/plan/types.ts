@@ -15,9 +15,15 @@ export interface Plan {
   status: 'ok' | 'incomplete';
   data: { repository: string; commit: string } | null;
   recipe?: { id: string; sha256: string; repository: string; commit: string };
+  /** The profile ids and versions the plan was made with, when Catalog records them. */
+  profiles?: { id: string; version: string | number }[];
   plan: PlanStep[];
   missing: Json[]; unavailable: Json[]; clashes: Json[]; duplicates: Json[]; references: Json[]; warnings: Json[];
 }
+/** A recipe origin Core proved by reproducing the plan (8.2): the plan's own `recipe` and its `data`. */
+export interface ProvenOrigin { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null }
+/** `chosen`, or a proven recipe origin (C44). */
+export type Origin = 'chosen' | ProvenOrigin;
 /** One source file the plan names. In the Node API it carries its `bytes`; a saved request document never does (C65). */
 export interface PlanFile { sourceId: string; sourcePath: string; sha256: string; bytes?: Uint8Array }
 export interface PlanResolution { managementId: string; step: number; choice: 'replace' | 'adopt' | 'skip'; observedSha256: string | null }
@@ -36,13 +42,22 @@ export interface PlanRequest {
   /** A second Prepare's conflict choices (section 7). */
   resolutions?: PlanResolution[];
 }
+/**
+ * The caller's installed Catalog reader (samartomar/aih-catalog#197): `renderStep(step, contents, profiles, files)` and
+ * `planRecipe(recipe, contents, profiles, choices, options)`, with the Catalog `version`. Core never bundles its own.
+ */
+export interface CatalogControls {
+  version: string;
+  renderStep?: (step: Json, contents: Json[], profiles: Json[], files: { sourceId: string; sourcePath: string; bytes: Uint8Array }[]) => unknown;
+  planRecipe?: (recipe: Json, contents: Json[], profiles: Json[], choices: Json, options: Json) => unknown;
+}
 /** Controls for plan requests; the rest of `HostControls` stays with the older request formats. */
 export interface PlanControls {
   signal?: AbortSignal;
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
   /** The caller's Catalog, the module that made the plan (C51). */
-  catalog?: { version: string; renderStep?: unknown; planRecipe?: unknown };
+  catalog?: CatalogControls;
   onProgress?: (event: Json) => void;
 }
 export interface Problem { path: string; reason: string; message: string }
@@ -69,7 +84,7 @@ export interface Review {
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
-  origin?: 'chosen';
+  origin?: Origin;
   /** "origin not proven" when the plan names a recipe it did not prove (C44); otherwise `null`. */
   originNote?: string | null;
   steps: ReviewStep[];
@@ -116,7 +131,9 @@ export interface Run {
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
-  items: string[]; origin: 'chosen' | null; data: { repository: string; commit: string } | null; clis: string[];
+  items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
+  /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
+  catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
 }
 export interface Inventory {

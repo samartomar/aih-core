@@ -2,7 +2,7 @@
   "name": "@aihq/catalog",
   "version": "0.0.0-core-fixture",
   "private": true,
-  "description": "Core-side test FIXTURE standing in for @aihq/catalog/node readLocalSource. Not Catalog; proves no producer compatibility.",
+  "description": "Core-side test FIXTURE standing in for @aihq/catalog/node readLocalSource and @aihq/catalog/reader renderStep/planRecipe. Not Catalog; proves no producer compatibility.",
   "type": "module",
-  "exports": { "./node": "./node.mjs" }
+  "exports": { "./node": "./node.mjs", "./reader": "./reader.mjs" }
 }
