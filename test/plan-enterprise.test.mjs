@@ -182,3 +182,34 @@ test('an update needs admission too: a prohibited new plan is blocked as a whole
   assert.deepEqual(update.entries.map(entry => entry.status), ['blocked']);
   assert.deepEqual(update.review.organization.denials.map(item => item.entry), ['no-notes']);
 });
+
+test('changes are admitted by identity with input and lifecycle permissions; a required change is fulfilled once installed', async () => {
+  const { deriveChangeIdentity } = await import('../dist/core/contracts.js');
+  const { changeRequest, teamFile } = await import('./fixtures/change-fixture.mjs');
+  const change = teamFile('team-notes', 'TEAM.md');
+  const identity = (await deriveChangeIdentity({ change })).changeIdentity;
+  const request = (text, target) => enterprise({ ...changeRequest([{ managementId: 'team-notes', change, inputs: { text } }], { project: target }) });
+  const target = project();
+  const unnamed = await prepare(request('Read the guide.\n', target), { organization: organization([]) });
+  assert.deepEqual([unnamed.status, unnamed.code, unnamed.review.organization.denials[0].reason], ['blocked', 'AUTHORITY_DENIED', 'change-not-admitted']);
+  const source = organization([{ id: 'team-notes', obligation: 'required', change: { identity }, inputs: { text: { choices: ['Read the guide.\n'] } },
+    lifecycle: { remove: false } }]);
+  const other = await prepare(request('Something else.\n', target), { organization: source });
+  assert.deepEqual([other.status, other.review.organization.denials.map(item => [item.reason, item.input])], ['blocked', [['input-value', 'text']]]);
+  const prepared = await prepare(request('Read the guide.\n', target), { organization: source });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.organization.fulfilment.map(item => item.status), ['fulfilled']);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { organization: source }));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(run.organization.fulfilment.map(item => [item.status, item.managementIds]), [['fulfilled', ['team-notes']]]);
+  // The entry does not permit removing the change: the removal is blocked as a whole.
+  const removal = { target: { project: target }, scope: 'project', mode: 'enterprise', removals: [{ managementId: 'team-notes' }] };
+  const blocked = await prepareRemoval(removal, { organization: source });
+  assert.equal(blocked.status, 'ok', JSON.stringify(blocked));
+  assert.deepEqual([blocked.code, blocked.handle, blocked.entries[0].status, blocked.review.organization.denials[0].reason],
+    ['AUTHORITY_DENIED', undefined, 'blocked', 'lifecycle-remove']);
+  const removable = organization([{ id: 'team-notes', obligation: 'permitted', change: { identity }, inputs: { text: { allowDeclared: true } }, lifecycle: { remove: true } }]);
+  const allowed = await prepareRemoval(removal, { organization: removable });
+  assert.ok(allowed.handle, JSON.stringify(allowed));
+  assert.equal((await apply(allowed.handle, approve(allowed.review), { organization: removable })).completion, 'complete');
+});

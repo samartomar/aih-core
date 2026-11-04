@@ -21,6 +21,10 @@ import { CHANGE, CHANGE_REQUEST, engineRecipe, leftOut, validateChange, type Cha
 import { claimKey } from '../plan/claims.js';
 import type { ReviewOperation } from '../host-types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
+import { recipeIdentityDescriptor } from '../internal/recipe-identity.js';
+import { enterpriseContext } from '../enterprise/plan.js';
+import { admitChanges, admitRemovals, obligations, type ChangeFacts, type ClaimFacts } from '../enterprise/admission.js';
+import { denialReason, enterpriseControls, organizationReview, projected, recordedClaims } from '../enterprise/host.js';
 
 
 
@@ -31,7 +35,7 @@ export interface ChangeRequest {
   schema: typeof CHANGE_REQUEST;
   mode: 'vibe' | 'enterprise';
   scope: 'project' | 'user';
-  target: { project: string | null };
+  target: { project: string | null; client?: { id: string; surface: 'cli' | 'ide' }; repository?: string };
   changes: ({ managementId: string; inputs: Record<string, Json>; requires: string[] } &
     ({ change: Change; reference?: never } | { reference: ChangeReference; change?: never }))[];
   groups?: { id: string; members: string[] }[];
@@ -45,13 +49,17 @@ export interface ChangeControls {
   privateInputs?: Record<string, Record<string, Json>>;
   materialRoots?: Record<string, string>;
   onProgress?: (event: Json) => void;
+  /** Enterprise: the organization source, read fresh at Prepare and again at Apply (contract 11). */
+  organization?: import('../plan/types.js').OrganizationSource;
+  authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
 }
 
 export function changeControls(controls: unknown): ChangeControls | undefined {
   if (controls === undefined) return {};
   if (!controls || typeof controls !== 'object' || Array.isArray(controls) || isProxy(controls)) return undefined;
   const value = controls as ChangeControls;
-  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'materialRoots', 'onProgress'].includes(key))) return undefined;
+  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'materialRoots', 'onProgress', 'organization', 'authentication'].includes(key))) return undefined;
+  if (!enterpriseControls(value as unknown as Record<string, unknown>)) return undefined;
   if (value.signal !== undefined && !(value.signal instanceof AbortSignal)) return undefined;
   if (value.logging !== undefined && !['on', 'off'].includes(value.logging)) return undefined;
   if (value.onProgress !== undefined && typeof value.onProgress !== 'function') return undefined;
@@ -130,8 +138,6 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
     return read.problems.map(problem => ({ ...problem, path: `/changes/${index}/change${problem.path}` }));
   });
   if (changeProblems.length) return invalid(changeProblems);
-  if (request.mode === 'enterprise') return { status: 'refused', code: 'organization-required',
-    reason: 'Enterprise admission of a change request is not carried out by this Core yet; nothing was prepared.' };
   if (request.scope === 'project' && typeof request.target.project !== 'string')
     return invalid([{ path: '/target/project', reason: 'required', message: 'A project-scope request names its project folder.' }]);
   if (typeof request.target.project === 'string' && !isAbsolute(request.target.project))
@@ -141,6 +147,9 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
   let project: string | null;
   try { project = typeof request.target.project === 'string' ? projectRoot(request.target.project) : null; }
   catch { return invalid([{ path: '/target/project', reason: 'project', message: 'The project folder is not usable.' }]); }
+  // Enterprise (contract 11): the organization is read fresh now, and again at Apply.
+  const enterprise = await enterpriseContext(request.mode, request.scope, request.target, controls);
+  if (enterprise && 'status' in enterprise) return enterprise;
 
   // A skipped operation is left out, with every operation of that change that waits for it; the review is then partial.
   const skips = new Map<string, Set<string>>();
@@ -172,9 +181,12 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
   const resolutions = (request.resolutions ?? []).filter(item => item.choice !== 'skip').map(item => ({ selectionId: item.managementId, operationId: item.step,
     choice: item.choice as 'replace' | 'adopt', observedSha256: item.observedSha256 }));
   const owners = new Map<string, string[]>();
+  // Referenced changes as the engine read them: Enterprise admits each by its identity, inputs and lifecycle.
+  const acquired = new Map<string, Change>();
   const read = (document: unknown, managementId: string): Recipe | undefined => {
     if (validateChange(document).status !== 'ok') return undefined;
     const change = document as Change; const named = skips.get(managementId);
+    acquired.set(managementId, change);
     if (named && [...named].some(id => !change.operations.some(op => op.id === id))) return undefined;
     if (named) skipped.set(managementId, { change, ids: leftOut(change, named) });
     return engineRecipe(change, named);
@@ -235,15 +247,46 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
       effect: 'skipped', root: op.scope, requires: [...op.requires] });
   }
   const warnings = engine.diagnostics.filter(item => item.code !== 'STATE_CONFLICT').map(item => `${item.reason}: ${item.message}`);
+  const admission = enterprise ? admitChangeRequest(enterprise, request, acquired, controls, engineId, update, project ?? home, project, request.scope === 'project' ? project! : home) : undefined;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'change', scope: request.scope, target: { project }, steps, conflicts,
-    groups: (request.groups ?? []).map(group => ({ id: group.id, members: [...group.members] })), failureRule: FAILURE_RULE, warnings };
+    groups: (request.groups ?? []).map(group => ({ id: group.id, members: [...group.members] })), failureRule: FAILURE_RULE, warnings,
+    ...(admission ? { organization: admission.review } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
+  if (admission?.denials.length) return { status: 'blocked', code: 'AUTHORITY_DENIED', reason: denialReason(admission.denials), review };
   if (conflicts.some(conflict => conflict.reason === 'existing-content') || !engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || skipped.size > 0;
   const digests = requestDigests(input)!;
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial,
-    operations, claims, request: { value: input, ...digests } });
+    operations, claims, request: { value: input, ...digests },
+    ...(enterprise ? { enterprise: { ...enterprise.state, root: request.scope === 'project' ? project! : home, project } } : {}) });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
 
+
+/** A change's identity (C26, `deriveChangeIdentity`): over its canonical text, or a reference's pinned bytes, and its materials. */
+function identityOf(entry: ChangeRequest['changes'][number], acquired: Change | undefined): string | undefined {
+  const descriptor = entry.change ? recipeIdentityDescriptor(sha256(canonicalJson(entry.change as unknown as Json)), entry.change.materials as never) :
+    recipeIdentityDescriptor(entry.reference!.sha256, (acquired?.materials ?? entry.reference!.materials) as never);
+  return `sha256:${sha256(canonicalJson(descriptor as unknown as Json))}`;
+}
+/** Enterprise admission of a change request (contract 11): every change by identity, inputs and lifecycle; removals by permission. */
+function admitChangeRequest(enterprise: NonNullable<Exclude<Awaited<ReturnType<typeof enterpriseContext>>, { status: string }>>, request: ChangeRequest,
+    acquired: Map<string, Change>, controls: ChangeControls, engineId: (id: string) => string, update: ChangeUpdateContext | undefined,
+    _anchor: string, project: string | null, root: string) {
+  const organization = enterprise.state.bound.organization;
+  const facts: ChangeFacts[] = request.changes.map(entry => {
+    const change = entry.change ?? acquired.get(entry.managementId);
+    return { managementId: entry.managementId, identity: identityOf(entry, acquired.get(entry.managementId)) ?? 'unknown', scope: request.scope,
+      inputs: (change?.inputs ?? {}) as ChangeFacts['inputs'], configuration: entry.inputs, privateInputs: Object.keys(controls.privateInputs?.[entry.managementId] ?? {}),
+      lifecycle: (request.resolutions ?? []).filter(item => item.managementId === entry.managementId && item.choice !== 'skip').map(item => item.choice as 'replace' | 'adopt') };
+  });
+  const recorded = recordedClaims(root, request.scope, project);
+  const released = new Set((update?.removals ?? []).map(removal => removal.key));
+  const denials = [...admitChanges(organization, enterprise.target, facts),
+    ...admitRemovals(organization, enterprise.target, recorded.filter(claim => released.has(claim.key)))];
+  const added: ClaimFacts[] = facts.map(fact => ({ key: engineId(fact.managementId), managementId: fact.managementId, scope: request.scope, clis: [],
+    origin: null, items: [], kind: null, framework: null, change: fact.identity }));
+  const results = obligations(organization, enterprise.target, added, projected(recorded, released, added));
+  return { denials, review: organizationReview(enterprise.state.bound, enterprise.target, denials, results) };
+}

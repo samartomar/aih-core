@@ -119,6 +119,14 @@ export function recordedClaims(root: string, scope: 'project' | 'user', project:
     claims.push({ key: item.managementId, managementId: claim?.managementId ?? item.managementId, scope, clis: [], origin: null, items: [],
       kind: null, framework: null, change: owner?.recipeIdentity ?? 'unknown' });
   }
+  // A change's claims may be recorded only on the members they hold (no item record): one claim per management id.
+  const known = new Set(claims.map(claim => claim.key));
+  for (const owner of Object.values(stored.members)) for (const claim of owner.claims ?? [{ managementId: owner.managementId, scope }]) {
+    if (claim.scope !== scope || known.has(claim.managementId) || scope === 'user' && project !== null) continue;
+    known.add(claim.managementId);
+    claims.push({ key: claim.managementId, managementId: claim.managementId, scope, clis: [], origin: null, items: [], kind: null, framework: null,
+      change: owner.recipeIdentity });
+  }
   return claims;
 }
 

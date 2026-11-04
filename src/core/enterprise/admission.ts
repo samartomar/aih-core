@@ -214,7 +214,9 @@ export function admitRemovals(organization: Organization, target: DeclaredTarget
 
 /** How one claim meets one entry: whether the entry's narrowing applies to it and whether its content matches. */
 function claimMeets(entry: OrganizationEntry, claim: ClaimFacts, target: DeclaredTarget): { match: Match; unknown: Fact[] } {
-  const clients = target.client ? (claim.clis.includes(target.client.id) ? [target.client.id] : []) : claim.clis;
+  // A change records no CLI: it is judged for the declared client, as its admission was.
+  const held = claim.change !== null ? (target.client ? [target.client.id] : []) : claim.clis;
+  const clients = target.client ? (held.includes(target.client.id) ? [target.client.id] : []) : held;
   if (target.client && !clients.length) return { match: 'mismatch', unknown: [] };
   const narrowed = narrowing(entry, claim.scope, clients.length ? clients : null, target.repository);
   if (narrowed.state === 'not-applicable') return { match: 'mismatch', unknown: [] };
