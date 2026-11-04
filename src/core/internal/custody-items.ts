@@ -34,6 +34,11 @@ export interface ItemFacts {
   materialSource?: GitMaterialProvenance;
   /** Receipt facts of an install made from a plan request (`urn:aihq:core:plan-request:0.1.0`); absent for every other request. */
   plan?: PlanItemFacts;
+  /**
+   * A claim the engine keeps under a claim key that isn't a plan's (a user-scope change made for a project, contract 5):
+   * the management id it belongs to and the project that made it.
+   */
+  claim?: { managementId: string; project: string | null };
 }
 /**
  * What a plan-request install records for one management id (one item per scope, C48): where the content came from and
@@ -350,7 +355,7 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const claimedBy = claimIndex(value);
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
     if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
-        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan']) ||
+        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan', 'claim']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
@@ -365,6 +370,8 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
     if (item.plan !== undefined && !validPlanFacts(item.plan)) return false;
+    if (item.claim !== undefined && !(exact(item.claim, ['managementId', 'project']) && typeof item.claim.managementId === 'string' &&
+        PLAN_ID.test(item.claim.managementId) && (item.claim.project === null || text(item.claim.project, 4096)))) return false;
     if (!validProjectFacts(item.projectFacts)) return false;
     const owned = claimedBy(item.scope as string, item.managementId);
     if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
@@ -447,7 +454,7 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
     framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins,
     ...(facts.projectFacts ? { projectFacts: facts.projectFacts } : {}),
     ...(source ? { materialSource: source } : {}),
-    ...(facts.plan ? { plan: facts.plan } : {}), members: prior?.members ?? [],
+    ...(facts.plan ? { plan: facts.plan } : {}), ...(facts.claim ? { claim: facts.claim } : {}), members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
     ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),
@@ -462,7 +469,7 @@ export function completeItem(value: Custody, id: string): boolean {
   if (!item?.installState) return false;
   const { installState: _done, pending: _pending, ...rest } = item;
   const items = { ...value.items, [id]: rest };
-  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.plan && !rest.preExisting && !rest.redactedPaths)
+  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.plan && !rest.claim && !rest.preExisting && !rest.redactedPaths)
     delete items[id];
   value.items = items;
   return true;

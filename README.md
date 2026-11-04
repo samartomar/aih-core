@@ -2484,11 +2484,14 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   is one observed to load junctioned folders (Claude Code, Codex, Copilot CLI, Kimi, Kiro CLI, OpenCode), and otherwise
   (Antigravity, Cursor, dsh, or no `clis`) a copy of the files the plan writes into `to`. The review step and `list`
   name the `linkType`. Core never replaces something already at the link's place (a conflict offered as skip only) and
-  never places a link through another link. A junction or symlink is claimed through a record in `~/.aihq/links/`; when
-  its last claim goes, Core removes the link (only while it still points at its folder) and the parent folders it created
+  never places a link through another link. Each claim on a junction or symlink keeps a record in Core's private state
+  (`~/.aih/core/content/<claim>/links/`); when the last claim goes, Core removes the link (only while it still points at its folder) and the parent folders it created
   for it, if empty. A copy's files are ordinary members. These are Core-side placement facts, not evidence that a CLI
   loads a linked folder.
 - **AI setup folders** in `~/.aihq/ai-setup/` stay while any project's claim holds them.
+- **Changes** at user scope that name `target.project` are claimed for that project too: two projects pushing the same
+  change hold two claims, and the value stays until both are removed. A user-scope change request without a project keeps
+  one claim per management id, anchored on the home folder.
 
 ### Input values (`inputs` bindings)
 

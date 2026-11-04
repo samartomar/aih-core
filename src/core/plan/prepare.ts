@@ -8,7 +8,7 @@ import { blockMemberBytes, configMemberBytes, tomlEntryPaths, tomlEntryText } fr
 import { canonicalJson, codeUnitCompare } from '../internal/canonical.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
-import { forgetProvenState, readOwnership } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { resolveExecutable } from '../internal/approved-process.js';
@@ -146,8 +146,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   // last can remove them; a copy holds the files the plan writes into the linked folder.
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
   const recordedLinks = new Map<string, string[]>();
-  if (checked.steps.some(step => step.lowered.kind === 'link')) for (const item of Object.values(readOwnership(home).value.items ?? {}))
-    for (const link of item.plan?.links ?? []) if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
+  if (checked.steps.some(step => step.lowered.kind === 'link')) for (const root of [home, ...ownershipInventory().targets])
+    for (const item of Object.values(readOwnership(root).value.items ?? {}))
+      for (const link of item.plan?.links ?? []) if (!recordedLinks.has(link.path)) recordedLinks.set(link.path, link.created);
   for (const step of checked.steps) {
     const lowered = step.lowered;
     if (lowered.kind !== 'link' || step.skipped) continue;
@@ -187,16 +188,16 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       const base = { id, purpose: lowered.sentence, scope: group.scope, target, requires, checks: [] };
       if (lowered.kind === 'link') {
         const planned = linkPlans.get(step.index)!;
-        const write = (path: string, bytes: Buffer, executable: boolean, opId: string, needs: string[]) => {
+        const write = (path: string, bytes: Buffer, executable: boolean, opId: string, needs: string[], root: 'userHome' | 'userState' = 'userHome') => {
           const material = { id: `m${String(materials.length).padStart(6, '0')}`, path: `plan/${materials.length}`, sha256: sha256(bytes), byteLength: bytes.length, bytes };
           materials.push(material);
           return { ...base, id: opId, requires: needs, kind: 'file.write' as const, material: material.id,
-            target: { root: 'userHome' as const, segments: path.split('/').map(literal => ({ literal })) }, ...(executable ? { mode: 0o755 } : {}) };
+            target: { root, segments: path.split('/').map(literal => ({ literal })) }, ...(executable ? { mode: 0o755 } : {}) };
         };
         if (lowered.linkType !== 'copy') {
-          // The link is placed just before its record is written; the record is the member every claim shares.
+          // The link is placed just before its record is written; each claim's record lives in Core's private state (contract 5).
           effects.set(`${group.selectionId}/${id}`, { async run() { return placeLink(home, planned.facts); } });
-          return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires)];
+          return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires, 'userState')];
         }
         operations.delete(`${group.selectionId}/${id}`);
         return planned.files.map((file, k) => {

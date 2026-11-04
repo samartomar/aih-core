@@ -2,7 +2,7 @@
 // from, then let the engine re-check and carry out its reviewed steps. Never throws for a stale or lost handle.
 import { randomUUID } from 'node:crypto';
 import { apply as applyEngine } from '../recipe-engine.js';
-import { forgetProvenState } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { take, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
@@ -189,15 +189,24 @@ export function runOf(result: RunResult, state: HandleState): Run {
   return run;
 }
 
-/** A folder link goes with its record: once a run released the last claim's record, the link and the parents Core made go (C28). */
+/**
+ * A folder link goes with its last claim: once a run released a claim's record and no other recorded claim, of any CLI or
+ * project, still names that link, the link and the parents Core made for it go (C28).
+ */
 function removeReleasedLinks(run: Run, links: LinkFacts[]): void {
   let home: string;
   try { home = projectRoot(homedir()); } catch { return; }
   const fold = (path: string) => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
-  const released = new Set(run.members.filter(member => member.scope === 'user' && member.intent === 'remove' && member.check === 'absent')
-    .map(member => fold((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))));
+  const released = run.members.filter(member => member.scope === 'user' && member.intent === 'remove' && member.check === 'absent')
+    .map(member => fold(member.path.replaceAll('\\', '/')));
+  const held = new Set<string>();
+  try {
+    for (const root of [home, ...ownershipInventory().targets]) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+      for (const link of item.plan?.links ?? []) held.add(fold(link.path));
+  } catch { return; /* receipts unreadable: leave every link in place */ }
   const done = new Set<string>();
-  for (const link of links) if (link.linkType !== 'copy' && !done.has(link.path) && released.has(fold(linkRecordPath(link.path)))) {
+  for (const link of links) if (link.linkType !== 'copy' && !done.has(link.path) && !held.has(fold(link.path)) &&
+      released.some(path => path.endsWith('/' + fold(linkRecordPath(link.path))))) {
     done.add(link.path);
     try { removeLink(home, link); } catch { /* left for the person; list no longer claims it */ }
   }

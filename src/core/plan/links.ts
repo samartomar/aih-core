@@ -1,20 +1,20 @@
 // Folder links (contract 8.1 `link`, C29, D111, L1, L2): a symlink on macOS and Linux; on Windows a junction for the
-// CLIs confirmed to load junctioned folders, and a real copy for the others. The receipt claims a link through a small
-// record file Core writes beside its other shared content (`~/.aihq/links/`), so the engine's claims decide when the
-// last claim goes; the link itself is placed just before its record is written and removed once the record is.
+// CLIs confirmed to load junctioned folders, and a real copy for the others. Each claim on a link keeps a small record in
+// Core's private state (its own `~/.aih/core/content/<claim>/links/` folder, contract 5); the link itself is placed just
+// before the first record is written, and removed once no claim's record names it any more.
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { canonicalJson } from '../internal/canonical.js';
 import type { LinkFacts } from '../internal/custody-items.js';
 
-/** Where link records live, under the user root. */
-export const LINK_RECORDS = '.aihq/links';
+/** Where a claim's link records live, inside its Core state folder. */
+export const LINK_RECORDS = 'links';
 /** CLIs observed to load a junctioned skill folder on Windows (C29, L1, L2); Antigravity, Cursor and dsh get copies. */
 export const JUNCTION_CLIS: readonly string[] = Object.freeze(['claude-code', 'codex', 'copilot', 'kimi', 'kiro', 'opencode']);
 
 const fold = (path: string): string => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
-/** The record of one link path, relative to the user root. */
+/** The record of one link path, relative to the claim's Core state folder. */
 export const linkRecordPath = (path: string): string =>
   `${LINK_RECORDS}/${createHash('sha256').update(fold(path)).digest('hex')}.json`;
 /** The record's bytes: what the link is, never anything about who claims it, so every claim shares one record. */

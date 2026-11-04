@@ -51,6 +51,13 @@ function planFacts(roots: string[]): Map<string, PlanItemFacts> {
     if (item.plan) facts.set(`${item.scope}\0${item.managementId}`, item.plan);
   return facts;
 }
+/** Claims kept under a claim key without plan facts (user-scope changes made for a project): their management id and project. */
+function keyedClaims(roots: string[]): Map<string, { managementId: string; project: string | null }> {
+  const found = new Map<string, { managementId: string; project: string | null }>();
+  for (const root of new Set(roots)) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+    if (item.claim && !item.plan) found.set(`${item.scope}\0${item.managementId}`, item.claim);
+  return found;
+}
 /** The recorded claims of one management id in one scope's receipts: engine id and plan facts (C28). */
 function claimsOf(facts: Map<string, PlanItemFacts>, scope: string, managementId: string): { engineId: string; plan: PlanItemFacts }[] {
   const found: { engineId: string; plan: PlanItemFacts }[] = [];
@@ -85,17 +92,19 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   if (listed.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Listing was cancelled.' };
   if (listed.status === 'invalid') return { status: 'invalid', problems: listed.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const facts = planFacts([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])]);
+  const keyed = keyedClaims(scope !== 'project' ? [home] : []);
   // One entry per management id and scope, over every claim that holds it: each CLI and project (C28, C38).
   const entries: InventoryEntry[] = [];
   const byId = new Map<string, InventoryEntry>();
   const memberIndex = new Map<InventoryEntry, Map<string, InventoryMember>>();
   for (const row of listed.selections) {
     const plan = facts.get(`${row.scope}\0${row.managementId}`);
-    const managementId = managementIdOf(row.managementId, plan);
+    const changeClaim = plan ? undefined : keyed.get(`${row.scope}\0${row.managementId}`);
+    const managementId = changeClaim?.managementId ?? managementIdOf(row.managementId, plan);
     let entry = byId.get(`${row.scope}\0${managementId}`);
     if (!entry) {
       entry = { managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
-        data: plan?.data ? { ...plan.data } : null, clis: [], ...(plan ? { claims: [] } : {}),
+        data: plan?.data ? { ...plan.data } : null, clis: [], ...(plan || changeClaim ? { claims: [] } : {}),
         ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}), installState: row.installState,
         ...(plan?.aiSetup ? { aiSetup: { ...plan.aiSetup, interpreter: plan.aiSetup.interpreter ? { ...plan.aiSetup.interpreter } : null } } : {}),
         ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
@@ -110,6 +119,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     const claimClis = plan ? plan.cli !== undefined && plan.cli !== null ? [plan.cli] : plan.clis : [];
     current.clis = [...new Set([...current.clis, ...claimClis])].sort();
     if (plan) current.claims!.push({ cli: plan.cli ?? null, project: plan.project ?? null });
+    else if (changeClaim) (current.claims ??= []).push({ cli: null, project: changeClaim.project });
     if (plan && current.profiles) for (const profile of plan.profiles)
       if (!current.profiles.some(known => known.id === profile.id)) current.profiles.push({ ...profile });
     current.profiles?.sort((a, b) => order(a.id, b.id));
@@ -152,6 +162,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const scope = located.scope as 'project' | 'user';
   const home = projectRoot(homedir());
   const facts = planFacts([scope === 'project' ? located.anchor : home]);
+  const keyed = keyedClaims([scope === 'project' ? located.anchor : home]);
   // Each removal names the engine claims it releases (C28): this place's claims of the management id from this project,
   // and with `clis` only those CLIs' claims. A claim whose steps recorded no CLI can't be split by CLI (C55).
   const selectors: { index: number; managementId: string; engineIds: string[] }[] = [];
@@ -177,7 +188,10 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
       if (!found) return invalid(`/removals/${index}/item`, 'item-removal-unavailable', 'Only an item inside a plugin is removed by item.');
       itemEntries.set(index, found); continue;
     }
-    const recorded = claimsOf(facts, scope, entry.managementId).filter(claim => sameProject(claim.plan, located.project));
+    // A user-scope change's claim has no CLI: it counts as unattributed for removal by CLI.
+    const changeClaims = [...keyed].filter(([key, claim]) => key.startsWith(`${scope}\0`) && claim.managementId === entry.managementId)
+      .map(([key, claim]) => ({ engineId: key.slice(scope.length + 1), plan: { managementId: claim.managementId, cli: null, project: claim.project } as PlanItemFacts }));
+    const recorded = [...claimsOf(facts, scope, entry.managementId), ...changeClaims].filter(claim => sameProject(claim.plan, located.project));
     const clis = entry.clis as string[] | undefined;
     if (clis && recorded.some(claim => (claim.plan.cli ?? null) === null)) return { status: 'refused', code: 'client-attribution-missing',
       reason: `Removal by CLI is refused: the plan that installed \`${entry.managementId}\` recorded no CLIs for its members, so Core can't tell which CLI claims them. Remove it for every CLI, or install it again from a plan that records \`clis\`.` };

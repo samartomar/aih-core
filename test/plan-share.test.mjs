@@ -85,6 +85,7 @@ test('ECC plan on Claude and Codex, user scope: each CLI place links to one shar
   const target = project();
   const start = homeEntries();
   const { prepared } = await install(linkRequest(target));
+  assert.equal(existsSync(join(home, '.aihq', 'links')), false, 'link records live in Core state, not beside your content');
   const links = prepared.review.steps.filter(step => step.op === 'link');
   assert.deepEqual(links.map(step => [step.path, step.clis, step.linkType]),
     [['.agents/skills/ecc-plan', ['codex'], expectedLink], ['.claude/skills/ecc-plan', ['claude-code'], expectedLink]]);
