@@ -214,7 +214,9 @@ test('an update request is checked as a whole first', async () => {
   const where = project();
   const request = ownRequest(where, { a: { 'SKILL.md': 'A\n' } }, ['claude-code']);
   const two = await prepareUpdate({ target: { project: where }, scope: 'project', updates: [{ managementIds: [ID('a')], request }, { managementIds: [ID('a')], request }] });
-  assert.equal(two.status, 'invalid');
+  assert.equal(two.status, 'ok', JSON.stringify(two));
+  assert.deepEqual(two.entries.map(entry => [entry.update, entry.disposition, entry.code]), [[0, 'unavailable', 'update-conflict'], [1, 'unavailable', 'update-conflict']]);
+  assert.equal(two.handle, undefined);
   const elsewhere = await prepareUpdate({ target: { project: project() }, scope: 'project', updates: [{ managementIds: [ID('a')], request }] });
   assert.equal(elsewhere.status, 'invalid'); assert.equal(elsewhere.problems[0].reason, 'update-place');
 });
