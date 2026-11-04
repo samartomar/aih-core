@@ -11,6 +11,8 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
+import type { PluginFacts } from '../plan/types.js';
+export type { PluginFacts } from '../plan/types.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -59,16 +61,6 @@ export interface PlanItemFacts {
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
    */
   plugins?: PluginFacts[];
-}
-/** One native plugin install's receipt facts; argv lists are filled, never templates. */
-export interface PluginFacts {
-  step: number; cli: string; plugin: string; commit: string;
-  /** The content items the plugin's recorded folder holds; the plugin is still one indivisible install (C68). */
-  contains: string[];
-  /** The CLI's own removal commands (`plugins.remove`), or `null` when the profile gave none. */
-  undo: string[][] | null;
-  /** The profile's presence check for this route, or `none` (C56). */
-  presenceCheck: 'none' | { argv: string[]; expect: string };
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];

@@ -3,7 +3,6 @@ declare const planHandle: unique symbol;
 /** The private, in-process key for one 0.1.0 review; consumed by its first Apply. */
 export interface PlanHandle { readonly [planHandle]: true }
 import type { Json } from '../types.js';
-import type { PluginFacts } from '../internal/custody-items.js';
 
 export const PLAN_REQUEST = 'urn:aihq:core:plan-request:0.1.0' as const;
 export const REVIEW = 'urn:aihq:core:review:0.1.0' as const;
@@ -178,3 +177,13 @@ export interface RemovalEntry {
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+/** One native plugin install's receipt facts; argv lists are filled, never templates. */
+export interface PluginFacts {
+  step: number; cli: string; plugin: string; commit: string;
+  /** The content items the plugin's recorded folder holds; the plugin is still one indivisible install (C68). */
+  contains: string[];
+  /** The CLI's own removal commands (`plugins.remove`), or `null` when the profile gave none. */
+  undo: string[][] | null;
+  /** The profile's presence check for this route, or `none` (C56). */
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+}
