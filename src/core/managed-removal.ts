@@ -206,7 +206,11 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
   // A removal review holds only generated lifecycle cleanup; the embedded preparation keeps its published shape.
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
-  if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
+  // Custody is checked again once the preparation is back, before its handle is handed out: a change at any point
+  // after the preflight read makes the removal unavailable (Apply would refuse it as stale anyway).
+  let current = false;
+  try { current = sameImage(); } catch { /* An unreadable image is not current. */ }
+  if (!current || preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation,
     ...(preparation.review?.schema === 'urn:aihq:core:prepared-work:1.4.0' ||
@@ -420,7 +424,11 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls),
   undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; }, ...internal });
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
-  if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
+  // Custody is checked again once the preparation is back, before its handle is handed out: a change at any point
+  // after the preflight read makes the removal unavailable (Apply would refuse it as stale anyway).
+  let current = false;
+  try { current = sameImage(); } catch { /* An unreadable image is not current. */ }
+  if (!current || preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   const listed = (descriptorRoot: string, descriptor: CleanupPlanRow['descriptor'], path: string | undefined) => {
     const pointer = memberPointer(descriptor);

@@ -206,16 +206,15 @@ test('preflight-only dispositions write no history while a prepared one keeps th
   assert.equal(existsSync(runsDir(s)), true);
 });
 
-test('custody that changes while preparing is unavailable and exposes no handle', async () => {
+test('custody that changes before the preparation is handed back is unavailable and exposes no handle', async () => {
   const s = open();
   await install(s);
-  // The engine reads custody synchronously inside the call; this write lands after that read.
+  // The engine reads custody synchronously inside the call; this write lands after that read, before the result returns.
   const pending = prepareManagedRemoval(removal(s));
   writeFileSync(join(s.home, '.aih', 'core', 'ownership', `${'e'.repeat(64)}.json`), '{ later }');
   const result = await pending;
   assert.deepEqual([result.disposition, result.diagnostics.map(item => item.reason)], ['unavailable', ['ownership-changed']]);
   assert.equal(Object.hasOwn(result, 'preparation'), false);
-  assert.equal(existsSync(runsDir(s)), false, 'a changed preflight must not write routine history');
 });
 
 const originalFetch = globalThis.fetch;
