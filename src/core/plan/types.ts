@@ -3,6 +3,7 @@ declare const planHandle: unique symbol;
 /** The private, in-process key for one 0.1.0 review; consumed by its first Apply. */
 export interface PlanHandle { readonly [planHandle]: true }
 import type { Json } from '../types.js';
+import type { ReviewInput } from './inputs.js';
 
 export const PLAN_REQUEST = 'urn:aihq:core:plan-request:0.1.0' as const;
 export const REVIEW = 'urn:aihq:core:review:0.1.0' as const;
@@ -64,7 +65,9 @@ export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
 export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string;
   /** `file-too-large-for-client`: the file and the size it would have. */
-  file?: string; size?: number }
+  file?: string; size?: number;
+  /** `input-missing` and `input-binding-missing`: the item and the input. */
+  item?: string; input?: string }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
@@ -79,6 +82,8 @@ export interface ReviewStep {
   requires?: string[]; details?: Json;
   /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
   framework?: string; cli?: string; plugin?: string; commit?: string; contains?: string[];
+  /** A step a local-plugin route lowers to (Catalog D120). */
+  route?: 'local-plugin';
   /** The exact commands, each with the executable and sha256 Prepare pinned; only these run, in this order. */
   commands?: ReviewCommand[];
   /** The removal commands copied into the receipt at install, or `null` when the profile gave none. */
@@ -95,6 +100,8 @@ export interface ReviewStep {
     fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
   /** A merge: its format, key, and the entry it adds (known secret slots read `[REDACTED]`). */
   format?: 'json' | 'toml' | 'markdown'; key?: string; entry?: Json;
+  /** The step's input bindings: where each value lands, how it is written, and an ordinary value (never a secret's). */
+  inputs?: ReviewInput[];
 }
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
@@ -114,7 +121,7 @@ export interface ReviewConflict {
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal' | 'change';
+  request: 'plan' | 'removal' | 'change' | 'repair' | 'export' | 'macos-session';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
@@ -129,6 +136,8 @@ export interface Review {
   groups?: { id: string; members: string[] }[];
   failureRule: string;
   warnings: string[];
+  /** Repair, export and macOS session reviews only (contract 10). */
+  environment?: EnvironmentReview;
   reviewDigest: string;
 }
 export interface Preparation {
@@ -164,6 +173,8 @@ export interface Run {
   reviewDigest: string | null;
   steps: RunStep[]; members: RunMember[];
   history: { status: 'recorded' | 'disabled' | 'not-recorded'; limit?: string };
+  /** Repair, export and macOS session runs only (contract 10). */
+  environment?: EnvironmentRun;
 }
 
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string;
@@ -184,13 +195,19 @@ export interface InventoryEntry {
   plugins?: PluginFacts[];
   /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
   aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
+  /** A local-plugin install (C68): the items it contains (`null` when the plan named none) and its files. */
+  localPlugin?: { contains: string[] | null; files: string[] };
+  /** A switch-off of one plugin item (C45, C69): removing this entry turns the item back on. */
+  switchOff?: { framework: string; item: string; cli: string; name: string };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';
   observation: 'complete' | 'incomplete'; entries: InventoryEntry[];
 }
 export type ListResult = Inventory | Refusal | Invalid;
-export interface RemovalSelector { managementId: string; item?: string; origin?: string; clis?: string[] }
+export interface RemovalSelector { managementId: string; item?: string; origin?: string; clis?: string[];
+  /** With `item`: switch that one plugin item off where its CLI supports it, instead of removing anything (C45). */
+  switchOff?: true }
 export interface RemovalMember { kind: string; path: string; pointer?: string; action: string; reason?: string }
 export interface RemovalEntry {
   managementId: string; disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
@@ -201,8 +218,13 @@ export interface RemovalEntry {
   reason?: string;
   /** Everything the indivisible plugin holds. */
   contains?: string[];
-  /** The removals the person can prepare instead: the whole plugin. */
-  offers?: { managementId: string }[];
+  /** A local plugin whose plan named no contained items: its files, listed instead of guessing membership. */
+  files?: string[];
+  /**
+   * The removals the person can prepare instead: the whole plugin, the item's switch-off where the CLI supports one, or,
+   * once it is off, the switch-off's own removal (`{ managementId: <item> }`), which turns it back on.
+   */
+  offers?: { managementId: string; item?: string; switchOff?: true }[];
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
@@ -215,4 +237,28 @@ export interface PluginFacts {
   undo: string[][] | null;
   /** The profile's presence check for this route, or `none` (C56). */
   presenceCheck: 'none' | { argv: string[]; expect: string };
+  /** The skill name of each contained skill item, by item id: what a client keys a one-skill switch-off by (C45). */
+  skills?: { [item: string]: string };
+}
+
+/** A problem that keeps environment work from being admitted on this host, named by its retained code and reason. */
+export interface EnvironmentProblem { code: string; reason: string; message: string; path?: string }
+/** The retained facts of a repair, certificate export or macOS session review (contract 10). */
+export interface EnvironmentReview {
+  job: 'repair' | 'export' | 'macos-session';
+  repair: string | null;
+  targets: string[];
+  route: 'file' | 'native' | 'os' | 'export';
+  network: 'declared' | 'off';
+  /** The job's reviewed trust facts: sources, certificates, outputs and per-target admission, or the macOS session facts. */
+  facts: { [field: string]: Json };
+  observations: { id: string; reason: string }[];
+  unavailable: EnvironmentProblem[];
+}
+export interface EnvironmentRun {
+  job: 'repair' | 'export' | 'macos-session';
+  outputs: { [field: string]: Json }[];
+  targets: { [field: string]: Json }[];
+  session?: { [field: string]: Json };
+  diagnostics: EnvironmentProblem[];
 }

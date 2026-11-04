@@ -1,0 +1,8 @@
+{
+  "schema": "urn:aihq:core:export-inputs:0.1.0",
+  "sources": {
+    "os": false,
+    "supplied": []
+  },
+  "command": "arbitrary"
+}

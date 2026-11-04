@@ -1,0 +1,12 @@
+{
+  "schema": "urn:aihq:core:export-inputs:0.1.0",
+  "sources": {
+    "os": false,
+    "supplied": [
+      {
+        "id": "company",
+        "file": "company-ca.pem"
+      }
+    ]
+  }
+}

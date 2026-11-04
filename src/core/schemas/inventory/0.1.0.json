@@ -41,6 +41,11 @@
             "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
               "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
             "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] } } },
+        "localPlugin": { "type": "object", "additionalProperties": false, "required": ["contains", "files"], "properties": {
+          "contains": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }] },
+          "files": { "type": "array", "items": { "type": "string" } } } },
+        "switchOff": { "type": "object", "additionalProperties": false, "required": ["framework", "item", "cli", "name"], "properties": {
+          "framework": { "type": "string" }, "item": { "type": "string" }, "cli": { "type": "string" }, "name": { "type": "string" } } },
         "members": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["kind", "path", "state"],
           "properties": {
@@ -54,6 +59,7 @@
           "properties": {
             "step": { "type": "integer", "minimum": 0 }, "cli": { "type": "string" }, "plugin": { "type": "string" }, "commit": { "type": "string" },
             "contains": { "type": "array", "items": { "type": "string" } },
+            "skills": { "type": "object", "additionalProperties": { "type": "string" } },
             "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "array", "minItems": 1, "items": { "type": "string" } } }] },
             "presenceCheck": { "oneOf": [{ "const": "none" }, { "type": "object", "additionalProperties": false, "required": ["argv", "expect"],
               "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "expect": { "type": "string" } } }] }

@@ -1,0 +1,30 @@
+{
+  "schema": "urn:aihq:core:macos-session-request:0.1.0",
+  "repair": "node-npm-ca",
+  "targets": [
+    "node"
+  ],
+  "route": "file",
+  "sources": {
+    "os": false,
+    "supplied": [
+      {
+        "id": "company",
+        "file": "/home/dev/company-ca.pem"
+      }
+    ]
+  },
+  "session": {
+    "context": "terminal",
+    "applications": [
+      {
+        "clientId": "claude",
+        "appPath": "/Applications/Claude.app",
+        "targets": [
+          "node"
+        ],
+        "launch": "finder"
+      }
+    ]
+  }
+}

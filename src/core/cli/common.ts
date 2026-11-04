@@ -48,3 +48,23 @@ export async function approved(review: Review, yes: boolean, signal: AbortSignal
 export const printable = <T extends { handle?: unknown }>(result: T): Omit<T, 'handle'> => {
   const { handle: _handle, ...rest } = result; return rest;
 };
+
+/**
+ * `--private-input <item>.<input>=<ENV>` mappings (contract 22): each names a set environment variable holding the
+ * secret, keyed by item id then input name as `controls.privateInputs`. Item ids hold dots, so the last literal dot
+ * separates the input; a dot inside either part may be written `%2E`. `undefined` when a mapping is malformed, repeated
+ * or names an unset variable.
+ */
+export function privateInputMappings(mappings: string[] | undefined): Record<string, Record<string, string>> | undefined {
+  const inputs: Record<string, Record<string, string>> = Object.create(null);
+  for (const mapping of mappings ?? []) {
+    const match = /^([A-Za-z0-9][A-Za-z0-9._%-]*)\.([A-Za-z_%][A-Za-z0-9_%-]*)=([A-Za-z_][A-Za-z0-9_]*)$/.exec(mapping);
+    let item = '', input = '';
+    try { item = decodeURIComponent(match?.[1] ?? ''); input = decodeURIComponent(match?.[2] ?? ''); } catch { return undefined; }
+    const value = match ? process.env[match[3]!] : undefined;
+    if (!match || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(item) || !/^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(input) || value === undefined ||
+        Object.hasOwn(inputs[item] ?? {}, input)) return undefined;
+    (inputs[item] ??= Object.create(null))[input] = value;
+  }
+  return inputs;
+}

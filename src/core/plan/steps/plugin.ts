@@ -12,6 +12,7 @@ import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SKILL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const PLACEHOLDER = /<([a-z-]+)>/g;
 type Argv = string[];
@@ -72,17 +73,19 @@ export const plugin: StepHandler = {
 
     // The items the plugin's recorded folder holds, from the framework's content document (Catalog `plugins`).
     const contains = new Set<string>();
+    // Each contained skill's name: what a CLI that can switch one skill off keys it by (C45).
+    const skills: Record<string, string> = {};
     for (const content of request.contents as unknown as { framework?: { id?: string }; plugins?: { sourceId: string; path: string; scanKey: string }[];
-        items?: { id: string; files: { sourceId: string; sourcePath: string }[] }[] }[]) {
+        items?: { id: string; kind?: unknown; name?: unknown; files: { sourceId: string; sourcePath: string }[] }[] }[]) {
       if (content.framework?.id !== framework) continue;
       for (const folder of content.plugins ?? []) if (folder.scanKey === scanKey)
         for (const item of content.items ?? []) if (item.files.length && item.files.every(file => file.sourceId === folder.sourceId && under(file.sourcePath, folder.path)))
-          contains.add(item.id);
+        { contains.add(item.id); if (item.kind === 'skill' && typeof item.name === 'string' && SKILL.test(item.name)) skills[item.id] = item.name; }
     }
     const install = commands.at(-1)!.join(' ');
     const before = commands.slice(0, -1).map(argv => `\`${argv.join(' ')}\``).join(', then ');
     return { lowered: { kind: 'plugin', managementIds: [framework], root: request.scope, cli, plugin: name, commit, framework,
-      contains: [...contains].sort(codeUnitCompare), commands, undo, presenceCheck,
+      contains: [...contains].sort(codeUnitCompare), ...(Object.keys(skills).length ? { skills } : {}), commands, undo, presenceCheck,
       sentence: `Runs \`${install}\`${before ? ` after ${before}` : ''}`,
       cantPromise: 'Core can\'t show or promise what this command changes: it is the CLI\'s own program. ' +
         (presenceCheck === 'none' ? 'The profile gives no presence check, so the plugin stays unverified. ' : 'Core checks only that the plugin is listed. ') +

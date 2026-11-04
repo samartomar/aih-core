@@ -13,6 +13,7 @@ import preparedWork12Schema from './schemas/prepared-work/1.2.0.json' with { typ
 import preparedWork14Schema from './schemas/prepared-work/1.4.0.json' with { type: 'json' };
 import runResult12Schema from './schemas/run-result/1.2.0.json' with { type: 'json' };
 import trustCustodySchema from './schemas/trust-custody/1.0.0.json' with { type: 'json' };
+import trustCustodyRecordSchema from './schemas/trust-custody/0.1.0.json' with { type: 'json' };
 import { registerSchemas, schemaCheck, validateExactDocument } from './internal/contract-validation.js';
 import type { Diagnostic, ValidationResult } from './types.js';
 
@@ -26,6 +27,8 @@ export const CERTIFICATE_EXPORT_INPUTS_1_0_0 = 'urn:aihq:core:certificate-export
 export const PREPARED_WORK_1_2_0 = 'urn:aihq:core:prepared-work:1.2.0' as const;
 export const RUN_RESULT_1_2_0 = 'urn:aihq:core:run-result:1.2.0' as const;
 export const TRUST_CUSTODY_1_0_0 = 'urn:aihq:core:trust-custody:1.0.0' as const;
+/** The stored environment ownership format (contract 4, 5): `~/.aih/core/trust-custody.json`. */
+export const TRUST_CUSTODY = 'urn:aihq:core:trust-custody:0.1.0' as const;
 export const HARNESS_REPAIR_1_1_0 = 'urn:aihq:harness:repair:1.1.0' as const;
 
 export type TrustRepairId = 'node-npm-ca' | 'user-tools-ca' | 'jvm-ca';
@@ -237,7 +240,8 @@ export const trustContractSchemas = Object.freeze([
   trustCustodySchema
 ] as const);
 
-registerSchemas(...trustContractSchemas, preparedWork14Schema);
+registerSchemas(...trustContractSchemas, preparedWork14Schema, trustCustodyRecordSchema);
+const checkTrustCustodyRecord = schemaCheck(trustCustodyRecordSchema.$id);
 const checkPreparedWork14 = schemaCheck(preparedWork14Schema.$id);
 const checkTrustRepairRequest = schemaCheck(repairRequestSchema.$id);
 const checkTrustRepairInputs = schemaCheck(repairInputsSchema.$id);
@@ -409,5 +413,10 @@ export const validatePreparedWork14 = (value: unknown): ValidationResult =>
     isObject(value.inputs) && Object.hasOwn(value.inputs, 'trust') ? preparedWork12Semantics(value) : [], PRODUCED);
 export const validateRunResult12 = (value: unknown): ValidationResult =>
   validateExactDocument(value, runResult12Schema.$id, checkRunResult12, runResult12Semantics, PRODUCED);
+/** The retiring 1.0.0 validator; a stored 0.1.0 record is read by its own schema. */
 export const validateTrustCustody = (value: unknown): ValidationResult =>
+  isObject(value) && value.schema === TRUST_CUSTODY ? validateTrustCustodyRecord(value) :
   validateExactDocument(value, trustCustodySchema.$id, checkTrustCustody, trustCustodySemantics, PROVENANCE);
+/** The stored custody record, `urn:aihq:core:trust-custody:0.1.0`: the 1.0.0 shape under its 0.1.0 name. */
+export const validateTrustCustodyRecord = (value: unknown): ValidationResult =>
+  validateExactDocument(value, trustCustodyRecordSchema.$id, checkTrustCustodyRecord, trustCustodySemantics, PROVENANCE);

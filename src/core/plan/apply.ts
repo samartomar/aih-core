@@ -14,6 +14,8 @@ import { linkRecordPath, removeLink } from './links.js';
 import type { LinkFacts } from '../internal/custody-items.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
+import { privateInputsHold } from './inputs.js';
+import { checkSwitchOff } from './switch-off.js';
 import { changeControls } from '../change/prepare.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
@@ -44,6 +46,8 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     if (!now || now.documentDigest !== state.request.documentDigest || now.bytesDigest !== state.request.bytesDigest)
       return stale('binding', state.reviewDigest);
   }
+  // Exact private-input changes invalidate the approval: Apply's values, or the object Prepare read when it passes none.
+  if (state.privateInputs && !privateInputsHold(state.privateInputs, controls.privateInputs)) return stale('input', state.reviewDigest);
   if (state.progress && controls.onProgress) state.progress.onProgress = controls.onProgress;
   if (controls.signal?.aborted) return { ...rejected('cancelled', { reviewDigest: state.reviewDigest }), completion: 'cancelled' };
   const origin = value.origin as 'interactive' | 'automation';
@@ -76,6 +80,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     // Plan work never stops at a failed step: its item and dependants are not attempted, unrelated items continue (C60).
     ...(state.enginePartial || state.request ? { allowPartial: true } : {}) }, engineControls(controls), undefined, progress(controls, state));
   const run = runOf(result, state);
+  if (state.readback) checkSwitchOff(run, state.readback);
   removeReleasedSetups(run);
   if (state.links) removeReleasedLinks(run, state.links);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);

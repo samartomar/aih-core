@@ -19,6 +19,7 @@ import type { LinkFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin } from './steps/types.js';
 import type { PluginFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
+import { bindPrivateInputs } from './inputs.js';
 import { limitValue } from './limits.js';
 import { acquisition } from './acquire/effect.js';
 import { probe } from './acquire/download.js';
@@ -168,6 +169,10 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const operations = new Map<string, StepRef>();
   const merges = new Map<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>();
   const selections: ExecutionPolicy['selections'] = [];
+  // Secret values the plan writes into files: the engine holds them as its own private inputs, so its review details
+  // and history redact them (C59); Apply re-checks the caller's private inputs by digest.
+  const enginePrivate: Record<string, Record<string, string>> = {};
+  const privateValues = [...new Set(checked.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
   for (const group of groups.values()) {
     const materials: { id: string; path: string; sha256: string; byteLength: number; bytes: Buffer }[] = [];
     const ops: Recipe['operations'] = group.steps.flatMap((step, at): Recipe['operations'] => {
@@ -220,7 +225,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         return outcome;
       } });
     }
-    const recipe: Recipe = { schema: RECIPE, id: 'plan', description: 'Content from a plan request', inputs: {},
+    const secretValues = [...new Set(group.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
+    const secretInputs: Recipe['inputs'] = Object.fromEntries(secretValues.map((_value, at) => [`secret-${at}`,
+      { type: 'string' as const, required: false, sensitive: true }]));
+    if (secretValues.length) enginePrivate[group.selectionId] = Object.fromEntries(secretValues.map((value, at) => [`secret-${at}`, value]));
+    const recipe: Recipe = { schema: RECIPE, id: 'plan', description: 'Content from a plan request', inputs: secretInputs,
       materials: materials.map(({ id, path, sha256: digest, byteLength }) => ({ id, path, sha256: digest, byteLength, source: { kind: 'local', input: 'plan' } })),
       targets: [group.scope], prerequisites: [], operations: ops, checks: [] };
     const owned = materials.map(({ id, path, sha256: digest, byteLength }) => Object.freeze({ id, path, sha256: digest, byteLength }));
@@ -236,7 +245,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
-      ...pluginFacts(group.steps),
+      ...pluginFacts(group.steps), ...localPluginFacts(group.steps),
+      ...inputFacts(group.managementId, group.steps),
       ...linkFacts(group.steps, linkPlans) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
@@ -251,7 +261,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   });
   const observed = new Map<string, ObservedStep>();
   const engine = await prepareEngine({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections },
-    target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) }, engineControls(controls),
+    target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
+    { ...engineControls(controls), ...(Object.keys(enginePrivate).length ? { privateInputs: enginePrivate } : {}) },
     undefined, undefined, undefined, undefined, undefined,
     { supplied, plans, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
@@ -308,7 +319,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     const editor = !!reason && !['existing-content', 'managed-content-changed', 'shared-member', 'overlapping-member'].includes(reason);
     const choices: ReviewConflict['choices'] = kept ? [] : unresolvedAdopt ? ['adopt', 'skip'] :
       editor ? ['skip'] : [...(hint?.availableChoices ?? []), 'skip'];
-    const shown = presentExisting(lowered, before);
+    const shown = presentExisting(lowered, before, privateValues);
     conflicts.push({ code: 'STATE_CONFLICT', reason: kept ? 'managed-content-changed' : 'existing-content', managementId: ref.managementId,
       step: ref.step, target: lowered.path, ...(lowered.kind === 'merge' ? { key: lowered.key } : {}),
       observedSha256: before === null ? null : sha256(before), existing: shown.text, redacted: shown.redacted, choices,
@@ -356,7 +367,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const { plan: _steps, ...reports } = request.plan;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
-    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [] };
+    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: secretWarnings(checked.steps) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   // Unowned content needs the person's choice and a new Prepare: no handle (section 7).
@@ -365,6 +376,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
     reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}),
+    privateInputs: bindPrivateInputs(controls.privateInputs),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
@@ -388,13 +400,23 @@ function programOperations(lowered: LoweredPlugin, index: number, group: { selec
 function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
   const plugins = steps.flatMap(step => step.lowered.kind === 'plugin' && !step.skipped ? [{ step: step.index, cli: step.lowered.cli,
     plugin: step.lowered.plugin, commit: step.lowered.commit, contains: [...step.lowered.contains], undo: step.lowered.undo,
-    presenceCheck: step.lowered.presenceCheck }] : []);
+    presenceCheck: step.lowered.presenceCheck, ...(step.lowered.skills ? { skills: { ...step.lowered.skills } } : {}) }] : []);
   return plugins.length ? { plugins } : {};
 }
 /** The receipt's facts of the links one claim's steps place. */
 function linkFacts(steps: CheckedStep[], plans: Map<number, { facts: LinkFacts }>): { links?: LinkFacts[] } {
   const links = steps.flatMap(step => step.lowered.kind === 'link' && plans.has(step.index) ? [{ ...plans.get(step.index)!.facts, created: [...plans.get(step.index)!.facts.created] }] : []);
   return links.length ? { links } : {};
+}
+/**
+ * A local-plugin route's receipt facts (C68, Catalog D120): the items its first step says it contains, or `null` when
+ * the plan gives no such metadata (then only its files are known; Core never infers membership).
+ */
+function localPluginFacts(steps: CheckedStep[]): { localPlugin?: { contains: string[] | null } } {
+  const route = steps.filter(step => step.lowered.kind !== 'plugin' && step.lowered.review.route === 'local-plugin');
+  if (!route.length) return {};
+  const named = route.flatMap(step => step.lowered.kind === 'plugin' ? [] : step.lowered.review.contains ? [step.lowered.review.contains] : []);
+  return { localPlugin: { contains: named.length ? [...new Set(named.flat())].sort(codeUnitCompare) : null } };
 }
 /** An AI setup's review facts (C46): what it downloads, and for a Python tool both interpreter branches. */
 function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>): Pick<ReviewStep, 'acquire' | 'interpreter'> {
@@ -416,11 +438,25 @@ const markers = (key: string) => ({ startMarker: `<!-- aih:begin ${key} -->`, en
 const pointerOf = (segments: string[]): string => segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
 const under = (path: string[], prefix: string[]): boolean => path.length > prefix.length && prefix.every((part, at) => part === path[at]);
 
-/** The planned entry as the review shows it: its known secret slots read `[REDACTED]`. */
+/** The receipt's input facts for one management id (C59): where each binding landed, and only ordinary values. */
+function inputFacts(managementId: string, steps: CheckedStep[]): { inputs?: NonNullable<PlanItemFacts['inputs']> } {
+  const rows = new Map<string, NonNullable<PlanItemFacts['inputs']>[number]>();
+  for (const step of steps) for (const row of step.lowered.bound?.review ?? []) if (row.item === managementId && !rows.has(row.input))
+    rows.set(row.input, { input: row.input, secret: row.secret, written: row.written, from: row.from, ...(row.value !== undefined ? { value: row.value } : {}) });
+  const inputs = [...rows.values()].sort((a, b) => codeUnitCompare(a.input, b.input));
+  return inputs.length ? { inputs } : {};
+}
+/** "this file will hold a secret", once per file a secret value is written into (C59). */
+function secretWarnings(steps: CheckedStep[]): string[] {
+  const files = [...new Set(steps.flatMap(step => step.lowered.bound?.secretFiles ?? []))].sort(codeUnitCompare);
+  return files.map(file => `\`${file}\`: this file will hold a secret, written as its value because the client's profile declares no environment reference there.`);
+}
+
+/** The planned entry as the review shows it: slots that hold a secret value read `[REDACTED]`. */
 function presentedEntry(lowered: LoweredMerge): Json {
   if (lowered.format === 'markdown') return lowered.entry;
   const entry = structuredClone(lowered.entry);
-  for (const secret of lowered.secrets) {
+  for (const secret of lowered.redact) {
     const relative = secret.slice(lowered.segments.length);
     let node: Json = entry;
     for (const [at, segment] of relative.entries()) {
@@ -436,7 +472,13 @@ function presentedEntry(lowered: LoweredMerge): Json {
  * block for a merge, the whole file for a write. Known secret slots read `[REDACTED]`; the observed digest still binds
  * the real bytes. Bytes that are not text, or a file over 1 MiB, are not presented (`null`).
  */
-function presentExisting(lowered: Lowered, before: Buffer | null): { text: string | null; redacted: string[] } {
+function presentExisting(lowered: Lowered, before: Buffer | null, privateValues: string[]): { text: string | null; redacted: string[] } {
+  const shown = existingText(lowered, before);
+  let text = shown.text;
+  if (text !== null) for (const value of privateValues) if (value) text = text.split(value).join(REDACTED);
+  return { text, redacted: shown.redacted };
+}
+function existingText(lowered: Lowered, before: Buffer | null): { text: string | null; redacted: string[] } {
   if (before === null || lowered.kind === 'plugin' || lowered.kind === 'link') return { text: null, redacted: [] };
   try {
     if (lowered.kind === 'write') return { text: before.length <= 1_048_576 ? new TextDecoder('utf-8', { fatal: true }).decode(before) : null, redacted: [] };

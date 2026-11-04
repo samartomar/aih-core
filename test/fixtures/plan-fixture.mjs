@@ -137,7 +137,7 @@ export function pluginRequest(verify = 'none', { scope = 'user', project = null,
  * declared inputs (`requirements.inputs`) come from `inputs[itemId]`. Steps are sorted by root, then file, as Catalog orders
  * them. FIXTURE documents in the accepted Catalog shapes, not Catalog output.
  */
-export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [] } = {}) {
+export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [], profiles } = {}) {
   const ids = [...new Set(merges.map(merge => merge.item))];
   const items = ids.map(id => ({ id, kind: 'mcp', name: id.split('.').at(-1), description: `Fixture item ${id}`, files: [],
     ...(inputs[id] ? { requirements: { inputs: inputs[id] } } : {}), contentSha256: sha256(id), behaviourSha256: sha256(id) }));
@@ -147,7 +147,71 @@ export function mergeRequest(project, merges, { scope = 'project', inputs = {}, 
   return { schema: PLAN_REQUEST, scope, target: { project },
     plan: { status: 'ok', data: null, plan: [...plan, ...extra], missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
     contents: [{ schema: CONTENT, framework: { id: framework, name: 'My setup' }, sources: [{ id: framework, kind: 'local', notices: [] }], items }],
-    profiles: clis.map(id => profile(id)), files: [] };
+    profiles: profiles ?? clis.map(id => profile(id)), files: [] };
+}
+
+// Typed input bindings (Catalog D121): steps carry `inputs: [{ item, input, at }]` with exactly one of `{ pointer }`,
+// `{ placeholder }`, `{ argv }` or `{ env }`; profiles describe native environment references per destination surface
+// under `inputReferences` (`file`, `mcp-argv`, `mcp-env`, `mcp-header`: `none`, `unknown` or `{ syntax }` with `<name>`).
+// The field names follow Catalog's in-progress implementation; these are FIXTURE profiles, not evidenced client facts.
+export const MCP_FILE = { stdio: { command: 'command', args: 'args', env: 'env', set: { type: 'stdio' } },
+  remote: { 'streamable-http': { url: 'url', headers: 'headers', set: { type: 'http' } } } };
+export const NO_REFERENCES = { file: 'unknown', 'mcp-argv': 'unknown', 'mcp-env': 'unknown', 'mcp-header': 'unknown' };
+/** A tool profile FIXTURE with an MCP file description and the given `inputReferences` overrides. */
+export const inputProfile = (id, references = {}, { mcpFile = MCP_FILE, version = 1 } = {}) =>
+  ({ ...profile(id, version), mcpFile, inputReferences: { ...NO_REFERENCES, ...references } });
+export const ENV_REFERENCE = { syntax: '${<name>}' };
+// Local-plugin routes (Catalog `local-plugin`, D120): the plugin's files copied by `write` steps and its registration
+// added by `merge` steps, each naming the `framework` and `route: "local-plugin"`; the route's first step lists the items
+// it `contains`. Step shapes follow Catalog's local-plugin lowering (`from: { sourceId, sourcePath, sha256 }`, `scanKey`,
+// `executable`, `clis`); the Claude registration entries follow its claude-code profile's `localPlugins` place. FIXTURES.
+export const LOCAL_PLUGIN_MANIFEST = '{"name":"superpowers-marketplace","plugins":[{"name":"superpowers","source":"./"}]}\n';
+
+/** `pluginContent` whose recorded plugin folder also holds the Claude marketplace manifest. */
+export function localPluginContent(framework = 'superpowers') {
+  const content = pluginContent(framework);
+  const bytes = Buffer.from(LOCAL_PLUGIN_MANIFEST);
+  const folder = content.plugins[0];
+  folder.files = [{ sourcePath: '.claude-plugin/marketplace.json', sha256: sha256(bytes), bytes: bytes.length, executable: false },
+    ...folder.files];
+  return { content, bytes: { '.claude-plugin/marketplace.json': bytes, ...Object.fromEntries(content.items.map(item =>
+    [item.files[0].sourcePath, Buffer.from(`---\nname: ${item.name}\n---\n${item.name}\n`)])) } };
+}
+
+/**
+ * A project-scope plan request copying `framework` as a Claude local plugin. `contains: false` leaves out the route's
+ * contained-item metadata (an older plan), so Core can only list the plugin's files.
+ */
+export function localPluginRequest(project, { framework = 'superpowers', contains = true } = {}) {
+  const { content, bytes } = localPluginContent(framework);
+  const folder = content.plugins[0];
+  const target = `.aihq/plugins/${framework}`;
+  const marks = { framework, route: 'local-plugin' };
+  const writes = folder.files.map(file => ({ op: 'write', root: 'project', path: `${target}/${file.sourcePath}`,
+    from: { sourceId: folder.sourceId, sourcePath: file.sourcePath, sha256: file.sha256 }, executable: file.executable, ...marks,
+    scanKey: folder.scanKey, clis: ['claude-code'] }));
+  const merges = [
+    { key: '/enabledPlugins/superpowers@superpowers-marketplace', entry: true },
+    { key: '/extraKnownMarketplaces/superpowers-marketplace', entry: { source: { source: 'directory', path: `./${target}` } } },
+  ].map(merge => ({ op: 'merge', root: 'project', file: '.claude/settings.json', format: 'json', ...merge, ...marks, clis: ['claude-code'] }));
+  const plan = [...writes, ...merges];
+  if (contains) plan[0].contains = content.items.map(item => item.id).sort();
+  return { schema: PLAN_REQUEST, scope: 'project', target: { project }, contents: [content], profiles: [profile('claude-code', 3)],
+    files: Object.entries(bytes).map(([sourcePath, value]) => ({ sourceId: folder.sourceId, sourcePath, sha256: sha256(value), bytes: value })),
+    plan: { status: 'ok', data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) }, plan,
+      missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] } };
+}
+
+/** A Codex-shaped tool profile with a native plugin route at user scope (Catalog's codex profile `plugins`). */
+export const codexPluginProfile = () => ({ ...profile('codex', 3), plugins: { pin: 'holds', scopes: ['user'], pinForm: 'marketplace',
+  install: [['codex', 'plugin', 'marketplace', 'add', '<marketplace>', '--ref', '<commit>'], ['codex', 'plugin', 'add', '<plugin>@<marketplace-name>']],
+  remove: [['codex', 'plugin', 'remove', '<plugin>']], verify: 'none' } });
+
+/** A user-scope plan request installing `framework` as a native Codex plugin. */
+export function codexPluginRequest(framework = 'superpowers') {
+  const request = pluginRequest('none', { framework, profileOptions: { id: 'codex', command: 'codex' } });
+  request.profiles = [codexPluginProfile()];
+  return request;
 }
 
 // User-scope shared copies and folder links (`op: "link"`, Catalog 9: `{ root: 'user', path, to, item, clis }`). The plan
