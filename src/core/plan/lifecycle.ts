@@ -17,7 +17,8 @@ import { resolveExecutable } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
-import type { PlanItemFacts, PluginFacts } from '../internal/custody-items.js';
+import type { PlanItemFacts } from '../internal/custody-items.js';
+import type { PluginFacts } from './types.js';
 import type { Json } from '../types.js';
 import { INVENTORY, REVIEW, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
   type Review, type ReviewStep } from './types.js';
