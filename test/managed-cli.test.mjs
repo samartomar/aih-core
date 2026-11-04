@@ -266,7 +266,10 @@ test('managed subcommands reject unrelated flags with cli-options and unknown fl
     assert.equal(reason(remove('--bogus')), 'cli-input');
     for (const args of [['help', 'managed', '--scope', 'user'], ['help', 'managed', 'list', '--mode', 'vibe'], ['managed', '--help', '--scope', 'user'],
       ['managed', 'remove', '--help', '--mode', 'vibe'], ['help', 'policy', '--scope', 'user'], ['policy', '--help', '--scope', 'user'],
-      ['inspect', '--mode', 'vibe'], ['--version', '--scope', 'user'], ['policy', 'p.json', '--scope', 'user']])
+      ['--version', '--scope', 'user'], ['policy', 'p.json', '--scope', 'user']])
       assert.equal(reason(args), 'cli-options', args.join(' '));
+    // The 0.1.0 inspect command refuses an unknown option as `usage`.
+    const inspected = w.run(['inspect', '--mode', 'vibe', '--json']);
+    assert.deepEqual([inspected.status, parse(inspected).code], [2, 'usage']);
   } finally { w.dispose(); }
 });

@@ -256,10 +256,8 @@ check('the validator refuses claims observations do not support', () => {
     [['SCHEMA_UNSUPPORTED', 'schema-unsupported']]);
 });
 
-check('listTools offers exactly the tools the binding table observes', () => {
-  const observed = toolBindings.filter(binding => Object.values(binding.layouts).some(layout => layout.observations.length > 0))
-    .map(binding => binding.tool);
-  assert.deepEqual(listTools().map(entry => entry.id), observed);
+check('listTools offers the registry, not the binding observations', () => {
+  assert.deepEqual(listTools().tools.map(entry => entry.id), toolRegistry.tools.map(entry => entry.id));
 });
 
 console.log(JSON.stringify({ status: 'passed', checks }));

@@ -277,14 +277,15 @@ test('existing commands reject report-only options', () => {
         ['managed', 'help', ...flags]]) {
         const result = w.run([...args, '--json']);
         assert.equal(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
-        assert.equal(summary(result).status, 'invalid');
+        // 0.1.0 commands refuse unknown options as `usage`; retained ones answer `invalid`.
+        assert.equal(summary(result).status, args[0] === 'inspect' ? 'refused' : 'invalid');
         assert.equal(existsSync(join(w.cwd, 'out')), false);
       }
     }
     // The ordinary inspect command is intact.
     const ok = w.run(['inspect', '--target', 'node', '--offline', '--json']);
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
-    assert.equal(summary(ok).status, 'complete');
+    assert.deepEqual([summary(ok).status, summary(ok).observation], ['ok', 'complete']);
   } finally { w.cleanup(); }
 });
 
