@@ -185,7 +185,7 @@ function filesDigest(files: string[]): string {
     let state: string;
     try { const stats = lstatSync(file); state = stats.isFile() ? createHash('sha256').update(readFileSync(file)).digest('hex') : stats.isDirectory() ? 'folder' : 'other'; }
     catch (error) { state = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'unreadable'; }
-    hash.update(file).update(' ').update(state).update(' ');
+    hash.update(file).update('\0').update(state).update('\0');
   }
   return hash.digest('hex');
 }
