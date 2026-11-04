@@ -156,7 +156,8 @@ export interface LoweredMerge {
   /** The step's filled input bindings, when it has any. */
   bound?: BoundInputs;
   /** Whether the file is Codex's always-on guidance, whose resulting size Catalog bounds at 32 KiB (C72). */
-  codexGuidance: boolean;
+  /** A guidance file a served CLI reads only up to `maxBytes` (C72), from the Harness CLI facts. */
+  guidance?: { label: string; maxBytes: number };
   sentence: string;
   cantPromise: string | null;
   review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[];

@@ -4,6 +4,7 @@
 // reviewed conflict (section 7). Input bindings (`inputs`, D121) are filled before lowering (`../inputs.ts`): a JSON or
 // TOML entry takes them at a pointer, an argv slot or an environment name, a Markdown block at a declared placeholder.
 // Secret-bound slots are presented redacted in a conflict.
+import { guidanceLimit } from '../../../harness/cli-facts.mjs';
 import { basename } from 'node:path/posix';
 import { clis, owners, problem, target } from './common.js';
 import { bindEntry, bindText, parseBindings, type BoundInputs, type SlotTemplate } from '../inputs.js';
@@ -91,11 +92,11 @@ export const merge: StepHandler = {
       }
     }
     const name = basename(placed.path);
-    const codexGuidance = format === 'markdown' && name === 'AGENTS.md' &&
-      (served.clis.includes('codex') || !served.clis.length && context.request.profiles.some(profile => profile.id === 'codex'));
+    // A guidance file a served CLI reads only up to a size (C72); a step naming no CLIs serves every profile's.
+    const guidance = format === 'markdown' ? guidanceLimit(served.clis.length ? served.clis : context.request.profiles.map(profile => String(profile.id)), name) : undefined;
     const sentence = format === 'markdown' ? `Adds the \`${key}\` block to \`${placed.path}\`` : `Adds \`${key}\` to \`${placed.path}\``;
     return { lowered: { kind: 'merge', managementIds: owner.ids, root: placed.root, path: placed.path, format, key, segments,
-      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(slots.length ? { slots } : {}), ...(bound ? { bound } : {}), codexGuidance, sentence,
+      entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(slots.length ? { slots } : {}), ...(bound ? { bound } : {}), ...(guidance ? { guidance: { label: guidance.label, maxBytes: guidance.maxBytes } } : {}), sentence,
       cantPromise: null, review: { ...owner.review, clis: served.clis, format, key, ...(bound ? { inputs: bound.review } : {}) } } };
   }
 };

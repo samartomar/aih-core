@@ -16,11 +16,10 @@ import { readOwnership } from '../internal/state.js';
 import { register, type StepRef, type SwitchOffReadback } from './handles.js';
 import { FAILURE_RULE, digestOf, engineControls, problemsOf } from './prepare.js';
 import type { PlanItemFacts, PluginFacts } from '../internal/custody-items.js';
+import { switchOffRoute } from '../../harness/cli-facts.mjs';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 import { REVIEW, type PlanControls, type RemovalResult, type Review, type ReviewConflict, type ReviewStep, type Run } from './types.js';
 
-const FILE = ['.codex', 'config.toml'];
-const TABLE = ['skills', 'config'];
 const OPERATION = 'switch-off';
 const sha256 = (value: Buffer): string => createHash('sha256').update(value).digest('hex');
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -34,10 +33,10 @@ export function switchOffId(framework: string, item: string): string {
   return ID.test(named) ? named : `switch-off-${createHash('sha256').update(JSON.stringify([framework, item])).digest('hex').slice(0, 40)}`;
 }
 
-/** The marked block that switches `name` off: its markers, its block id and its one `[[skills.config]]` table. */
-export function switchOffBlock(framework: string, item: string, name: string, eol = '\n') {
+/** The marked block that switches `name` off: its markers, its block id and its one table of the route's array (`[[skills.config]]`). */
+export function switchOffBlock(framework: string, item: string, name: string, table: readonly string[], eol = '\n') {
   return { blockId: item, startMarker: `# aih:begin ${framework}/${item}`, endMarker: `# aih:end ${framework}/${item}`,
-    content: ['[[skills.config]]', `name = "${name}"`, 'enabled = false', ''].join(eol) };
+    content: [`[[${table.join('.')}]]`, `name = "${name}"`, 'enabled = false', ''].join(eol) };
 }
 
 /**
@@ -48,15 +47,18 @@ export function switchOffBlock(framework: string, item: string, name: string, eo
  */
 export async function prepareSwitchOff(framework: string, item: string, plugin: PluginFacts | undefined, plan: PlanItemFacts,
     controls: PlanControls): Promise<RemovalResult> {
-  if (!plugin) return { status: 'refused', code: 'switch-off-unsupported',
+  // The CLI's switch-off route (its config file and table) comes from the Harness CLI facts.
+  const route = plugin ? switchOffRoute(plugin.cli) : undefined;
+  if (!plugin || !route) return { status: 'refused', code: 'switch-off-unsupported',
     reason: `\`${item}\` can't be switched off on its own: the CLI \`${framework}\` is installed for has no supported switch-off for it. Remove the whole plugin instead.` };
   let home: string;
   try { home = projectRoot(homedir()); } catch { return { status: 'refused', code: 'home-unavailable', reason: 'The home folder is not usable.' }; }
   const name = `${plugin.plugin}:${plugin.skills![item]}`;
   // The block keeps the file's own line endings; the engine pins the bytes it reads, so a later change makes Apply stale.
   let eol = '\n';
+  const FILE = route.file, TABLE = route.table;
   try { if (readFileSync(join(home, ...FILE)).includes('\r\n')) eol = '\r\n'; } catch { /* absent: Core creates it */ }
-  const block = switchOffBlock(framework, item, name, eol);
+  const block = switchOffBlock(framework, item, name, TABLE, eol);
   const path = FILE.join('/');
   const managementId = switchOffId(framework, item);
   const recipe: Recipe = { schema: 'urn:aihq:core:recipe:1.0.0', id: 'switch-off', description: 'Switches one plugin item off', inputs: {},
@@ -83,7 +85,7 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
   if (!operation || operation.effects === 'conflict' || operation.effects === 'unavailable') detail = observed?.reason ?? 'existing-content';
   else try {
     const outside = renderTextBlock(before, { blockId: block.blockId, startMarker: block.startMarker, endMarker: block.endMarker, action: 'remove' });
-    if (tomlArrayTableEntries(outside, TABLE).some(entry => entry.values.name === name)) detail = 'unmarked-entry';
+    if (tomlArrayTableEntries(outside, [...TABLE]).some(entry => entry.values.name === name)) detail = 'unmarked-entry';
   } catch (error) { detail = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : 'unsupported-toml-syntax'; }
   const effect: ReviewStep['effect'] = detail ? 'conflict' : operation!.effects === 'create-file' || operation!.effects === 'replace-file' ||
     operation!.effects === 'already-satisfied' ? operation!.effects as ReviewStep['effect'] : 'unchanged';
@@ -92,7 +94,7 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
     cantPromise: 'Core checks the block it wrote, not that the CLI honours it.', effect, root: 'user', path, format: 'toml', key: block.blockId,
     entry: block.content };
   const conflicts: ReviewConflict[] = detail ? [{ code: 'STATE_CONFLICT', reason: 'existing-content', managementId, step: 0, target: path,
-    key: block.blockId, observedSha256: before === null ? null : sha256(before), existing: existingText(before, block, name), redacted: [],
+    key: block.blockId, observedSha256: before === null ? null : sha256(before), existing: existingText(before, block, name, TABLE), redacted: [],
     choices: ['skip'], detail }] : [];
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'removal', scope: 'user', target: { project: null }, steps: [step],
     conflicts, failureRule: FAILURE_RULE, warnings: [] };
@@ -103,20 +105,20 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
     members: [{ kind: 'block', path, action: 'switch-off' }] };
   if (blocked) return { status: 'ok', entries: [entry], review };
   const operations = new Map<string, StepRef>([[operation!.id, { step: 0, managementId }]]);
-  const readback: SwitchOffReadback = { file: join(home, ...FILE), ...block, name, step: 0, managementId };
+  const readback: SwitchOffReadback = { file: join(home, ...FILE), table: [...TABLE], ...block, name, step: 0, managementId };
   const handle = register({ engine: engine.prepared!, engineDigest: engine.review.reviewDigest, enginePartial: false, reviewDigest, partial: false,
     operations, readback });
   return { status: 'ok', entries: [entry], review, handle };
 }
 
 /** The bytes a conflict is about: the marked block if one is there, else your own `[[skills.config]]` entry for the skill. */
-function existingText(before: Buffer | null, block: ReturnType<typeof switchOffBlock>, name: string): string | null {
+function existingText(before: Buffer | null, block: ReturnType<typeof switchOffBlock>, name: string, TABLE: readonly string[]): string | null {
   if (before === null) return null;
   try {
     const marked = blockMemberBytes(before, { ...block, action: 'remove', content: undefined });
     if (marked) return marked.toString('utf8');
     const text = before.toString('utf8');
-    const found = tomlArrayTableEntries(before, TABLE).find(entry => entry.values.name === name);
+    const found = tomlArrayTableEntries(before, [...TABLE]).find(entry => entry.values.name === name);
     return found ? text.slice(found.start, found.end) : null;
   } catch { return before.length <= 1_048_576 ? before.toString('utf8') : null; }
 }
@@ -132,7 +134,7 @@ export function checkSwitchOff(run: Run, readback: SwitchOffReadback): void {
   try {
     const bytes = readFileSync(readback.file);
     const marked = blockMemberBytes(bytes, { blockId: readback.blockId, startMarker: readback.startMarker, endMarker: readback.endMarker, action: 'remove' });
-    const entries = marked ? tomlArrayTableEntries(marked, TABLE) : [];
+    const entries = marked ? tomlArrayTableEntries(marked, readback.table) : [];
     ok = entries.length === 1 && entries[0]!.values.name === readback.name && entries[0]!.values.enabled === false;
   } catch { ok = false; }
   step.verification = ok ? { status: 'passed', reason: 'readback-matched' } : { status: 'failed', reason: 'readback-mismatch' };

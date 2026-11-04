@@ -13,7 +13,7 @@ export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; 
   /** A tool-command readback (D57): the output must show `expect`, whatever presence is wanted. */
   readback?: true }
 /** The switch-off block a run reads back: the file, its markers, and the `plugin:skill` name it must turn off. */
-export interface SwitchOffReadback { file: string; blockId: string; startMarker: string; endMarker: string; content: string; name: string;
+export interface SwitchOffReadback { file: string; table: string[]; blockId: string; startMarker: string; endMarker: string; content: string; name: string;
   step: number; managementId: string }
 export interface HandleState {
   engine: PreparedHandle;

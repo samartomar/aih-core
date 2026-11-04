@@ -7,11 +7,12 @@ import { lstatSync, mkdirSync, readFileSync, readlinkSync, rmdirSync, symlinkSyn
 import { join, resolve } from 'node:path';
 import { canonicalJson } from '../internal/canonical.js';
 import type { LinkFacts } from '../internal/custody-items.js';
+import { cliFacts } from '../../harness/cli-facts.mjs';
 
 /** Where a claim's link records live, inside its Core state folder. */
 export const LINK_RECORDS = 'links';
-/** CLIs observed to load a junctioned skill folder on Windows (C29, L1, L2); Antigravity, Cursor and dsh get copies. */
-export const JUNCTION_CLIS: readonly string[] = Object.freeze(['claude-code', 'codex', 'copilot', 'kimi', 'kiro', 'opencode']);
+/** CLIs observed to load a junctioned skill folder on Windows (C29, L1, L2), from the Harness CLI facts; others get copies. */
+export const JUNCTION_CLIS: readonly string[] = cliFacts.junctionLinks;
 
 const fold = (path: string): string => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
 /** The record of one link path, relative to the claim's Core state folder. */

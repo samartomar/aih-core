@@ -408,8 +408,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const steps: ReviewStep[] = [];
   const programCommands = new Map<number, { executable: string; executableSha256: string }[]>();
   const byStep = new Map<number, CheckedStep>(checked.steps.map(step => [step.index, step]));
-  // Codex reads at most 32 KiB of AGENTS.md: the resulting file, your bytes plus every planned block, is checked before any write (C72).
-  const guidance = new Map<string, { step: number; path: string; size: number }>();
+  // A CLI that reads at most so many bytes of its guidance file (Codex, AGENTS.md): the resulting file, your bytes plus
+  // every planned block, is checked before any write (C72).
+  const guidance = new Map<string, { step: number; path: string; size: number; label: string; maxBytes: number }>();
   // A step carried out for several claims (CLIs) is presented once, as its first claim's operation.
   const presented = new Set<string>();
   for (const operation of engine.review.operations) {
@@ -462,8 +463,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence, cantPromise: lowered.cantPromise, effect,
       root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed)),
       ...(replacing && displaces ? { displaces } : {}) });
-    if (lowered.kind === 'merge' && lowered.codexGuidance && !conflict && facts?.after)
-      guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length });
+    if (lowered.kind === 'merge' && lowered.guidance && !conflict && facts?.after)
+      guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length, ...lowered.guidance });
     if (!conflict) continue;
     const before = facts?.before ?? null;
     const reason = facts?.reason;
@@ -498,9 +499,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     conflicts.push({ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: step.managementId, step: step.step, target: planned.facts.path,
       observedSha256: found === null ? null : sha256(found), ...presentFile(found, undefined, [], privateValues), choices: ['skip'] });
   }
-  for (const found of guidance.values()) if (found.size > CODEX_GUIDANCE_BYTES)
-    return { status: 'refused', code: 'file-too-large-for-client', step: found.step, file: found.path, size: found.size, value: CODEX_GUIDANCE_BYTES,
-      reason: `\`${found.path}\` would be ${found.size} bytes with your bytes and the planned blocks; Codex reads at most ${CODEX_GUIDANCE_BYTES}.` };
+  for (const found of guidance.values()) if (found.size > found.maxBytes)
+    return { status: 'refused', code: 'file-too-large-for-client', step: found.step, file: found.path, size: found.size, value: found.maxBytes,
+      reason: `\`${found.path}\` would be ${found.size} bytes with your bytes and the planned blocks; ${found.label} reads at most ${found.maxBytes}.` };
   // One review step per plugin step: every exact command with its pinned executable, the undo facts and the check.
   const programs = new Map<number, ProgramCheck>();
   for (const step of checked.steps) {
@@ -700,7 +701,6 @@ function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterp
     switchesOn: found ? FALLBACK_REASONS.filter(reason => reason !== 'none-found') : ['none-found'] } } : {}) };
 }
 
-const CODEX_GUIDANCE_BYTES = 32 * 1024;
 const REDACTED = '[REDACTED]';
 const markers = (key: string) => ({ startMarker: `<!-- aih:begin ${key} -->`, endMarker: `<!-- aih:end ${key} -->` });
 const pointerOf = (segments: string[]): string => segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');

@@ -17,6 +17,7 @@ import { forgetProvenState, readOwnership } from '../internal/state.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { prepareSwitchOff, switchOffClaims, switchOffId } from './switch-off.js';
+import { switchOffRoute } from '../../harness/cli-facts.mjs';
 import { prepare as prepareEngine } from '../recipe-engine.js';
 import { resolveProgram } from '../internal/approved-process.js';
 import { operationKey } from '../internal/operation-key.js';
@@ -426,9 +427,9 @@ async function switchOff(framework: string, item: string, scope: 'project' | 'us
   if (!holding.length && plan.localPlugin?.contains !== null) return absent;
   return prepareSwitchOff(framework, item, switchable(plan.plugins ?? [], item), plan, controls);
 }
-/** The plugin step that lets this one item be switched off: a Codex plugin naming the item's skill (C45, C69). */
+/** The plugin step that lets this one item be switched off: a plugin of a CLI with a switch-off route (Codex) naming the item's skill (C45, C69). */
 export function switchable(plugins: PluginFacts[], item: string): PluginFacts | undefined {
-  return plugins.find(plugin => plugin.cli === 'codex' && plugin.contains.includes(item) && typeof plugin.skills?.[item] === 'string');
+  return plugins.find(plugin => !!switchOffRoute(plugin.cli) && plugin.contains.includes(item) && typeof plugin.skills?.[item] === 'string');
 }
 /** Whether a switch-off claim for this item of this framework is recorded here. */
 const switchedOff = (facts: Map<string, PlanItemFacts>, scope: string, framework: string, item: string): boolean =>

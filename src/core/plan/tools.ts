@@ -2,8 +2,9 @@
 // steps target only the registry tools Catalog has a profile for (contract 6). Only the id counts: an alias (such as
 // `claude`) is accepted for selection by name, never in a plan. A registry change that drops one of these CLIs fails here.
 import { findTool } from '../../harness/tool-registry.mjs';
+import { cliFacts } from '../../harness/cli-facts.mjs';
 
-const PROFILED = new Set(['claude-code', 'codex', 'copilot', 'kiro', 'antigravity', 'opencode', 'kimi', 'cursor', 'dsh']);
+const PROFILED = new Set(cliFacts.profiled);
 
 export function knownCli(id: string): boolean {
   const found = findTool(id);

@@ -2,6 +2,7 @@
 // `urn:aihq:core:inspection:0.1.0`, plus the old-CLI warning. Optional Catalog tool profiles are read only for `id`,
 // `version` and `checkedWith`; a CLI older than the version its profile was checked with is a warning, never a gate.
 // A tool with no profile says "version not compared". Nothing is installed, written or refused because of a version.
+import { inspectTargetOf, inspectToolOf } from '../harness/cli-facts.mjs';
 import { isProxy } from 'node:util/types';
 import { findTool, toolRegistry } from '../harness/tool-registry.mjs';
 import { inspectRetained, type InspectControls, type InspectRequest, type InspectResult, type ToolVersion } from './inspection.js';
@@ -52,13 +53,12 @@ export interface Inspection {
 export type InspectionResult = Inspection | { status: 'invalid'; problems: Problem[] } |
   { status: 'refused'; code: string; reason: string };
 
-// Harness inspection targets that are registry tools under another id (the Harness `targets` keep their own ids).
-const TARGET_OF: Readonly<Record<string, string>> = Object.freeze({ 'claude-code': 'claude', 'cursor-ide': 'cursor' });
+// Harness inspection targets that are registry tools under another id (the Harness `targets` keep their own ids): the
+// Harness CLI facts map each way.
 /** The registry tool a Harness target's version command reached; `cursor` is the IDE or the CLI by its command. */
 function registryTool(target: string, binary?: string): string | null {
-  if (target === 'claude') return 'claude-code';
-  if (target === 'cursor') return binary === undefined ? null : binary === 'cursor' ? 'cursor-ide' : 'cursor';
-  return findTool(target)?.via === 'id' ? target : null;
+  const tool = inspectToolOf(target, binary);
+  return tool !== null && findTool(tool)?.via === 'id' ? tool : null;
 }
 
 const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' &&
@@ -156,7 +156,7 @@ export async function inspectMachine(request: unknown, rawControls?: unknown): P
   if ('problems' in read) return { status: 'invalid', problems: read.problems };
   const targets = names?.map(name => {
     const found = findTool(name);
-    return found ? TARGET_OF[found.tool.id] ?? found.tool.id : name;
+    return found ? inspectTargetOf(found.tool.id) : name;
   });
   const controls = (rawControls ?? {}) as InspectControls;
   let found: ToolVersion[] = [];
@@ -212,13 +212,13 @@ export async function reviewVersions(profiles: unknown[], clis: readonly string[
   }
   if (!read.size) return undefined;
   const ids = [...new Set(clis)].filter(id => findTool(id)?.via === 'id').sort();
-  const targets = [...new Set(ids.map(id => TARGET_OF[id] ?? id))].filter(id => id !== 'dsh');
+  const targets = [...new Set(ids.map(id => inspectTargetOf(id)))].filter(id => id !== 'dsh');
   let found: ToolVersion[] = [];
   const retained = targets.length ? await inspectRetained({ targets, network: 'off' }, signal ? { signal } : {}, list => { found = list; }) : { tools: [] };
   const byTarget = new Map(found.map(item => [item.target, item]));
   const states = new Map(retained.tools.map(tool => [tool.id, tool.state]));
   const versions = ids.map(id => {
-    const target = TARGET_OF[id] ?? id;
+    const target = inspectTargetOf(id);
     const ran = byTarget.get(target);
     const reached = ran && registryTool(target, ran.binary);
     const installed = ran && reached === id ? { version: ran.version, binary: ran.binary } : undefined;
