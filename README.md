@@ -2413,8 +2413,8 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
-and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
+with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`,
+`fetch` and `plugin` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
 Catalog that made the plan (`catalog-required`). The format is not marked ready.
 
 ```js
@@ -2452,6 +2452,37 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+
+### Native plugins (`plugin` steps)
+
+A `plugin` step installs a framework through the CLI's own plugin commands at the pinned commit. Every step naming a
+`framework` is one indivisible install, grouped under that framework id.
+
+- **Commands.** Core fills the supplied tool profile's `plugins.install` argv templates only from the step's own fields
+  (`<plugin>`, `<marketplace>`, `<marketplace-name>`, `<repository>`, `<commit>`, `<scope>`). A placeholder the step
+  doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
+  (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
+  `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
+- **The review** shows each exact command with the executable and sha256 Prepare pinned, the removal commands, the
+  presence check, the items the plugin's recorded folder holds (`contains`) and a "can't promise" line: Core can't show
+  or roll back what the CLI's own program changes. Prepare runs nothing.
+- **Apply** runs only those commands, in order, in the project folder or home, with cancellation and `onProgress`
+  events for each command's start and finish. The pending receipt is written before the first command, so an
+  interrupted command leaves the install `interrupted` and the run step `effectsUncertain`; the next Prepare shows the
+  step again (`previous: interrupted`) for a fresh approval and never re-runs it by itself.
+- **Presence.** Only the profile's `plugins.verify` readback (`{ argv, expect }`: the expected line in the command's
+  output) decides. After install, `present` gives verification `passed`; `absent`, or a check that can't run, fails the
+  step and makes the run `incomplete`. With `verify: none` the step is `unverified` (`no-presence-check`). An exit
+  status or help output never proves presence or absence.
+- **Receipt.** At install the filled removal commands and presence check are copied into the receipt and listed under
+  `plugins` by `list`, so removal never needs the old profile.
+- **Removal** runs those saved commands first, then the saved check: `absent` is `passed`; still `present`, a failed
+  command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
+  `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
+  `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
+  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
+  commands is a pending live check.
 
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.

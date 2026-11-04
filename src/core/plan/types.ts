@@ -138,6 +138,14 @@ export interface RemovalMember { kind: string; path: string; pointer?: string; a
 export interface RemovalEntry {
   managementId: string; disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
   status?: 'ready' | 'partial' | 'blocked'; members: RemovalMember[];
+  /** A removal named by one item inside a plugin (C45). */
+  item?: string;
+  /** Why an entry is not prepared: `plugin-indivisible` when the item is one part of a plugin that can't be split. */
+  reason?: string;
+  /** Everything the indivisible plugin holds. */
+  contains?: string[];
+  /** The removals the person can prepare instead: the whole plugin. */
+  offers?: { managementId: string }[];
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;

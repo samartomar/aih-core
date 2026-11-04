@@ -29,6 +29,11 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'existing-content', fix: 'Prepare again with a resolution: replace, adopt if identical, or skip.' },
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
+  // Native plugin steps (samartomar/aih-core#168).
+  { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog profile the plan was made with.' },
+  { status: 'refused', code: 'plugin-command-unresolved', fix: 'Replan with a Catalog whose plugin step and profile give every value of an unattended, pinned install.' },
+  { status: 'refused', code: 'program-unavailable', fix: 'Install the CLI the step runs, then prepare again.' },
+  { status: 'invalid', code: 'item-removal-unavailable', fix: 'Remove the whole management id; only an item inside a plugin is named by item.' },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },

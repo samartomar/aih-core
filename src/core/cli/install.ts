@@ -5,7 +5,7 @@
 import { parseArgs } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { apply, prepare } from '../index.js';
-import { approved, emit, exitCode, printable, readDocument, refusal } from './common.js';
+import { approved, emit, exitCode, printable, progressLine, readDocument, refusal } from './common.js';
 import type { PlanControls, PlanRequest } from '../plan/types.js';
 
 const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
@@ -62,7 +62,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
         if (entry && entry.sourceId === id && files.get(entry.sourcePath) instanceof Uint8Array) entry.bytes = files.get(entry.sourcePath)!;
     }
   }
-  const controls: PlanControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
+  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
   const preparation = await prepare(request, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));

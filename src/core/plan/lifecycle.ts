@@ -88,34 +88,46 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const removals = request.removals;
   if (!Array.isArray(removals) || removals.length === 0 || removals.length > 4096) return invalid('/removals', 'removals', 'Name one or more removals.');
   const selectors: { managementId: string; origin?: { reasonIncluded: 'chosen' } }[] = [];
+  // One item inside an indivisible plugin (C45, C68): never split; the entry offers the whole plugin instead.
+  const itemEntries = new Map<number, RemovalEntry>();
   for (const [index, entry] of removals.entries()) {
     if (!plain(entry, ['managementId', 'item', 'origin', 'clis']) || typeof entry.managementId !== 'string' || !ID.test(entry.managementId))
       return invalid(`/removals/${index}`, 'removal', 'A removal names a `managementId`.');
     if (entry.clis !== undefined) return { status: 'refused', code: 'client-attribution-missing',
       reason: `Removal by CLI is refused: this Core does not yet record which CLI claims each member of \`${entry.managementId}\`.` };
-    if (entry.item !== undefined) return invalid(`/removals/${index}/item`, 'item-removal-unavailable', 'Removing one item inside a plugin is not available in this Core yet.');
     if (entry.origin !== undefined && entry.origin !== 'chosen') return invalid(`/removals/${index}/origin`, 'origin', 'Only the `chosen` origin can be recorded by this Core.');
+    if (entry.item !== undefined) {
+      if (typeof entry.item !== 'string' || !ID.test(entry.item)) return invalid(`/removals/${index}/item`, 'item', 'An item is named by its id.');
+      const found = itemInPlugin(entry.managementId, entry.item, located.scope as 'project' | 'user', located.anchor);
+      if (!found) return invalid(`/removals/${index}/item`, 'item-removal-unavailable', 'Only an item inside a plugin is removed by item.');
+      itemEntries.set(index, found); continue;
+    }
     selectors.push({ managementId: entry.managementId, ...(entry.origin === 'chosen' ? { origin: { reasonIncluded: 'chosen' as const } } : {}) });
   }
   const scope = located.scope as 'project' | 'user';
+  const inOrder = (engineEntries: RemovalEntry[]): RemovalEntry[] => {
+    const queue = [...engineEntries];
+    return removals.map((_entry, index) => itemEntries.get(index) ?? queue.shift()!).filter(Boolean);
+  };
+  if (!selectors.length) return { status: 'ok', entries: inOrder([]) };
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
   const prepared = await prepareManagedRemoval({ target: { project: located.anchor }, scope,
     removals: selectors.map(({ managementId }) => ({ managementId })) }, engineControls(options));
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   if (prepared.disposition === 'invalid') return { status: 'invalid', problems: prepared.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const engine = prepared.preparation;
-  const entries: RemovalEntry[] = (prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
+  const entries: RemovalEntry[] = inOrder((prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
     ...(entry.disposition === 'prepared' && engine && ['ready', 'partial', 'blocked'].includes(engine.status) ?
       { status: engine.status as 'ready' | 'partial' | 'blocked' } : {}),
     members: entry.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
-      action: member.action, ...(member.reason === undefined ? {} : { reason: member.reason }) })) }));
+      action: member.action, ...(member.reason === undefined ? {} : { reason: member.reason }) })) })));
   if (prepared.disposition === 'unavailable' && !entries.length)
     return { status: 'refused', code: 'home-unavailable', reason: prepared.diagnostics[0]?.message ?? 'Removal could not be prepared here.' };
   if (!engine?.review || !engine.prepared || !['ready', 'partial'].includes(engine.status)) return { status: 'ok', entries };
   // Native plugins in the prepared entries: their removal commands and presence checks come from the receipt (C54).
   const home = projectRoot(homedir());
   const facts = planFacts([scope === 'project' ? located.anchor : home]);
-  const plugins = entries.filter(entry => entry.disposition === 'prepared').flatMap(entry =>
+  const plugins = entries.filter(entry => entry.disposition === 'prepared' && entry.item === undefined).flatMap(entry =>
     (facts.get(`${scope}\0${entry.managementId}`)?.plugins ?? []).map(plugin => ({ managementId: entry.managementId, plugin })));
   const program = plugins.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options) : undefined;
   if (program && 'status' in program) return program;
@@ -144,6 +156,22 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     ...(program ? { before: { engine: program.engine, engineDigest: program.engineDigest, operations: program.operations, programs: program.programs,
       unremovable: program.unremovable } } : {}) });
   return { status: 'ok', entries, review, handle };
+}
+
+/**
+ * A removal of one item by `{ managementId, item }`: `absent` when no install of that management id records it, and
+ * `unavailable` with `plugin-indivisible` when a native plugin holds it, listing what the plugin holds and offering the
+ * whole plugin's removal. `undefined` when the management id records no plugin (no item route applies).
+ */
+function itemInPlugin(managementId: string, item: string, scope: 'project' | 'user', anchor: string): RemovalEntry | undefined {
+  const root = scope === 'project' ? anchor : projectRoot(homedir());
+  const plan = planFacts([root]).get(`${scope}\0${managementId}`);
+  if (!plan) return { managementId, item, disposition: 'absent', members: [] };
+  if (!plan.plugins) return undefined;
+  const holding = plan.plugins.filter(plugin => plugin.contains.includes(item));
+  if (!holding.length) return { managementId, item, disposition: 'absent', members: [] };
+  return { managementId, item, disposition: 'unavailable', reason: 'plugin-indivisible', members: [],
+    contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers: [{ managementId }] };
 }
 
 /**

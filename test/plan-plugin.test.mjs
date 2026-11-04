@@ -3,7 +3,7 @@
 // evidence about a real client's plugin commands, which stay a pending live check.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
@@ -115,4 +115,94 @@ test('without a presence check, install and removal both stay unverified (no-pre
   const removed = run.steps.find(item => item.step === step.step);
   assert.deepEqual([removed.application, removed.verification], ['applied', { status: 'unverified', reason: 'no-presence-check' }]);
   assert.equal(fakeClientState(state, 'claude').calls.some(call => call[1] === 'list'), false, 'no listing stands in for a check');
+});
+
+test('a failed presence readback fails the step and the run, and a removal that still finds the plugin keeps the receipt', async () => {
+  fresh('install-noop');
+  const installed = await install(PRESENCE);
+  assert.equal(installed.completion, 'incomplete', JSON.stringify(installed));
+  assert.deepEqual(installed.steps.map(item => [item.application, item.verification]),
+    [['applied', { status: 'failed', reason: 'readback-absent' }]]);
+  // The command ran, so the receipt keeps its undo facts.
+  assert.equal((await list({ target: {}, scope: 'user' })).entries[0].plugins[0].plugin, 'superpowers');
+  mode('');
+  await install(PRESENCE);
+  mode('uninstall-noop');
+  let prepared = await removal();
+  let run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete');
+  assert.deepEqual(run.steps.find(item => item.verification.reason !== 'not-attempted').verification, { status: 'failed', reason: 'readback-present' });
+  assert.equal((await list({ target: {}, scope: 'user' })).entries.length, 1, 'the receipt stays for another try');
+  // A presence check that cannot run proves nothing either way.
+  mode('list-fail');
+  prepared = await removal();
+  run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete');
+  assert.deepEqual(run.steps[0].verification, { status: 'failed', reason: 'check-exit-code' });
+  assert.equal((await list({ target: {}, scope: 'user' })).entries.length, 1);
+  // A failing removal command keeps the receipt and its undo facts.
+  mode('uninstall-fail');
+  prepared = await removal();
+  run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([run.completion, run.steps[0].application], ['incomplete', 'failed']);
+  assert.equal((await list({ target: {}, scope: 'user' })).entries.length, 1);
+});
+
+test('one item inside a plugin offers removal of the whole plugin, never a silent split', async () => {
+  fresh();
+  await install(PRESENCE);
+  const calls = fakeClientState(state, 'claude').calls.length;
+  const result = await removal({ item: 'superpowers.skill.brainstorming' });
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.equal(result.handle, undefined);
+  assert.deepEqual(result.entries, [{ managementId: 'superpowers', item: 'superpowers.skill.brainstorming', disposition: 'unavailable',
+    reason: 'plugin-indivisible', members: [], contains: ['superpowers.skill.brainstorming', 'superpowers.skill.writing-plans'],
+    offers: [{ managementId: 'superpowers' }] }]);
+  assert.equal(fakeClientState(state, 'claude').calls.length, calls, 'nothing ran');
+  const other = await removal({ item: 'superpowers.skill.unknown' });
+  assert.equal(other.entries[0].disposition, 'absent');
+});
+
+test('an interrupted plugin command is effectsUncertain, is shown again for fresh approval, and can be removed', async () => {
+  fresh('install-hang');
+  const prepared = await prepare(pluginRequest(PRESENCE));
+  const controller = new AbortController();
+  const started = join(state, 'claude.started');
+  const watcher = setInterval(() => { if (existsSync(started)) controller.abort(); }, 50);
+  const run = await apply(prepared.handle, approve(prepared.review), { signal: controller.signal });
+  clearInterval(watcher);
+  assert.equal(run.completion, 'cancelled', JSON.stringify(run));
+  assert.equal(run.steps[0].effectsUncertain, true);
+  const listed = await list({ target: {}, scope: 'user' });
+  assert.deepEqual(listed.entries.map(row => [row.managementId, row.installState]), [['superpowers', 'interrupted']]);
+  mode('');
+  const again = await prepare(pluginRequest(PRESENCE));
+  assert.equal(again.status, 'ready');
+  assert.equal(again.review.steps[0].previous, 'interrupted');
+  assert.match(again.review.steps[0].cantPromise, /interrupted/);
+  const removed = await removal();
+  assert.deepEqual(removed.entries.map(row => [row.managementId, row.disposition]), [['superpowers', 'prepared']]);
+  const done = conforms(await apply(removed.handle, approve(removed.review)));
+  assert.equal(done.completion, 'complete', JSON.stringify(done));
+  assert.deepEqual((await list({ target: {}, scope: 'user' })).entries, []);
+});
+
+test('a plugin step Core cannot carry out exactly is refused before any effect', async () => {
+  fresh();
+  const cases = [
+    ['no profile for the CLI', request => { request.profiles = []; }, 'profile-mismatch'],
+    ['a different presence check than the profile', request => { request.plan.plan[0].verify = 'none'; }, 'profile-mismatch'],
+    ['a command value the step does not give', request => { delete request.plan.plan[0].marketplaceName; }, 'plugin-command-unresolved'],
+    ['no pinned install', request => { request.profiles[0].plugins.pin = 'drops-on-update'; }, 'plugin-command-unresolved'],
+    ['a CLI this host cannot run', request => { for (const argv of request.profiles[0].plugins.install) argv[0] = 'not-installed-cli'; }, 'program-unavailable'],
+    ['an unknown CLI', request => { request.plan.plan[0].cli = 'emacs'; }, 'tool-unknown'],
+  ];
+  for (const [name, change, code] of cases) {
+    const request = pluginRequest(PRESENCE);
+    change(request);
+    const result = await prepare(request);
+    assert.deepEqual([result.status, result.code], ['refused', code], `${name}: ${JSON.stringify(result)}`);
+    assert.equal(result.handle, undefined);
+  }
+  assert.deepEqual(fakeClientState(state, 'claude').calls, []);
 });
