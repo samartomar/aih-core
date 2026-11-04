@@ -1,0 +1,94 @@
+{
+  "schema": "urn:aihq:core:native-verification-bundle:0.1.0",
+  "id": "example.supplied",
+  "client": "Claude Code",
+  "adapterId": "claude-stream-json.v1",
+  "scope": "test-configuration",
+  "package": {
+    "name": "@example/content",
+    "version": "1.0.0"
+  },
+  "release": {
+    "path": "package/release.json",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "byteLength": 2
+  },
+  "selection": {
+    "itemId": "example",
+    "itemSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "recipe": {
+      "path": "package/recipe.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "byteLength": 2
+    },
+    "inputs": {}
+  },
+  "startingTree": [],
+  "startingTreeSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "outputTree": [
+    {
+      "root": "project",
+      "path": "CLAUDE.md",
+      "member": {
+        "path": "package/harness/native/fixture/CLAUDE.md",
+        "sha256": "1ab14794f8b120e2de192904c1be613bd0b63bc88e0b2bc7daf0f81f724c95de",
+        "byteLength": 568
+      }
+    },
+    {
+      "root": "project",
+      "path": ".mcp.json",
+      "member": {
+        "path": "package/harness/native/fixture/mcp.json",
+        "sha256": "b368043ba4c7a890d573468d54054f8e19e38a9cbbc6c419efe0100a85e1c8bd",
+        "byteLength": 167
+      }
+    },
+    {
+      "root": "project",
+      "path": ".aihq-native/server.mjs",
+      "member": {
+        "path": "package/harness/native/fixture/server.mjs",
+        "sha256": "fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59",
+        "byteLength": 6952
+      }
+    }
+  ],
+  "outputTreeSha256": "4b87d67679e653aa31fc5144da156646b9214160b2e060c9650ecc19cc75d525",
+  "instructions": [
+    {
+      "root": "project",
+      "path": "CLAUDE.md",
+      "sha256": "1ab14794f8b120e2de192904c1be613bd0b63bc88e0b2bc7daf0f81f724c95de",
+      "evidence": "marker",
+      "markerSha256": "b72afeee5e166888b49f9144f12d6ed80e11a6f835064874527c23b35da2c233"
+    }
+  ],
+  "server": {
+    "name": "aihq-native-fixture",
+    "transport": "stdio",
+    "runtime": [
+      {
+        "path": "package/harness/native/fixture/server.mjs",
+        "sha256": "fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59",
+        "byteLength": 6952
+      }
+    ],
+    "evidenceAdapterId": "aihq.fixture.v1",
+    "observation": "native",
+    "toolNames": [
+      "aihq_attest_instruction",
+      "aihq_graph_query"
+    ],
+    "queryTool": "aihq_graph_query",
+    "queryArguments": {
+      "node": "entry"
+    },
+    "challenge": {
+      "mode": "argument",
+      "field": "challenge"
+    },
+    "expectedResultSha256": "3a87e938e79a94995fc814ed87346eebf153ec130ba8583beb61cb8e00f032b3",
+    "expectedAnswer": "leaf"
+  }
+}

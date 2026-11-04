@@ -1,4 +1,5 @@
 import { gunzipSync } from 'node:zlib';
+import { nativeClientOfTool } from '../../harness/native/tool-names.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lstatSync, readdirSync } from 'node:fs';
@@ -134,7 +135,8 @@ export function validateMaterialTrees(material: Pick<NativeMaterial, 'outputTree
     if (!file || file.member.sha256 !== instruction.sha256) throw new NativeStop('fixture-bytes-mismatch', 'failed');
   }
 }
-export function acquireNativeSupplied(request: NativeVerificationRequest, controls: NativeVerificationControls, check: () => void): NativeMaterial {
+export function acquireNativeSupplied(request: NativeVerificationRequest, controls: NativeVerificationControls, check: () => void,
+  bundleSchema = 'urn:aihq:core:native-verification-bundle:1.0.0'): NativeMaterial {
   if (request.configuration?.kind !== 'supplied') throw new NativeStop('configuration-unavailable');
   const selection = request.configuration; const binding = controls.configurationSources![selection.input]!;
   const archive = nativeReadPinned(binding.archivePath, 256 * 1024 * 1024, check);
@@ -144,7 +146,12 @@ export function acquireNativeSupplied(request: NativeVerificationRequest, contro
   if (manifest.length > 256 * 1024) throw new NativeStop('limit-exceeded');
   let bundle: NativeVerificationBundle;
   try {
-    const parsed = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(manifest), 'native bundle');
+    let parsed = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(manifest), 'native bundle');
+    // A 0.1.0 request reads a 0.1.0 bundle: the same document naming its tool by registry id, read by the retained rules.
+    if (typeof parsed.schema === 'string' && parsed.schema !== bundleSchema) throw new NativeStop('configuration-channel-unsupported', 'unsupported');
+    if (parsed.schema === bundleSchema && bundleSchema !== 'urn:aihq:core:native-verification-bundle:1.0.0') parsed = { ...parsed,
+      schema: 'urn:aihq:core:native-verification-bundle:1.0.0',
+      client: typeof parsed.client === 'string' && Object.hasOwn(nativeClientOfTool, parsed.client) ? nativeClientOfTool[parsed.client]! : null };
     const validation = validateNativeVerificationBundle(parsed);
     if (!validation.valid) throw new NativeStop(validation.diagnostics.some(d => d.code === 'SCHEMA_UNSUPPORTED') ? 'configuration-channel-unsupported' : 'configuration-unavailable', validation.diagnostics.some(d => d.code === 'SCHEMA_UNSUPPORTED') ? 'unsupported' : 'unavailable');
     bundle = parsed as unknown as NativeVerificationBundle;

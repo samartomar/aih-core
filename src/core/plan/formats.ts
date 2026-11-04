@@ -68,6 +68,21 @@ import reportInvalid from '../../fixtures/core/report/0.1.0/refuse.json' with { 
 import claimsSchema from '../schemas/claims/0.1.0.json' with { type: 'json' };
 import claimsValid from '../../fixtures/core/claims/0.1.0/accept.json' with { type: 'json' };
 import claimsInvalid from '../../fixtures/core/claims/0.1.0/refuse.json' with { type: 'json' };
+import nativeRequestSchema from '../schemas/native-verification-request/0.1.0.json' with { type: 'json' };
+import nativeRequestValid from '../../fixtures/core/native-verification-request/0.1.0/accept.json' with { type: 'json' };
+import nativeRequestInvalid from '../../fixtures/core/native-verification-request/0.1.0/refuse.json' with { type: 'json' };
+import nativeResultSchema from '../schemas/native-verification-result/0.1.0.json' with { type: 'json' };
+import nativeResultValid from '../../fixtures/core/native-verification-result/0.1.0/accept.json' with { type: 'json' };
+import nativeResultInvalid from '../../fixtures/core/native-verification-result/0.1.0/refuse.json' with { type: 'json' };
+import nativeBundleSchema from '../schemas/native-verification-bundle/0.1.0.json' with { type: 'json' };
+import nativeBundleValid from '../../fixtures/core/native-verification-bundle/0.1.0/accept.json' with { type: 'json' };
+import nativeBundleInvalid from '../../fixtures/core/native-verification-bundle/0.1.0/refuse.json' with { type: 'json' };
+import nativeDefinitionSchema from '../schemas/native-verification-definition/0.1.0.json' with { type: 'json' };
+import nativeDefinitionValid from '../../fixtures/core/native-verification-definition/0.1.0/accept.json' with { type: 'json' };
+import nativeDefinitionInvalid from '../../fixtures/core/native-verification-definition/0.1.0/refuse.json' with { type: 'json' };
+import nativeTestIdentitySchema from '../schemas/native-test-identity/0.1.0.json' with { type: 'json' };
+import nativeTestIdentityValid from '../../fixtures/core/native-test-identity/0.1.0/accept.json' with { type: 'json' };
+import nativeTestIdentityInvalid from '../../fixtures/core/native-test-identity/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -100,6 +115,12 @@ const entries: FormatEntry[] = [
   { id: fileCheckSchema.$id, schema: fileCheckSchema, fixtures: { valid: fileCheckValid, invalid: fileCheckInvalid } },
   { id: reportSchema.$id, schema: reportSchema, fixtures: { valid: reportValid, invalid: reportInvalid } },
   { id: claimsSchema.$id, schema: claimsSchema, fixtures: { valid: claimsValid, invalid: claimsInvalid } },
+  // Native client verification (samartomar/aih-core#177).
+  { id: nativeRequestSchema.$id, schema: nativeRequestSchema, fixtures: { valid: nativeRequestValid, invalid: nativeRequestInvalid } },
+  { id: nativeResultSchema.$id, schema: nativeResultSchema, fixtures: { valid: nativeResultValid, invalid: nativeResultInvalid } },
+  { id: nativeBundleSchema.$id, schema: nativeBundleSchema, fixtures: { valid: nativeBundleValid, invalid: nativeBundleInvalid } },
+  { id: nativeDefinitionSchema.$id, schema: nativeDefinitionSchema, fixtures: { valid: nativeDefinitionValid, invalid: nativeDefinitionInvalid } },
+  { id: nativeTestIdentitySchema.$id, schema: nativeTestIdentitySchema, fixtures: { valid: nativeTestIdentityValid, invalid: nativeTestIdentityInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

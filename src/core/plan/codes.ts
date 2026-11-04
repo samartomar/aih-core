@@ -63,6 +63,10 @@ const entries: RefusalCode[] = [
   // Inspection, file comparison and reporting (samartomar/aih-core#174).
   { status: 'refused', code: 'tool-not-observed', fix: 'Inspect the host of a tool Core has an observed layout for.' },
   { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },
+  // Native client verification (samartomar/aih-core#177).
+  { status: 'refused', code: 'client-unsupported', fix: 'Choose a tool with a bundled native verification definition.' },
+  { status: 'refused', code: 'platform-unsupported', fix: 'Run the check on a host cell that has a bundled definition.' },
+  { status: 'refused', code: 'cell-not-admitted', fix: 'Run an explicit candidate smoke; it never admits the cell.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

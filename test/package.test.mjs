@@ -18,7 +18,7 @@ import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/
 const expectedRuntimeNames = {
   '@aihq/core': [
     'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'checkFiles', 'inspect', 'list', 'listManagedSelections',
-    'prepare', 'prepareManagedRemoval', 'prepareRemoval', 'prepareUpdate', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
+    'prepare', 'prepareManagedRemoval', 'prepareRemoval', 'prepareUpdate', 'resolveStateLocation', 'verifyClient', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
   ],
   '@aihq/core/contracts': [
     'CLAIMS_SCHEMA', 'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
@@ -46,7 +46,7 @@ const expectedRuntimeNames = {
   '@aihq/core/harness': [
     'checkCompatibility', 'consumerProfiles', 'contractSupport', 'deliveryMaterialRoot', 'deriveCellSupport', 'exportDefaultNames', 'helperMetadata',
     'listTools', 'macosRepairIndex',
-    'macosSessionProfiles', 'macosSessionProfilesSchema', 'nativeClientIds', 'nativeVerificationDefinitions',
+    'macosSessionProfiles', 'macosSessionProfilesSchema', 'nativeClientDefinitions', 'nativeClientIds', 'nativeVerificationDefinitions',
     'renderDelivery', 'renderSelectionDelivery', 'repairDefinitionSchema12', 'repairIndex', 'selectBindingCell', 'selectRepairDefinition', 'selectTool', 'selectTrustCell', 'selectVerificationKeys',
     'selectVerificationPublishers', 'targets', 'toolBindingKinds', 'toolBindings', 'toolRegistry', 'trustCapabilities', 'trustLimits', 'trustPlatformMatrix',
     'trustRepairIndex', 'validateNativeTestIdentity', 'validateNativeVerificationDefinition',
@@ -404,7 +404,7 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
       import {sep} from 'node:path';
       import {fileURLToPath} from 'node:url';
       import {verifyNativeClient} from '@aihq/core';
-      import {validateFileStateResult,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
+      import {validateFileStateResult,validateFormat,validateNativeVerificationRequest,validateNativeVerificationResult,validateNativeVerificationBundle} from '@aihq/core/contracts';
       import {nativeVerificationDefinitions,validateNativeVerificationDefinition,validateNativeTestIdentity} from '@aihq/core/harness';
       import {Ajv2020} from 'ajv/dist/2020.js';
       const schemas = new Ajv2020({strict:true});
@@ -497,12 +497,13 @@ test('one Core artifact delivers APIs, portable Harness, repairs and a versioned
         assert.notEqual(lstatSync(new URL('linux/facility',nativeRoot)).mode&0o111,0);
         assert.equal(linuxFacility.cleanup.confirmed,true);
       }
+      // The CLI answers in the 0.1.0 result: refused off an admitted cell; on one, unverified without a test identity.
       const child = spawnSync(process.execPath,[binary,'verify-client','claude','--json'],{encoding:'utf8',timeout:20000,windowsHide:true});
-      assert.equal(child.status,1,child.stderr);
       const result = JSON.parse(child.stdout);
+      assert.equal(child.status,result.status==='refused'?2:1,child.stderr);
+      assert.ok(['refused','ok'].includes(result.status)); assert.equal(result.client.id,'claude-code');
       assert.equal(result.verdict,'unverified'); assert.equal(result.limits.sessionsStarted,0);
-      assert.equal(schemas.validate(result.schema,result),true,JSON.stringify(schemas.errors));
-      assert.equal(validateNativeVerificationResult(result).valid,true);
+      assert.deepEqual(validateFormat(result),{status:'ok',schema:'urn:aihq:core:native-verification-result:0.1.0'});
       assert.ok(!JSON.stringify(result).includes('SECRET'));
     `);
     run(join(consumer, 'native-public.mjs'));

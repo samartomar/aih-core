@@ -1272,25 +1272,54 @@ The same ids are the accepted `client` values for organization target 1.0.0 and 
 
 ## Explicit native client verification
 
-`verifyNativeClient(request, controls?)` and `aih verify-client` are separate
+`verifyClient(request, controls?)` and `aih verify-client` are separate
 from ordinary inspection. Inspection retains its presence/version and optional
 TLS checks without launching configured MCP commands, servers or client sessions.
 Native verification uses explicit input, a disposable cell and bounded evidence.
 
 ```js
-import { verifyNativeClient } from '@aihq/core';
-const result = await verifyNativeClient({
-  schema: 'urn:aihq:core:native-verification-request:1.0.0',
-  client: 'claude',
+import { verifyClient } from '@aihq/core';
+const result = await verifyClient({
+  schema: 'urn:aihq:core:native-verification-request:0.1.0',
+  client: 'claude-code',
   maxTurns: selectedTotalTurns,
   maxEstimatedCostUsd: selectedTotalEstimatedUsd
 });
 ```
 
 ```sh
-aih verify-client claude --json
-aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json
+aih verify-client claude-code --json
+aih verify-client claude-code --candidate-smoke --host-bindings dedicated-test.json --json
 ```
+
+A request names its tool by tool registry id; the CLI also takes an alias, so
+`aih verify-client claude` checks `claude-code`. The result is
+`urn:aihq:core:native-verification-result:0.1.0`:
+
+| `status` | Meaning |
+| --- | --- |
+| `ok` | The check ran. `completion` is `complete`, `incomplete` or `cancelled`, and `verdict` is `verified`, `failed` or `unverified` |
+| `refused` | Nothing was looked for or launched. `code` is `tool-unknown` (no registry tool with that id), `client-unsupported` (no definition for the tool), `platform-unsupported` (no definition for this host cell) or `cell-not-admitted` (a candidate cell without `--candidate-smoke`) |
+| `invalid` | The request or controls; `diagnostics` name the field |
+
+The rest of the result keeps the retained fields: stages, sessions, proof scope,
+admission, security, cleanup and limits. Each format has one 0.1.0 schema in
+`/contracts` `schemas`: `native-verification-request`, `-result`, `-bundle` (a
+supplied configuration names its tool by registry id), `-definition` and
+`native-test-identity` (a dedicated test identity names `claude-code`). The
+bundled definitions are published as `nativeClientDefinitions` from
+`@aihq/core/harness`. They are the retained definitions with only `schema` and
+`client` renamed; definition ids, admission and `evidenceSha256` are unchanged.
+The `aih-linux-facility` bin is the fixed Linux x64 process observer the admitted
+Linux cell launches the client under: an observer, not a sandbox. A 0.1.0
+request reads only a 0.1.0 bundle. `verifyNativeClient` and the 1.0.0 request,
+result and bundle formats remain until they are removed.
+
+Still pending live observation, and not claimed by any result: an unattended
+`plugins.remove` for Claude Code, Codex and Copilot, and whether the Cursor CLI
+loads a junctioned skill folder on Windows (Core copies for Cursor until then).
+Controlled test fixtures exercise the verification mechanism only; they are not
+native loading evidence.
 
 The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
 Claude Code 2.1.285 on Linux x64 WSL2, osRelease
@@ -1309,15 +1338,14 @@ attestation. The documented proxy and policy limitations still apply.
 The Windows definition remains a candidate with null evidence and requires
 `--candidate-smoke`; passing a smoke never changes admission. The portable
 validator and the 1.1.0 definition schema both accept an admitted state only as
-an exact registered admitted descriptor. All eleven selected client
-IDs remain available for explicit, honest outcomes: Claude, Codex, Cursor,
-Gemini, Copilot, Windsurf, OpenCode, Kimi, Kiro, Antigravity and Zed.
+an exact registered admitted descriptor. Every registry tool gets an explicit,
+honest outcome; only Claude Code has definitions.
 
 The default whole-check budget is 180000 ms; `--budget-ms` accepts integers
 1000–600000. Cancellation uses `controls.signal` or CLI SIGINT. Cleanup has one
 additional 10000 ms allowance, with unresolved resources reported explicitly.
 JSON output contains one result and no raw process output. Exit codes are 0 for
-`complete/verified`, 2 for invalid input, 130 for cancellation and 1 otherwise.
+`ok` `complete` `verified`, 2 for `refused` or `invalid`, 130 for cancellation and 1 otherwise.
 No verification result grants Apply approval or organization authority.
 
 Launching sessions also requires explicit `maxTurns` and `maxEstimatedCostUsd`

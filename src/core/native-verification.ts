@@ -58,6 +58,17 @@ function environment(cell: NativeCell, executable: string, runtimes: string[]): 
 
 /** Explicit native verification. Imports and input rejection perform no filesystem/process work. */
 export async function verifyNativeClient(request: unknown, controls?: NativeVerificationControls): Promise<NativeVerificationResult> {
+  return verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });
+}
+/** This host's native cell, as the definitions name it. */
+export function nativePlatform(): NativeVerificationResult['platform'] {
+  return { os: process.platform === 'win32' || process.platform === 'linux' || process.platform === 'darwin' ? process.platform : 'unsupported',
+    arch: safeHostValue(process.arch), osRelease: safeHostValue(release()), execution: process.platform === 'linux' && /microsoft/i.test(release()) ? 'wsl2' : 'native' };
+}
+/** Internal options of one verification: the supplied bundle format the caller's request generation reads. */
+export interface NativeVerificationOptions { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' | 'urn:aihq:core:native-verification-bundle:0.1.0' }
+/** @internal The one verification path behind `verifyNativeClient` and `verifyClient`. */
+export async function verifyNative(request: unknown, controls: NativeVerificationControls | undefined, options: NativeVerificationOptions): Promise<NativeVerificationResult> {
   let selected: NativeVerificationRequest; let host: NativeVerificationControls;
   try {
     const snapshot = nativeSnapshot(request);
@@ -113,8 +124,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     check();
     try { const identity = installedDistribution(); result.package = { name: '@aihq/core', version: identity.version }; }
     catch { result.package.version = 'unavailable'; throw new NativeStop('configuration-unavailable'); }
-    result.platform = { os: process.platform === 'win32' || process.platform === 'linux' || process.platform === 'darwin' ? process.platform : 'unsupported',
-      arch: safeHostValue(process.arch), osRelease: safeHostValue(release()), execution: process.platform === 'linux' && /microsoft/i.test(release()) ? 'wsl2' : 'native' };
+    result.platform = nativePlatform();
     // This single path is fixed in the artifact. No caller module, callback or executable enters it.
     const helpers = captureNativeHelpers(check);
     const installedRuntime = await import('../harness/native/runtime.mjs');
@@ -137,7 +147,7 @@ export async function verifyNativeClient(request: unknown, controls?: NativeVeri
     if (runtime.nativeManagedRestriction?.(definition)) throw new NativeStop('managed-restriction', 'restricted');
     const bundled = await runtime.nativeBundledFixture(definition, { check });
     let material: NativeMaterial;
-    if (selected.configuration?.kind === 'supplied') material = acquireNativeSupplied(selected, host, check);
+    if (selected.configuration?.kind === 'supplied') material = acquireNativeSupplied(selected, host, check, options.bundleSchema);
     else material = bundled;
     check(); validateMaterialTrees(material);
     if (material.adapterId !== definition.id && material.adapterId !== definition.parserId) throw new NativeStop('configuration-channel-unsupported', 'unsupported');
