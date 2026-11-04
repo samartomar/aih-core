@@ -1,10 +1,11 @@
-// Runs inside a disposable consumer with the packed @aihq/core installed; public entries only. argv[2] is a
+// Runs inside a disposable consumer with the packed @aihq/core installed; argv[2] is a
 // disposable root for projects, homes and PATH folders. Nothing under it is ever run by inspection.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inspectToolHost } from '@aihq/core/harness/runtime';
-import { toolBindings } from '@aihq/core/harness';
+// Observed tool bindings are internal Harness data (no longer a package export); inspectToolHost still reads them.
+import { toolBindings } from './node_modules/@aihq/core/dist/harness/tool-binding.mjs';
 
 const root = process.argv[2];
 const windows = process.platform === 'win32';

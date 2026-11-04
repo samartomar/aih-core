@@ -8,7 +8,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateFormat } from '@aihq/core/contracts';
-import { apply, prepare, prepareManagedRemoval } from '@aihq/core';
+import { apply, list, prepare, prepareRemoval } from '@aihq/core';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const home = process.env.HOME;
@@ -64,10 +64,11 @@ await check('the aih CLI reads a 0.1.0 inputs file with paths relative to it and
   assert.equal(JSON.parse(unknown.stdout).status, 'invalid');
 });
 
-await check('managed removal retires the repair and restores your own settings', async () => {
-  const removal = await prepareManagedRemoval({ target: { project: home }, managementId: 'user-tools-trust', scope: 'user', mode: 'vibe' }, { logging: 'off' });
-  assert.equal(removal.disposition, 'prepared', JSON.stringify(removal));
-  const removed = await apply(removal.preparation.prepared, approve(removal.preparation.review), { logging: 'off' });
+await check('removal by the repair id retires the repair and restores your own settings', async () => {
+  assert.ok((await list({ target: { project: null }, scope: 'user' })).entries.some(entry => entry.managementId === 'user-tools-ca'));
+  const removal = await prepareRemoval({ target: { project: null }, scope: 'user', removals: [{ managementId: 'user-tools-ca' }] }, { logging: 'off' });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  const removed = await apply(removal.handle, approve(removal.review), { logging: 'off' });
   assert.equal(removed.completion, 'complete', JSON.stringify(removed));
   assert.doesNotMatch(readFileSync(gitconfig, 'utf8'), /sslCAInfo/);
   assert.match(readFileSync(gitconfig, 'utf8'), /name = Fixture/);
@@ -92,7 +93,7 @@ await check('routes and hosts without admission stay explicit, with no effects',
 
 await check('the macOS session check answers the 0.1.0 request with the 0.1.0 result', async () => {
   const { verifyMacosSession } = await import('@aihq/core');
-  const result = conforms(await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-trust' }, { logging: 'off' }));
+  const result = conforms(await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-ca' }, { logging: 'off' }));
   assert.equal(result.schema, 'urn:aihq:core:macos-session-verification-result:0.1.0');
   if (process.platform !== 'darwin') { assert.equal(result.status, 'incomplete'); assert.equal(result.configuration, 'not-applied'); }
 });

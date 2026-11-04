@@ -8,7 +8,9 @@ import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
-import { prepareManagedRemovals } from '../managed-removal.js';
+import { prepareManagedRemoval, prepareManagedRemovals } from '../managed-removal.js';
+import type { RemovalMember as EngineRemovalMember } from '../removal-types.js';
+import { repairIndex } from '../../harness/contracts.mjs';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
@@ -272,7 +274,17 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
           `\`controls.privateInputs\` (\`--private-input\`).` };
   }
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
-  const prepared = await prepareManagedRemovals({ target: { project: located.anchor }, scope,
+  // A repair (trust or session custody, contract 10) is removed on its own, by its repair id, through the retained
+  // single-id removal that also releases that custody.
+  const repairCustody = selectors.length === 1 && selectors[0]!.engineIds.length === 1 &&
+    repairIndex.some(definition => definition.managementId === selectors[0]!.engineIds[0]) ? selectors[0]!.engineIds[0]! : undefined;
+  const prepared = repairCustody !== undefined ? await (async () => {
+    const one = await prepareManagedRemoval({ target: { project: located.anchor }, managementId: repairCustody, scope, mode: 'vibe' }, engineControls(options));
+    return { disposition: one.disposition, preparation: one.preparation, diagnostics: one.diagnostics,
+      removals: ['cancelled', 'invalid'].includes(one.disposition) ? [] : [{ managementId: repairCustody,
+        disposition: one.disposition as Exclude<typeof one.disposition, 'cancelled' | 'invalid'>,
+        members: [] as { kind: EngineRemovalMember['kind']; path: string; pointer?: string; action: EngineRemovalMember['action']; reason?: string; operationId?: string }[] }] };
+  })() : await prepareManagedRemovals({ target: { project: located.anchor }, scope,
     removals: selectors.flatMap(({ engineIds }) => engineIds.map(managementId => ({ managementId }))) }, engineControls(options),
     { displacedInput: (item, input) => privateInputValue(options.privateInputs, item, input) });
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
@@ -305,7 +317,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const offset = program?.steps.length ?? 0;
   const steps: ReviewStep[] = [...program?.steps ?? [], ...engine.review.operations.map((operation, at) => {
     const index = offset + at;
-    const managementId = owners.get(operation.id) ?? '';
+    const managementId = owners.get(operation.id) ?? (repairCustody !== undefined ? selectors[0]!.managementId : '');
     operations.set(operation.id, { step: index, managementId });
     const target = operation.details.target ?? '';
     const effect: ReviewStep['effect'] = ['create-file', 'replace-file', 'remove-file', 'already-satisfied'].includes(operation.effects) ?

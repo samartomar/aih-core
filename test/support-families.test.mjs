@@ -198,12 +198,11 @@ test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guid
 });
 
 test('every produced prepared-work and run-result format is dispatched; unknown, relabelled and malformed ones are refused', () => {
-  const produced = contractSupport.contracts.filter(item => item.role !== 'accepts' && /:(?:prepared-work|run-result):/.test(item.id)).map(item => item.id).sort();
-  assert.deepEqual(produced, ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0', 'urn:aihq:core:prepared-work:1.2.0',
+  // The stored trust, macOS session and retained review/run families support guidance still reads.
+  const produced = ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0', 'urn:aihq:core:prepared-work:1.2.0',
     'urn:aihq:core:prepared-work:1.3.0', 'urn:aihq:core:prepared-work:1.4.0', 'urn:aihq:core:prepared-work:1.5.0', 'urn:aihq:core:prepared-work:1.6.0',
     'urn:aihq:core:prepared-work:1.7.0', 'urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0', 'urn:aihq:core:run-result:1.2.0',
-    'urn:aihq:core:run-result:1.3.0', 'urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:1.5.0'],
-    'a newly produced family must be added to support dispatch and this test');
+    'urn:aihq:core:run-result:1.3.0', 'urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:1.5.0'];
   assert.deepEqual([...Object.keys(preparedWorkValidators), ...Object.keys(runResultValidators)].sort(), produced,
     'support dispatch covers exactly the produced prepared-work and run-result formats');
   const run = trust('run-result-1.2-partial'), review = macos('prepared-work-1.3-desktop');

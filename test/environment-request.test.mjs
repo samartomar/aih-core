@@ -195,7 +195,7 @@ test('the macOS session check answers the 0.1.0 request with the 0.1.0 result an
   setup();
   const { verifyMacosSession } = await import('../dist/core/index.js');
   const { macosSessionProfiles } = await import('../dist/harness/contracts.mjs');
-  const result = await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-trust' },
+  const result = await verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0', managementId: 'node-npm-ca' },
     { logging: 'off' });
   assert.deepEqual(validateFormat(result), { status: 'ok', schema: 'urn:aihq:core:macos-session-verification-result:0.1.0' });
   if (process.platform !== 'darwin') {

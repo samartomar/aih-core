@@ -149,7 +149,7 @@ test('a pending owner must belong to its item, or the receipt is not trusted', a
   assert.equal(listed.diagnostics[0].reason, 'ownership-unverifiable');
 });
 
-test('an undescribed selection keeps its earlier receipt format once complete', async () => {
+test('an undescribed selection records no item facts, in the one receipt format', async () => {
   const target = project('undescribed');
   const { item: _item, tool: _tool, name: _name, kind: _kind, origins: _origins, ...bare } = policy(false).selections[0];
   const document = { ...policy(false), schema: 'urn:aihq:core:execution-policy:1.3.0', selections: [bare] };
@@ -158,7 +158,7 @@ test('an undescribed selection keeps its earlier receipt format once complete', 
   assert.equal((await apply(prepared.prepared, approve(prepared.review), { logging: 'off' })).completion, 'complete');
   const receipt = readReceipt(target);
   assert.equal(receipt.items, undefined);
-  assert.notEqual(receipt.schema, 'urn:aihq:core:receipt:0.1.0');
+  assert.equal(receipt.schema, 'urn:aihq:core:receipt:0.1.0');
 });
 
 test('a lock left by a process that no longer runs on this host is reclaimed; any other lock is kept', async () => {

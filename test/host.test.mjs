@@ -9,6 +9,7 @@ import { prepare, apply } from '../dist/core/engine-api.js';
 import { pathPins, pinsMatch } from '../dist/core/internal/host-files.js';
 import { OWNERSHIP_RECORD_BYTES } from '../dist/core/internal/state.js';
 import { policy } from './fixture.mjs';
+import { recordOf, receiptText } from './fixtures/ownership-receipt.mjs';
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'aih-core-host-'));
 const originalHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -264,7 +265,7 @@ for (const limit of ['selection', 'claim']) test(`ownership ${limit} count capac
   const initial = await prepare({ useCase: 'policy', policy: document, target: { project } }, { logging: 'off' });
   assert.equal((await apply(initial.prepared, authorize(initial), { logging: 'off' })).completion, 'complete');
   const ownership = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(initial.review.target.project).digest('hex') + '.json');
-  const record = JSON.parse(readFileSync(ownership, 'utf8'));
+  const record = recordOf(readFileSync(ownership, 'utf8'));
   const retained = Array.from({ length: 4096 }, (_, i) => ({ managementId: `retained-${i}`, scope: 'project', sets: [], requires: [] }));
   if (limit === 'selection') {
     const anchor = process.platform === 'win32' ? initial.review.target.project.toLowerCase() : initial.review.target.project;
@@ -277,7 +278,7 @@ for (const limit of ['selection', 'claim']) test(`ownership ${limit} count capac
     // smaller in bytes. Byte reservation must not hide semantic count growth.
     Object.values(record.members)[0].managementId = 'z'.repeat(128);
   }
-  const before = JSON.stringify(record);
+  const before = receiptText(record);
   assert.ok(Buffer.byteLength(before) < 1_048_576);
   writeFileSync(ownership, before);
   document.selections[0].managementId = limit === 'claim' ? 'n' : 'new-count-owner';
