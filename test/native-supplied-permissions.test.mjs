@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import * as installed from '../src/harness/native/runtime.mjs';
-import {validateNativeVerificationBundle,validateNativeVerificationResult} from '@aihq/core/contracts';
+import {validateFormat,validateNativeVerificationBundle,validateNativeVerificationResult} from '@aihq/core/contracts';
 
 const hash=installed.sha256, canonical=installed.canonicalJson;
 const treeHash=files => hash(canonical(files.map(({root,path,member}) => ({root,path,sha256:member.sha256,byteLength:member.byteLength})).sort((a,b) => a.root < b.root ? -1 : a.root > b.root ? 1 : a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
@@ -23,7 +23,8 @@ function archiveMembers(entries) {
 
 // Real public Core acquisition/staging/persistence and installed Harness derivation.
 // Only host observations and session receipts are controlled: no process/provider is started.
-async function controlled(t,scenario='healthy') {
+// `generation` names the request and bundle formats: the retained 1.0.0 pair, or verifyClient with 0.1.0 (`bundle` may differ).
+async function controlled(t,scenario='healthy',generation='1.0.0',bundleGeneration=generation) {
   const directory=realpathSync.native(mkdtempSync(join(tmpdir(),'aih-supplied-permissions-')));
   t.after(()=>rmSync(directory,{recursive:true,force:true}));
   const root=fileURLToPath(new URL('../',import.meta.url));
@@ -61,7 +62,7 @@ export function createNativeRuntime(_module,dependencies) {
  return runtime;
 }`;
   writeFileSync(join(native,'runtime.mjs'),wrapper);
-  writeFileSync(join(directory,'entry.mjs'),"export {verifyNativeClient} from '@aihq/core';");
+  writeFileSync(join(directory,'entry.mjs'),"export {verifyNativeClient,verifyClient} from '@aihq/core';");
   const runtime=installed.createNativeRuntime(installed,{readPinned(){throw Error('no process');},Stop:Error});
   const definition=runtime.nativeDefinitions.find(d=>d.platform.os==='win32'), bundled=runtime.nativeBundledFixture(definition,{check(){}});
   const outputTree=structuredClone(bundled.outputTree), bytes=new Map(bundled.bytes);
@@ -72,20 +73,24 @@ export function createNativeRuntime(_module,dependencies) {
   if(scenario==='extra-server')config.mcpServers.other={command:'node',args:['other.mjs']};
   const configBytes=Buffer.from(JSON.stringify(config)); configuration.member.sha256=hash(configBytes);configuration.member.byteLength=configBytes.length;bytes.set(configuration.member.path,configBytes);
   const release=Buffer.from('{}'),recipe=Buffer.from('{}');
-  const bundle={schema:'urn:aihq:core:native-verification-bundle:1.0.0',id:'controlled.supplied-permissions',client:'claude',adapterId:'claude-stream-json.v1',scope:'test-configuration',
+  const retainedBundle=bundleGeneration==='1.0.0';
+  const bundle={schema:`urn:aihq:core:native-verification-bundle:${bundleGeneration}`,id:'controlled.supplied-permissions',client:retainedBundle?'claude':'claude-code',adapterId:'claude-stream-json.v1',scope:'test-configuration',
     package:{name:'@aihq/controlled-native',version:'1.0.0'},release:{path:'package/release.json',sha256:hash(release),byteLength:release.length},
     selection:{itemId:'controlled',itemSha256:hash('{}'),recipe:{path:'package/recipe.json',sha256:hash(recipe),byteLength:recipe.length},inputs:{}},
     startingTree:[],startingTreeSha256:hash('[]'),outputTree,outputTreeSha256:treeHash(outputTree),instructions:bundled.instructions,server};
-  assert.deepEqual(validateNativeVerificationBundle(bundle).diagnostics,[]);
+  if(retainedBundle)assert.deepEqual(validateNativeVerificationBundle(bundle).diagnostics,[]);
+  else assert.deepEqual(validateFormat(bundle),{status:'ok',schema:bundle.schema});
   const manifest=Buffer.from(JSON.stringify(bundle)), manifestSha256=hash(manifest);
   const entries=[['package/m.json',manifest],['package/release.json',release],['package/recipe.json',recipe],...outputTree.map(file=>[file.member.path,bytes.get(file.member.path)])];
   const archive=archiveMembers(entries),archivePath=join(directory,'supplied.tar');writeFileSync(archivePath,archive);
   const cells=join(directory,'cells');mkdirSync(cells);
   const api=await import(pathToFileURL(join(directory,'entry.mjs')).href);
-  const result=await api.verifyNativeClient({schema:'urn:aihq:core:native-verification-request:1.0.0',client:'claude',configuration:{kind:'supplied',input:'reviewed',bundleId:bundle.id,manifestSha256}},
+  const current=generation==='0.1.0';
+  const result=await api[current?'verifyClient':'verifyNativeClient']({schema:`urn:aihq:core:native-verification-request:${generation}`,client:current?'claude-code':'claude',configuration:{kind:'supplied',input:'reviewed',bundleId:bundle.id,manifestSha256}},
     {maxTurns:20,maxEstimatedCostUsd:2,admission:'candidate-smoke',sandboxRoot:realpathSync.native(cells),testIdentity:{adapterId:'claude-oauth-otel.v1',provisionedRoot:directory,manifestSha256:'a'.repeat(64),expected:{accountUuid:'11111111-1111-4111-8111-111111111111',organizationId:'22222222-2222-4222-8222-222222222222'}},
       configurationSources:{reviewed:{archivePath,archiveSha256:hash(archive),archiveBytes:archive.length,manifestPath:'package/m.json',manifestSha256,manifestBytes:manifest.length}}});
-  assert.deepEqual(validateNativeVerificationResult(result).diagnostics,[]);
+  if(current)assert.deepEqual(validateFormat(result),{status:'ok',schema:result.schema});
+  else assert.deepEqual(validateNativeVerificationResult(result).diagnostics,[]);
   return {result,observed:JSON.parse(readFileSync(recordPath)),bundle,definition};
 }
 
@@ -112,4 +117,21 @@ for(const scenario of ['tamper','client-grant'])test('supplied settings/state mu
   const {result,observed}=await controlled(t,scenario);
   assert.equal(result.verdict,'failed');assert.equal(result.sessions.length,1);assert.equal(observed.sessions.length,1);
   assert.ok(result.stages.some(row=>row.reason==='configuration-changed'));assert.equal(result.cleanup.files,'removed');
+});
+// Controlled fixture, not native loading evidence: host observations and session receipts are scripted, as above.
+test('verifyClient carries a 0.1.0 supplied bundle through the same controlled sessions, naming claude-code',async t=>{
+  const {result,observed}=await controlled(t,'healthy','0.1.0');
+  assert.equal(result.schema,'urn:aihq:core:native-verification-result:0.1.0');
+  assert.equal(result.status,'ok');assert.equal(result.completion,'incomplete');assert.equal(result.verdict,'unverified');
+  assert.equal(result.client.id,'claude-code');assert.equal(result.admission,'candidate-smoke');assert.equal(result.proofScope,'test-configuration');
+  assert.equal(result.sessions.length,2);assert.equal(observed.sessions.length,2);assert.equal(result.security.sandbox.level,'hygiene-only');
+  assert.equal(result.cleanup.files,'removed');
+});
+test('verifyClient reads only a 0.1.0 bundle, and the retained verifier only a 1.0.0 one',async t=>{
+  for(const [generation,bundleGeneration] of [['0.1.0','1.0.0'],['1.0.0','0.1.0']]){
+    const {result,observed}=await controlled(t,'healthy',generation,bundleGeneration);
+    assert.equal(observed.resolutions,0);assert.equal(result.sessions.length,0);
+    assert.ok(result.stages.some(row=>row.outcome==='unsupported'&&row.reason==='configuration-channel-unsupported'));
+    assert.equal(result.verdict,'unverified');
+  }
 });

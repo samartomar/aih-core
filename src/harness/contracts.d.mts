@@ -20,9 +20,10 @@ export type { ApprovalLocation, BindingKind, BindingObservation, BindingSelectio
 export { renderDelivery, renderSelectionDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
 export type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, ItemRef, RenderedDelivery,
   PluginRouteGuidance, SetCompatibility, SetRef, StaticBlockerCode } from './delivery.mjs';
-export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
-  validateNativeTestIdentity } from './native/contracts.mjs';
+export { nativeClientIds, nativeVerificationDefinitions } from './native/contracts.mjs';
+export { nativeClientDefinitions, validateNativeVerificationDefinition, validateNativeTestIdentity } from './native/tool-names.mjs';
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
+export type { NativeClientDefinition } from './native/tool-names.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
   readonly versions: readonly string[]; readonly fixtures: readonly { readonly export: string; readonly expect: 'accept' | 'refuse'; readonly code?: string }[];

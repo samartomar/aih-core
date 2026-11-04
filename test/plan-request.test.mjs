@@ -244,7 +244,9 @@ test('the 0.1.0 documents conform to their published schemas', async () => {
     'urn:aihq:core:export-inputs:0.1.0', 'urn:aihq:core:export-request:0.1.0', 'urn:aihq:core:file-check:0.1.0',
     'urn:aihq:core:inspection:0.1.0', 'urn:aihq:core:inventory:0.1.0', 'urn:aihq:core:macos-session-custody:0.1.0',
     'urn:aihq:core:macos-session-inputs:0.1.0', 'urn:aihq:core:macos-session-profiles:0.1.0', 'urn:aihq:core:macos-session-request:0.1.0',
-    'urn:aihq:core:macos-session-verification-request:0.1.0', 'urn:aihq:core:macos-session-verification-result:0.1.0', 'urn:aihq:core:plan-request:0.1.0',
+    'urn:aihq:core:macos-session-verification-request:0.1.0', 'urn:aihq:core:macos-session-verification-result:0.1.0',
+    'urn:aihq:core:native-test-identity:0.1.0', 'urn:aihq:core:native-verification-bundle:0.1.0', 'urn:aihq:core:native-verification-definition:0.1.0',
+    'urn:aihq:core:native-verification-request:0.1.0', 'urn:aihq:core:native-verification-result:0.1.0', 'urn:aihq:core:plan-request:0.1.0',
     'urn:aihq:core:repair-inputs:0.1.0', 'urn:aihq:core:repair-request:0.1.0', 'urn:aihq:core:report:0.1.0',
     'urn:aihq:core:review:0.1.0', 'urn:aihq:core:run:0.1.0', 'urn:aihq:core:tool-registry:0.1.0',
     'urn:aihq:core:trust-custody:0.1.0']);

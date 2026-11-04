@@ -45,7 +45,7 @@ function refused(code: string, reason: string, message = 'Check the policy, targ
 const usage = {
   'verify-macos-session': 'aih verify-macos-session --management-id <id> [--no-log] [--json]\n',
   'export-ca': 'aih export-ca [--format pem|pkcs7-der] [--output user-home-relative-path] [--inputs-file sources.json] [--resolutions resolutions.json] [--offline] [--apply --yes] [--no-log] [--json]\n',
-  'verify-client': 'aih verify-client <client-id> [--configuration <request-json-file>] [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>] [--budget-ms <integer>] [--candidate-smoke] [--json]\n',
+  'verify-client': 'aih verify-client <tool> [--configuration <request-json-file>] [--host-bindings <host-json-file>] [--sandbox-root <absolute-path>] [--budget-ms <integer>] [--max-turns <total-turns>] [--max-estimated-cost-usd <total-usd>] [--candidate-smoke] [--json]\n',
   report: 'aih report --output <new-directory> [--target <id>]... [--offline] [--json]\n' +
     'aih report --output <new-directory> --snapshot <report.json> [--json]\n' +
     '  Writes report.json only; the consuming application renders it.\n',
@@ -59,7 +59,7 @@ const usage = {
 const examples: Record<keyof typeof usage, string> = {
   'verify-macos-session': 'Examples:\n  aih verify-macos-session --management-id node-npm-trust --no-log --json\n',
   'export-ca': 'Examples:\n  aih export-ca --json\n  aih export-ca --format pkcs7-der --output certificates/os-ca.p7b --apply\n',
-  'verify-client': 'Examples:\n  aih verify-client claude --json\n  aih verify-client claude --candidate-smoke --host-bindings dedicated-test.json --json\n',
+  'verify-client': 'Examples:\n  aih verify-client claude-code --json\n  aih verify-client claude-code --candidate-smoke --host-bindings dedicated-test.json --json\n',
   report: 'Examples:\n  aih report --output local-report --json\n  aih report --snapshot saved-report.json --output replay --json\n',
   inspect: 'Examples:\n  aih inspect --json\n  aih inspect --target node --target npm --offline --json\n  aih inspect --target node --offline --json --support-markdown inspection-report.md\n',
   policy: 'Examples:\n  aih policy policy.json --project /absolute/project --json\n  aih policy policy.json --project /absolute/project --apply\n  aih policy policy.json --project /absolute/project --apply --yes --no-log --json\n  aih policy policy.json --project /absolute/project --json --support-markdown policy-report.md\n',
@@ -184,6 +184,7 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
   change: () => import('./cli/change.js'),
+  'verify-client': () => import('./cli/verify-client.js'),
 };
 // 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
 const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;
@@ -211,9 +212,6 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
 } else if (process.argv[2] === 'verify-macos-session') {
   const { runMacosSessionCli } = await import('./macos-session-cli.js');
   await runMacosSessionCli(process.argv.slice(3), controller.signal);
-} else if (process.argv[2] === 'verify-client') {
-  const { runNativeClientCli } = await import('./native-cli.js');
-  await runNativeClientCli(process.argv.slice(3), controller.signal);
 } else try {
   const cliArgs = process.argv.slice(2);
   // parseArgs treats a separate negative number as an option; keep it attached

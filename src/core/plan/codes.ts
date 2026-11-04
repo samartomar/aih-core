@@ -65,6 +65,10 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },
   // Upstream setups, upstream installers and tool commands (samartomar/aih-core#176).
   { status: 'refused', code: 'setup-folder-occupied', fix: 'Move the files in the setup folder away, then Prepare again.' },
+  // Native client verification (samartomar/aih-core#177).
+  { status: 'refused', code: 'client-unsupported', fix: 'Choose a tool with a bundled native verification definition.' },
+  { status: 'refused', code: 'platform-unsupported', fix: 'Run the check on a host cell that has a bundled definition.' },
+  { status: 'refused', code: 'cell-not-admitted', fix: 'Run an explicit candidate smoke; it never admits the cell.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));
