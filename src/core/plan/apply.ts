@@ -12,6 +12,7 @@ import { removeAcquiredFolder } from './acquire/effect.js';
 import { MANIFEST } from './acquire/types.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
+import { checkSwitchOff } from './switch-off.js';
 import { changeControls } from '../change/prepare.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
@@ -74,6 +75,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     // Plan work never stops at a failed step: its item and dependants are not attempted, unrelated items continue (C60).
     ...(state.enginePartial || state.request ? { allowPartial: true } : {}) }, engineControls(controls), undefined, progress(controls, state));
   const run = runOf(result, state);
+  if (state.readback) checkSwitchOff(run, state.readback);
   removeReleasedSetups(run);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
   if (before) {

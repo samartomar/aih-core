@@ -51,6 +51,9 @@ const entries: RefusalCode[] = [
   { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
   // Merges with reviewed conflict choices (samartomar/aih-core#165).
   { status: 'refused', code: 'file-too-large-for-client', fix: 'Shorten your file, or choose fewer always-on rules.' },
+  // Local plugins and one-item switch-offs (samartomar/aih-core#173).
+  { status: 'refused', code: 'switch-off-unsupported', fix: 'Remove the whole plugin; this CLI has no supported switch-off for one item.' },
+  { status: 'invalid', code: 'switch-off-alone', fix: 'Prepare the switch-off as the only entry of its removal request.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

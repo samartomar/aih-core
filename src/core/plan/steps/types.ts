@@ -21,6 +21,8 @@ export interface StepContext {
   qualification(sha256: string): { [field: string]: Json } | undefined;
   /** An item's declared input (`requirements.inputs[name]`), as its content document states it. */
   itemInput(item: string, input: string): { isSecret: boolean } | undefined;
+  /** A file of a framework's recorded plugin folder (Catalog content `plugins[].files`), by source id and source path. */
+  pluginFile(framework: string, sourceId: string, sourcePath: string): SourceFacts | undefined;
 }
 /** One owned file effect the engine carries out as a `file.write`. */
 export interface LoweredWrite {
@@ -32,7 +34,7 @@ export interface LoweredWrite {
   executable: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[] };
+  review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[] };
   /** An `acquire` step: the acquisition Apply carries out immediately before writing this marker file. */
   acquire?: AcquireSpec;
   /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
@@ -49,6 +51,8 @@ export interface LoweredPlugin {
   root: 'project' | 'user';
   cli: string; plugin: string; commit: string; framework: string;
   contains: string[];
+  /** Each contained skill item's name, by item id (for a supported one-skill switch-off, C45). */
+  skills?: Record<string, string>;
   commands: string[][];
   undo: string[][] | null;
   presenceCheck: 'none' | { argv: string[]; expect: string };
@@ -84,7 +88,8 @@ export interface LoweredMerge {
   codexGuidance: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[]; format: 'json' | 'toml' | 'markdown'; key: string };
+  review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[];
+    format: 'json' | 'toml' | 'markdown'; key: string };
   /** Only writes acquire or render. */
   acquire?: never; profiles?: never;
 }

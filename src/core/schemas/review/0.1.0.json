@@ -89,6 +89,7 @@
         "plugin": { "type": "string" },
         "commit": { "type": "string" },
         "contains": { "type": "array", "items": { "type": "string" } },
+        "route": { "const": "local-plugin" },
         "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/argv" } }] },
         "presenceCheck": { "oneOf": [{ "const": "none" }, {

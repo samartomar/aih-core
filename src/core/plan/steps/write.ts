@@ -19,6 +19,18 @@ export const write: StepHandler = {
         cantPromise: null, review: { ...owner.review, clis: served.clis }, profiles: done.rendered.profiles } };
     }
     const from = step.from;
+    // A local-plugin route copies its framework's recorded plugin folder file by file (Catalog D120).
+    if (owner.review.framework !== undefined && from && typeof from === 'object' && !Array.isArray(from) &&
+        typeof from.sourceId === 'string' && typeof from.sourcePath === 'string' && from.item === undefined && from.source === undefined) {
+      const facts = context.pluginFile(owner.review.framework, from.sourceId, from.sourcePath);
+      if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no recorded plugin folder of \`${owner.review.framework}\` lists.`, index);
+      if (from.sha256 !== undefined && from.sha256 !== facts.sha256)
+        return refusal('source-mismatch', `Step ${index} names other bytes for \`${from.sourcePath}\` than the content document records.`, index);
+      const supplied = context.bytesFor(facts); if ('refusal' in supplied) return supplied;
+      return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: supplied.bytes,
+        executable: facts.executable, sentence: `Writes \`${placed.path}\`, part of the \`${owner.review.framework}\` local plugin`, cantPromise: null,
+        review: { ...owner.review, clis: served.clis } } };
+    }
     if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' ||
         (typeof from.item === 'string') === (typeof from.source === 'string'))
       return problem(index, 'from', 'from', 'A write step names `from` as an item file or a source notice.');

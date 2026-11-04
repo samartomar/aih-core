@@ -2523,9 +2523,42 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
   `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
   `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
-- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
-  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
-  commands is a pending live check.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace) and real-client evidence.
+  The tests use a controlled fake client; an unattended run of each real client's plugin commands is a pending live
+  check.
+
+### Local plugins and switching one plugin item off
+
+A `local-plugin` route is not a step kind: Catalog lowers it to `write` steps (the plugin's files, copied from the
+framework's recorded plugin folder by `from: { sourceId, sourcePath, sha256 }`) and `merge` steps (its registration,
+such as Claude's `extraKnownMarketplaces` and `enabledPlugins`), each naming the `framework` and
+`route: "local-plugin"`; the route's first step lists the items it `contains`.
+
+- **One install.** Every step naming a `framework` belongs to that framework id: one review group, one receipt, removed
+  whole. Review steps carry `framework`, `route` and, on the first step, `contains`. A plugin file the content
+  document's `plugins[].files` doesn't record is `source-missing`; other bytes than it records are `source-mismatch`.
+- **Inventory.** `list` shows `localPlugin: { contains, files }`. Without the route's `contains` (an older plan),
+  `contains` is `null` and only the files are listed; Core never infers which items the plugin holds.
+- **One item.** `{ managementId: <framework>, item }` is `unavailable` `plugin-indivisible`, with `contains` (or, without
+  it, the plugin's `files`) and `offers`: the whole plugin's removal and, where the CLI supports it, the item's switch-off.
+- **Switching off** (`{ managementId, item, switchOff: true }`, alone in its request; `aih remove <framework> --item <id>
+  --switch-off`) is offered only for a Codex native plugin whose recorded folder holds the item as a skill: Codex keys
+  `[[skills.config]]` by the plugin-qualified `plugin:skill` name. Anything else is refused `switch-off-unsupported`;
+  Claude and the other CLIs get no invented toggle. The switch-off is a reviewed change owned by the item's own claim:
+  one marked block (`# aih:begin <framework>/<item>` … `# aih:end <framework>/<item>`) appended to
+  `~/.codex/config.toml`, holding `[[skills.config]] name = "<plugin>:<skill>" enabled = false`, in the file's own line
+  endings. Every byte outside the block is kept.
+- **Before writing,** Prepare parses the file read-only. Your own unmarked `[[skills.config]]` entry for the same skill,
+  two marked blocks for it, or syntax Core can't read is `blocked`: an `existing-content` conflict with the exact bytes,
+  offered as skip only, and no handle. Core never edits or replaces your entry.
+- **After writing,** Apply reads the file back: the block must parse and hold exactly one table naming the skill with
+  `enabled = false` (verification `readback-matched`), otherwise the step fails (`readback-mismatch`) and the run is
+  `incomplete`. The plugin and its framework claim stay; `list` shows the item's entry with `switchOff`.
+- **Switching on again** is removing that claim (`{ managementId: <item> }`, which the one-item entry then offers): the
+  block goes and the file is as it was (a file Core created goes with its last block; a line break Core added after
+  your last line stays). Removing the whole plugin also removes its items' switch-offs.
+- **Not yet:** a local plugin whose CLI can switch one item off (no Catalog profile has that route today). Whether a real
+  Codex honours the block is a pending live check.
 
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
