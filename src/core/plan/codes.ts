@@ -33,6 +33,10 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
   { status: 'refused', code: 'approval-required', fix: 'Approve with --yes or answer yes interactively.' },
+  // Renders and recipe proofs through the caller's Catalog (samartomar/aih-core#167).
+  { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog and profiles the plan was made with.' },
+  { status: 'invalid', code: 'render-failed', fix: 'Pass the Catalog that made the plan; its render did not return checked bytes.' },
+  { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

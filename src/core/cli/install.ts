@@ -1,12 +1,16 @@
 // aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>]
 //             [--apply [--yes] [--allow-partial]] [--no-log] [--json]      (contract 22)
 // Source bytes are read with `readLocalSource` from the Catalog installed beside this CLI; without it, `--source` is
-// refused `catalog-required`. The project is never taken from the working folder.
+// refused `catalog-required`. Its `/reader` (`renderStep`, `planRecipe`) is passed as `controls.catalog` for render
+// steps and recipe proofs. The project is never taken from the working folder.
 import { parseArgs } from 'node:util';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readRegularFile } from '../internal/fsxn.js';
+import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
 import { apply, prepare } from '../index.js';
 import { approved, emit, exitCode, printable, readDocument, refusal } from './common.js';
-import type { PlanControls, PlanRequest } from '../plan/types.js';
+import type { CatalogControls, PlanControls, PlanRequest } from '../plan/types.js';
 
 const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
 interface LocalSource { status: string; files?: { path: string; bytes?: Uint8Array }[] }
@@ -16,6 +20,31 @@ async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<L
     const specifier = '@aihq/catalog/node';
     const module = await import(specifier) as { readLocalSource?: unknown };
     return typeof module.readLocalSource === 'function' ? module as never : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * The Catalog reader installed beside this CLI, as `controls.catalog` (C51): its `renderStep` and `planRecipe`, and the
+ * version from that package's own `package.json`. Absent, unreadable or without a version, none is passed, and a plan
+ * that needs one is refused `catalog-required` by Prepare.
+ */
+async function catalogReader(): Promise<CatalogControls | undefined> {
+  try {
+    const specifier = '@aihq/catalog/reader';
+    const module = await import(specifier) as { renderStep?: unknown; planRecipe?: unknown };
+    if (typeof module.renderStep !== 'function' && typeof module.planRecipe !== 'function') return undefined;
+    let folder = dirname(fileURLToPath(import.meta.resolve(specifier)));
+    for (let depth = 0; depth < 16; depth += 1, folder = dirname(folder)) {
+      const bytes = readRegularFile(join(folder, 'package.json'), { maxBytes: 1_000_000 });
+      if (!bytes) { if (dirname(folder) === folder) break; continue; }
+      const manifest = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'package.json');
+      if (manifest.name !== '@aihq/catalog') { if (dirname(folder) === folder) break; continue; }
+      if (typeof manifest.version !== 'string' || !manifest.version || manifest.version.length > 64) return undefined;
+      return { version: manifest.version,
+        ...(typeof module.renderStep === 'function' ? { renderStep: module.renderStep as CatalogControls['renderStep'] } : {}),
+        ...(typeof module.planRecipe === 'function' ? { planRecipe: module.planRecipe as CatalogControls['planRecipe'] } : {}) };
+    }
+    return undefined;
   } catch { return undefined; }
 }
 
@@ -62,7 +91,8 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
         if (entry && entry.sourceId === id && files.get(entry.sourcePath) instanceof Uint8Array) entry.bytes = files.get(entry.sourcePath)!;
     }
   }
-  const controls: PlanControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
+  const catalog = await catalogReader();
+  const controls: PlanControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(catalog ? { catalog } : {}) };
   const preparation = await prepare(request, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));
