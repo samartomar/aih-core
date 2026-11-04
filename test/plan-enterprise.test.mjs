@@ -64,6 +64,14 @@ test('Enterprise needs both the mode and the source; neither alone is admitted',
   assert.equal(vibe.status, 'invalid', JSON.stringify(vibe));
   const unknownClient = await prepare(enterprise(ownRequest(target, SKILLS, ['codex']), { id: 'no-such-tool', surface: 'cli' }), { organization: source });
   assert.deepEqual([unknownClient.status, unknownClient.code], ['refused', 'tool-unknown']);
+  // Other documents are bounded at 1,000,000 bytes and 32 levels (contract 15), before any effect.
+  const large = organization([{ id: 'big', obligation: 'recommended', content: { item: 'x'.repeat(100) } }], { padding: 'x'.repeat(1_000_001) });
+  const tooLarge = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])), { organization: large });
+  assert.deepEqual([tooLarge.status, tooLarge.code, tooLarge.limit], ['refused', 'limit-exceeded', 'document-bytes']);
+  let nested = {}; for (let depth = 0; depth < 40; depth += 1) nested = { nested };
+  const deep = organization([], { scanSigners: { add: [{ issuer: 'i', subject: 's', extensions: nested }] } });
+  const tooDeep = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])), { organization: deep });
+  assert.equal(tooDeep.status, 'invalid', JSON.stringify(tooDeep));
 });
 
 test('a prohibition that needs an undeclared fact fails closed; a declared mismatch does not apply', async () => {

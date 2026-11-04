@@ -159,7 +159,8 @@ async function resolutionsFor(checked: Checked, lowered: Lowered): Promise<{ sel
 export async function prepareEnvironment(input: unknown, rawControls?: unknown): Promise<PlanPreparation> {
   forgetProvenState();
   const controls = planControls(rawControls);
-  if (!controls || controls.privateInputs !== undefined || controls.catalog !== undefined || controls.onProgress !== undefined)
+  if (!controls || controls.privateInputs !== undefined || controls.catalog !== undefined || controls.onProgress !== undefined ||
+      controls.organization !== undefined || controls.authentication !== undefined)
     return { status: 'invalid', problems: [{ path: '', reason: 'controls', message: 'Environment work takes only `signal` and `logging` controls.' }] };
   if (controls.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   const checked = checkEnvironmentRequest(input);
@@ -199,7 +200,8 @@ export async function applyEnvironment(handle: unknown, approval: unknown, rawCo
   if (!state) return rejected('handle-unavailable', { code: 'REVIEW_STALE' });
   const dispose = () => retained[state.kind].dispose(state.inner);
   const controls = planControls(rawControls);
-  if (!controls || controls.privateInputs !== undefined || controls.catalog !== undefined || controls.onProgress !== undefined) {
+  if (!controls || controls.privateInputs !== undefined || controls.catalog !== undefined || controls.onProgress !== undefined ||
+      controls.organization !== undefined || controls.authentication !== undefined) {
     dispose(); return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
   }
   const value = approval as { approved?: unknown; origin?: unknown; reviewDigest?: unknown; allowPartial?: unknown } | null;
