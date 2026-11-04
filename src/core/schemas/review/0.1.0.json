@@ -44,12 +44,33 @@
         "managementId": { "type": "string" },
         "sentence": { "type": "string" },
         "cantPromise": { "type": ["string", "null"] },
-        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged"] },
+        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged", "run-program"] },
         "root": { "enum": ["project", "user"] },
         "path": { "type": "string" },
         "item": { "type": "string" },
         "items": { "type": "array", "items": { "type": "string" } },
-        "clis": { "type": "array", "items": { "type": "string" } }
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "framework": { "type": "string" },
+        "cli": { "type": "string" },
+        "plugin": { "type": "string" },
+        "commit": { "type": "string" },
+        "contains": { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/argv" } }] },
+        "presenceCheck": { "oneOf": [{ "const": "none" }, {
+          "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256", "expect"],
+          "properties": { "argv": { "$ref": "#/$defs/argv" }, "executable": { "type": "string" },
+            "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expect": { "type": "string", "minLength": 1 } } }] },
+        "previous": { "const": "interrupted" }
+      }
+    },
+    "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "command": {
+      "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256"],
+      "properties": {
+        "argv": { "$ref": "#/$defs/argv" },
+        "executable": { "type": "string" },
+        "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
     "conflict": {

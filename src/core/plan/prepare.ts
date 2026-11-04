@@ -8,9 +8,13 @@ import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
-import { register, type StepRef } from './handles.js';
+import { register, type ProgramCheck, type StepRef } from './handles.js';
+import { resolveExecutable } from '../internal/approved-process.js';
+import { readOwnership } from '../internal/state.js';
+import { claimIdentity } from '../internal/recipe-lifecycle.js';
+import type { LoweredPlugin } from './steps/types.js';
 import { limitValue } from './limits.js';
-import type { PlanItemFacts } from '../internal/custody-items.js';
+import type { PlanItemFacts, PluginFacts } from '../internal/custody-items.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 import type { PreparationResult } from '../host-types.js';
 import { REVIEW, type PlanControls, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from './types.js';
@@ -74,14 +78,16 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const selections: ExecutionPolicy['selections'] = [];
   for (const group of groups.values()) {
     const materials: { id: string; path: string; sha256: string; byteLength: number; bytes: Buffer }[] = [];
-    const ops: Recipe['operations'] = group.steps.map((step, at) => {
-      const material = { id: `m${String(at).padStart(6, '0')}`, path: `plan/${at}`, sha256: sha256(step.lowered.bytes),
-        byteLength: step.lowered.bytes.length, bytes: step.lowered.bytes };
+    const ops: Recipe['operations'] = group.steps.flatMap((step, at): Recipe['operations'] => {
+      const lowered = step.lowered;
+      if (lowered.kind === 'plugin') return programOperations(lowered, step.index, group, operations);
+      const material = { id: `m${String(at).padStart(6, '0')}`, path: `plan/${at}`, sha256: sha256(lowered.bytes),
+        byteLength: lowered.bytes.length, bytes: lowered.bytes };
       materials.push(material);
       operations.set(`${group.selectionId}/step-${step.index}`, { step: step.index, managementId: group.managementId });
-      return { id: `step-${step.index}`, purpose: step.lowered.sentence, kind: 'file.write', scope: group.scope,
-        target: { root: group.scope === 'project' ? 'project' : 'userHome', segments: step.lowered.path.split('/').map(literal => ({ literal })) },
-        material: material.id, ...(step.lowered.executable ? { mode: 0o755 } : {}), requires: [], checks: [] };
+      return [{ id: `step-${step.index}`, purpose: lowered.sentence, kind: 'file.write', scope: group.scope,
+        target: { root: group.scope === 'project' ? 'project' : 'userHome', segments: lowered.path.split('/').map(literal => ({ literal })) },
+        material: material.id, ...(lowered.executable ? { mode: 0o755 } : {}), requires: [], checks: [] }];
     });
     const recipe: Recipe = { schema: RECIPE, id: 'plan', description: 'Content from a plan request', inputs: {},
       materials: materials.map(({ id, path, sha256: digest, byteLength }) => ({ id, path, sha256: digest, byteLength, source: { kind: 'local', input: 'plan' } })),
@@ -95,7 +101,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     plans.set(group.selectionId, { items: [group.managementId], clis, data: request.plan.data === null ? null : { ...request.plan.data },
       origin: 'chosen', catalog: controls.catalog?.version ?? null,
       profiles: checked.profiles.filter(profile => clis.includes(profile.id)).sort((a, b) => codeUnitCompare(a.id, b.id)),
-      steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b) });
+      steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
+      ...pluginFacts(group.steps) });
     selections.push({ id: group.selectionId, managementId: group.managementId, scope: group.scope, configuration: {}, requires: [],
       recipe: { inline: recipe } });
   }
@@ -118,11 +125,19 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   const hints = new Map((engine.resolutionInputs ?? []).map(item => [`${item.selectionId}/${item.operationId}`, item]));
   const conflicts: ReviewConflict[] = [];
   const steps: ReviewStep[] = [];
+  const programCommands = new Map<number, { executable: string; executableSha256: string }[]>();
   const byStep = new Map<number, CheckedStep>(checked.steps.map(step => [step.index, step]));
   for (const operation of engine.review.operations) {
     const ref = operations.get(operation.id);
     if (!ref) continue;
     const step = byStep.get(ref.step)!;
+    if (step.lowered.kind === 'plugin') {
+      if (operation.effects === 'unavailable' || typeof operation.details.executableSha256 !== 'string')
+        return { status: 'refused', code: 'program-unavailable', reason: `Step ${ref.step} runs \`${step.lowered.cli}\`, which this host cannot run.`, step: ref.step };
+      const commands = programCommands.get(ref.step) ?? []; programCommands.set(ref.step, commands);
+      commands.push({ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 });
+      continue;
+    }
     const effect: ReviewStep['effect'] = operation.effects === 'unavailable' ? 'conflict' :
       ['create-file', 'replace-file', 'already-satisfied', 'conflict'].includes(operation.effects) ? operation.effects as ReviewStep['effect'] : 'unchanged';
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
@@ -136,7 +151,30 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
         choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
     }
   }
-  for (const step of checked.steps) if (step.skipped) for (const managementId of step.lowered.managementIds)
+  // One review step per plugin step: every exact command with its pinned executable, the undo facts and the check.
+  const programs = new Map<number, ProgramCheck>();
+  for (const step of checked.steps) {
+    const lowered = step.lowered;
+    if (lowered.kind !== 'plugin' || step.skipped) continue;
+    const pinned = programCommands.get(step.index) ?? [];
+    let presence: ReviewStep['presenceCheck'] = 'none';
+    if (lowered.presenceCheck !== 'none') {
+      const executable = resolveExecutable(lowered.presenceCheck.argv[0]!);
+      if (!executable) return { status: 'refused', code: 'program-unavailable',
+        reason: `Step ${step.index}'s presence check runs \`${lowered.presenceCheck.argv[0]}\`, which this host cannot run.`, step: step.index };
+      presence = { ...lowered.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
+      programs.set(step.index, { executable, argv: lowered.presenceCheck.argv, expect: lowered.presenceCheck.expect,
+        cwd: lowered.root === 'project' ? project! : home });
+    }
+    const interrupted = readOwnership(lowered.root === 'project' ? project! : home).value.items?.[
+      claimIdentity(lowered.root, lowered.framework, project ?? home)]?.installState === 'interrupted';
+    steps.push({ step: step.index, op: step.op, managementId: lowered.framework, sentence: lowered.sentence,
+      cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
+      effect: 'run-program', framework: lowered.framework, cli: lowered.cli, clis: [lowered.cli], plugin: lowered.plugin, commit: lowered.commit,
+      contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
+      presenceCheck: presence, ...(interrupted ? { previous: 'interrupted' as const } : {}) });
+  }
+  for (const step of checked.steps) if (step.skipped && step.lowered.kind === 'write') for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review });
   steps.sort((a, b) => a.step - b.step || codeUnitCompare(a.managementId, b.managementId));
@@ -151,7 +189,30 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
-    reviewDigest, partial, operations,
+    reviewDigest, partial, operations, ...(programs.size ? { programs } : {}),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest } });
   return { status: partial ? 'partial' : 'ready', review, handle };
+}
+
+/**
+ * A plugin step's commands as engine `process.run` operations, run in order in the request scope's root (the project
+ * folder or home). Each command needs the one before it; the engine pins each executable by sha256 at Prepare.
+ */
+function programOperations(lowered: LoweredPlugin, index: number, group: { selectionId: string; managementId: string; scope: 'project' | 'user' },
+    operations: Map<string, StepRef>): Recipe['operations'] {
+  return lowered.commands.map((argv, at) => {
+    const id = `step-${index}-${at}`;
+    operations.set(`${group.selectionId}/${id}`, { step: index, managementId: group.managementId, program: true });
+    return { id, purpose: `Runs \`${argv.join(' ')}\``, kind: 'process.run', scope: group.scope,
+      executable: { name: argv[0]! }, args: argv.slice(1).map(literal => ({ literal })),
+      cwd: { root: group.scope === 'project' ? 'project' : 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0],
+      effects: [`The ${lowered.cli} CLI's own plugin command; Core can't show its effects`], requires: at ? [`step-${index}-${at - 1}`] : [], checks: [] };
+  });
+}
+/** The receipt's plugin undo facts for one management id's steps (C54). */
+function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
+  const plugins = steps.flatMap(step => step.lowered.kind === 'plugin' && !step.skipped ? [{ step: step.index, cli: step.lowered.cli,
+    plugin: step.lowered.plugin, commit: step.lowered.commit, contains: [...step.lowered.contains], undo: step.lowered.undo,
+    presenceCheck: step.lowered.presenceCheck }] : []);
+  return plugins.length ? { plugins } : {};
 }

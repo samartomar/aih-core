@@ -29,7 +29,25 @@ export interface LoweredWrite {
   cantPromise: string | null;
   review: { item?: string; items?: string[]; clis?: string[] };
 }
-export type Lowered = LoweredWrite;
+/**
+ * One native plugin install (`plugin`): the CLI's own commands, filled from the profile's templates, run in order after
+ * approval of those exact commands. Its framework is one indivisible install (C68); its undo facts go to the receipt.
+ */
+export interface LoweredPlugin {
+  kind: 'plugin';
+  managementIds: [string];
+  /** The request scope: where the commands run (the project folder or home) and which receipt keeps the install. */
+  root: 'project' | 'user';
+  cli: string; plugin: string; commit: string; framework: string;
+  contains: string[];
+  commands: string[][];
+  undo: string[][] | null;
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+  sentence: string;
+  cantPromise: string;
+  review: { framework: string; clis: string[] };
+}
+export type Lowered = LoweredWrite | LoweredPlugin;
 export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
 export interface StepHandler {
   op: string;

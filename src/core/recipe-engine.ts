@@ -85,6 +85,11 @@ interface PreparedStep {
   kept?: { action: 'keep-changed' | 'keep-required'; reason: string };
   /** Why a `conflict` step leaves its member as it is, named per member by managed update preparation. */
   conflictReason?: string;
+  /**
+   * A plan request's program step (`root` is its scope root, no `path`): Apply records the selection's install as pending
+   * before running it, and its claim once all the selection's steps succeed, so the receipt keeps its undo facts.
+   */
+  programClaim?: boolean;
 }
 interface PreparedState {
   trustParticipant?: TrustEngineParticipant;
@@ -697,7 +702,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let stepMembers: MemberDescriptor[] | undefined; let preExisting: Record<string, Json> | undefined;
         let original: Buffer | undefined;
-        let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
+        let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined; let programClaim = false;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let createdContainer = false;
         let editConflict: string | undefined; let conflictReason: string | undefined; let createdTables: Map<string, TomlTableCustody> | undefined; const tomlHeirs: string[] = [];
@@ -714,6 +719,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
           effect = 'opaque-process';
+          if (extension?.plans?.has(selection.id)) { root = selection.scope === 'project' ? project : userHomeRoot(); programClaim = true; }
         } else {
           const target = resolvePath(op.target, op.scope, bound, project, selectionKey);
           root = target.root; path = target.path; pins = pathPins(target.absolute); ownerKey = path;
@@ -1094,7 +1100,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(effect === 'conflict' && conflictReason ? { conflictReason } : {}),
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
             ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
-            ...(original ? { original } : {}),
+            ...(original ? { original } : {}), ...(programClaim ? { programClaim: true } : {}),
             // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
             item: selectionItem(selection, project!, privateValues, extension) });
         }
@@ -1145,7 +1151,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         sets: [...new Set([...(old?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === selection.scope)),
           ...(policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id)])],
         requires: keptEdges(key, selection.requires.map(required => claimId(policy.selections.find(item => item.id === required)!))) };
-      if ((old || claim.sets.length || claim.requires.length) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
+      const program = steps.some(step => step.programClaim && step.authored?.selectionId === selection.id);
+      if ((old || claim.sets.length || claim.requires.length || program) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
         const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim, requires: selectionOps.get(selection.id) ?? [] }; selectionUpdates.set(root, updates);
       }
     }
@@ -1645,7 +1652,9 @@ function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: 
 }
 
 export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {},
-    preEffectCheck?: () => void | Promise<void>): Promise<RunResult> {
+    preEffectCheck?: () => void | Promise<void>,
+    /** Told when each program step starts and finishes (plan requests' `onProgress`); never changes the run. */
+    observe?: (operationId: string, phase: 'start' | 'finish', application?: string) => void): Promise<RunResult> {
   const runId = randomUUID(); let state: PreparedState | undefined; let started = false;
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
@@ -1745,7 +1754,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');
     const mutatingRoots = [...new Set([...state.selectionUpdates.keys(), ...state.itemUpdates.keys(), ...state.steps.filter(step => step.path &&
-      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!)])].sort();
+      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!),
+      ...state.steps.filter(step => step.programClaim).map(step => step.root!)])].sort();
     if (mutatingRoots.length) protectState();
     // Acquire roots and the aggregate trust lock in one lexical order.
     for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(lockTarget(root));
@@ -1940,8 +1950,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
         writePending(); started = true;
+        try { observe?.(step.review.id, 'start'); } catch { /* An observer never changes the run. */ }
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
+        try { observe?.(step.review.id, 'finish', operation.application); } catch { /* An observer never changes the run. */ }
         if (processResult.status !== 'passed') {
           operation.reason = processResult.reason; operation.effectsUncertain = processResult.effectsUncertain;
           if (processResult.terminationUnconfirmed) stop = true;
@@ -2306,7 +2318,7 @@ function reservePending(value: Ownership, steps: PreparedStep[]): void {
 }
 /** Steps whose success changes target-keyed custody. */
 function writesCustody(step: PreparedStep): boolean {
-  return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly;
+  return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly || !!step.programClaim;
 }
 function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[], extension?: EngineExtension): NonNullable<PreparedStep['item']> {
   const source = selectionSource(selection);

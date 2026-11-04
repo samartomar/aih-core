@@ -3,6 +3,7 @@ declare const planHandle: unique symbol;
 /** The private, in-process key for one 0.1.0 review; consumed by its first Apply. */
 export interface PlanHandle { readonly [planHandle]: true }
 import type { Json } from '../types.js';
+import type { PluginFacts } from '../internal/custody-items.js';
 
 export const PLAN_REQUEST = 'urn:aihq:core:plan-request:0.1.0' as const;
 export const REVIEW = 'urn:aihq:core:review:0.1.0' as const;
@@ -53,9 +54,20 @@ export type UnsupportedVersion = { status: 'unsupported-version'; encountered: s
 
 export interface ReviewStep {
   step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
-  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged';
+  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
+  framework?: string; cli?: string; plugin?: string; commit?: string; contains?: string[];
+  /** The exact commands, each with the executable and sha256 Prepare pinned; only these run, in this order. */
+  commands?: ReviewCommand[];
+  /** The removal commands copied into the receipt at install, or `null` when the profile gave none. */
+  undo?: string[][] | null;
+  /** The presence check that decides `present`/`absent`, or `none` (then the step stays unverified, C56). */
+  presenceCheck?: 'none' | (ReviewCommand & { expect: string });
+  /** An earlier run of this program step was interrupted: its effects are uncertain. */
+  previous?: 'interrupted';
 }
+export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number;
   target: string; observedSha256: string | null; choices: ('replace' | 'adopt' | 'skip')[];
@@ -89,6 +101,8 @@ export interface RunStep {
   step: number; managementId: string;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
+  /** A program step that may have changed something although it did not finish: never claimed as rolled back. */
+  effectsUncertain?: true;
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
@@ -111,6 +125,8 @@ export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
   items: string[]; origin: 'chosen' | null; data: { repository: string; commit: string } | null; clis: string[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** Native plugin installs with the undo facts the receipt keeps for them. */
+  plugins?: PluginFacts[];
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';
