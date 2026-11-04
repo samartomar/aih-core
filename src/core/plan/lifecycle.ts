@@ -16,7 +16,7 @@ import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
-import { prepareSwitchOff, switchOffClaims } from './switch-off.js';
+import { prepareSwitchOff, switchOffClaims, switchOffId } from './switch-off.js';
 import { prepare as prepareEngine } from '../recipe-engine.js';
 import { resolveExecutable } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
@@ -411,7 +411,7 @@ function itemInPlugin(managementId: string, item: string, scope: 'project' | 'us
   // Where the CLI can switch the one item off, that is a choice for this entry; once it is off, its own removal is offered.
   const offers: NonNullable<RemovalEntry['offers']> = [{ managementId }];
   const choices: NonNullable<RemovalEntry['choices']> = ['remove-plugin'];
-  if (switchable(holding, item)) { if (switchedOff(facts, scope, managementId, item)) offers.push({ managementId: item }); else choices.push('switch-off'); }
+  if (switchable(holding, item)) { if (switchedOff(facts, scope, managementId, item)) offers.push({ managementId: switchOffId(managementId, item) }); else choices.push('switch-off'); }
   return { ...whole, contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers, choices };
 }
 /** The `switch-off` resolution for `{ managementId, item }`: `absent` when the install doesn't record the item, else its reviewed switch-off. */
@@ -431,7 +431,7 @@ export function switchable(plugins: PluginFacts[], item: string): PluginFacts | 
 }
 /** Whether a switch-off claim for this item of this framework is recorded here. */
 const switchedOff = (facts: Map<string, PlanItemFacts>, scope: string, framework: string, item: string): boolean =>
-  facts.get(`${scope}\0${item}`)?.switchOff?.framework === framework;
+  facts.get(`${scope}\0${switchOffId(framework, item)}`)?.switchOff?.framework === framework;
 
 /**
  * The reviewed removal commands of native plugins, as their own engine preparation: one `process.run` per saved

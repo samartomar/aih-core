@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
-import { LOCAL_PLUGIN_MANIFEST, codexPluginRequest, localPluginRequest, pluginRequest } from './fixtures/plan-fixture.mjs';
+import { LOCAL_PLUGIN_MANIFEST, codexPluginRequest, localPluginRequest, mergeRequest, pluginRequest } from './fixtures/plan-fixture.mjs';
 import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-local-plugin-'));
@@ -95,6 +95,8 @@ const NAME = 'superpowers:brainstorming';
 const codexConfig = () => join(home, '.codex', 'config.toml');
 const userRemoval = (removals, resolutions) => prepareRemoval({ target: {}, scope: 'user', removals, ...(resolutions ? { resolutions } : {}) });
 const SWITCH_OFF = [{ managementId: 'superpowers', item: ITEMS[0], choice: 'switch-off' }];
+/** The switch-off's own management id: namespaced by the plugin, so it never meets the item installed on its own. */
+const SWITCH_ID = `superpowers.switch-off.${ITEMS[0]}`;
 async function installCodexPlugin() {
   const prepared = await prepare(codexPluginRequest());
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
@@ -125,7 +127,7 @@ test('one Codex plugin skill is switched off by a marked [[skills.config]] block
   conforms(prepared.review);
   const [step] = prepared.review.steps;
   assert.deepEqual([step.op, step.managementId, step.framework, step.cli, step.path, step.effect],
-    ['switch-off', ITEMS[0], 'superpowers', 'codex', '.codex/config.toml', 'replace-file']);
+    ['switch-off', SWITCH_ID, 'superpowers', 'codex', '.codex/config.toml', 'replace-file']);
   assert.equal(step.entry, `[[skills.config]]\r\nname = "${NAME}"\r\nenabled = false\r\n`, 'the block keeps the file\'s line endings');
   assert.equal(readFileSync(codexConfig(), 'utf8'), yours, 'Prepare writes nothing');
   const calls = fakeClientState(state, 'codex').calls.length;
@@ -139,19 +141,42 @@ test('one Codex plugin skill is switched off by a marked [[skills.config]] block
   assert.equal(fakeClientState(state, 'codex').calls.length, calls, 'the plugin itself is not touched');
 
   const listed = conforms(await list({ target: {}, scope: 'user' }));
-  assert.deepEqual(listed.entries.map(entry => entry.managementId).sort(), ['superpowers', ITEMS[0]].sort(), 'the framework install stays');
-  assert.deepEqual(listed.entries.find(entry => entry.managementId === ITEMS[0]).switchOff,
+  assert.deepEqual(listed.entries.map(entry => entry.managementId).sort(), ['superpowers', SWITCH_ID].sort(), 'the framework install stays');
+  assert.deepEqual(listed.entries.find(entry => entry.managementId === SWITCH_ID).switchOff,
     { framework: 'superpowers', item: ITEMS[0], cli: 'codex', name: NAME });
   const again = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }]);
-  assert.deepEqual([again.entries[0].choices, again.entries[0].offers], [['remove-plugin'], [{ managementId: 'superpowers' }, { managementId: ITEMS[0] }]],
+  assert.deepEqual([again.entries[0].choices, again.entries[0].offers], [['remove-plugin'], [{ managementId: 'superpowers' }, { managementId: SWITCH_ID }]],
     'once off, its removal is offered');
 
-  const on = await userRemoval([{ managementId: ITEMS[0] }]);
+  const on = await userRemoval([{ managementId: SWITCH_ID }]);
   assert.equal(on.status, 'ok', JSON.stringify(on));
   const back = conforms(await apply(on.handle, approve(on.review)));
   assert.equal(back.completion, 'complete', JSON.stringify(back));
   assert.equal(readFileSync(codexConfig(), 'utf8'), yours, 'switching it on again leaves the file as it was');
   assert.deepEqual((await list({ target: {}, scope: 'user' })).entries.map(entry => entry.managementId), ['superpowers']);
+});
+
+test('the switch-off of an item never shares an id with that item installed on its own at user scope', async () => {
+  fresh();
+  await installCodexPlugin();
+  // The same item installed on its own, from another plan, at user scope.
+  const alone = mergeRequest(null, [{ item: ITEMS[0], root: 'user', file: '.claude.json', format: 'json', key: '/brainstorming',
+    entry: { enabled: true }, clis: ['claude-code'] }], { scope: 'user', framework: 'superpowers' });
+  const installed = await prepare(alone);
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal(conforms(await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const off = await userRemoval([{ managementId: 'superpowers', item: ITEMS[0] }], SWITCH_OFF);
+  assert.equal(off.status, 'ok', JSON.stringify(off));
+  assert.equal(conforms(await apply(off.handle, approve(off.review))).completion, 'complete');
+  const listed = conforms(await list({ target: {}, scope: 'user' }));
+  assert.deepEqual(listed.entries.map(entry => [entry.managementId, !!entry.switchOff]).sort(),
+    [[ITEMS[0], false], ['superpowers', false], [SWITCH_ID, true]].sort());
+  // Switching it on again leaves the item installed on its own as it was, and removing that item leaves the switch-off.
+  const on = await userRemoval([{ managementId: SWITCH_ID }]);
+  assert.deepEqual(on.entries.map(entry => entry.managementId), [SWITCH_ID]);
+  assert.equal(conforms(await apply(on.handle, approve(on.review))).completion, 'complete');
+  assert.deepEqual(JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')).brainstorming, { enabled: true });
+  assert.deepEqual((await list({ target: {}, scope: 'user' })).entries.map(entry => entry.managementId).sort(), [ITEMS[0], 'superpowers'].sort());
 });
 
 test('your own unmarked entry for the skill, or two marked blocks for it, block the switch-off with skip only', async () => {
@@ -199,7 +224,7 @@ test('a CLI without a supported switch-off gets no invented toggle, and removing
   assert.equal(off.review.steps[0].effect, 'create-file');
   conforms(await apply(off.handle, approve(off.review)));
   const whole = await userRemoval([{ managementId: 'superpowers' }]);
-  assert.deepEqual(whole.entries.map(entry => [entry.managementId, entry.disposition]), [['superpowers', 'prepared'], [ITEMS[0], 'prepared']]);
+  assert.deepEqual(whole.entries.map(entry => [entry.managementId, entry.disposition]), [['superpowers', 'prepared'], [SWITCH_ID, 'prepared']]);
   const run = conforms(await apply(whole.handle, approve(whole.review)));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
   assert.equal(existsSync(codexConfig()), false, 'the file Core created goes with the last block');

@@ -23,6 +23,16 @@ const FILE = ['.codex', 'config.toml'];
 const TABLE = ['skills', 'config'];
 const OPERATION = 'switch-off';
 const sha256 = (value: Buffer): string => createHash('sha256').update(value).digest('hex');
+const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * The management id of an item's switch-off claim: namespaced by the plugin's framework id, so it never meets the item's
+ * own id (the item may also be installed on its own at user scope). Too long for an id, it is a digest of both.
+ */
+export function switchOffId(framework: string, item: string): string {
+  const named = `${framework}.switch-off.${item}`;
+  return ID.test(named) ? named : `switch-off-${createHash('sha256').update(JSON.stringify([framework, item])).digest('hex').slice(0, 40)}`;
+}
 
 /** The marked block that switches `name` off: its markers, its block id and its one `[[skills.config]]` table. */
 export function switchOffBlock(framework: string, item: string, name: string, eol = '\n') {
@@ -48,12 +58,13 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
   try { if (readFileSync(join(home, ...FILE)).includes('\r\n')) eol = '\r\n'; } catch { /* absent: Core creates it */ }
   const block = switchOffBlock(framework, item, name, eol);
   const path = FILE.join('/');
+  const managementId = switchOffId(framework, item);
   const recipe: Recipe = { schema: 'urn:aihq:core:recipe:1.0.0', id: 'switch-off', description: 'Switches one plugin item off', inputs: {},
     materials: [], targets: ['user'], prerequisites: [], checks: [], operations: [{ id: OPERATION,
       purpose: `Switches off \`${name}\``, kind: 'text.block', scope: 'user', target: { root: 'userHome', segments: FILE.map(literal => ({ literal })) },
       blockId: block.blockId, startMarker: block.startMarker, endMarker: block.endMarker, action: 'set', content: { literal: block.content },
       requires: [], checks: [] }] };
-  const selections: ExecutionPolicy['selections'] = [{ id: 's0', managementId: item, scope: 'user', configuration: {}, requires: [],
+  const selections: ExecutionPolicy['selections'] = [{ id: 's0', managementId, scope: 'user', configuration: {}, requires: [],
     recipe: { inline: recipe } }];
   const facts: PlanItemFacts = { items: [item], clis: [plugin.cli], data: plan.data ? { ...plan.data } : null, origin: 'chosen', catalog: plan.catalog,
     profiles: plan.profiles.filter(profile => profile.id === plugin.cli).map(profile => ({ ...profile })), steps: [0],
@@ -76,11 +87,11 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
   } catch (error) { detail = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : 'unsupported-toml-syntax'; }
   const effect: ReviewStep['effect'] = detail ? 'conflict' : operation!.effects === 'create-file' || operation!.effects === 'replace-file' ||
     operation!.effects === 'already-satisfied' ? operation!.effects as ReviewStep['effect'] : 'unchanged';
-  const step: ReviewStep = { step: 0, op: OPERATION, managementId: item, framework, item, cli: plugin.cli, clis: [plugin.cli], plugin: plugin.plugin,
+  const step: ReviewStep = { step: 0, op: OPERATION, managementId, framework, item, cli: plugin.cli, clis: [plugin.cli], plugin: plugin.plugin,
     sentence: `Switches off \`${name}\` with a marked \`[[skills.config]]\` block in \`${path}\`; the \`${framework}\` plugin stays installed`,
     cantPromise: 'Core checks the block it wrote, not that the CLI honours it.', effect, root: 'user', path, format: 'toml', key: block.blockId,
     entry: block.content };
-  const conflicts: ReviewConflict[] = detail ? [{ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: item, step: 0, target: path,
+  const conflicts: ReviewConflict[] = detail ? [{ code: 'STATE_CONFLICT', reason: 'existing-content', managementId, step: 0, target: path,
     key: block.blockId, observedSha256: before === null ? null : sha256(before), existing: existingText(before, block, name), redacted: [],
     choices: ['skip'], detail }] : [];
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'removal', scope: 'user', target: { project: null }, steps: [step],
@@ -91,8 +102,8 @@ export async function prepareSwitchOff(framework: string, item: string, plugin: 
   const entry = { managementId: framework, item, disposition: 'prepared' as const, status: blocked ? 'blocked' as const : 'ready' as const,
     members: [{ kind: 'block', path, action: 'switch-off' }] };
   if (blocked) return { status: 'ok', entries: [entry], review };
-  const operations = new Map<string, StepRef>([[operation!.id, { step: 0, managementId: item }]]);
-  const readback: SwitchOffReadback = { file: join(home, ...FILE), ...block, name, step: 0, managementId: item };
+  const operations = new Map<string, StepRef>([[operation!.id, { step: 0, managementId }]]);
+  const readback: SwitchOffReadback = { file: join(home, ...FILE), ...block, name, step: 0, managementId };
   const handle = register({ engine: engine.prepared!, engineDigest: engine.review.reviewDigest, enginePartial: false, reviewDigest, partial: false,
     operations, readback });
   return { status: 'ok', entries: [entry], review, handle };
@@ -128,7 +139,7 @@ export function checkSwitchOff(run: Run, readback: SwitchOffReadback): void {
   if (!ok && run.completion === 'complete') run.completion = 'incomplete';
 }
 
-/** The recorded switch-off claims of a framework in a receipt root, by item id. */
+/** The recorded switch-off claims of a framework in a receipt root, by their management ids. */
 export function switchOffClaims(root: string, framework: string): string[] {
   return Object.values(readOwnership(root).value.items ?? {}).filter(item => item.scope === 'user' && item.plan?.switchOff?.framework === framework)
     .map(item => item.managementId).sort();

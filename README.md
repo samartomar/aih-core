@@ -801,8 +801,10 @@ such as Claude's `extraKnownMarketplaces` and `enabledPlugins`), each naming the
   offered as skip only, and no handle. Core never edits or replaces your entry.
 - **After writing,** Apply reads the file back: the block must parse and hold exactly one table naming the skill with
   `enabled = false` (verification `readback-matched`), otherwise the step fails (`readback-mismatch`) and the run is
-  `incomplete`. The plugin and its framework claim stay; `list` shows the item's entry with `switchOff`.
-- **Switching on again** is removing that claim (`{ managementId: <item> }`, which the one-item entry then offers): the
+  `incomplete`. The plugin and its framework claim stay; `list` shows the switch-off's entry with `switchOff`.
+- **Switching on again** is removing that claim (`{ managementId: '<framework>.switch-off.<item>' }`, which the one-item
+  entry then offers; an id that would pass 128 characters is `switch-off-<digest>`), never the item's own id, so an item
+  also installed on its own keeps that install: the
   block goes and the file is as it was (a file Core created goes with its last block; a line break Core added after
   your last line stays). Removing the whole plugin also removes its items' switch-offs.
 - **Not yet:** a local plugin whose CLI can switch one item off (no Catalog profile has that route today). Whether a real

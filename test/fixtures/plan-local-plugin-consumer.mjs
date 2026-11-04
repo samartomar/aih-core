@@ -64,10 +64,11 @@ await check('the aih CLI switches one Codex plugin skill off and on again, keepi
   assert.ok(after.startsWith(yours));
   assert.match(after.slice(yours.length), /^# aih:begin superpowers\/superpowers\.skill\.brainstorming\n\[\[skills\.config\]\]\nname = "superpowers:brainstorming"\nenabled = false\n# aih:end /);
   const inventory = aih(['list', '--scope', 'user', '--json']);
-  assert.deepEqual(inventory.result.entries.map(entry => entry.managementId).sort(), ['superpowers', ITEM]);
+  const switchId = `superpowers.switch-off.${ITEM}`;
+  assert.deepEqual(inventory.result.entries.map(entry => entry.managementId).sort(), ['superpowers', switchId]);
   const usage = aih(['remove', 'superpowers', '--scope', 'user', '--switch-off', '--json']);
   assert.deepEqual([usage.code, usage.result.code], [2, 'usage'], 'there is no switch-off flag');
-  const on = aih(['remove', ITEM, '--scope', 'user', '--apply', '--yes', '--json']);
+  const on = aih(['remove', switchId, '--scope', 'user', '--apply', '--yes', '--json']);
   assert.deepEqual([on.code, on.result.completion], [0, 'complete'], JSON.stringify(on));
   assert.equal(readFileSync(config, 'utf8'), yours);
 });
