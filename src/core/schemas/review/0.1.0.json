@@ -49,20 +49,27 @@
         "path": { "type": "string" },
         "item": { "type": "string" },
         "items": { "type": "array", "items": { "type": "string" } },
-        "clis": { "type": "array", "items": { "type": "string" } }
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "format": { "enum": ["json", "toml", "markdown"] },
+        "key": { "type": "string" },
+        "entry": {}
       }
     },
     "conflict": {
       "type": "object", "additionalProperties": false,
-      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "choices"],
+      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "existing", "redacted", "choices"],
       "properties": {
         "code": { "const": "STATE_CONFLICT" },
         "reason": { "enum": ["existing-content", "managed-content-changed"] },
         "managementId": { "type": "string" },
         "step": { "type": "integer", "minimum": 0 },
         "target": { "type": "string" },
+        "key": { "type": "string" },
         "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
-        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } }
+        "existing": { "type": ["string", "null"] },
+        "redacted": { "type": "array", "items": { "type": "string" } },
+        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } },
+        "detail": { "type": "string" }
       }
     }
   }

@@ -65,3 +65,22 @@ export function ownRequest(project, skills, clis = ['claude-code', 'codex', 'kir
 
 /** The saved request document: the same request without any source bytes. */
 export const savedDocument = request => ({ ...request, files: request.files.map(({ bytes: _bytes, ...entry }) => entry) });
+
+/**
+ * A plan request whose steps are `merge` steps (Catalog 9: `root`, `file`, `format`, `key`, `entry`, `item`, `clis`, and
+ * optional `inputs` bindings `{ item, input, at: { pointer } }`). Each merge names an own-content item with no files; its
+ * declared inputs (`requirements.inputs`) come from `inputs[itemId]`. Steps are sorted by root, then file, as Catalog orders
+ * them. FIXTURE documents in the accepted Catalog shapes, not Catalog output.
+ */
+export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [] } = {}) {
+  const ids = [...new Set(merges.map(merge => merge.item))];
+  const items = ids.map(id => ({ id, kind: 'mcp', name: id.split('.').at(-1), description: `Fixture item ${id}`, files: [],
+    ...(inputs[id] ? { requirements: { inputs: inputs[id] } } : {}), contentSha256: sha256(id), behaviourSha256: sha256(id) }));
+  const steps = merges.map(({ root = scope, clis = ['claude-code'], ...rest }) => ({ op: 'merge', root, ...rest, clis }));
+  const plan = [...steps].sort((a, b) => a.root < b.root ? -1 : a.root > b.root ? 1 : a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+  const clis = [...new Set(steps.flatMap(step => step.clis))].sort();
+  return { schema: PLAN_REQUEST, scope, target: { project },
+    plan: { status: 'ok', data: null, plan: [...plan, ...extra], missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
+    contents: [{ schema: CONTENT, framework: { id: framework, name: 'My setup' }, sources: [{ id: framework, kind: 'local', notices: [] }], items }],
+    profiles: clis.map(id => profile(id)), files: [] };
+}

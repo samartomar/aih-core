@@ -83,10 +83,13 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
       { fixes: ['names', 'overrides', 'bundle'] });
 
   const itemFiles = new Map<string, SourceFacts>(); const notices = new Map<string, SourceFacts>();
+  const itemInputs = new Map<string, { isSecret: boolean }>();
   for (const content of document.contents as unknown as { sources: { id: string; notices?: { sourcePath: string; sha256: string }[] }[];
-      items: { id: string; files: SourceFacts[] }[] }[]) {
+      items: { id: string; files: SourceFacts[]; requirements?: { inputs?: Record<string, { isSecret?: unknown }> } }[] }[]) {
     for (const source of content.sources) for (const notice of source.notices ?? [])
       notices.set(key(source.id, notice.sourcePath), { sourceId: source.id, sourcePath: notice.sourcePath, sha256: notice.sha256, executable: false });
+    for (const item of content.items) for (const [name, spec] of Object.entries(item.requirements?.inputs ?? {}))
+      itemInputs.set(key(item.id, name), { isSecret: !!spec && typeof spec === 'object' && spec.isSecret === true });
     for (const item of content.items) for (const file of item.files)
       itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
   }
@@ -103,6 +106,7 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
       request: document, controls, index,
       itemFile: (item, sourcePath) => itemFiles.get(key(item, sourcePath)),
       notice: (sourceId, sourcePath) => notices.get(key(sourceId, sourcePath)),
+      itemInput: (item, input) => itemInputs.get(key(item, input)),
       bytesFor: facts => {
         const entry = files.get(key(facts.sourceId, facts.sourcePath));
         if (!entry || !entry.bytes) return { refusal: refused('source-missing',

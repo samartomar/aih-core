@@ -47,7 +47,9 @@ export interface PlanControls {
 }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
-export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[];
+  /** `file-too-large-for-client`: the file and the size it would have. */
+  file?: string; size?: number }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
@@ -55,10 +57,23 @@ export interface ReviewStep {
   step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A merge: its format, key, and the entry it adds (known secret slots read `[REDACTED]`). */
+  format?: 'json' | 'toml' | 'markdown'; key?: string; entry?: Json;
 }
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number;
-  target: string; observedSha256: string | null; choices: ('replace' | 'adopt' | 'skip')[];
+  target: string;
+  /** A merge's key: the entry or block the conflict is about. */
+  key?: string;
+  /** The digest of the whole target file now, which a resolution names; `null` when it is absent. */
+  observedSha256: string | null;
+  /** The exact existing bytes (a merge's entry or block, or a written file), with known secret slots `[REDACTED]`; `null` when absent or not text. */
+  existing: string | null;
+  /** The pointers of the secret slots `existing` redacts. */
+  redacted: string[];
+  choices: ('replace' | 'adopt' | 'skip')[];
+  /** Why only some fixes are offered: `resolution-stale` (the bytes changed since the choice), or the editor's reason. */
+  detail?: string;
 }
 export interface Review {
   schema: typeof REVIEW;

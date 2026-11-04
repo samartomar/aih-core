@@ -280,13 +280,15 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
         owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
+      // A plan merge's replaced entry or block is restorable by a reference to its file's protected original (secret-safe).
+      const merged = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' || owner.descriptor?.kind === 'block').map(([key]) => key));
       // A replaced whole file is restorable by a reference to its protected original, never by its bytes.
       const files = new Set(owned.filter(([, owner]) => owner.descriptor === undefined || owner.descriptor.kind === 'file').map(([key]) => key));
       const original = (entry: unknown): boolean => exact(entry, ['value']) && exact(entry.value, ['originalFile']) &&
         exact(entry.value.originalFile, ['sha256', 'byteLength']) && hex(entry.value.originalFile.sha256) &&
         Number.isSafeInteger(entry.value.originalFile.byteLength) && (entry.value.originalFile.byteLength as number) >= 0;
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
-          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || files.has(key) && original(entry))) return false;
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || (files.has(key) || merged.has(key)) && original(entry))) return false;
     }
     if (item.redactedPaths !== undefined) {
       const keys = new Set(owned.map(([key]) => key));

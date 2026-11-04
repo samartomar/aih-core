@@ -2413,9 +2413,9 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
-and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
-Catalog that made the plan (`catalog-required`). The format is not marked ready.
+with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`,
+`fetch` and `merge` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs
+the Catalog that made the plan (`catalog-required`). The format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2443,10 +2443,24 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
 - **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
   origin (`chosen`), conflicts and `reviewDigest`. It never holds source bytes. One management id per item and scope.
-- **Conflicts.** A file Core didn't write makes Prepare `blocked`, with no handle; each conflict carries its
-  `observedSha256` and choices. Prepare again with `resolutions: [{ managementId, step, choice, observedSha256 }]`:
-  `replace` keeps your original in protected recovery and removal writes it back; `adopt` takes identical bytes; `skip`
-  leaves the member out and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Merges** add one entry to a file you may already have and never replace the file: `json` sets one JSON Pointer
+  (`key: '/mcpServers/github'`, comments and other keys kept), `toml` one table (`key: 'mcp_servers.github'`, its
+  `entry` a table of scalar or scalar-array values; a nested table becomes a sub-table), and `markdown` one block
+  between `<!-- aih:begin <key> -->` and `<!-- aih:end <key> -->`. Every other byte is kept, and removal takes away only
+  what Core added, including a TOML table header it created. For Codex's `AGENTS.md`, Prepare checks the resulting file,
+  your bytes plus every planned block, against 32 KiB and refuses before any write (`file-too-large-for-client`, naming
+  the `file` and `size`). An `inputs` binding whose declared input `isSecret` marks a secret slot in the entry.
+- **Conflicts.** A file, entry, table or block Core didn't write makes Prepare `blocked`, with no handle. Each conflict
+  carries its `target`, a merge's `key`, `observedSha256` (the whole file's digest, or `null`), the `existing` bytes
+  exactly as they are (known secret slots read `[REDACTED]` and are listed in `redacted`) and its `choices`. Prepare
+  again with `resolutions: [{ managementId, step, choice, observedSha256 }]`: `replace` keeps your original file in
+  protected recovery (receipts name it by digest only) and removal writes your bytes back; `adopt` is offered only for
+  bytes identical to Core's and takes them without a write; `skip` leaves the member out and makes the review `partial`
+  (Apply then needs `allowPartial: true`). A resolution whose `observedSha256` no longer matches is not used: Prepare
+  is `blocked` again with the new facts (`detail: 'resolution-stale'`). A TOML table that already holds a key the entry
+  doesn't name is your entry: replace or skip only. Content Core can't edit safely is offered as skip only.
+- **Your edit wins.** A member Core wrote that you changed is `managed-content-changed` with no choices: no resolution,
+  update or removal overwrites it (`keep-changed`); undo your edit yourself to take Core's version.
 - **Apply** binds the exact `reviewDigest`, consumes the handle, and re-checks the request (document and bytes), the
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
@@ -2457,13 +2471,15 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
 `refusalCodes` and `limits`.
 
 ```sh
-aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--apply --yes] [--json]
+aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--resolutions choices.json]
+            [--apply --yes [--allow-partial]] [--json]
 aih list --project /work/app --scope project --json
 aih remove local-my-skills.skill.notes --scope project --project /work/app [--apply --yes] [--json]
 ```
 
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
-command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
+command is refused `catalog-required`. `--resolutions` names a file holding `{ "resolutions": [...] }`. The CLI never
+takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
 
 ## Managed lifecycle
