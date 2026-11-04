@@ -1,19 +1,22 @@
 // `write` (Catalog 9, contract 8.1): one file from an item file or a source notice, checked by sha256.
-// A `render` needs the caller's Catalog (C51); carrying a render out is a later slice, so it is refused here.
+// A `render` is carried out by the caller's Catalog (C51, `./render.ts`).
 import { clis, owners, problem, refusal, target } from './common.js';
+import { renderWrite } from './render.js';
 import type { StepHandler } from './types.js';
 
 export const write: StepHandler = {
   op: 'write',
-  prepare(step, context) {
+  async prepare(step, context) {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index); if (!('root' in placed)) return placed;
     const served = clis(step, index); if (!('clis' in served)) return served;
     if (step.render !== undefined) {
-      if (context.controls.catalog === undefined)
-        return refusal('catalog-required', `Step ${index} renders \`${placed.path}\` and needs the Catalog that made the plan.`, index);
-      return refusal('step-unknown', `Step ${index} renders \`${placed.path}\`; this Core does not carry out render steps yet.`, index);
+      const done = await renderWrite(step, context, placed.path, owner.ids);
+      if (!('rendered' in done)) return done;
+      return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: done.rendered.bytes,
+        executable: done.rendered.executable, sentence: `Writes \`${placed.path}\`, rendered by your Catalog (\`${done.rendered.name}\`)`,
+        cantPromise: null, review: { ...owner.review, clis: served.clis }, profiles: done.rendered.profiles } };
     }
     const from = step.from;
     if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' ||

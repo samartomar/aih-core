@@ -66,6 +66,30 @@ export function ownRequest(project, skills, clis = ['claude-code', 'codex', 'kir
 /** The saved request document: the same request without any source bytes. */
 export const savedDocument = request => ({ ...request, files: request.files.map(({ bytes: _bytes, ...entry }) => entry) });
 
+export const RECIPE = 'urn:aihq:catalog:recipe:0.1.0';
+export const RECIPE_SOURCE = { repository: 'https://github.com/example/notes-recipe', commit: 'e'.repeat(40) };
+/** A recipe FIXTURE over own content: every skill a member; the data commit is a fixture value. */
+export const recipeOf = (content, id = 'notes-base') => ({ schema: RECIPE, id, kind: 'base', framework: content.framework.id,
+  members: content.items.map(item => ({ item: item.id, preTicked: true })), options: [],
+  data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) } });
+
+/**
+ * A plan request whose plan was made by a Catalog reader (`reader`: the `@aihq/catalog/reader` FIXTURE, or a real one):
+ * `planInstall` by default, or `planRecipe` with `{ recipe: true }`, which also supplies the matching `recipeProof`.
+ */
+export function renderRequest(reader, project, skills, clis = ['claude-code', 'codex', 'kiro'], options = {}) {
+  const { content, files, sourceId } = ownContent(skills, options);
+  const profiles = clis.map(id => profile(id));
+  const scope = options.scope ?? 'project';
+  const recipe = options.recipe ? recipeOf(content) : undefined;
+  const plan = recipe ? reader.planRecipe(recipe, [content], profiles, {}, { scope, source: RECIPE_SOURCE }) :
+    reader.planInstall(content.items.map(item => item.id), [content], profiles, { scope, data: null });
+  return { schema: PLAN_REQUEST, scope, target: { project }, plan, contents: [content], profiles,
+    files: Object.entries(files).map(([sourcePath, bytes]) => ({ sourceId, sourcePath, sha256: sha256(bytes), bytes })),
+    ...(recipe ? { recipeProof: { pluginJson: JSON.stringify({ name: recipe.id, version: '1.0.0', description: 'Fixture recipe' }),
+      recipeJson: reader.canonical(recipe), choices: {}, options: {} } } : {}) };
+}
+
 /**
  * A plan request whose steps are `merge` steps (Catalog 9: `root`, `file`, `format`, `key`, `entry`, `item`, `clis`, and
  * optional `inputs` bindings `{ item, input, at: { pointer } }`). Each merge names an own-content item with no files; its

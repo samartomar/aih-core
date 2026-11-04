@@ -30,6 +30,8 @@ export interface LoweredWrite {
   sentence: string;
   cantPromise: string | null;
   review: { item?: string; items?: string[]; clis?: string[] };
+  /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
+  profiles?: { id: string; version: string | number }[];
 }
 /**
  * One planned entry the engine adds to a file the person may already have (Catalog 9 `merge`): a JSON value at a JSON
@@ -61,5 +63,6 @@ export type Lowered = LoweredWrite | LoweredMerge;
 export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
 export interface StepHandler {
   op: string;
-  prepare(step: PlanStep & Record<string, Json>, context: StepContext): StepOutcome;
+  /** May be asynchronous: a render calls the caller's Catalog (C51). */
+  prepare(step: PlanStep & Record<string, Json>, context: StepContext): StepOutcome | Promise<StepOutcome>;
 }
