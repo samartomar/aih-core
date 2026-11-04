@@ -165,7 +165,8 @@ await check('the aih CLI installs from a saved request with --source, lists, and
   const inventory = aih(['list', '--project', target, '--scope', 'project', '--json']);
   assert.deepEqual([inventory.code, inventory.result.entries.map(row => [row.managementId, row.origin])], [0, [[ID, 'chosen']]]);
   const byCli = aih(['remove', ID, '--scope', 'project', '--project', target, '--cli', 'codex', '--json']);
-  assert.deepEqual([byCli.code, byCli.result.code], [2, 'client-attribution-missing']);
+  // The plan records each step's CLIs, so removal for one CLI is prepared (a preview: nothing changes yet).
+  assert.deepEqual([byCli.code, byCli.result.status, byCli.result.entries[0].disposition], [0, 'ok', 'prepared'], JSON.stringify(byCli));
   const absent = aih(['remove', 'not-installed', '--scope', 'project', '--project', target, '--json']);
   assert.deepEqual([absent.code, absent.result.entries[0].disposition], [1, 'absent']);
   const removed = aih(['remove', ID, '--scope', 'project', '--project', target, '--apply', '--yes', '--json']);

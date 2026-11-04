@@ -2475,7 +2475,7 @@ elsewhere (for example in the user's own state) is not seen.
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
 with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
-(including `render`), `fetch`, `merge`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
+(including `render`), `fetch`, `merge`, `link` (see [Sharing](#shared-content-across-projects-and-clis)), `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
 [Native plugins](#native-plugins-plugin-steps)); every other step kind is refused (`step-unknown`) before any effect. The
 format is not marked ready.
 
@@ -2527,7 +2527,33 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
-  Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+  `removals: [{ managementId, clis }]` releases only those CLIs' claims (see below).
+
+### Shared content across projects and CLIs
+
+- **Claims.** A receipt claim is one management id, scope, CLI and project: the CLI comes from the step's `clis`, the
+  project from `target.project`, for user-scope members too. A place several CLIs read (one `write` with `clis:
+  ['codex', 'kimi']`) or a user-scope entry two projects plan identically is one member with a claim each. The review
+  shows such a step once. A member stays until its last claim is released; removal of the others reports `keep-shared`.
+- **`list`** returns one entry per management id and scope, with `clis`, every claim as `{ cli, project }` (`cli: null`
+  when the steps recorded no `clis`), and per member the `clis` holding it and, for links, `kind: 'link'` and `linkType`.
+- **Removal** names the place: a user-scope removal releases the claims of the project in `target.project` (or of
+  requests that named none). With `clis`, only those CLIs' claims go; a management id with no claim for those CLIs is
+  `absent`. A claim whose steps recorded no `clis` can't be split: removal by CLI is refused
+  (`client-attribution-missing`); remove it for every CLI instead.
+- **`link` steps** (`{ op: 'link', root: 'user', path, to, item, clis }`) place a CLI's folder over a shared version
+  folder the plan writes. On macOS and Linux it is a symlink. On Windows it is a folder junction when every CLI in `clis`
+  is one observed to load junctioned folders (Claude Code, Codex, Copilot CLI, Kimi, Kiro CLI, OpenCode), and otherwise
+  (Antigravity, Cursor, dsh, or no `clis`) a copy of the files the plan writes into `to`. The review step and `list`
+  name the `linkType`. Core never replaces something already at the link's place (a conflict offered as skip only) and
+  never places a link through another link. Each claim on a junction or symlink keeps a record in Core's private state
+  (`~/.aih/core/content/<claim>/links/`); when the last claim goes, Core removes the link (only while it still points at its folder) and the parent folders it created
+  for it, if empty. A copy's files are ordinary members. These are Core-side placement facts, not evidence that a CLI
+  loads a linked folder.
+- **AI setup folders** in `~/.aihq/ai-setup/` stay while any project's claim holds them.
+- **Changes** at user scope that name `target.project` are claimed for that project too: two projects pushing the same
+  change hold two claims, and the value stays until both are removed. A user-scope change request without a project keeps
+  one claim per management id, anchored on the home folder.
 
 ### Input values (`inputs` bindings)
 
@@ -2701,6 +2727,43 @@ qualification documents the plan's acquire steps name in `qualifications`.
   acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
   redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
   last claim, the whole folder goes.
+
+### Tool commands, upstream installers and upstream setups
+
+These program steps run an exact argv after approval. Core never shows or promises what a program changes; each review
+step carries `effect: run-program`, a "can't promise" line and a `program` block: the argv (secret values
+`[REDACTED]`), the program and its sha256, the folder it runs in, the environment names a binding sets, the readback,
+the undo, and `cantRemove`, which says what Core can't remove around it.
+
+- **`tool-command`** runs `argv` with the AI setup's acquired `executable` (`{ root: "user", path }`, inside the AI setup
+  folder; with the qualified member's sha256 when the qualification lists it), then its `readback` (`{ argv, expected }`).
+  The step passes only when one output line of the readback equals `expected` (an empty `expected` needs empty output):
+  verification `readback-matched`; otherwise the step fails (`readback-mismatch`). Inputs bind at argv slots (`{NAME}`
+  markers) or environment names (`inputs: [{ item, input, at: { argv } | { env } }]`); a secret comes only from
+  `controls.privateInputs` (`--private-input`), runs as its value, and is redacted from the review, history and receipt.
+  The step is grouped under its `aiSetup` id, after that setup's `acquire`. When the AI setup item's settings command names
+  a reverse (`aiSetup.settings.commands[].reverse: { argv, readback }`), it is copied into the receipt; removal runs it
+  and its readback before the AI setup folder goes, and a differing readback keeps the receipt. Without one, the review
+  and the removal say Core can't undo the command.
+- **`upstream-installer`** (`managed: false`) runs the AI setup's own installer argv, whose program is found on `PATH` and
+  pinned by sha256 at Prepare. Core clones nothing and can't remove what it installs; removal releases only its receipt.
+- **`upstream-setup`** clones `repository` at the exact `commit` into `into` with the `git` Prepare pinned (`clone
+  --no-checkout`, `checkout --detach <commit>`, and `HEAD` must be that commit), marks the clone with `.aih-setup`, then
+  runs `command` inside it: `./<file>` from the clone, or a program on `PATH` pinned at Prepare. The review lists what the
+  command `needs`. Removal removes the clone with its marker; what the command wrote elsewhere stays. A folder holding
+  files Core didn't clone is `refused` `setup-folder-occupied`.
+- **Host support** is checked at Prepare, never halfway through Apply: a program this host can't run (no `git`, an
+  installer not on `PATH`, or on Windows a program that is not an `.exe` or `.com`) is `program-unavailable`.
+- **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
+  phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
+  path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`
+  (Catalog `dependencies`, or the MCP item that starts the AI setup's executable); unrelated items continue and the run
+  is `incomplete`. So a failed download stops its MCP entry and tool-command, while a failed tool-command leaves the
+  MCP entry that already ran `applied`: Core never reorders steps to avoid that, and never rolls it back. A command that started and then failed, was cancelled or
+  was interrupted is `effectsUncertain`; the next Prepare shows it again (`previous: interrupted`) for a fresh approval,
+  and Core never re-runs or rolls it back by itself. Without a readback an applied command is `unverified`
+  (`command-effects-unknown`); an exit status never confirms its effects. `list` shows the saved facts under `programs`.
+- **Not yet:** Catalog records no reverse on settings commands; the tests use fake programs and a local git repository.
 
 ## Apply authored changes through a change request (0.1.0, in development)
 

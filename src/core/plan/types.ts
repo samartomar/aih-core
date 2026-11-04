@@ -76,6 +76,8 @@ export interface ReviewStep {
   step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A link step: the folder it points to, and how it lands on this host (C29). */
+  to?: string; linkType?: 'junction' | 'symlink' | 'copy';
   /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
   requires?: string[]; details?: Json;
   /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
@@ -100,6 +102,30 @@ export interface ReviewStep {
   format?: 'json' | 'toml' | 'markdown'; key?: string; entry?: Json;
   /** The step's input bindings: where each value lands, how it is written, and an ordinary value (never a secret's). */
   inputs?: ReviewInput[];
+  /** A program step (`tool-command`, `upstream-installer`, `upstream-setup`): the exact command and what Core can and can't check or undo. */
+  program?: ReviewProgram;
+}
+/** The reviewed command of a program step (contract 8.1, 12, C30). Secret values read `[REDACTED]`. */
+export interface ReviewProgram {
+  kind: 'tool-command' | 'upstream-installer' | 'upstream-setup';
+  /** The arguments as run: after the executable for a `tool-command`, the whole command otherwise. */
+  argv: string[];
+  /** The program: pinned at Prepare (`path`), or made by an earlier step and resolved at Apply (`acquired`, `clone`). */
+  executable: string; executableSha256: string | null; from: 'path' | 'acquired' | 'clone';
+  cwd: string;
+  /** Environment variables a binding sets, by name. */
+  env: { name: string; value: string }[];
+  /** `false` for an upstream installer: Core can't remove what it writes. */
+  managed: boolean;
+  /** A tool-command's readback (D57), checked after it runs. */
+  readback: { argv: string[]; expected: string } | null;
+  /** The reverse command and its readback copied into the receipt; `null` when Core can't undo the command. */
+  undo: { argv: string[]; readback: { argv: string[]; expected: string } } | null;
+  /** What Core can't remove around this program. */
+  cantRemove: string;
+  /** An upstream setup's clone, with the git Prepare pinned. */
+  clone?: { repository: string; commit: string; into: string; git: string; gitSha256: string };
+  needs?: string[];
 }
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
@@ -177,15 +203,24 @@ export interface Run {
   environment?: EnvironmentRun;
 }
 
-export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
+export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string;
+  /** How a folder link landed (C29): a junction or symlink, or a copy. */
+  linkType?: 'junction' | 'symlink' | 'copy';
+  /** The CLIs whose claims hold this member (contract 5); a claim that recorded none counts for every CLI of its plan. */
+  clis?: string[];
+  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
   items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
   /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
   catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** Every claim that holds this management id here: its CLI (`null` when its steps recorded none) and project (C28). */
+  claims?: { cli: string | null; project: string | null }[];
   /** Native plugin installs with the undo facts the receipt keeps for them. */
   plugins?: PluginFacts[];
+  /** Program steps (tool commands, upstream installers and setups) with their undo facts. */
+  programs?: ProgramFacts[];
   /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
   aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
   /** A local-plugin install (C68): the items it contains (`null` when the plan named none) and its files. */
@@ -221,6 +256,15 @@ export interface RemovalEntry {
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+/**
+ * One program step's receipt facts (C30, C54): the command as reviewed (secrets redacted), the acquired executable it
+ * ran (from the user root), and its undo: a `tool-command`'s reverse command and readback, or `null` when Core can't.
+ */
+export interface ProgramFacts {
+  step: number; op: 'tool-command' | 'upstream-installer' | 'upstream-setup'; argv: string[]; executable: string | null; managed: boolean;
+  undo: { argv: string[]; readback: { argv: string[]; expected: string } } | null;
+  clone?: { repository: string; commit: string; into: string };
+}
 /** One native plugin install's receipt facts; argv lists are filled, never templates. */
 export interface PluginFacts {
   step: number; cli: string; plugin: string; commit: string;

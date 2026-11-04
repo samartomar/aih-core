@@ -2,14 +2,18 @@
 // from, then let the engine re-check and carry out its reviewed steps. Never throws for a stale or lost handle.
 import { randomUUID } from 'node:crypto';
 import { apply as applyEngine } from '../recipe-engine.js';
-import { forgetProvenState } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { take, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
-import { isAbsolute, relative } from 'node:path';
+import { basename, isAbsolute, relative } from 'node:path';
+import { readbackMatches, removeClone } from './program/effect.js';
+import { SETUP_MARKER } from './steps/upstream-setup.js';
 import { projectRoot } from '../internal/host-files.js';
 import { removeAcquiredFolder } from './acquire/effect.js';
 import { MANIFEST } from './acquire/types.js';
+import { linkRecordPath, removeLink } from './links.js';
+import type { LinkFacts } from '../internal/custody-items.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
 import { privateInputsHold } from './inputs.js';
@@ -64,7 +68,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     }
     before.steps.sort((a, b) => (a.step as number) - (b.step as number));
     await checkPresence(before, programs.programs, 'absent', controls);
-    const held = before.steps.some(step => programStep(step) && step.verification.reason !== 'no-remove-command' &&
+    const held = before.steps.some(step => (programStep(step) || commandSteps.has(step)) && step.verification.reason !== 'no-remove-command' &&
       (step.application !== 'applied' || step.verification.status === 'failed'));
     if (before.completion === 'rejected' || before.completion === 'cancelled' || held) {
       const skipped: RunStep[] = [...new Map([...state.operations.values()].map(ref => [`${ref.step}\0${ref.managementId}`, ref])).values()]
@@ -80,6 +84,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   const run = runOf(result, state);
   if (state.readback) checkSwitchOff(run, state.readback);
   removeReleasedSetups(run);
+  if (state.links) removeReleasedLinks(run, state.links);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
   if (before) {
     run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
@@ -108,27 +113,31 @@ export async function checkPresence(run: Run, programs: ReadonlyMap<number, Prog
     controls: PlanControls, only?: (step: RunStep) => boolean): Promise<void> {
   for (const step of run.steps) {
     if (run.completion === 'cancelled' || run.completion === 'rejected') break;
-    if (!programStep(step) || only && !only(step)) continue;
+    const readback = commandSteps.has(step) && programs.get(step.step as number)?.readback === true;
+    if (!programStep(step) && !readback || only && !only(step)) continue;
     if (step.application !== 'applied') continue;
     const check = programs.get(step.step as number);
     if (!check) { step.verification = { status: 'unverified', reason: 'no-presence-check' }; continue; }
     if (controls.signal?.aborted) { run.completion = 'cancelled'; break; }
-    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: 'presence-check', phase: 'start' });
+    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: readback ? 'readback' : 'presence-check', phase: 'start' });
     const outcome = await runApprovedProcess({ executable: check.executable, args: check.argv.slice(1), cwd: check.cwd, env: {},
       timeoutMs: 60_000, maxOutputBytes: 1_048_576, acceptedExitCodes: [0], capture: true, ...(controls.signal ? { signal: controls.signal } : {}) });
     let found: 'present' | 'absent' | undefined;
     if (outcome.status === 'passed' && outcome.stdout)
-      found = outcome.stdout.toString('utf8').split(/\r?\n/).some(line => line.trim() === check.expect) ? 'present' : 'absent';
+      found = (readback ? readbackMatches(outcome.stdout, check.expect) :
+        outcome.stdout.toString('utf8').split(/\r?\n/).some(line => line.trim() === check.expect)) ? 'present' : 'absent';
     step.verification = found === undefined ? { status: 'failed', reason: outcome.status === 'cancelled' ? 'cancelled' : `check-${outcome.reason}` } :
+      readback ? found === 'present' ? { status: 'passed', reason: 'readback-matched' } : { status: 'failed', reason: 'readback-mismatch' } :
       found === wanted ? { status: 'passed', reason: found } : { status: 'failed', reason: `readback-${found}` };
-    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: 'presence-check', phase: 'finish',
+    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: readback ? 'readback' : 'presence-check', phase: 'finish',
       verification: step.verification.status });
     if (outcome.status === 'cancelled') { run.completion = 'cancelled'; break; }
   }
-  if (run.completion === 'complete' && run.steps.some(step => programStep(step) && step.verification.status === 'failed')) run.completion = 'incomplete';
+  if (run.completion === 'complete' && run.steps.some(step => (programStep(step) || commandSteps.has(step)) && step.verification.status === 'failed')) run.completion = 'incomplete';
 }
 const programSteps = new WeakSet<RunStep>();
 const programStep = (step: RunStep): boolean => programSteps.has(step);
+const commandSteps = new WeakSet<RunStep>();
 
 export function runOf(result: RunResult, state: HandleState): Run {
   // One run step per plan step and management id; a plugin step's several commands make one step.
@@ -148,8 +157,10 @@ export function runOf(result: RunResult, state: HandleState): Run {
           fallback: facts.fallback, fallbackReason: facts.fallbackReason } } : {}) }, applications: [] };
       byStep.set(key, entry); steps.push(entry.step);
       if (ref.program) programSteps.add(entry.step);
+      if (ref.command) commandSteps.add(entry.step);
     }
     entry.applications.push(operation.application);
+    if (operation.application === 'failed' && operation.reason && !entry.step.reason) entry.step.reason = operation.reason;
     if (operation.effectsUncertain) entry.step.effectsUncertain = true;
   }
   for (const { step, applications } of byStep.values()) {
@@ -158,11 +169,23 @@ export function runOf(result: RunResult, state: HandleState): Run {
       applications.every(item => item === 'already-satisfied') ? 'already-satisfied' : applications.includes('not-attempted') ? 'failed' : 'applied';
     if (step.application === 'failed' && applications.includes('applied')) step.effectsUncertain = true;
   }
+  // A program step's check: its readback, or that its effects can't be checked; never "confirmed" by an exit code.
+  for (const step of steps) if (commandSteps.has(step)) step.verification = state.verifications?.get(step.step as number) ??
+    (step.application === 'applied' ? { status: 'unverified', reason: 'command-effects-unknown' } :
+      { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : step.application });
   for (const step of steps) if (programStep(step) && step.application !== 'applied')
     step.verification = { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : 'not-attempted' };
-  const members: RunMember[] = (result.members ?? []).map(member => ({ managementId: member.managementId, scope: member.scope,
-    kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
-    ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check }));
+  // A plan claim's engine key names its management id; one member several claims (CLIs, projects) hold is listed once.
+  const listed = new Set<string>();
+  const members: RunMember[] = (result.members ?? []).flatMap(member => {
+    const entry: RunMember = { managementId: state.claims?.get(member.managementId) ?? member.managementId, scope: member.scope,
+      kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
+      ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check };
+    const key = JSON.stringify(entry);
+    if (listed.has(key)) return [];
+    listed.add(key);
+    return [entry];
+  });
   const history: Run['history'] = result.record.status === 'written' ? { status: 'recorded' } : result.record.status === 'disabled' ?
     { status: 'disabled' } : { status: 'not-recorded', ...(result.record.reason === 'record-limit' ? { limit: 'history-bytes' } : {}) };
   const run: Run = { schema: RUN, status: 'ok', runId: result.runId, completion: result.completion, reviewDigest: state.reviewDigest,
@@ -178,13 +201,38 @@ export function runOf(result: RunResult, state: HandleState): Run {
   return run;
 }
 
+/**
+ * A folder link goes with its last claim: once a run released a claim's record and no other recorded claim, of any CLI or
+ * project, still names that link, the link and the parents Core made for it go (C28).
+ */
+function removeReleasedLinks(run: Run, links: LinkFacts[]): void {
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return; }
+  const fold = (path: string) => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+  const released = run.members.filter(member => member.scope === 'user' && member.intent === 'remove' && member.check === 'absent')
+    .map(member => fold(member.path.replaceAll('\\', '/')));
+  const held = new Set<string>();
+  try {
+    for (const root of [home, ...ownershipInventory().targets]) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+      for (const link of item.plan?.links ?? []) held.add(fold(link.path));
+  } catch { return; /* receipts unreadable: leave every link in place */ }
+  const done = new Set<string>();
+  for (const link of links) if (link.linkType !== 'copy' && !done.has(link.path) && !held.has(fold(link.path)) &&
+      released.some(path => path.endsWith('/' + fold(linkRecordPath(link.path))))) {
+    done.add(link.path);
+    try { removeLink(home, link); } catch { /* left for the person; list no longer claims it */ }
+  }
+}
 /** An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28). */
 function removeReleasedSetups(run: Run): void {
   const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);
   let home: string;
   try { home = projectRoot(homedir()); } catch { return; }
   for (const member of run.members) {
-    if (member.scope !== 'user' || member.intent !== 'remove' || member.check !== 'absent') continue;
+    if (member.intent !== 'remove' || member.check !== 'absent') continue;
+    // An upstream setup's clone goes with its marker (contract 12): Core wrote it, so Core removes it.
+    if (isAbsolute(member.path) && basename(member.path) === SETUP_MARKER) { removeClone(member.path); continue; }
+    if (member.scope !== 'user') continue;
     const into = pattern.exec((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))?.[1];
     if (into) try { removeAcquiredFolder(home, into); } catch { /* left for the person; list no longer claims it */ }
   }

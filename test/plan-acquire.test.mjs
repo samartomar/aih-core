@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
@@ -216,4 +216,29 @@ test('a cancelled acquisition is reported cancelled, leaves the install interrup
   assert.equal(finished.completion, 'complete', JSON.stringify(finished));
   assert.equal(readFileSync(join(folder, 'LICENSE'), 'utf8'), 'MIT\n');
   assert.equal((await list({ target: { project: target }, scope: 'user' })).entries.find(row => row.managementId === native.id).installState, 'complete');
+});
+
+test('two projects share one AI setup folder: removing it from one project keeps the folder, the last claim removes it', async () => {
+  noPython();
+  const one = project(), two = project();
+  const native = nativeSetup(server, { name: 'n-shared' });
+  for (const target of [one, two]) {
+    const prepared = await prepare(setupRequest(target, [native]));
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+    const run = await apply(prepared.handle, approve(prepared.review));
+    assert.equal(run.completion, 'complete', JSON.stringify(run));
+  }
+  const folder = join(home, ...native.folder.split('/'));
+  const entry = (await list({ target: { project: one }, scope: 'user' })).entries.find(row => row.managementId === native.id);
+  assert.deepEqual(entry.claims.map(claim => claim.project).sort(), [realpathSync(one), realpathSync(two)].sort());
+  const removeFrom = async target => {
+    const removal = await prepareRemoval({ target: { project: target }, scope: 'user', removals: [{ managementId: native.id }] });
+    assert.equal(removal.status, 'ok', JSON.stringify(removal));
+    const run = await apply(removal.handle, approve(removal.review));
+    assert.equal(run.completion, 'complete', JSON.stringify(run));
+  };
+  await removeFrom(one);
+  assert.equal(readFileSync(join(folder, 'LICENSE'), 'utf8'), 'MIT\n', 'the other project still claims the folder');
+  await removeFrom(two);
+  assert.equal(existsSync(folder), false, 'the acquired folder goes with its last claim');
 });

@@ -18,9 +18,12 @@ import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
-import type { PluginFacts } from './types.js';
+import type { PluginFacts, ProgramFacts } from './types.js';
+import { join } from 'node:path';
+import { managementIdOf, sameProject } from './claims.js';
+import { linkRecordPath, linkState } from './links.js';
 import type { Json } from '../types.js';
-import { INVENTORY, REVIEW, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
+import { INVENTORY, REVIEW, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type InventoryMember, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
   type Review, type ReviewStep } from './types.js';
 
 const invalid = (path: string, reason: string, message: string): { status: 'invalid'; problems: Problem[] } =>
@@ -50,6 +53,24 @@ function planFacts(roots: string[]): Map<string, PlanItemFacts> {
     if (item.plan) facts.set(`${item.scope}\0${item.managementId}`, item.plan);
   return facts;
 }
+/** Claims kept under a claim key without plan facts (user-scope changes made for a project): their management id and project. */
+function keyedClaims(roots: string[]): Map<string, { managementId: string; project: string | null }> {
+  const found = new Map<string, { managementId: string; project: string | null }>();
+  for (const root of new Set(roots)) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+    if (item.claim && !item.plan) found.set(`${item.scope}\0${item.managementId}`, item.claim);
+  return found;
+}
+/** The recorded claims of one management id in one scope's receipts: engine id and plan facts (C28). */
+function claimsOf(facts: Map<string, PlanItemFacts>, scope: string, managementId: string): { engineId: string; plan: PlanItemFacts }[] {
+  const found: { engineId: string; plan: PlanItemFacts }[] = [];
+  for (const [key, plan] of facts) {
+    const at = key.indexOf('\0'); const recorded = key.slice(0, at); const engineId = key.slice(at + 1);
+    if (recorded === scope && managementIdOf(engineId, plan) === managementId) found.push({ engineId, plan });
+  }
+  return found;
+}
+const order = (a: string | null, b: string | null) => (a ?? '') < (b ?? '') ? -1 : (a ?? '') > (b ?? '') ? 1 : 0;
+const normal = (path: string) => path.replaceAll('\\', '/');
 
 /** A local plugin's files: its whole-file members, by path relative to their root, in code-unit order. */
 function pluginFiles(members: readonly { kind: string; path: string }[], root: string): string[] {
@@ -73,21 +94,61 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   if (listed.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Listing was cancelled.' };
   if (listed.status === 'invalid') return { status: 'invalid', problems: listed.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const facts = planFacts([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])]);
-  const entries: InventoryEntry[] = listed.selections.map(row => {
+  const keyed = keyedClaims(scope !== 'project' ? [home] : []);
+  // One entry per management id and scope, over every claim that holds it: each CLI and project (C28, C38).
+  const entries: InventoryEntry[] = [];
+  const byId = new Map<string, InventoryEntry>();
+  const memberIndex = new Map<InventoryEntry, Map<string, InventoryMember>>();
+  for (const row of listed.selections) {
     const plan = facts.get(`${row.scope}\0${row.managementId}`);
-    return { managementId: row.managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
-      data: plan?.data ? { ...plan.data } : null, clis: plan ? [...plan.clis] : [],
-      ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}), installState: row.installState,
-      ...(plan?.aiSetup ? { aiSetup: { ...plan.aiSetup, interpreter: plan.aiSetup.interpreter ? { ...plan.aiSetup.interpreter } : null } } : {}),
-      members: row.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
-        ...(member.blockId === undefined ? {} : { blockId: member.blockId }),
-        state: member.fileState === 'matches' ? 'matching' : member.fileState === 'changed' || member.fileState === 'block-changed' ? 'changed-by-you' :
-          member.fileState === 'missing' || member.fileState === 'block-missing' ? 'missing' : 'unchecked' })),
-      ...(plan?.plugins ? { plugins: plan.plugins.map(facts => JSON.parse(JSON.stringify(facts)) as PluginFacts) } : {}),
-      ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
-        files: pluginFiles(row.members, row.scope === 'project' ? located.anchor : home) } } : {}),
-      ...(plan?.switchOff ? { switchOff: { ...plan.switchOff } } : {}) };
-  });
+    const changeClaim = plan ? undefined : keyed.get(`${row.scope}\0${row.managementId}`);
+    const managementId = changeClaim?.managementId ?? managementIdOf(row.managementId, plan);
+    let entry = byId.get(`${row.scope}\0${managementId}`);
+    if (!entry) {
+      entry = { managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
+        data: plan?.data ? { ...plan.data } : null, clis: [], ...(plan || changeClaim ? { claims: [] } : {}),
+        ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}), installState: row.installState,
+        ...(plan?.aiSetup ? { aiSetup: { ...plan.aiSetup, interpreter: plan.aiSetup.interpreter ? { ...plan.aiSetup.interpreter } : null } } : {}),
+        ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
+          files: pluginFiles(row.members, row.scope === 'project' ? located.anchor : home) } } : {}),
+        ...(plan?.switchOff ? { switchOff: { ...plan.switchOff } } : {}),
+        members: [] };
+      byId.set(`${row.scope}\0${managementId}`, entry); entries.push(entry); memberIndex.set(entry, new Map());
+    }
+    const current = entry;
+    if (row.installState === 'interrupted') current.installState = 'interrupted';
+    // An unattributed claim is held for every CLI its plan was made for (contract 5).
+    const claimClis = plan ? plan.cli !== undefined && plan.cli !== null ? [plan.cli] : plan.clis : [];
+    current.clis = [...new Set([...current.clis, ...claimClis])].sort();
+    if (plan) current.claims!.push({ cli: plan.cli ?? null, project: plan.project ?? null });
+    else if (changeClaim) (current.claims ??= []).push({ cli: null, project: changeClaim.project });
+    if (plan && current.profiles) for (const profile of plan.profiles)
+      if (!current.profiles.some(known => known.id === profile.id)) current.profiles.push({ ...profile });
+    current.profiles?.sort((a, b) => order(a.id, b.id));
+    if (plan?.plugins) current.plugins = [...current.plugins ?? [], ...plan.plugins
+      .filter(item => !current.plugins?.some(known => known.step === item.step && known.cli === item.cli))
+      .map(item => JSON.parse(JSON.stringify(item)) as PluginFacts)];
+    if (plan?.programs) current.programs = [...current.programs ?? [], ...plan.programs
+      .filter(item => !current.programs?.some(known => known.step === item.step))
+      .map(item => JSON.parse(JSON.stringify(item)) as ProgramFacts)];
+    const index = memberIndex.get(current)!;
+    for (const member of row.members) {
+      const path = normal(member.path);
+      // A placed link is shown as the link itself; its record in `.aihq/links/` is how the receipt claims it.
+      const link = plan?.links?.find(item => item.linkType !== 'copy' && path.endsWith(linkRecordPath(item.path)));
+      const copy = !link ? plan?.links?.find(item => item.linkType === 'copy' && path.includes(`${item.path}/`)) : undefined;
+      const shown: InventoryMember = link ? { kind: 'link', path: link.path, linkType: link.linkType, state: linkState(home, link) } :
+        { kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
+          ...(member.blockId === undefined ? {} : { blockId: member.blockId }), ...(copy ? { linkType: 'copy' as const } : {}),
+          state: member.fileState === 'matches' ? 'matching' : member.fileState === 'changed' || member.fileState === 'block-changed' ? 'changed-by-you' :
+            member.fileState === 'missing' || member.fileState === 'block-missing' ? 'missing' : 'unchecked' };
+      const key = JSON.stringify([shown.kind, shown.path, shown.pointer ?? null, shown.blockId ?? null]);
+      let known = index.get(key);
+      if (!known) { known = shown; index.set(key, known); current.members.push(known); }
+      if (plan) known.clis = [...new Set([...known.clis ?? [], ...claimClis])].sort();
+    }
+  }
+  for (const entry of entries) entry.claims?.sort((a, b) => order(a.project, b.project) || order(a.cli, b.cli));
   const inventory: Inventory = { schema: INVENTORY, status: 'ok', target: { project: located.project }, scope,
     observation: listed.status === 'complete' ? 'complete' : 'incomplete', entries };
   return deepFreezeStrictJsonV1(inventory as unknown as Json) as unknown as Inventory;
@@ -103,7 +164,14 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   if (options.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   const removals = request.removals;
   if (!Array.isArray(removals) || removals.length === 0 || removals.length > 4096) return invalid('/removals', 'removals', 'Name one or more removals.');
-  const selectors: { managementId: string; origin?: { reasonIncluded: 'chosen' } }[] = [];
+  const scope = located.scope as 'project' | 'user';
+  const home = projectRoot(homedir());
+  const facts = planFacts([scope === 'project' ? located.anchor : home]);
+  const keyed = keyedClaims([scope === 'project' ? located.anchor : home]);
+  // Each removal names the engine claims it releases (C28): this place's claims of the management id from this project,
+  // and with `clis` only those CLIs' claims. A claim whose steps recorded no CLI can't be split by CLI (C55).
+  const selectors: { index: number; managementId: string; engineIds: string[] }[] = [];
+  const absentEntries = new Map<number, RemovalEntry>();
   // One item inside an indivisible plugin (C45, C68): never split; the entry offers the whole plugin instead.
   const itemEntries = new Map<number, RemovalEntry>();
   for (const [index, entry] of removals.entries()) {
@@ -115,8 +183,9 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
       if (removals.length !== 1) return invalid('/removals', 'switch-off-alone', 'A switch-off is prepared on its own.');
       return switchOff(entry.managementId, entry.item, located.scope as 'project' | 'user', located.anchor, options);
     }
-    if (entry.clis !== undefined) return { status: 'refused', code: 'client-attribution-missing',
-      reason: `Removal by CLI is refused: this Core does not yet record which CLI claims each member of \`${entry.managementId}\`.` };
+    if (entry.clis !== undefined && !(Array.isArray(entry.clis) && entry.clis.length > 0 && entry.clis.length <= 64 &&
+        entry.clis.every(cli => typeof cli === 'string' && ID.test(cli)) && new Set(entry.clis).size === entry.clis.length))
+      return invalid(`/removals/${index}/clis`, 'clis', 'Name one or more CLI ids.');
     if (entry.origin !== undefined && entry.origin !== 'chosen') return invalid(`/removals/${index}/origin`, 'origin', 'Only the `chosen` origin can be recorded by this Core.');
     if (entry.item !== undefined) {
       if (typeof entry.item !== 'string' || !ID.test(entry.item)) return invalid(`/removals/${index}/item`, 'item', 'An item is named by its id.');
@@ -124,26 +193,46 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
       if (!found) return invalid(`/removals/${index}/item`, 'item-removal-unavailable', 'Only an item inside a plugin is removed by item.');
       itemEntries.set(index, found); continue;
     }
-    selectors.push({ managementId: entry.managementId, ...(entry.origin === 'chosen' ? { origin: { reasonIncluded: 'chosen' as const } } : {}) });
+    // A user-scope change's claim has no CLI: it counts as unattributed for removal by CLI.
+    const changeClaims = [...keyed].filter(([key, claim]) => key.startsWith(`${scope}\0`) && claim.managementId === entry.managementId)
+      .map(([key, claim]) => ({ engineId: key.slice(scope.length + 1), plan: { managementId: claim.managementId, cli: null, project: claim.project } as PlanItemFacts }));
+    const recorded = [...claimsOf(facts, scope, entry.managementId), ...changeClaims].filter(claim => sameProject(claim.plan, located.project));
+    const clis = entry.clis as string[] | undefined;
+    if (clis && recorded.some(claim => (claim.plan.cli ?? null) === null)) return { status: 'refused', code: 'client-attribution-missing',
+      reason: `Removal by CLI is refused: the plan that installed \`${entry.managementId}\` recorded no CLIs for its members, so Core can't tell which CLI claims them. Remove it for every CLI, or install it again from a plan that records \`clis\`.` };
+    const chosen = clis ? recorded.filter(claim => clis.includes(claim.plan.cli!)) : recorded;
+    if (recorded.length && !chosen.length) { absentEntries.set(index, { managementId: entry.managementId, disposition: 'absent', members: [] }); continue; }
+    // A receipt without plan facts (a change, an older install) keeps its own management id.
+    selectors.push({ index, managementId: entry.managementId, engineIds: chosen.length ? chosen.map(claim => claim.engineId) : [entry.managementId] });
   }
-  const scope = located.scope as 'project' | 'user';
   // Removing a whole plugin also removes the switch-offs of its items: nothing is left to switch off (C45).
   if (scope === 'user') for (const selector of [...selectors])
     for (const item of switchOffClaims(located.anchor, selector.managementId))
-      if (!selectors.some(other => other.managementId === item)) selectors.push({ managementId: item });
-  const inOrder = (engineEntries: RemovalEntry[]): RemovalEntry[] => {
-    const queue = [...engineEntries];
-    const ordered = removals.map((_entry, index) => itemEntries.get(index) ?? queue.shift()!).filter(Boolean);
-    return [...ordered, ...queue];
+      if (!selectors.some(other => other.managementId === item)) selectors.push({ index: -1 - selectors.length, managementId: item, engineIds: [item] });
+  const engineOwner = new Map(selectors.flatMap(selector => selector.engineIds.map(id => [id, selector.managementId] as const)));
+  const merged = (engineEntries: RemovalEntry[]): RemovalEntry[] => {
+    const byEngine = new Map(engineEntries.map(entry => [entry.managementId, entry]));
+    return [...removals.keys(), ...selectors.filter(item => item.index < 0).map(item => item.index)].flatMap((index): RemovalEntry[] => {
+      const fixed = itemEntries.get(index) ?? absentEntries.get(index);
+      if (fixed) return [fixed];
+      const selector = selectors.find(item => item.index === index);
+      const parts = (selector?.engineIds ?? []).flatMap(id => byEngine.has(id) ? [byEngine.get(id)!] : []);
+      if (!selector || !parts.length) return [];
+      // One shared member several of these claims hold is listed once.
+      const seen = new Set<string>();
+      const members = parts.flatMap(part => part.members).filter(member => { const key = JSON.stringify(member); if (seen.has(key)) return false; seen.add(key); return true; });
+      const first = parts.find(part => part.disposition === 'prepared') ?? parts[0]!;
+      return [{ ...first, managementId: selector.managementId, members }];
+    });
   };
-  if (!selectors.length) return { status: 'ok', entries: inOrder([]) };
+  if (!selectors.length) return { status: 'ok', entries: merged([]) };
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
   const prepared = await prepareManagedRemoval({ target: { project: located.anchor }, scope,
-    removals: selectors.map(({ managementId }) => ({ managementId })) }, engineControls(options));
+    removals: selectors.flatMap(({ engineIds }) => engineIds.map(managementId => ({ managementId }))) }, engineControls(options));
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   if (prepared.disposition === 'invalid') return { status: 'invalid', problems: prepared.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const engine = prepared.preparation;
-  const entries: RemovalEntry[] = inOrder((prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
+  const entries: RemovalEntry[] = merged((prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
     ...(entry.disposition === 'prepared' && engine && ['ready', 'partial', 'blocked'].includes(engine.status) ?
       { status: engine.status as 'ready' | 'partial' | 'blocked' } : {}),
     members: entry.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
@@ -152,15 +241,20 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     return { status: 'refused', code: 'home-unavailable', reason: prepared.diagnostics[0]?.message ?? 'Removal could not be prepared here.' };
   if (!engine?.review || !engine.prepared || !['ready', 'partial'].includes(engine.status)) return { status: 'ok', entries };
   // Native plugins in the prepared entries: their removal commands and presence checks come from the receipt (C54).
-  const home = projectRoot(homedir());
-  const facts = planFacts([scope === 'project' ? located.anchor : home]);
-  const plugins = entries.filter(entry => entry.disposition === 'prepared' && entry.item === undefined).flatMap(entry =>
-    (facts.get(`${scope}\0${entry.managementId}`)?.plugins ?? []).map(plugin => ({ managementId: entry.managementId, plugin })));
-  const program = plugins.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options) : undefined;
+  const releasing = (prepared.removals ?? []).filter(entry => entry.disposition === 'prepared' && engineOwner.has(entry.managementId));
+  const plugins = releasing.flatMap(entry => (facts.get(`${scope}\0${entry.managementId}`)?.plugins ?? [])
+    .map(plugin => ({ managementId: engineOwner.get(entry.managementId)!, plugin })));
+  // Folder links these claims placed: removed with their record once no other claim holds it (C28, Apply).
+  const links = releasing.flatMap(entry => facts.get(`${scope}\0${entry.managementId}`)?.links ?? []);
+  // Program steps (C30): a tool-command's saved reverse command and readback run here; the rest can't be undone, and say so.
+  const commands = releasing.flatMap(entry => (facts.get(`${scope}\0${entry.managementId}`)?.programs ?? [])
+    .map(program => ({ managementId: engineOwner.get(entry.managementId)!, program })));
+  const program = plugins.length || commands.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options, commands) : undefined;
   if (program && 'status' in program) return program;
   // Each review operation carries one listed member's action; its management id is that member's entry.
   const owners = new Map<string, string>();
-  for (const entry of prepared.removals ?? []) for (const member of entry.members) if (member.operationId) owners.set(member.operationId, entry.managementId);
+  for (const entry of prepared.removals ?? []) for (const member of entry.members) if (member.operationId)
+    owners.set(member.operationId, engineOwner.get(entry.managementId) ?? entry.managementId);
   const operations = new Map<string, StepRef>();
   const offset = program?.steps.length ?? 0;
   const steps: ReviewStep[] = [...program?.steps ?? [], ...engine.review.operations.map((operation, at) => {
@@ -181,6 +275,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const partial = engine.status === 'partial';
   // Private inputs passed for a removal (such as a secret a restored value needs again, C64) bind its review.
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial, operations,
+    claims: engineOwner, ...(links.length ? { links } : {}),
     privateInputs: bindPrivateInputs(options.privateInputs),
     ...(program ? { before: { engine: program.engine, engineDigest: program.engineDigest, operations: program.operations, programs: program.programs,
       unremovable: program.unremovable } } : {}) });
@@ -195,13 +290,15 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
 function itemInPlugin(managementId: string, item: string, scope: 'project' | 'user', anchor: string): RemovalEntry | undefined {
   const root = scope === 'project' ? anchor : projectRoot(homedir());
   const facts = planFacts([root]);
-  const plan = facts.get(`${scope}\0${managementId}`);
+  const claims = claimsOf(facts, scope, managementId);
+  const claim = claims.find(entry => entry.plan.plugins || entry.plan.localPlugin) ?? claims[0];
+  const plan = claim?.plan;
   if (!plan) return { managementId, item, disposition: 'absent', members: [] };
   const whole = { managementId, item, disposition: 'unavailable' as const, reason: 'plugin-indivisible', members: [] };
   if (plan.localPlugin) {
     // Without the route's contained-item metadata Core can't say what the plugin holds; it lists its files (C68).
     if (plan.localPlugin.contains === null) {
-      const row = readOwnership(root).value.items?.[claimIdentity(scope, managementId, anchor)];
+      const row = readOwnership(root).value.items?.[claimIdentity(scope, claim!.engineId, anchor)];
       return { ...whole, files: pluginFiles((row?.members ?? []).map(member => ({ kind: member.kind, path: 'path' in member ? member.path : '' })), root), offers: [{ managementId }] };
     }
     if (!plan.localPlugin.contains.includes(item)) return { managementId, item, disposition: 'absent', members: [] };
@@ -217,7 +314,8 @@ function itemInPlugin(managementId: string, item: string, scope: 'project' | 'us
 /** `{ managementId, item, switchOff: true }`: `absent` when the install doesn't record the item, else its reviewed switch-off. */
 async function switchOff(framework: string, item: string, scope: 'project' | 'user', anchor: string, controls: PlanControls): Promise<RemovalResult> {
   const root = scope === 'project' ? anchor : projectRoot(homedir());
-  const plan = planFacts([root]).get(`${scope}\0${framework}`);
+  const claims = claimsOf(planFacts([root]), scope, framework);
+  const plan = claims.find(claim => claim.plan.plugins || claim.plan.localPlugin)?.plan ?? claims[0]?.plan;
   const absent: RemovalResult = { status: 'ok', entries: [{ managementId: framework, item, disposition: 'absent', members: [] }] };
   if (!plan) return absent;
   const holding = [...(plan.plugins ?? []).filter(plugin => plugin.contains.includes(item)), ...(plan.localPlugin?.contains?.includes(item) ? [null] : [])];
@@ -237,7 +335,7 @@ const switchedOff = (facts: Map<string, PlanItemFacts>, scope: string, framework
  * removal command, run before the receipt is released, then the saved presence check. Nothing here writes custody.
  */
 async function prepareProgramRemoval(plugins: { managementId: string; plugin: PluginFacts }[], scope: 'project' | 'user', anchor: string,
-    controls: PlanControls): Promise<ProgramRemoval | Refusal | { status: 'invalid'; problems: Problem[] }> {
+    controls: PlanControls, commands: { managementId: string; program: ProgramFacts }[] = []): Promise<ProgramRemoval | Refusal | { status: 'invalid'; problems: Problem[] }> {
   const operations = new Map<string, StepRef>();
   const programs = new Map<number, ProgramCheck>();
   const unremovable: StepRef[] = [];
@@ -257,6 +355,22 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'plugin-removal', description: 'Removes a native plugin', inputs: {}, materials: [],
       targets: [scope], prerequisites: [], operations: ops, checks: [] } } });
   });
+  // A tool-command's reverse runs the acquired program it was installed with, from home, before the AI setup folder goes.
+  const home = projectRoot(homedir());
+  const offset = plugins.length;
+  commands.forEach(({ managementId, program }, at) => {
+    const index = offset + at;
+    if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); return; }
+    const selectionId = `c${index}`;
+    operations.set(`${selectionId}/reverse`, { step: index, managementId, command: true });
+    // Its own engine management id: running the reverse must not rewrite the AI setup's claim before its release.
+    selections.push({ id: selectionId, managementId: `aih-reverse-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
+      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-reverse', description: 'Reverses a tool command', inputs: {}, materials: [],
+      targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'reverse', purpose: `Runs \`${program.undo.argv.join(' ')}\``, kind: 'process.run',
+        scope: 'user', executable: { name: join(home, ...program.executable.split('/')) }, args: program.undo.argv.map(literal => ({ literal })),
+        cwd: { root: 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0], effects: ['The tool\'s own reverse command; Core can\'t show its effects'],
+        requires: [], checks: [] }] } } });
+  });
   const steps: ReviewStep[] = [];
   let engine: Awaited<ReturnType<typeof prepareEngine>> | undefined;
   if (selections.length) {
@@ -270,7 +384,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     const ref = operations.get(operation.id);
     if (!ref) continue;
     if (operation.effects === 'unavailable' || typeof operation.details.executableSha256 !== 'string')
-      return { status: 'refused', code: 'program-unavailable', reason: `Removing \`${ref.managementId}\` runs a CLI this host cannot run.` };
+      return { status: 'refused', code: 'program-unavailable', reason: `Removing \`${ref.managementId}\` runs a ${ref.command ? 'program' : 'CLI'} this host cannot run.` };
     const list = pinned.get(ref.step as number) ?? []; pinned.set(ref.step as number, list);
     list.push({ executable: String(operation.details.executable), executableSha256: operation.details.executableSha256 });
   }
@@ -293,7 +407,35 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
         (presence === 'none' ? 'The receipt has no presence check, so the removal stays unverified.' : 'Core checks only that the plugin is no longer listed.') :
         'The plugin stays installed in the CLI; remove it there yourself.' });
   }
+  for (const [at, { managementId, program }] of commands.entries()) {
+    const index = offset + at;
+    const pinned = pinnedReverse(engine, index, operations);
+    const reversible = !!(program.undo && program.executable && pinned);
+    if (reversible) programs.set(index, { executable: pinned!.resolved, argv: [pinned!.resolved.launchPath, ...program.undo!.readback.argv],
+      expect: program.undo!.readback.expected, cwd: home, readback: true });
+    const command = program.argv.join(' ');
+    steps.push({ step: index, op: program.op, managementId, item: managementId, effect: reversible ? 'run-program' : 'unchanged',
+      sentence: reversible ? `Runs \`${program.undo!.argv.join(' ')}\`, then checks that \`${program.undo!.readback.argv.join(' ')}\` reads \`${program.undo!.readback.expected}\`` :
+        program.op === 'upstream-setup' ? `Removes the clone \`${program.clone?.into ?? ''}\` with the install` : `Releases the record of \`${command}\``,
+      cantPromise: reversible ? 'Core can\'t show or roll back what the reverse command changes; it checks only the readback.' :
+        program.op === 'tool-command' ? `Core can't undo \`${command}\`: the AI setup named no reverse command.` :
+        program.op === 'upstream-installer' ? `Core can't remove what \`${command}\` installed: it is not managed by Core. Remove it with the tool's own uninstaller.` :
+        `Core removes only its clone; it can't remove what \`${command}\` wrote elsewhere.`,
+      program: { kind: program.op, argv: reversible ? program.undo!.argv : program.argv,
+        executable: reversible ? pinned!.resolved.launchPath : program.executable ? join(home, ...program.executable.split('/')) : program.argv[0]!,
+        executableSha256: reversible ? pinned!.resolved.sha256 : null, from: program.executable ? 'acquired' : 'path', cwd: home, env: [], managed: program.managed,
+        readback: reversible ? program.undo!.readback : null, undo: program.undo, cantRemove: reversible ? 'Nothing else the command changed is rolled back.' :
+          program.op === 'upstream-setup' ? 'What the setup command wrote outside its clone stays.' : 'What the command changed stays.' } });
+  }
   return { steps, engine: engine?.prepared, engineDigest: engine?.review?.reviewDigest ?? '', operations, programs, unremovable };
+}
+/** The reverse command's executable as the removal's engine pinned it. */
+function pinnedReverse(engine: Awaited<ReturnType<typeof prepareEngine>> | undefined, index: number, operations: Map<string, StepRef>):
+    { resolved: NonNullable<ReturnType<typeof resolveExecutable>> } | undefined {
+  const operation = engine?.review?.operations.find(entry => operations.get(entry.id)?.step === index && operations.get(entry.id)?.command);
+  if (!operation || typeof operation.details.executable !== 'string') return undefined;
+  const resolved = resolveExecutable(operation.details.executable);
+  return resolved && resolved.sha256 === operation.details.executableSha256 ? { resolved } : undefined;
 }
 interface ProgramRemoval {
   steps: ReviewStep[]; engine: PreparedHandle | undefined; engineDigest: string; operations: Map<string, StepRef>;

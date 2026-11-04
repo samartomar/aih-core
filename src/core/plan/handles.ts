@@ -6,9 +6,12 @@ import type { PlanHandle } from './types.js';
 import type { AcquireFacts } from './acquire/types.js';
 import type { PrivateInputBinding } from './inputs.js';
 
-export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true }
+export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true;
+  /** A program step's command (tool-command, upstream installer or setup, or a reverse command at removal). */ command?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
-export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string }
+export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string;
+  /** A tool-command readback (D57): the output must show `expect`, whatever presence is wanted. */
+  readback?: true }
 /** The switch-off block a run reads back: the file, its markers, and the `plugin:skill` name it must turn off. */
 export interface SwitchOffReadback { file: string; blockId: string; startMarker: string; endMarker: string; content: string; name: string;
   step: number; managementId: string }
@@ -21,6 +24,10 @@ export interface HandleState {
   partial: boolean;
   /** Engine operation id → the plan step and management id it carries out. */
   operations: Map<string, StepRef>;
+  /** Engine claim key -> the management id it belongs to (plan claims, C28); run members name the management id. */
+  claims?: Map<string, string>;
+  /** A removal's folder links (receipt facts): each goes once its record is released (C28). */
+  links?: import('../internal/custody-items.js').LinkFacts[];
   /** Plugin steps' presence checks by plan step index, run after the engine's commands (plan requests only). */
   programs?: Map<number, ProgramCheck>;
   /**
@@ -29,6 +36,8 @@ export interface HandleState {
    */
   before?: { engine: PreparedHandle | undefined; engineDigest: string; operations: Map<string, StepRef>; programs: Map<number, ProgramCheck>;
     unremovable: StepRef[] };
+  /** Plan step index -> what its program step's check found (a readback, or that its effects can't be checked), filled during Apply. */
+  verifications?: Map<number, { status: string; reason: string }>;
   /** Plan step index -> what its AI setup acquisition did, filled during Apply. */
   acquired?: Map<number, AcquireFacts>;
   /** Where an acquisition reports progress: the Apply call's `onProgress`. */

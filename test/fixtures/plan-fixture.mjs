@@ -213,3 +213,24 @@ export function codexPluginRequest(framework = 'superpowers') {
   request.profiles = [codexPluginProfile()];
   return request;
 }
+
+// User-scope shared copies and folder links (`op: "link"`, Catalog 9: `{ root: 'user', path, to, item, clis }`). The plan
+// writes one version folder under `.aihq/shared/<framework>/<kind>/<name>/<version>/` serving every CLI, then links each
+// CLI's own skill place to it. FIXTURE places only: they establish Core behaviour, not which folders a real CLI reads.
+export const LINK_PLACES = { 'claude-code': '.claude/skills', codex: '.agents/skills', antigravity: '.gemini/antigravity/skills' };
+export function linkRequest(project, clis = ['claude-code', 'codex'], { attributed = true, version = '3f9c0a1b2d4e' } = {}) {
+  const { content, files, sourceId } = ownContent({ plan: { 'SKILL.md': '---\nname: plan\n---\nPlan the work.\n', 'notes/usage.md': 'Usage.\n' } },
+    { framework: 'ecc', sourceId: 'ecc' });
+  const [item] = content.items;
+  const shared = `.aihq/shared/ecc/skill/plan/${version}`;
+  const served = attributed ? { clis: [...clis].sort() } : {};
+  const writes = item.files.map(file => ({ op: 'write', root: 'user', path: `${shared}/${file.sourcePath.slice('plan/'.length)}`,
+    from: { item: item.id, sourcePath: file.sourcePath }, item: item.id, ...served }));
+  const links = [...clis].sort().map(cli => ({ op: 'link', root: 'user', path: `${LINK_PLACES[cli]}/ecc-plan`, to: shared, item: item.id,
+    ...(attributed ? { clis: [cli] } : {}) }));
+  const byPath = (a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  return { schema: PLAN_REQUEST, scope: 'user', target: { project },
+    plan: { status: 'ok', data: null, plan: [...writes.sort(byPath), ...links.sort(byPath)], missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
+    contents: [content], profiles: clis.map(id => profile(id)),
+    files: Object.entries(files).map(([sourcePath, bytes]) => ({ sourceId, sourcePath, sha256: sha256(bytes), bytes })) };
+}

@@ -152,7 +152,7 @@ async function checkPlan(request: unknown, controls: FileCheckControls, identity
       continue;
     }
     if (step.skipped) { notChecked.push({ kind: 'step', id: `step-${step.index}`, reason: 'skipped' }); continue; }
-    if (lowered.kind === 'plugin') { notChecked.push({ kind: 'process', id: `step-${step.index}`, reason: 'program-not-run' }); continue; }
+    if (lowered.kind === 'plugin' || lowered.kind === 'program') { notChecked.push({ kind: 'process', id: `step-${step.index}`, reason: 'program-not-run' }); continue; }
     if (lowered.kind !== 'write' || !lowered.bytes || !lowered.path || !lowered.root) {
       notChecked.push({ kind: 'step', id: `step-${step.index}`, reason: 'step-not-compared' }); continue;
     }

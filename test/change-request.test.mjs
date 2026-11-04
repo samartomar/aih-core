@@ -1,7 +1,7 @@
 // Change requests (urn:aihq:core:change-request:0.1.0) through the built public entries, in a disposable home and project.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -283,4 +283,25 @@ test('skip leaves out a conflicting operation and what waits for it; the review 
   assert.equal(existsSync(join(target, 'ALSO.md')), false);
   const unknown = await prepare({ ...request, resolutions: [{ managementId: 'pair', step: 'nobody', choice: 'skip', observedSha256: null }] });
   assert.deepEqual([unknown.status, unknown.problems[0].reason], ['invalid', 'resolution-unknown']);
+});
+
+test('a user-scope change made for two projects is two claims: removing one project keeps it, removing the second restores the file', async () => {
+  const codex = join(home, '.codex'); mkdirSync(codex, { recursive: true });
+  const original = '# mine\n';
+  writeFileSync(join(codex, 'config.toml'), original);
+  const one = project(), two = project();
+  const request = target => changeRequest([{ managementId: 'codex-approval-on-request', change: codexApproval() }], { scope: 'user', project: target });
+  await applied(request(one));
+  const written = readFileSync(join(codex, 'config.toml'), 'utf8');
+  const second = await applied(request(two));
+  assert.deepEqual(second.run.steps.map(step => step.application), ['already-satisfied']);
+  const row = conforms(await list({ target: { project: one }, scope: 'user' })).entries.filter(entry => entry.managementId === 'codex-approval-on-request');
+  assert.equal(row.length, 1, JSON.stringify(await list({ target: { project: one }, scope: 'user' })));
+  assert.deepEqual(row[0].claims.map(claim => claim.project).sort(), [realpathSync(one), realpathSync(two)].sort());
+  const first = await removed({ project: one }, 'user', ['codex-approval-on-request']);
+  assert.equal(first.run.completion, 'complete', JSON.stringify(first.run));
+  assert.equal(readFileSync(join(codex, 'config.toml'), 'utf8'), written, 'the other project still claims the change');
+  const last = await removed({ project: two }, 'user', ['codex-approval-on-request']);
+  assert.equal(last.run.completion, 'complete', JSON.stringify(last.run));
+  assert.equal(readFileSync(join(codex, 'config.toml'), 'utf8'), original);
 });
