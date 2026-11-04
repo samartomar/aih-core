@@ -11,6 +11,8 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
+import type { PluginFacts } from '../plan/types.js';
+export type { PluginFacts } from '../plan/types.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -52,6 +54,13 @@ export interface PlanItemFacts {
   profiles: { id: string; version: string | number }[];
   /** The plan step indexes grouped under this management id, ascending. */
   steps: number[];
+  /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
+  /**
+   * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
+   * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
+   */
+  plugins?: PluginFacts[];
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -219,8 +228,18 @@ function validOrigin(value: unknown): boolean {
 const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
 /** Plan-request receipt facts, bounded like the rest of an item record. */
+function validAiSetupFacts(value: unknown): boolean {
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'])) return false;
+  const interpreter = value.interpreter;
+  return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
+    (value.fallbackReason === null || text(value.fallbackReason, 64)) &&
+    (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
+}
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
+  if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
+    value.plugins.every(validPluginFacts))) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
     list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
   if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
@@ -238,6 +257,19 @@ export function validPlanFacts(value: unknown): boolean {
   const steps = value.steps;
   return Array.isArray(steps) && steps.length > 0 && steps.length <= 65536 &&
     steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
+}
+
+const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
+  value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
+function validPluginFacts(value: unknown): boolean {
+  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'])) return false;
+  if (!Number.isSafeInteger(value.step) || (value.step as number) < 0 || typeof value.cli !== 'string' || !PLAN_ID.test(value.cli) ||
+      !text(value.plugin, 256) || !text(value.commit, 128)) return false;
+  if (!Array.isArray(value.contains) || value.contains.length > 4096 ||
+      !value.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) || !ascending(value.contains)) return false;
+  if (value.undo !== null && !(Array.isArray(value.undo) && value.undo.length > 0 && value.undo.length <= 8 && value.undo.every(argv))) return false;
+  const check = value.presenceCheck;
+  return check === 'none' || exact(check, ['argv', 'expect']) && argv(check.argv) && text(check.expect, 4096);
 }
 
 function validProvenance(value: unknown): boolean {

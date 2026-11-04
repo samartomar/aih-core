@@ -31,6 +31,16 @@ const entries: RefusalCode[] = [
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
   // Authored changes (samartomar/aih-core#166).
   { status: 'refused', code: 'organization-required', fix: 'Prepare the change in Vibe mode; Enterprise admission of changes needs a newer Core.' },
+  // Native plugin steps (samartomar/aih-core#168).
+  { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog profile the plan was made with.' },
+  { status: 'refused', code: 'plugin-command-unresolved', fix: 'Replan with a Catalog whose plugin step and profile give every value of an unattended, pinned install.' },
+  { status: 'refused', code: 'program-unavailable', fix: 'Install the CLI the step runs, then prepare again.' },
+  { status: 'invalid', code: 'item-removal-unavailable', fix: 'Remove the whole management id; only an item inside a plugin is named by item.' },
+  // AI setup acquisition (samartomar/aih-core#169).
+  { status: 'refused', code: 'qualification-missing', fix: "Pass the qualification documents that the plan's acquire steps name." },
+  { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },
+  { status: 'refused', code: 'tls-untrusted', fix: 'Run the repair the result names, then Prepare again.' },
+  { status: 'refused', code: 'cell-mismatch', fix: "Replan for this host's platform cell." },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },

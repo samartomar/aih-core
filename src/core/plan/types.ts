@@ -62,18 +62,35 @@ export interface PlanControls {
 }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
-export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
 export interface ReviewStep {
   /** A plan step index; for a change, the operation id. */
   step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
-  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'opaque-process' | 'unavailable';
+  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
   /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
   requires?: string[]; details?: Json;
+  /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
+  framework?: string; cli?: string; plugin?: string; commit?: string; contains?: string[];
+  /** The exact commands, each with the executable and sha256 Prepare pinned; only these run, in this order. */
+  commands?: ReviewCommand[];
+  /** The removal commands copied into the receipt at install, or `null` when the profile gave none. */
+  undo?: string[][] | null;
+  /** The presence check that decides `present`/`absent`, or `none` (then the step stays unverified, C56). */
+  presenceCheck?: 'none' | (ReviewCommand & { expect: string });
+  /** An earlier run of this program step was interrupted: its effects are uncertain. */
+  previous?: 'interrupted';
+  /** An `acquire` step: the AI setup, the qualified artifact it downloads and the folder it fills. */
+  acquire?: { aiSetup: string; version: string; cell: string; kind: 'pypi-wheel' | 'native-archive'; qualification: string;
+    artifact: { file: string; sha256: string }; into: string; members: number; closure: number };
+  /** A Python AI setup's two interpreter branches (C46): approval covers both. */
+  interpreter?: { installed: { path: string; version: string; note: 'in range, not qualified' } | null; range: string;
+    fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
 }
+export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number | string;
   target: string; observedSha256: string | null; choices: ('replace' | 'adopt' | 'skip')[];
@@ -109,8 +126,12 @@ export interface RunStep {
   step: number | string; managementId: string;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
-  /** A failed or cancelled command may have left effects Core cannot see; never a rollback claim. */
-  effectsUncertain?: boolean;
+  /** A program step that may have changed something although it did not finish: never claimed as rolled back. */
+  effectsUncertain?: true;
+  /** A failed step's reason, such as `artifact-mismatch`. */
+  reason?: string;
+  /** An AI setup step: the interpreter branch that actually ran (C46). */
+  interpreter?: { branch: 'installed' | 'fallback'; path: string; version: string; fallback: boolean; fallbackReason: string | null };
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
@@ -135,6 +156,10 @@ export interface InventoryEntry {
   /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
   catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** Native plugin installs with the undo facts the receipt keeps for them. */
+  plugins?: PluginFacts[];
+  /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';
@@ -146,6 +171,24 @@ export interface RemovalMember { kind: string; path: string; pointer?: string; a
 export interface RemovalEntry {
   managementId: string; disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
   status?: 'ready' | 'partial' | 'blocked'; members: RemovalMember[];
+  /** A removal named by one item inside a plugin (C45). */
+  item?: string;
+  /** Why an entry is not prepared: `plugin-indivisible` when the item is one part of a plugin that can't be split. */
+  reason?: string;
+  /** Everything the indivisible plugin holds. */
+  contains?: string[];
+  /** The removals the person can prepare instead: the whole plugin. */
+  offers?: { managementId: string }[];
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+/** One native plugin install's receipt facts; argv lists are filled, never templates. */
+export interface PluginFacts {
+  step: number; cli: string; plugin: string; commit: string;
+  /** The content items the plugin's recorded folder holds; the plugin is still one indivisible install (C68). */
+  contains: string[];
+  /** The CLI's own removal commands (`plugins.remove`), or `null` when the profile gave none. */
+  undo: string[][] | null;
+  /** The profile's presence check for this route, or `none` (C56). */
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+}

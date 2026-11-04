@@ -3,6 +3,7 @@
 // operations. It never touches the disk.
 import type { Json } from '../../types.js';
 import type { PlanControls, PlanRequest, PlanStep, Problem, Refusal } from '../types.js';
+import type { AcquireSpec } from '../acquire/types.js';
 
 /** A source file the plan's documents name, with what they say about it. */
 export interface SourceFacts { sourceId: string; sourcePath: string; sha256: string; executable: boolean }
@@ -16,6 +17,8 @@ export interface StepContext {
   notice(sourceId: string, sourcePath: string): SourceFacts | undefined;
   /** The supplied bytes for one `{ sourceId, sourcePath }`, after checking them; marks the entry as named by a step. */
   bytesFor(facts: SourceFacts): { bytes: Buffer } | { refusal: Refusal };
+  /** A supplied qualification document by its sha256 (hex, over its canonical JSON). */
+  qualification(sha256: string): { [field: string]: Json } | undefined;
 }
 /** One owned file effect the engine carries out as a `file.write`. */
 export interface LoweredWrite {
@@ -28,10 +31,33 @@ export interface LoweredWrite {
   sentence: string;
   cantPromise: string | null;
   review: { item?: string; items?: string[]; clis?: string[] };
+  /** An `acquire` step: the acquisition Apply carries out immediately before writing this marker file. */
+  acquire?: AcquireSpec;
   /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
   profiles?: { id: string; version: string | number }[];
 }
-export type Lowered = LoweredWrite;
+/**
+ * One native plugin install (`plugin`): the CLI's own commands, filled from the profile's templates, run in order after
+ * approval of those exact commands. Its framework is one indivisible install (C68); its undo facts go to the receipt.
+ */
+export interface LoweredPlugin {
+  kind: 'plugin';
+  managementIds: [string];
+  /** The request scope: where the commands run (the project folder or home) and which receipt keeps the install. */
+  root: 'project' | 'user';
+  cli: string; plugin: string; commit: string; framework: string;
+  contains: string[];
+  commands: string[][];
+  undo: string[][] | null;
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+  sentence: string;
+  cantPromise: string;
+  review: { framework: string; clis: string[] };
+  /** Never an acquisition or a render. */
+  profiles?: undefined;
+  acquire?: undefined;
+}
+export type Lowered = LoweredWrite | LoweredPlugin;
 export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
 export interface StepHandler {
   op: string;

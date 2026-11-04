@@ -2413,9 +2413,9 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
-(including `render`) and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect. The format
-is not marked ready.
+with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
+(including `render`), `fetch`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see [Native plugins](#native-plugins-plugin-steps)); every other step kind is
+refused (`step-unknown`) before any effect. The format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2481,6 +2481,36 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
   failed reproduction still installs, records `chosen`, and the review says "origin not proven". A plan without
   `recipe` (`planInstall`) is always `chosen`. Only a malformed proof (`invalid`, `recipe-proof`) or a proof without
   `controls.catalog.planRecipe` (`catalog-required`) stops Prepare.
+### Native plugins (`plugin` steps)
+
+A `plugin` step installs a framework through the CLI's own plugin commands at the pinned commit. Every step naming a
+`framework` is one indivisible install, grouped under that framework id.
+
+- **Commands.** Core fills the supplied tool profile's `plugins.install` argv templates only from the step's own fields
+  (`<plugin>`, `<marketplace>`, `<marketplace-name>`, `<repository>`, `<commit>`, `<scope>`). A placeholder the step
+  doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
+  (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
+  `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
+- **The review** shows each exact command with the executable and sha256 Prepare pinned, the removal commands, the
+  presence check, the items the plugin's recorded folder holds (`contains`) and a "can't promise" line: Core can't show
+  or roll back what the CLI's own program changes. Prepare runs nothing.
+- **Apply** runs only those commands, in order, in the project folder or home, with cancellation and `onProgress`
+  events for each command's start and finish. The pending receipt is written before the first command, so an
+  interrupted command leaves the install `interrupted` and the run step `effectsUncertain`; the next Prepare shows the
+  step again (`previous: interrupted`) for a fresh approval and never re-runs it by itself.
+- **Presence.** Only the profile's `plugins.verify` readback (`{ argv, expect }`: the expected line in the command's
+  output) decides. After install, `present` gives verification `passed`; `absent`, or a check that can't run, fails the
+  step and makes the run `incomplete`. With `verify: none` the step is `unverified` (`no-presence-check`). An exit
+  status or help output never proves presence or absence.
+- **Receipt.** At install the filled removal commands and presence check are copied into the receipt and listed under
+  `plugins` by `list`, so removal never needs the old profile.
+- **Removal** runs those saved commands first, then the saved check: `absent` is `passed`; still `present`, a failed
+  command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
+  `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
+  `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
+  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
+  commands is a pending live check.
 
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
@@ -2495,6 +2525,39 @@ aih remove local-my-skills.skill.notes --scope project --project /work/app [--ap
 command is refused `catalog-required`. `aih install` also passes that Catalog's `/reader` `renderStep` and
 `planRecipe`, with the version from its `package.json`, as `controls.catalog`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
+
+### AI setups (`acquire` steps)
+
+An `acquire` step downloads one AI setup's artifact into `~/.aihq/ai-setup/<name>/<version>/<cell>/`. Pass the
+qualification documents the plan's acquire steps name in `qualifications`.
+
+- **Before any effect**, Prepare finds the qualification by its sha256 over canonical JSON (`qualification-missing`
+  when none matches) and checks that the step agrees with it: AI setup, version and cell, `qualified` status, the
+  artifact's sha256 (and file and byte count where both name them), a native archive's members, a Python tool's wheel
+  closure and its fallback interpreter (`qualification-mismatch`). A step for another platform cell is `cell-mismatch`.
+  Core downloads only from an https `url`; a distribution with only a `file` is `invalid`. `npm` and `git`
+  distributions are refused `step-unknown` for now. Prepare probes each download host with this machine's Node trust:
+  a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`, never an Apply failure.
+- **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
+  `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
+  qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,
+  `wheel-install-failed`, `readback-failed`); approval covers both. Apply downloads the byte-checked closure and wheel,
+  makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
+  and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
+  `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
+- **Native archives** (`.tar.gz`, `.zip`): Apply extracts exactly the qualified members, each byte-checked, with their
+  executable bit.
+- **Bounds:** one artifact is at most `artifact-bytes`, expands to at most `artifact-expanded-bytes` and
+  `artifact-members`; a closure lists at most `closure-wheels` wheels (see `limits`).
+- **Outcomes.** Downloaded bytes that differ from the qualification fail that step (`reason: artifact-mismatch`); the
+  rest of its item and every item that depends on it (Catalog `dependencies`, or the AI setup's `mcpItem`) are
+  `not-attempted`, unrelated items continue, and the run is `incomplete`. The run step's `interpreter`, the receipt and
+  `list`'s `aiSetup` record which branch ran and why the fallback did. `onProgress` on the Apply call receives each
+  acquisition's `start`, `bytes`, `fallback` and `finish` events.
+- **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
+  acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
+  redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
+  last claim, the whole folder goes.
 
 ## Apply authored changes through a change request (0.1.0, in development)
 
