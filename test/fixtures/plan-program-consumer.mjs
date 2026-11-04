@@ -90,12 +90,14 @@ try {
     assert.ok(JSON.parse(readFileSync(join(project, '.mcp.json'), 'utf8')).mcpServers['packed-graph']);
   });
   await check('forced-failure-skips-item-and-mcp-consumer', async () => {
+    // A forced hash failure on the download (journey 16): its MCP entry and tool-command are not attempted.
     const failing = toolSetup(server, { name: 'packed-fail' });
+    server.serve(`/${failing.acquire.distribution.file}`, Buffer.from('not the qualified archive'));
     const out = await child(['install', write('failing', programRequest(project, { setups: [failing], skills: [{ name: 'other', text: '# other\n' }] })), project],
-      environment('readback-wrong'));
+      environment());
     assert.equal(out.run.completion, 'incomplete', JSON.stringify(out));
-    assert.deepEqual([step(out.run, 3).application, step(out.run, 3).verification.reason, step(out.run, 2).application, step(out.run, 1).application],
-      ['failed', 'readback-mismatch', 'not-attempted', 'applied']);
+    assert.deepEqual([step(out.run, 0).application, step(out.run, 3).application, step(out.run, 2).application, step(out.run, 1).application],
+      ['failed', 'not-attempted', 'not-attempted', 'applied']);
   });
   await check('removal-runs-saved-reverse-and-readback', async () => {
     const mcp = await child(['remove', journey.mcpItem, project, 'project'], environment());

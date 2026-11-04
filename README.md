@@ -2700,9 +2700,12 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   files Core didn't clone is `refused` `setup-folder-occupied`.
 - **Host support** is checked at Prepare, never halfway through Apply: a program this host can't run (no `git`, an
   installer not on `PATH`, or on Windows a program that is not an `.exe` or `.com`) is `program-unavailable`.
-- **Outcomes (C60).** A failed step makes the rest of its item and every item that depends on it `not-attempted`
+- **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
+  phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
+  path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`
   (Catalog `dependencies`, or the MCP item that starts the AI setup's executable); unrelated items continue and the run
-  is `incomplete`. An item runs after the items it depends on. A command that started and then failed, was cancelled or
+  is `incomplete`. So a failed download stops its MCP entry and tool-command, while a failed tool-command leaves the
+  MCP entry that already ran `applied`: Core never reorders steps to avoid that, and never rolls it back. A command that started and then failed, was cancelled or
   was interrupted is `effectsUncertain`; the next Prepare shows it again (`previous: interrupted`) for a fresh approval,
   and Core never re-runs or rolls it back by itself. Without a readback an applied command is `unverified`
   (`command-effects-unknown`); an exit status never confirms its effects. `list` shows the saved facts under `programs`.

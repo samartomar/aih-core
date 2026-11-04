@@ -255,12 +255,18 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
     return group ? [{ selectionId: group.selectionId, operationId: `step-${item.step}`, choice: item.choice as 'replace' | 'adopt',
       observedSha256: item.observedSha256 }] : [];
   });
+  // The plan's order (D92, C17) across every item: an operation runs at its step's place in the plan.
+  const order = new Map([...operations.keys()].map(key => {
+    const parts = /\/step-(\d+)(?:-(run|\d+))?$/.exec(key);
+    const index = Number(parts?.[1] ?? 0); const sub = parts?.[2];
+    return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
+  }));
   const observed = new Map<string, ObservedStep>();
   const engine = await prepareEngine({ useCase: 'policy', policy: { schema: POLICY, mode: 'vibe', selections },
     target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...engineControls(controls), ...(Object.keys(enginePrivate).length ? { privateInputs: enginePrivate } : {}) },
     undefined, undefined, undefined, undefined, undefined,
-    { supplied, plans, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
+    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))

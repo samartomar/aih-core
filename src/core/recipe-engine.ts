@@ -272,6 +272,11 @@ export interface EngineExtension {
    */
   effects?: ReadonlyMap<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
   // A `process.run` operation with an effect is carried out by that effect instead of its own executable (plan programs).
+  /**
+   * Plan requests (contract 8.1, D92): each operation's place in the plan, by `<selection>/<operation>`. Operations run in
+   * that order across selections, and an operation waits only for the operations of required selections placed before it.
+   */
+  order?: ReadonlyMap<string, number>;
   /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
   merges?: ReadonlyMap<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
@@ -719,7 +724,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       }
       for (const op of dependencyOrder(recipe.operations)) {
         const id = `${selection.id}/${op.id}`; currentIds.push(id);
-        const requires = [...priorSelections, ...op.requires.map(required => `${selection.id}/${required}`)];
+        const place = extension?.order?.get(id);
+        const requires = [...(place === undefined ? priorSelections : priorSelections.filter(prior => (extension!.order!.get(prior) ?? -1) < place)),
+          ...op.requires.map(required => `${selection.id}/${required}`)];
         const selectedChecks = op.checks.map(checkId => checkMap.get(checkId)!);
         const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id,
           capturedUnavailable.checks[`${selection.id}/${check.id}`]));
@@ -1452,7 +1459,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     // Validate the removal ordering before any effects; ambiguous shared cycles
     // cannot become partially executable cleanup.
     const orderedSteps = dependencyOrder(steps.map(step => ({ id: step.review.id, requires: step.review.requires, step })));
-    steps.splice(0, steps.length, ...orderedSteps.map(item => item.step));
+    steps.splice(0, steps.length, ...(extension?.order ? planOrder(orderedSteps.map(item => item.step), extension.order) : orderedSteps.map(item => item.step)));
     for (const [root, updates] of selectionUpdates) for (const [key, update] of Object.entries(updates)) if (update.claim === null) {
       update.requires = [...removedIdentities].filter(([, identities]) => identities.includes(key)).map(([step]) => step.review.id);
     }
@@ -2266,6 +2273,32 @@ function memberReports(state: PreparedState, result: RunResult): RunMember[] {
     }
   });
   return reports;
+}
+
+/**
+ * Plan order (D92): the dependency order that runs each step at its plan place. Among steps whose requirements are met,
+ * the one placed first runs next; a step without a place keeps the place of the step before it.
+ */
+function planOrder(steps: PreparedStep[], order: ReadonlyMap<string, number>): PreparedStep[] {
+  let last = -1;
+  const keyed = steps.map((step, index) => { last = order.get(step.review.id) ?? last; return { step, key: last, index }; });
+  const byId = new Map(keyed.map(item => [item.step.review.id, item]));
+  const waiting = new Map(keyed.map(item => [item, item.step.review.requires.filter(id => byId.has(id)).length]));
+  const dependents = new Map<string, typeof keyed>();
+  for (const item of keyed) for (const id of item.step.review.requires) if (byId.has(id)) dependents.set(id, [...dependents.get(id) ?? [], item]);
+  const ready = keyed.filter(item => waiting.get(item) === 0);
+  const before = (a: typeof keyed[number], b: typeof keyed[number]) => a.key - b.key || a.index - b.index;
+  const out: PreparedStep[] = [];
+  while (ready.length) {
+    ready.sort(before);
+    const next = ready.shift()!;
+    out.push(next.step);
+    for (const child of dependents.get(next.step.review.id) ?? []) {
+      const count = waiting.get(child)! - 1; waiting.set(child, count);
+      if (!count) ready.push(child);
+    }
+  }
+  return out.length === steps.length ? out : steps;
 }
 
 async function executeProcess(invocation: PreparedProcess, runId: string, signal?: AbortSignal) {

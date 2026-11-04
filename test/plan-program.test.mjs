@@ -66,8 +66,8 @@ test('an acquired tool runs its input-bearing command, reads it back, and its MC
 
   const run = conforms(await apply(prepared.handle, approve(prepared.review), controls));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
-  // The MCP item depends on its AI setup (C60): it runs after the setup's steps.
-  assert.deepEqual(outcomes(run).map(row => row.slice(0, 3)), [[0, setup.id, 'applied'], [2, setup.id, 'applied'], [1, setup.mcpItem, 'applied']]);
+  // Steps run in the plan's order (D92) across items: acquire, the MCP merge, then the tool-command.
+  assert.deepEqual(outcomes(run).map(row => row.slice(0, 3)), [[0, setup.id, 'applied'], [1, setup.mcpItem, 'applied'], [2, setup.id, 'applied']]);
   assert.deepEqual(byStep(run, 2).verification, { status: 'passed', reason: 'readback-matched' });
   const calls = fakeState(state, 'fake-tool').calls;
   assert.deepEqual(calls.map(call => call.argv), [['config', 'set', 'auto_index', 'false'], ['config', 'get', 'auto_index']]);
@@ -96,7 +96,7 @@ function treeHas(dir, text) {
 import { readdirSync } from 'node:fs';
 const readdirNames = path => { try { return readdirSync(path); } catch { return []; } };
 
-test('a readback that differs fails its step; the item and its MCP dependant stop, an unrelated item continues', async () => {
+test('a readback that differs fails its step; the MCP merge that already ran stays applied and the run is incomplete', async () => {
   const project = fresh('readback-wrong');
   const setup = toolSetup(server, { name: 'graph-b' });
   const request = programRequest(project, { setups: [setup], skills: [{ name: 'notes', text: '# notes\n' }] });
@@ -108,9 +108,11 @@ test('a readback that differs fails its step; the item and its MCP dependant sto
   const command = byStep(run, 3);
   assert.deepEqual([command.application, command.verification, command.reason, command.effectsUncertain],
     ['failed', { status: 'failed', reason: 'readback-mismatch' }, 'readback-mismatch', true]);
-  assert.equal(byStep(run, 2).application, 'not-attempted', 'the MCP entry that starts the tool is not attempted');
+  // The merge (phase 4) ran before the tool-command (phase 7): it is reported applied, never reordered or rolled back.
+  assert.equal(byStep(run, 2).application, 'applied');
   assert.equal(byStep(run, 1).application, 'applied', 'the unrelated skill is applied');
-  assert.equal(existsSync(join(project, '.mcp.json')), false);
+  assert.deepEqual(run.steps.map(step => step.step), [0, 1, 2, 3], 'the plan order');
+  assert.ok(existsSync(join(project, '.mcp.json')));
   assert.ok(existsSync(join(project, '.claude', 'skills', 'notes', 'SKILL.md')));
 });
 
