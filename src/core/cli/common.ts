@@ -2,11 +2,80 @@
 import { createInterface } from 'node:readline/promises';
 import { resolve } from 'node:path';
 import { stdin, stderr } from 'node:process';
+import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
+import { apply } from '../index.js';
 import { readRegularFile } from '../internal/fsxn.js';
 import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
-import type { PlanPreparation, RemovalResult, Review, Run } from '../plan/types.js';
+import type { PlanHandle, PlanPreparation, RemovalResult, Review, Run } from '../plan/types.js';
 
 export interface Output { json: boolean }
+
+/** The options every request command takes: Apply and its approval, history logging, the output form and help. */
+export const COMMON_OPTIONS = { apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' },
+  'no-log': { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } as const;
+/** `--private-input <item>.<input>=<ENV>`, once per input. */
+export const PRIVATE_INPUT_OPTION = { 'private-input': { type: 'string', multiple: true } } as const;
+/** `--resolutions <file>`: the choices for a second preparation. */
+export const RESOLUTIONS_OPTION = { resolutions: { type: 'string' } } as const;
+
+/** The usage line on stderr and a `usage` refusal (exit 2). */
+export function usageRefusal(output: Output, usage: string, reason: string): void {
+  process.stderr.write(usage);
+  emit(output, refusal('usage', reason), 2);
+}
+
+/**
+ * Parses one command's arguments with the common options added (strict, positionals allowed). Invalid options are a
+ * `usage` refusal and `--help` prints the usage; both return `undefined`, having written the result.
+ */
+export function parseCommand<O extends ParseArgsOptionsConfig>(args: string[], name: string, usage: string, options: O) {
+  const output: Output = { json: args.includes('--json') };
+  let parsed;
+  try { parsed = parseArgs({ args, allowPositionals: true, strict: true, options: { ...COMMON_OPTIONS, ...options } }); }
+  catch { usageRefusal(output, usage, `The ${name} options are not valid.`); return undefined; }
+  if ((parsed.values as { help?: boolean }).help) { process.stdout.write(usage); return undefined; }
+  return { output, values: parsed.values, positionals: parsed.positionals };
+}
+
+/** `--yes` and `--allow-partial` approve an Apply: without `--apply` they are a `usage` refusal (`false`). */
+export function applyFlagsHold(output: Output, usage: string, values: { apply?: boolean; yes?: boolean; 'allow-partial'?: boolean }): boolean {
+  if ((values.yes || values['allow-partial']) && !values.apply) { usageRefusal(output, usage, '`--yes` and `--allow-partial` need `--apply`.'); return false; }
+  return true;
+}
+
+/** The Enterprise options read, or `undefined` after a `usage` refusal. */
+export function enterpriseOptions(output: Output, usage: string, values: Record<string, unknown>): Exclude<ReturnType<typeof organizationFrom>, 'usage'> | undefined {
+  const enterprise = organizationFrom(values);
+  if (enterprise !== 'usage') return enterprise;
+  usageRefusal(output, usage, 'The Enterprise options name `--mode enterprise` and one organization source.');
+  return undefined;
+}
+
+/** `--private-input` mappings as `controls.privateInputs`, or `undefined` after a `usage` refusal naming the mapping form. */
+export function privateInputsOption(output: Output, mappings: string[] | undefined, form = '<item>.<input>=<ENV>'): Record<string, Record<string, string>> | undefined {
+  const inputs = privateInputMappings(mappings);
+  if (!inputs) emit(output, refusal('usage', `\`--private-input\` is \`${form}\` naming a set environment variable, once per input.`), 2);
+  return inputs;
+}
+
+/**
+ * The end of every request command: without `--apply`, or without a handle, the preparation is printed (its handle stays
+ * in this process). Otherwise the review is approved (`--yes`, or an interactive yes), and applied with `--allow-partial`
+ * when given. `beforeApply` may return a run to print instead (an input that changed since the review).
+ */
+export async function applyReviewed(output: Output, preparation: { status: string; handle?: PlanHandle; review?: Review },
+    values: { apply?: boolean; yes?: boolean; 'allow-partial'?: boolean }, signal: AbortSignal, controls: object,
+    beforeApply?: (handle: PlanHandle, review: Review) => Promise<Run | undefined>): Promise<void> {
+  if (!values.apply || !preparation.handle || !preparation.review)
+    return emit(output, printable(preparation), exitCode(preparation as PlanPreparation));
+  if (!await approved(preparation.review, values.yes === true, signal))
+    return emit(output, refusal('approval-required', 'Apply needs `--yes` or an interactive yes.'), 2);
+  const instead = await beforeApply?.(preparation.handle, preparation.review);
+  if (instead) return emit(output, instead, exitCode(instead));
+  const result = await apply(preparation.handle, { approved: true, origin: values.yes ? 'automation' : 'interactive',
+    reviewDigest: preparation.review.reviewDigest, ...(values['allow-partial'] ? { allowPartial: true } : {}) }, controls);
+  emit(output, result, exitCode(result));
+}
 export function emit(output: Output, result: unknown, code: number): void {
   process.stdout.write(JSON.stringify(result, null, output.json ? undefined : 2) + '\n');
   process.exitCode = code;

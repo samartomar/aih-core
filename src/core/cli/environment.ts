@@ -2,14 +2,13 @@
 // aih export-ca [--format pem|pkcs7-der] [--output <path>] [--inputs-file <json>] [--offline] [--resolutions <file>] [--apply [--yes]] [--no-log] [--json]
 // (contract 10, 22). Inputs files are `repair-inputs`, `macos-session-inputs` or `export-inputs` 0.1.0; supplied paths in
 // them resolve from the document's own folder. Both commands print a 0.1.0 review or run.
-import { parseArgs } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { readRegularFile } from '../internal/fsxn.js';
 import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
 import { apply, prepare } from '../index.js';
-import { approved, emit, exitCode, printable, refusal } from './common.js';
+import { applyFlagsHold, applyReviewed, emit, parseCommand, refusal, RESOLUTIONS_OPTION, RESOLUTIONS_UNREADABLE, usageRefusal } from './common.js';
 import { RUN, type PlanControls, type Run } from '../plan/types.js';
 import type { EnvironmentRequest } from '../environment/request.js';
 
@@ -56,17 +55,12 @@ const sources = (value: unknown, base: string) => {
 };
 
 export async function run(command: Command, args: string[], signal: AbortSignal): Promise<void> {
-  const output = { json: args.includes('--json') };
-  let parsed;
-  try {
-    parsed = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      target: { type: 'string', multiple: true }, 'inputs-file': { type: 'string' }, offline: { type: 'boolean' },
-      resolutions: { type: 'string' }, apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' },
-      'no-log': { type: 'boolean' }, json: { type: 'boolean' }, format: { type: 'string' }, output: { type: 'string' } } });
-  } catch { process.stderr.write(USAGE[command]); return emit(output, refusal('usage', `The ${command} options are not valid.`), 2); }
-  const { values, positionals } = parsed;
-  const usage = (reason: string) => { process.stderr.write(USAGE[command]); emit(output, refusal('usage', reason), 2); };
-  if (values.yes && !values.apply || values['allow-partial'] && !values.apply) return usage('`--yes` and `--allow-partial` go with `--apply`.');
+  const parsed = parseCommand(args, command, USAGE[command], { target: { type: 'string', multiple: true }, 'inputs-file': { type: 'string' },
+    offline: { type: 'boolean' }, ...RESOLUTIONS_OPTION, format: { type: 'string' }, output: { type: 'string' } });
+  if (!parsed) return;
+  const { output, values, positionals } = parsed;
+  const usage = (reason: string) => usageRefusal(output, USAGE[command], reason);
+  if (!applyFlagsHold(output, USAGE[command], values)) return;
   const bound: Bound[] = [];
   let request: EnvironmentRequest;
   const inputs = values['inputs-file'] === undefined ? undefined : read(values['inputs-file']);
@@ -106,24 +100,16 @@ export async function run(command: Command, args: string[], signal: AbortSignal)
   if (values.resolutions !== undefined) {
     const document = read(values.resolutions);
     if (!document || Object.keys(document.document).length !== 1 || !Array.isArray(document.document.resolutions))
-      return emit(output, refusal('request-unreadable', 'The resolutions file holds `{ "resolutions": [...] }`.'), 2);
+      return emit(output, refusal('request-unreadable', RESOLUTIONS_UNREADABLE), 2);
     (request as { resolutions?: unknown }).resolutions = document.document.resolutions;
     bound.push(document);
   }
   const controls: Pick<PlanControls, 'signal' | 'logging'> = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
-  const preparation = await prepare(request, controls);
-  if (!values.apply || !('handle' in preparation) || !preparation.handle)
-    return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));
-  if (!await approved(preparation.review, values.yes === true, signal))
-    return emit(output, refusal('approval-required', 'Apply needs `--yes` or an interactive yes.'), 2);
   // Approval covers the documents read for this review; a changed file is a changed input.
-  if (bound.some(entry => read(entry.path)?.sha256 !== entry.sha256)) {
-    const stale: Run = { schema: RUN, status: 'ok', runId: randomUUID(), completion: 'rejected', code: 'REVIEW_STALE', changed: 'input',
-      reason: 'input-file-changed', reviewDigest: preparation.review.reviewDigest, steps: [], members: [], history: { status: 'disabled' } };
-    await apply(preparation.handle, { approved: true, origin: 'automation', reviewDigest: '' }, controls);
-    return emit(output, stale, exitCode(stale));
-  }
-  const result = await apply(preparation.handle, { approved: true, origin: values.yes ? 'automation' : 'interactive',
-    reviewDigest: preparation.review.reviewDigest, ...(values['allow-partial'] ? { allowPartial: true } : {}) }, controls);
-  emit(output, result, exitCode(result));
+  await applyReviewed(output, await prepare(request, controls), values, signal, controls, async (handle, review) => {
+    if (bound.every(entry => read(entry.path)?.sha256 === entry.sha256)) return undefined;
+    await apply(handle, { approved: true, origin: 'automation', reviewDigest: '' }, controls);
+    return { schema: RUN, status: 'ok', runId: randomUUID(), completion: 'rejected', code: 'REVIEW_STALE', changed: 'input',
+      reason: 'input-file-changed', reviewDigest: review.reviewDigest, steps: [], members: [], history: { status: 'disabled' } } satisfies Run;
+  });
 }
