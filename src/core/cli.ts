@@ -181,10 +181,13 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   install: () => import('./cli/install.js'),
   list: () => import('./cli/list.js'),
   remove: () => import('./cli/remove.js'),
+  change: () => import('./cli/change.js'),
 };
 // 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
 const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;
-if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
+if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(process.argv[3] ?? '')) {
+  await (await import('./cli/validate.js')).run(process.argv.slice(3));
+} else if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
   await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
 } else if (environmentCli?.accepts(process.argv[2]!, process.argv.slice(3))) {
   await environmentCli.run(process.argv[2] as 'repair' | 'export-ca', process.argv.slice(3), controller.signal);

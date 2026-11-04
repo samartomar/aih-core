@@ -11,6 +11,8 @@ export function emit(output: Output, result: unknown, code: number): void {
   process.stdout.write(JSON.stringify(result, null, output.json ? undefined : 2) + '\n');
   process.exitCode = code;
 }
+/** Progress of program steps (each command's start and finish), one JSON line each on stderr; stdout keeps the result. */
+export const progressLine = (event: unknown): void => { process.stderr.write(JSON.stringify({ progress: event }) + '\n'); };
 /** A CLI-level refusal in the 0.1.0 result shape. */
 export const refusal = (code: string, reason: string) => ({ status: 'refused' as const, code, reason });
 

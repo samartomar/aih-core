@@ -2412,9 +2412,10 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
-and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
-Catalog that made the plan (`catalog-required`). The format is not marked ready.
+with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
+(including `render`), `fetch`, `merge`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
+[Native plugins](#native-plugins-plugin-steps)); every other step kind is refused (`step-unknown`) before any effect. The
+format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2442,28 +2443,207 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
 - **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
   origin (`chosen`), conflicts and `reviewDigest`. It never holds source bytes. One management id per item and scope.
-- **Conflicts.** A file Core didn't write makes Prepare `blocked`, with no handle; each conflict carries its
-  `observedSha256` and choices. Prepare again with `resolutions: [{ managementId, step, choice, observedSha256 }]`:
-  `replace` keeps your original in protected recovery and removal writes it back; `adopt` takes identical bytes; `skip`
-  leaves the member out and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Merges** add one entry to a file you may already have and never replace the file: `json` sets one JSON Pointer
+  (`key: '/mcpServers/github'`, comments and other keys kept), `toml` one table (`key: 'mcp_servers.github'`, its
+  `entry` a table of scalar or scalar-array values; a nested table becomes a sub-table), and `markdown` one block
+  between `<!-- aih:begin <key> -->` and `<!-- aih:end <key> -->`. Every other byte is kept, and removal takes away only
+  what Core added, including a TOML table header it created. For Codex's `AGENTS.md`, Prepare checks the resulting file,
+  your bytes plus every planned block, against 32 KiB and refuses before any write (`file-too-large-for-client`, naming
+  the `file` and `size`). An `inputs` binding whose declared input `isSecret` marks a secret slot in the entry.
+- **Conflicts.** A file, entry, table or block Core didn't write makes Prepare `blocked`, with no handle. Each conflict
+  carries its `target`, a merge's `key`, `observedSha256` (the whole file's digest, or `null`), the `existing` bytes
+  exactly as they are (known secret slots read `[REDACTED]` and are listed in `redacted`) and its `choices`. Prepare
+  again with `resolutions: [{ managementId, step, choice, observedSha256 }]`: `replace` keeps your original file in
+  protected recovery (receipts name it by digest only) and removal writes your bytes back; `adopt` is offered only for
+  bytes identical to Core's and takes them without a write; `skip` leaves the member out and makes the review `partial`
+  (Apply then needs `allowPartial: true`). A resolution whose `observedSha256` no longer matches is not used: Prepare
+  is `blocked` again with the new facts (`detail: 'resolution-stale'`). A TOML table that already holds a key the entry
+  doesn't name is your entry: replace or skip only. Content Core can't edit safely is offered as skip only.
+- **Your edit wins.** A member Core wrote that you changed is `managed-content-changed` with no choices: no resolution,
+  update or removal overwrites it (`keep-changed`); undo your edit yourself to take Core's version.
 - **Apply** binds the exact `reviewDigest`, consumes the handle, and re-checks the request (document and bytes), the
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
 
+### Renders and recipe origins through your Catalog
+
+Core never renders Catalog content itself and never bundles a Catalog. Pass the Catalog that made the plan as
+`controls.catalog: { version, renderStep, planRecipe }` (its `@aihq/catalog/reader` functions); Core uses it only for
+`write` steps with a `render` and for recipe proofs.
+
+```js
+import { renderStep, planRecipe } from '@aihq/catalog/reader';
+const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, planRecipe } };
+const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJson, choices, options } }, controls);
+```
+
+- **A render step** records the profile id and version it was planned with (`render: { name, profile, version, … }`,
+  or a combined render's `profiles`). Before calling `renderStep`, Prepare checks each recorded version against the
+  supplied profile documents (`profile-mismatch`) and every source byte against its sha256 (`source-mismatch`); it
+  passes the Catalog only the checked bytes, and reports the Catalog's own `source-mismatch` or `profile-mismatch`
+  refusal as that code. Bytes that don't match the sha256 the Catalog returned, or a failed render, are `invalid`
+  (`render-failed`). Without `controls.catalog.renderStep` the step is refused `catalog-required`, naming the step.
+- **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
+  `list` shows them as `catalog` and `profiles`.
+- **Recipe origin.** A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
+  `recipe.json` text, and the planner `choices` and `options`; Core supplies `scope` and `source` itself), Prepare checks
+  the `recipe.json` sha256 against `plan.recipe.sha256`, re-runs `planRecipe` with the request's contents, profiles and
+  qualifications, and compares the result with the plan byte for byte. A match records the origin
+  `{ recipe: { id, sha256, repository, commit }, data }` in the review, the receipt and `list`. No proof, a mismatch or a
+  failed reproduction still installs, records `chosen`, and the review says "origin not proven". A plan without
+  `recipe` (`planInstall`) is always `chosen`. Only a malformed proof (`invalid`, `recipe-proof`) or a proof without
+  `controls.catalog.planRecipe` (`catalog-required`) stops Prepare.
+### Native plugins (`plugin` steps)
+
+A `plugin` step installs a framework through the CLI's own plugin commands at the pinned commit. Every step naming a
+`framework` is one indivisible install, grouped under that framework id.
+
+- **Commands.** Core fills the supplied tool profile's `plugins.install` argv templates only from the step's own fields
+  (`<plugin>`, `<marketplace>`, `<marketplace-name>`, `<repository>`, `<commit>`, `<scope>`). A placeholder the step
+  doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
+  (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
+  `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
+- **The review** shows each exact command with the executable and sha256 Prepare pinned, the removal commands, the
+  presence check, the items the plugin's recorded folder holds (`contains`) and a "can't promise" line: Core can't show
+  or roll back what the CLI's own program changes. Prepare runs nothing.
+- **Apply** runs only those commands, in order, in the project folder or home, with cancellation and `onProgress`
+  events for each command's start and finish. The pending receipt is written before the first command, so an
+  interrupted command leaves the install `interrupted` and the run step `effectsUncertain`; the next Prepare shows the
+  step again (`previous: interrupted`) for a fresh approval and never re-runs it by itself.
+- **Presence.** Only the profile's `plugins.verify` readback (`{ argv, expect }`: the expected line in the command's
+  output) decides. After install, `present` gives verification `passed`; `absent`, or a check that can't run, fails the
+  step and makes the run `incomplete`. With `verify: none` the step is `unverified` (`no-presence-check`). An exit
+  status or help output never proves presence or absence.
+- **Receipt.** At install the filled removal commands and presence check are copied into the receipt and listed under
+  `plugins` by `list`, so removal never needs the old profile.
+- **Removal** runs those saved commands first, then the saved check: `absent` is `passed`; still `present`, a failed
+  command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
+  `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
+  `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
+  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
+  commands is a pending live check.
+
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
 
 ```sh
-aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--apply --yes] [--json]
+aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--resolutions choices.json]
+            [--apply --yes [--allow-partial]] [--json]
 aih list --project /work/app --scope project --json
 aih remove local-my-skills.skill.notes --scope project --project /work/app [--apply --yes] [--json]
 ```
 
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
-command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
+command is refused `catalog-required`. `aih install` also passes that Catalog's `/reader` `renderStep` and
+`planRecipe`, with the version from its `package.json`, as `controls.catalog`. `--resolutions` names a file holding
+`{ "resolutions": [...] }`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
+
+### AI setups (`acquire` steps)
+
+An `acquire` step downloads one AI setup's artifact into `~/.aihq/ai-setup/<name>/<version>/<cell>/`. Pass the
+qualification documents the plan's acquire steps name in `qualifications`.
+
+- **Before any effect**, Prepare finds the qualification by its sha256 over canonical JSON (`qualification-missing`
+  when none matches) and checks that the step agrees with it: AI setup, version and cell, `qualified` status, the
+  artifact's sha256 (and file and byte count where both name them), a native archive's members, a Python tool's wheel
+  closure and its fallback interpreter (`qualification-mismatch`). A step for another platform cell is `cell-mismatch`.
+  Core downloads only from an https `url`; a distribution with only a `file` is `invalid`. `npm` and `git`
+  distributions are refused `step-unknown` for now. Prepare probes each download host with this machine's Node trust:
+  a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`, never an Apply failure.
+- **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
+  `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
+  qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,
+  `wheel-install-failed`, `readback-failed`); approval covers both. Apply downloads the byte-checked closure and wheel,
+  makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
+  and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
+  `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
+- **Native archives** (`.tar.gz`, `.zip`): Apply extracts exactly the qualified members, each byte-checked, with their
+  executable bit.
+- **Bounds:** one artifact is at most `artifact-bytes`, expands to at most `artifact-expanded-bytes` and
+  `artifact-members`; a closure lists at most `closure-wheels` wheels (see `limits`).
+- **Outcomes.** Downloaded bytes that differ from the qualification fail that step (`reason: artifact-mismatch`); the
+  rest of its item and every item that depends on it (Catalog `dependencies`, or the AI setup's `mcpItem`) are
+  `not-attempted`, unrelated items continue, and the run is `incomplete`. The run step's `interpreter`, the receipt and
+  `list`'s `aiSetup` record which branch ran and why the fallback did. `onProgress` on the Apply call receives each
+  acquisition's `start`, `bytes`, `fallback` and `finish` events.
+- **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
+  acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
+  redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
+  last claim, the whole folder goes.
+
+## Apply authored changes through a change request (0.1.0, in development)
+
+A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an
+array member, a team file, a marked text block, an owned hook group or an exact approved command. It has today's
+authoring shape and rules, under one version: the operation kinds `file.write`, `file.remove`, `config.entries`
+(JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`; the
+bounded editors of [One complete authoring example](#one-complete-authoring-example); inputs, private inputs, prerequisites
+and checks of [Inputs and outcomes](#inputs-and-outcomes); one-server approval of [Allow one MCP server](#allow-one-mcp-server);
+and [owned hook groups](#owned-hook-groups). Two names differ from the recipe form: a target `root` is `project` or `user`
+(your home folder), and `config.entries` sets keys with `set: [{ path, value }]` (or `{ path, input }` for a declared input)
+and removes them with `remove: [{ path }]`. Recipe documents are not changes: `validateChange` answers
+`unsupported-version` for any other format id. The formats are not marked ready.
+
+A change request (`urn:aihq:core:change-request:0.1.0`) carries one or more changes for one scope, the ordinary input
+values beside each, the management ids each `requires`, and named `groups`:
+
+```js
+import { prepare, apply, list, prepareRemoval } from '@aihq/core';
+import { validateChange, deriveChangeIdentity } from '@aihq/core/contracts';
+
+const change = { schema: 'urn:aihq:core:change:0.1.0', id: 'codex-approval-on-request', description: 'Ask before Codex runs commands',
+  inputs: {}, materials: [], targets: ['user'], prerequisites: [], checks: [],
+  operations: [{ id: 'set', purpose: 'Ask before Codex runs commands', kind: 'config.entries', scope: 'user', format: 'toml',
+    target: { root: 'user', segments: [{ literal: '.codex' }, { literal: 'config.toml' }] },
+    set: [{ path: ['approval_policy'], value: 'on-request' }], requires: [], checks: [] }] };
+validateChange(change);                       // { status: 'ok', schema } | invalid | unsupported-version
+await deriveChangeIdentity({ change });       // { status: 'ok', changeIdentity: 'sha256:…', changeSha256, materials }
+const prepared = await prepare({ schema: 'urn:aihq:core:change-request:0.1.0', mode: 'vibe', scope: 'user', target: { project: null },
+  changes: [{ managementId: 'codex-approval-on-request', change, inputs: {}, requires: [] }],
+  groups: [{ id: 'team-settings', members: ['codex-approval-on-request'] }] });
+if (prepared.status === 'ready')
+  await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'codex-approval-on-request' }] });
+```
+
+- **One engine.** Each change is one management id and scope. Its operations go through the same Prepare, custody,
+  recovery and Apply as every other request, and its review and run are `urn:aihq:core:review:0.1.0` (`request: 'change'`)
+  and `urn:aihq:core:run:0.1.0`. In a change review and run, `step` is the operation id; each step has one sentence, the
+  operations it `requires`, and its exact `details` (target, edits, block, hook group, member, and for `process.run` the
+  executable and its sha256, argv, working folder, environment, accepted exit codes and bounds). Private values are
+  redacted. A command's effects are opaque (`effect: 'opaque-process'`), with the line that Core can't show or undo them;
+  a failed or cancelled command is reported `effectsUncertain` and never claims a rollback.
+- **Materials** are inline, or a change acquired by `reference` instead of `change`: a pinned local folder named by
+  `controls.materialRoots: { id: absolutePath }`, an HTTPS archive, or one exact GitHub commit archive, each checked by
+  length and sha256 exactly as in [Install from an exact git commit](#install-from-an-exact-git-commit). The referenced
+  member is itself a change document.
+- **Inputs.** Ordinary values sit in `changes[].inputs`. Secret values go in `controls.privateInputs`, keyed by management
+  id; they never appear in the review, history or receipts, and a changed value rejects Apply (`REVIEW_STALE` `input`).
+- **`requires`.** A required change cannot be removed while its dependant is installed: removal names it `retained`.
+- **Named groups (C50).** A group states the whole set it manages. Leaving a member out of the next request proposes,
+  after review, removing that member's content; an empty `members` proposes removing all the group's earlier members.
+  Unrelated content, and your edits to shared files, stay.
+- **Identity.** `deriveChangeIdentity` hashes the canonical change (or, for a reference, its exact bytes) and its
+  material closure; Prepare records the same identity in custody.
+- **Conflicts.** Your existing file or value is a conflict and Prepare is `blocked` with no handle. Prepare again with
+  `resolutions: [{ managementId, step: <operation id>, choice: 'replace' | 'adopt' | 'skip', observedSha256 }]`; `replace`
+  keeps your original and removal writes it back; `skip` leaves that operation out, with every operation of the change
+  that waits for it, and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Not yet.** `mode: 'enterprise'` is refused (`organization-required`) before any effect; Enterprise admission of changes
+  arrives later.
+
+```sh
+aih change change-request.json [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]...
+           [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]
+aih validate change change.json --json
+aih validate change-request change-request.json --json
+```
+
+Exit codes are those of the plan request commands above.
 
 ## Repair, export and the macOS session through the 0.1.0 review (in development)
 

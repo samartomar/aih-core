@@ -3,7 +3,7 @@
 import { parseArgs } from 'node:util';
 import { isAbsolute, resolve } from 'node:path';
 import { apply, prepareRemoval } from '../index.js';
-import { approved, emit, exitCode, printable, refusal } from './common.js';
+import { approved, emit, exitCode, printable, progressLine, refusal } from './common.js';
 import type { PlanControls } from '../plan/types.js';
 
 const USAGE = 'aih remove <managementId>... --scope project|user [--project <path>] [--item <item-id>] [--origin chosen] [--cli <id>]... [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
@@ -23,7 +23,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
   const project = values.project === undefined ? undefined : isAbsolute(values.project) ? values.project : resolve(values.project);
   const removals = positionals.map(managementId => ({ managementId, ...(values.item ? { item: values.item } : {}),
     ...(values.origin ? { origin: values.origin } : {}), ...(values.cli?.length ? { clis: values.cli } : {}) }));
-  const controls: PlanControls = { signal, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
+  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}) };
   const preparation = await prepareRemoval({ target: project ? { project } : {}, scope: values.scope, removals }, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle || !preparation.review)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));

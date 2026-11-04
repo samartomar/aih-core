@@ -314,3 +314,48 @@ export function removeCreatedTomlTable(bytes: Buffer, table: string[], created: 
   const next = [...parse(output).tables.values()].find(candidate => candidate.segments.length && candidate.first === header.first);
   return { bytes: Buffer.from(output, 'utf8'), ...(created === 'created-after-newline' && start === header.first && next ? { heir: identity(next.segments) } : {}) };
 }
+
+/**
+ * Plan merges (one TOML table as an entry): every key path assigned at or under `table`, and each table header there,
+ * in file order. A table holding a key the entry doesn't name is the person's entry, never silently merged into.
+ */
+export function tomlEntryPaths(before: Buffer | null, table: string[]): { assignments: string[][]; tables: string[][] } {
+  if (before === null) return { assignments: [], tables: [] };
+  const parsed = parse(decode(before));
+  return { assignments: [...parsed.assignments.keys()].map(id => JSON.parse(id) as string[]).filter(path => startsWith(path, table)),
+    tables: [...parsed.tables.values()].filter(item => item.segments.length && startsWith(item.segments, table)).map(item => item.segments) };
+}
+/**
+ * The exact text of one table entry: each table header at or under `table` with its region, and any dotted assignment
+ * under it elsewhere, in file order. Values at `redact` paths read `"[REDACTED]"`. `null` when nothing is there.
+ */
+export function tomlEntryText(before: Buffer | null, table: string[], redact: string[][] = []): string | null {
+  if (before === null) return null;
+  const text = decode(before);
+  const parsed = parse(text);
+  const spans: { start: number; end: number }[] = [...parsed.tables.values()]
+    .filter(item => item.segments.length && startsWith(item.segments, table)).map(item => ({ start: item.first, end: item.last }));
+  for (const [id, assignment] of parsed.assignments) if (startsWith(JSON.parse(id) as string[], table) &&
+      !spans.some(span => assignment.start >= span.start && assignment.end <= span.end)) spans.push({ start: assignment.start, end: assignment.end });
+  if (!spans.length) return null;
+  spans.sort((a, b) => a.start - b.start);
+  const hidden = redact.map(path => parsed.assignments.get(identity(path))).filter((item): item is Assignment => !!item)
+    .sort((a, b) => b.valueStart - a.valueStart);
+  return spans.map(span => {
+    let slice = text.slice(span.start, span.end);
+    for (const item of hidden) if (item.valueStart >= span.start && item.valueEnd <= span.end)
+      slice = slice.slice(0, item.valueStart - span.start) + '"[REDACTED]"' + slice.slice(item.valueEnd - span.start);
+    return slice;
+  }).join('');
+}
+/** Writes back one key's exact original value text, replacing only the value Core put there. */
+export function restoreTomlValue(current: Buffer, path: string[], original: Buffer): Buffer | null {
+  const raw = tomlMember(original, path);
+  if (raw === null) return null;
+  const text = decode(current);
+  const member = parse(text).assignments.get(identity(path));
+  if (!member) return null;
+  const output = text.slice(0, member.valueStart) + raw.toString('utf8') + text.slice(member.valueEnd);
+  parse(output);
+  return Buffer.from(output, 'utf8');
+}

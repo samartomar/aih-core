@@ -1,9 +1,13 @@
 // Plan-module handles: the private key that lets Apply carry out one 0.1.0 review. Each wraps one engine handle; a
 // handle is consumed by its first Apply.
 import type { PreparedHandle } from '../host-types.js';
+import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PlanHandle } from './types.js';
+import type { AcquireFacts } from './acquire/types.js';
 
-export interface StepRef { step: number; managementId: string }
+export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true }
+/** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
+export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string }
 export interface HandleState {
   engine: PreparedHandle;
   engineDigest: string;
@@ -13,6 +17,18 @@ export interface HandleState {
   partial: boolean;
   /** Engine operation id → the plan step and management id it carries out. */
   operations: Map<string, StepRef>;
+  /** Plugin steps' presence checks by plan step index, run after the engine's commands (plan requests only). */
+  programs?: Map<number, ProgramCheck>;
+  /**
+   * A removal's native plugin commands (prepareRemoval): their own engine handle, run before `engine` releases the
+   * receipts, then their presence checks. `unremovable` are plugin steps the receipt holds no removal command for.
+   */
+  before?: { engine: PreparedHandle | undefined; engineDigest: string; operations: Map<string, StepRef>; programs: Map<number, ProgramCheck>;
+    unremovable: StepRef[] };
+  /** Plan step index -> what its AI setup acquisition did, filled during Apply. */
+  acquired?: Map<number, AcquireFacts>;
+  /** Where an acquisition reports progress: the Apply call's `onProgress`. */
+  progress?: { onProgress?: (event: import('../types.js').Json) => void };
   /** The caller's request object and the digests Prepare read from it (plan requests only). */
   request?: { value: unknown; documentDigest: string; bytesDigest: string };
 }

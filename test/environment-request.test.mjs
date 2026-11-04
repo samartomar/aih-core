@@ -64,7 +64,7 @@ test('a supplied-file repair is reviewed, approved and run through the 0.1.0 rev
   assert.equal(target.verification.status, 'skipped');
   assert.ok(review.environment.facts.trust.sources.some(source => source.kind === 'supplied' && source.id === 'supplied:team'));
   assert.ok(review.steps.some(step => step.path === '.gitconfig' && step.effect === 'replace-file'), JSON.stringify(review.steps));
-  assert.ok(review.steps.some(step => step.effect === 'run-process' && typeof step.cantPromise === 'string'));
+  assert.ok(review.steps.some(step => step.effect === 'opaque-process' && typeof step.cantPromise === 'string'));
   const run = await apply(preparation.handle, approve(preparation), { logging: 'off' });
   assert.deepEqual(validateFormat(run), { status: 'ok', schema: 'urn:aihq:core:run:0.1.0' });
   assert.equal(run.completion, 'complete', JSON.stringify(run));

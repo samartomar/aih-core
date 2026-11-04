@@ -65,3 +65,87 @@ export function ownRequest(project, skills, clis = ['claude-code', 'codex', 'kir
 
 /** The saved request document: the same request without any source bytes. */
 export const savedDocument = request => ({ ...request, files: request.files.map(({ bytes: _bytes, ...entry }) => entry) });
+
+export const RECIPE = 'urn:aihq:catalog:recipe:0.1.0';
+export const RECIPE_SOURCE = { repository: 'https://github.com/example/notes-recipe', commit: 'e'.repeat(40) };
+/** A recipe FIXTURE over own content: every skill a member; the data commit is a fixture value. */
+export const recipeOf = (content, id = 'notes-base') => ({ schema: RECIPE, id, kind: 'base', framework: content.framework.id,
+  members: content.items.map(item => ({ item: item.id, preTicked: true })), options: [],
+  data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) } });
+
+/**
+ * A plan request whose plan was made by a Catalog reader (`reader`: the `@aihq/catalog/reader` FIXTURE, or a real one):
+ * `planInstall` by default, or `planRecipe` with `{ recipe: true }`, which also supplies the matching `recipeProof`.
+ */
+export function renderRequest(reader, project, skills, clis = ['claude-code', 'codex', 'kiro'], options = {}) {
+  const { content, files, sourceId } = ownContent(skills, options);
+  const profiles = clis.map(id => profile(id));
+  const scope = options.scope ?? 'project';
+  const recipe = options.recipe ? recipeOf(content) : undefined;
+  const plan = recipe ? reader.planRecipe(recipe, [content], profiles, {}, { scope, source: RECIPE_SOURCE }) :
+    reader.planInstall(content.items.map(item => item.id), [content], profiles, { scope, data: null });
+  return { schema: PLAN_REQUEST, scope, target: { project }, plan, contents: [content], profiles,
+    files: Object.entries(files).map(([sourcePath, bytes]) => ({ sourceId, sourcePath, sha256: sha256(bytes), bytes })),
+    ...(recipe ? { recipeProof: { pluginJson: JSON.stringify({ name: recipe.id, version: '1.0.0', description: 'Fixture recipe' }),
+      recipeJson: reader.canonical(recipe), choices: {}, options: {} } } : {}) };
+}
+
+// Native plugin steps (`op: "plugin"`). The step and profile shapes follow the accepted Catalog interface (plan step
+// `{ cli, framework, marketplace?, marketplaceName?, plugin, repository, commit, scanKey, verify }`; profile `plugins`
+// `{ pin, scopes, pinForm, install, remove, verify }` with argv templates). The documents are still FIXTURES: the
+// `verify` readback below is a Core-side check against the fake client (test/fixtures/fake-client.mjs), not an
+// evidenced presence check of any real client.
+export const PLUGIN_COMMIT = '5bf4e78011075bcfc0dc295f0724994cd123ee71';
+export const PRESENCE = { argv: ['claude', 'plugin', 'list'], expect: '<plugin>@<marketplace-name>' };
+
+/** A Claude-shaped tool profile with a native plugin route; `verify` is `'none'` or an `{ argv, expect }` readback. */
+export const pluginProfile = (verify = 'none', { id = 'claude-code', command = 'claude', remove = true } = {}) => ({
+  ...profile(id, 3), plugins: { pin: 'holds', scopes: ['project', 'user'], pinForm: 'marketplace',
+    install: [[command, 'plugin', 'marketplace', 'add', '<marketplace>', '--scope', '<scope>'],
+      [command, 'plugin', 'install', '<plugin>@<marketplace-name>', '--scope', '<scope>']],
+    ...(remove ? { remove: [[command, 'plugin', 'uninstall', '<plugin>']] } : {}), verify } });
+
+/** Framework content whose recorded plugin folder (the whole source) holds two skills. */
+export function pluginContent(framework = 'superpowers') {
+  const files = ['brainstorming', 'writing-plans'].map(name => {
+    const bytes = Buffer.from(`---\nname: ${name}\n---\n${name}\n`);
+    return { name, file: { sourceId: framework, sourcePath: `skills/${name}/SKILL.md`, sha256: sha256(bytes), bytes: bytes.length,
+      executable: false, role: 'content' } };
+  });
+  return { schema: CONTENT, framework: { id: framework, name: 'Superpowers' },
+    sources: [{ id: framework, kind: 'git', repository: `https://github.com/obra/${framework}`, commit: PLUGIN_COMMIT, notices: [] }],
+    items: files.map(({ name, file }) => ({ id: `${framework}.skill.${name}`, kind: 'skill', name, description: name, files: [file],
+      contentSha256: sha256(file.sha256), behaviourSha256: sha256(name) })),
+    plugins: [{ sourceId: framework, path: '/', files: files.map(({ file }) => ({ sourcePath: file.sourcePath, sha256: file.sha256,
+      bytes: file.bytes, executable: false })), scanKey: `${framework}@${PLUGIN_COMMIT}` }] };
+}
+
+/** A user-scope plan request installing `framework` as a native Claude plugin. */
+export function pluginRequest(verify = 'none', { scope = 'user', project = null, framework = 'superpowers', profileOptions } = {}) {
+  const content = pluginContent(framework);
+  const step = { op: 'plugin', cli: profileOptions?.id ?? 'claude-code', framework,
+    marketplace: `https://github.com/obra/${framework}-marketplace`, marketplaceName: `${framework}-marketplace`, plugin: framework,
+    repository: `https://github.com/obra/${framework}`, commit: PLUGIN_COMMIT, scanKey: `${framework}@${PLUGIN_COMMIT}`, verify };
+  return { schema: PLAN_REQUEST, scope, target: { project }, contents: [content], profiles: [pluginProfile(verify, profileOptions)], files: [],
+    plan: { status: 'ok', data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) }, plan: [step],
+      missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] } };
+}
+
+/**
+ * A plan request whose steps are `merge` steps (Catalog 9: `root`, `file`, `format`, `key`, `entry`, `item`, `clis`, and
+ * optional `inputs` bindings `{ item, input, at: { pointer } }`). Each merge names an own-content item with no files; its
+ * declared inputs (`requirements.inputs`) come from `inputs[itemId]`. Steps are sorted by root, then file, as Catalog orders
+ * them. FIXTURE documents in the accepted Catalog shapes, not Catalog output.
+ */
+export function mergeRequest(project, merges, { scope = 'project', inputs = {}, framework = 'local-my-setup', extra = [] } = {}) {
+  const ids = [...new Set(merges.map(merge => merge.item))];
+  const items = ids.map(id => ({ id, kind: 'mcp', name: id.split('.').at(-1), description: `Fixture item ${id}`, files: [],
+    ...(inputs[id] ? { requirements: { inputs: inputs[id] } } : {}), contentSha256: sha256(id), behaviourSha256: sha256(id) }));
+  const steps = merges.map(({ root = scope, clis = ['claude-code'], ...rest }) => ({ op: 'merge', root, ...rest, clis }));
+  const plan = [...steps].sort((a, b) => a.root < b.root ? -1 : a.root > b.root ? 1 : a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+  const clis = [...new Set(steps.flatMap(step => step.clis))].sort();
+  return { schema: PLAN_REQUEST, scope, target: { project },
+    plan: { status: 'ok', data: null, plan: [...plan, ...extra], missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
+    contents: [{ schema: CONTENT, framework: { id: framework, name: 'My setup' }, sources: [{ id: framework, kind: 'local', notices: [] }], items }],
+    profiles: clis.map(id => profile(id)), files: [] };
+}

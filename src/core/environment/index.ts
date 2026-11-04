@@ -4,7 +4,8 @@
 // 0.1.0 run. The retained trust and export modules are used as they are, so their admitted byte bindings stay intact.
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
+import { readRegularFile } from '../internal/fsxn.js';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { prepareRepair, applyRepair } from '../repair.js';
 import { prepareTrust, applyTrust, disposeTrustHandle } from '../trust.js';
@@ -41,7 +42,7 @@ const prepareRetained = (lowered: Lowered, controls: HostControls): Promise<Prep
 
 const publicProblem = (row: Diagnostic): EnvironmentProblem =>
   ({ code: row.code, reason: row.reason, message: row.message, ...(typeof row.path === 'string' ? { path: row.path } : {}) });
-const effectOf = (effects: string): ReviewStep['effect'] => effects === 'opaque-process' ? 'run-process' :
+const effectOf = (effects: string): ReviewStep['effect'] => effects === 'opaque-process' ? 'opaque-process' :
   effects === 'unavailable' ? 'conflict' : ['create-file', 'replace-file', 'remove-file', 'already-satisfied', 'conflict'].includes(effects) ?
     effects as ReviewStep['effect'] : 'unchanged';
 const outputEffect = (effect: string): ReviewStep['effect'] =>
@@ -50,6 +51,13 @@ function homePath(path: unknown): string | undefined {
   if (typeof path !== 'string' || !isAbsolute(path)) return undefined;
   const inside = relative(homedir(), path);
   return inside && !inside.startsWith('..') && !isAbsolute(inside) ? inside.replaceAll('\\', '/') : undefined;
+}
+/** The exact existing bytes at a home-relative conflict target, as text; `null` when absent, unreadable or not UTF-8. Trust outputs hold no secrets. */
+function existingText(path: string | undefined): string | null {
+  if (path === undefined) return null;
+  const bytes = readRegularFile(join(homedir(), ...path.split('/')), { maxBytes: 16 * 1_048_576 });
+  if (!bytes) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; }
 }
 interface TrustOutputRow { selectionId: string; operationId: string; managementId: string; path: string; format: string; effect: string }
 const trustOutputs = (inputs: unknown): TrustOutputRow[] =>
@@ -101,7 +109,7 @@ function presented(checked: Checked, lowered: Lowered, result: PreparationResult
     }
     conflicts.push({ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: refs[step]!.managementId, step,
       target: steps[step]!.path ?? `${hint.selectionId}/${hint.operationId}`, observedSha256: hint.observedSha256,
-      choices: hint.availableChoices.includes('replace') ? ['replace'] : [] });
+      existing: existingText(steps[step]!.path), redacted: [], choices: hint.availableChoices.includes('replace') ? ['replace'] : [] });
   }
   // A conflict with no replacement on offer (bytes Core cannot read back, or custody that disagrees) names its step
   // and is kept, never replaced; one with no step stays a reported problem.
@@ -114,7 +122,8 @@ function presented(checked: Checked, lowered: Lowered, result: PreparationResult
     const output = rows.find(entry => entry.selectionId === refs[step]!.selectionId && entry.operationId === refs[step]!.operationId);
     conflicts.push({ code: 'STATE_CONFLICT', reason: 'managed-content-changed', managementId: refs[step]!.managementId, step,
       target: steps[step]!.path ?? `${refs[step]!.selectionId}/${refs[step]!.operationId}`,
-      observedSha256: (output as { beforeSha256?: string | null } | undefined)?.beforeSha256 ?? null, choices: [] });
+      observedSha256: (output as { beforeSha256?: string | null } | undefined)?.beforeSha256 ?? null,
+      existing: existingText(steps[step]!.path), redacted: [], choices: [] });
     named.add(row);
   }
   const unavailable = result.diagnostics.filter(row => !named.has(row) && !(row.code === 'STATE_CONFLICT' && (result.resolutionInputs ?? []).length))

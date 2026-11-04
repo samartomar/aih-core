@@ -27,7 +27,7 @@ import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDige
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
 import { gitProvenance } from './internal/material-descriptors.js';
-import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
+import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, restoreMemberBytes, tomlEntryPaths, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts } from './internal/custody-items.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
@@ -85,6 +85,11 @@ interface PreparedStep {
   kept?: { action: 'keep-changed' | 'keep-required'; reason: string };
   /** Why a `conflict` step leaves its member as it is, named per member by managed update preparation. */
   conflictReason?: string;
+  /**
+   * A plan request's program step (`root` is its scope root, no `path`): Apply records the selection's install as pending
+   * before running it, and its claim once all the selection's steps succeed, so the receipt keeps its undo facts.
+   */
+  programClaim?: boolean;
 }
 interface PreparedState {
   trustParticipant?: TrustEngineParticipant;
@@ -110,6 +115,8 @@ interface PreparedState {
   rechecks?: { own: Map<string, OwnMaterial[]>; indexStatus: Record<string, ReleaseIndexStatus> };
   /** Lowered from a plan request: a rejected Apply names the changed binding whatever the internal review version. */
   planned?: true;
+  /** Plan effects run immediately before a reviewed file write (`EngineExtension.effects`). */
+  effects?: EngineExtension['effects'];
 }
 // Authority read outcome that is not a successful read; carried as a precise diagnostic.
 class AuthorityFailure extends Error {
@@ -251,6 +258,29 @@ const handles = new WeakMap<PreparedHandle, PreparedState>();
 export interface EngineExtension {
   supplied?: ReadonlyMap<string, { readonly materials: readonly OwnMaterial[]; readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> }>;
   plans?: ReadonlyMap<string, PlanItemFacts>;
+  /**
+   * A change request (contract 4.2): each inline change's own canonical digest, by selection id, so its identity is the
+   * change's; and the reader that turns an acquired change document into the recipe shape this engine carries out.
+   */
+  change?: { inline: ReadonlyMap<string, string>; read(document: unknown, selectionId: string): Recipe | undefined };
+  /** Filled at Prepare: each review operation id with the management ids it acts for, lifecycle cleanup included. */
+  owners?: Map<string, string[]>;
+  /**
+   * Per operation id (`<selection>/<operation>`), work Apply runs immediately before writing that file, after the pending
+   * receipt: a failure fails the operation (its write and dependants are not attempted); `facts` on success are recorded
+   * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1).
+   */
+  effects?: ReadonlyMap<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
+  /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
+  merges?: ReadonlyMap<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
+  /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
+  observe?: (facts: ObservedStep) => void;
+}
+export interface ObservedStep {
+  selectionId: string; operationId: string; effect: ReviewOperation['effects']; reason?: string;
+  /** A supplied resolution whose observed digest no longer matches the target: it was not used. */
+  stale: boolean;
+  before: Buffer | null; after: Buffer | null;
 }
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
@@ -370,8 +400,9 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   if (supplied && 'inline' in selected) return { recipe: selected.inline, recipeSha256: digest(selected.inline), material: supplied };
   if ('reference' in selected) {
     const captured = await captureRecipeReference(selected.reference, roots, { signal, budget });
-    const recipe = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe') as unknown as Recipe;
-    if (!validateRecipe(recipe).valid) throw new Error('recipe-invalid');
+    const parsed = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(captured.readRecipe()), 'recipe');
+    const recipe = (extension?.change ? extension.change.read(parsed, selection.id) : parsed) as unknown as Recipe | undefined;
+    if (!recipe || !validateRecipe(recipe).valid) throw new Error('recipe-invalid');
     const declared = [...recipe.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     const acquired = [...captured.materials].map(item => ({ id: item.id, sha256: item.sha256, byteLength: item.byteLength })).sort((a, b) => codeUnitCompare(a.id, b.id));
     if (canonicalJson(declared) !== canonicalJson(acquired)) throw new Error('material-closure');
@@ -380,7 +411,7 @@ async function captureSelection(selection: ExecutionPolicy['selections'][number]
   const recipe = selected.inline;
   if (recipe.materials.some(item => !('source' in item))) throw new Error('material-source-missing');
   const captured = await captureInlineMaterials(recipe.materials.filter(item => 'source' in item), roots, { signal, budget });
-  return { recipe, recipeSha256: digest(recipe), material: captured };
+  return { recipe, recipeSha256: extension?.change?.inline.get(selection.id) ?? digest(recipe), material: captured };
 }
 
 export function transaction(root: string, directoryCreated?: (path: string) => void) {
@@ -424,6 +455,7 @@ function keepOriginal(bytes: Buffer): void {
   stateFiles(16 * 1024 * 1024).writeAtomic(originalPath(digest), bytes, 0o600);
   protectState([originalPath(digest)]);
 }
+const isOriginalReference = (value: Json): boolean => !!value && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, 'originalFile');
 /** The kept original a file member's restoration data names, when it is still there with its exact bytes. */
 function readOriginal(value: Json): Buffer | undefined {
   const reference = value && typeof value === 'object' && !Array.isArray(value) ? value.originalFile : undefined;
@@ -696,8 +728,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let after: Buffer | null | undefined; let pins: PathPin[] | undefined; let mode: number | undefined;
         let custodyOnly = false; let custody: Record<string, Owner | null> | undefined;
         let stepMembers: MemberDescriptor[] | undefined; let preExisting: Record<string, Json> | undefined;
-        let original: Buffer | undefined;
-        let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined;
+        let original: Buffer | undefined; let staleChoice = false;
+        let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined; let programClaim = false;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let createdContainer = false;
         let editConflict: string | undefined; let conflictReason: string | undefined; let createdTables: Map<string, TomlTableCustody> | undefined; const tomlHeirs: string[] = [];
@@ -714,6 +746,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const resolved = resolveProcess(op, bound, project, selectionKey, material, privateValues, capturedUnavailable.operations[id]);
           preparedProcess = resolved.process; details = { ...resolved.review, declaredEffects: op.effects.map(item => safeText(item, privateValues)) };
           effect = 'opaque-process';
+          if (extension?.plans?.has(selection.id)) { root = selection.scope === 'project' ? project : userHomeRoot(); programClaim = true; }
         } else {
           const target = resolvePath(op.target, op.scope, bound, project, selectionKey);
           root = target.root; path = target.path; pins = pathPins(target.absolute); ownerKey = path;
@@ -944,12 +977,23 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             }
           }
           const choice = resolutions.find(item => item.selectionId === selection.id && item.operationId === op.id);
+          // A plan request's resolution for bytes that changed since is not used: the step is a conflict again, with the new facts.
           if (choice) {
             usedResolutions.add(`${selection.id}/${op.id}`);
-            if (choice.observedSha256 !== currentDigest) throw new Error('resolution-stale');
-            resolution = choice.choice;
+            if (choice.observedSha256 !== currentDigest) { if (!extension) throw new Error('resolution-stale'); staleChoice = true; }
+            else resolution = choice.choice;
             if (approval) throw new Error('resolution-invalid');
           }
+          // A plan merge's TOML table that already holds a key the entry doesn't name is the person's entry: a conflict
+          // that only a reviewed replace or a skip settles, never silently merged into, and never adoptable.
+          const planned = extension?.merges?.get(`${selection.id}/${op.id}`);
+          let foreign = false;
+          if (planned?.format === 'toml' && op.kind === 'config.entries' && !editConflict) try {
+            const authored = new Set(op.entries.map(entry => JSON.stringify(entry.path)));
+            foreign = tomlEntryPaths(before ?? null, planned.segments).assignments.some(entryPath => !authored.has(JSON.stringify(entryPath)) &&
+              !projected.members[memberKey({ path: path!, kind: 'entry', format: 'toml', entry: entryPath })]?.claims?.some(claim =>
+                claim.managementId === selection.managementId && claim.scope === selection.scope));
+          } catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
           // A file an earlier step of this run writes has the mode that step plans, not the one on disk.
           const beforeMode = overlay?.mode ?? (live.state === 'present' ? live.mode : undefined);
           const same = before === null ? after === null : after !== null && before.equals(after) &&
@@ -979,7 +1023,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; }
 
           const decide = (option: 'replace' | 'adopt' | undefined): ReviewOperation['effects'] => {
-            if (editConflict || sharedChange || overlap || drift && !option) return 'conflict';
+            // Your later edit to a member Core wrote is never overwritten by a plan request, whatever you choose (C58).
+            if (editConflict || sharedChange || overlap || drift && (!option || planned !== undefined) || foreign && !option) return 'conflict';
             if (same) return 'already-satisfied';
             if (before === null && after !== null) return 'create-file';
             if (before !== null && after === null) return changingOwned || option === 'replace' && descriptors.every(member => { const prior = projected.members[memberKey(member)]; return prior?.claims?.some(claim => claim.managementId === selection.managementId && claim.scope === selection.scope); }) ? 'remove-file' : 'conflict';
@@ -997,7 +1042,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes) && !prior.approval;
             });
           if (sharedCopy) ownerState = 'managed';
-          const adoptable = same && before !== null && !managed && !sharedCopy;
+          const adoptable = same && before !== null && !managed && !sharedCopy && !foreign;
           if (effect === 'conflict' && decide('replace') !== 'conflict') choices.push('replace');
           if (effect === 'conflict' && adoptable && decide('adopt') !== 'conflict') choices.push('adopt');
           if (effect === 'already-satisfied' && adoptable && !resolution && !editConflict && !sharedChange && !overlap && !drift)
@@ -1008,15 +1053,25 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             const desired = memberBytes(member, after!);
             if (bytes && desired && bytes.equals(desired) && !prior) delete custody[key];
           }
-          custodyOnly = same && (managed || sharedCopy || resolution === 'replace' && (drift || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
+          custodyOnly = same && (managed || sharedCopy || resolution === 'replace' && (drift || foreign || trustParticipant?.exactReplacement === true)) && canonicalJson(custody) !== canonicalJson(Object.fromEntries(Object.keys(custody ?? {}).map(key => [key, projected.members[key] ?? null])));
           if (resolution === 'adopt' && !adoptable) throw new Error('resolution-invalid');
           // A reviewed replacement of a person's JSON value keeps that value in protected custody for restoration.
-          if (resolution === 'replace' && op.kind === 'config.entries' && (op.format === 'json' || op.format === 'jsonc') && custody && !editConflict)
+          if (resolution === 'replace' && op.kind === 'config.entries' && (op.format === 'json' || op.format === 'jsonc') && custody && !editConflict && !planned)
             for (const member of descriptors) {
               const key = memberKey(member); const found = memberBytes(member, before!);
               if (projected.members[key] || found === null || !custody[key]) continue;
               const errors: ParseError[] = []; const value = parseJsonc(found.toString('utf8'), errors, { allowTrailingComma: true }) as Json;
               if (!errors.length && value !== undefined) (preExisting ??= {})[key] = value;
+            }
+          // A plan merge that replaces a person's entry or block keeps their whole file as a protected original, referenced
+          // from custody by digest only, so a known secret in it never reaches a receipt; the last removal writes that
+          // entry's exact original bytes back from it.
+          if (planned && resolution === 'replace' && effect !== 'conflict' && custody && !editConflict && before !== null && before !== undefined)
+            for (const member of descriptors) {
+              const key = memberKey(member);
+              if (member.kind === 'file' || projected.members[key] || !custody[key] || memberBytes(member, before) === null) continue;
+              (preExisting ??= {})[key] = { originalFile: { sha256: sha256(before), byteLength: before.length } };
+              original = before;
             }
           // A reviewed replacement of a person's whole file keeps their bytes as a protected original (recovery/originals),
           // referenced from custody by digest; the last removal writes them back instead of leaving nothing.
@@ -1094,9 +1149,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(effect === 'conflict' && conflictReason ? { conflictReason } : {}),
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
             ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
-            ...(original ? { original } : {}),
+            ...(original ? { original } : {}), ...(programClaim ? { programClaim: true } : {}),
             // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
             item: selectionItem(selection, project!, privateValues, extension) });
+          extension?.observe?.({ selectionId: selection.id, operationId: op.id, effect, ...(conflictReason ? { reason: conflictReason } : {}),
+            stale: staleChoice, before: before ?? null, after: after ?? null });
         }
       }
       selectionOps.set(selection.id, currentIds);
@@ -1145,7 +1202,8 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         sets: [...new Set([...(old?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === selection.scope)),
           ...(policy.managedSelections ?? []).filter(set => set.scope === selection.scope && set.members.includes(selection.managementId)).map(set => set.id)])],
         requires: keptEdges(key, selection.requires.map(required => claimId(policy.selections.find(item => item.id === required)!))) };
-      if ((old || claim.sets.length || claim.requires.length) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
+      const program = steps.some(step => step.programClaim && step.authored?.selectionId === selection.id);
+      if ((old || claim.sets.length || claim.requires.length || program) && (!old || canonicalJson(old) !== canonicalJson(claim))) {
         const updates = selectionUpdates.get(root) ?? Object.create(null); updates[key] = { claim, requires: selectionOps.get(selection.id) ?? [] }; selectionUpdates.set(root, updates);
       }
     }
@@ -1290,10 +1348,15 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // empty; a member the person already deleted stays deleted: only Core's present, unchanged value
           // is given back. Shared blocks join this rule: the person's earlier block content is restored.
           const shared = descriptor.kind === 'block' && sharedBlockRole(descriptor.startMarker, descriptor.endMarker) !== null;
-          const recorded = bytes !== null && (descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') || shared ||
+          const recorded = bytes !== null && (descriptor.kind === 'entry' || shared || descriptor.kind === 'block' ||
             descriptor.kind === 'file') ? preExistingFor(ownership.get(root)!.value, key) : undefined;
-          const originalBytes = descriptor.kind === 'file' && recorded ? readOriginal(recorded.value) : undefined;
-          if (originalBytes) { after = originalBytes; restores = true; }
+          const originalBytes = recorded ? readOriginal(recorded.value) : undefined;
+          // A plan merge's entry or block: its exact original bytes, taken from the kept original file.
+          const restoredMember = originalBytes && before && (descriptor.kind === 'entry' || descriptor.kind === 'block') ?
+            restoreMemberBytes(descriptor, before, originalBytes) : undefined;
+          if (originalBytes && descriptor.kind === 'file') { after = originalBytes; restores = true; }
+          else if (restoredMember) { after = restoredMember; restores = true; }
+          else if (recorded && isOriginalReference(recorded.value)) ({ bytes: after, heir } = subtractMember(descriptor, before, owner));
           else if (recorded && descriptor.kind === 'entry') { after = renderConfigEntries(descriptor.format, before, [{ path: descriptor.entry, action: 'set', value: recorded.value }]); restores = true; }
           else if (recorded && shared && typeof recorded.value === 'string' && descriptor.kind === 'block') {
             after = renderTextBlock(before, { blockId: descriptor.blockId, startMarker: descriptor.startMarker,
@@ -1521,6 +1584,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         ...(step.redactedPaths?.[step.ownerKey!] ? { redactedPath: step.redactedPaths[step.ownerKey!] } : {}),
         action, ...(reason === undefined ? {} : { reason }) };
     }));
+    if (extension?.owners) for (const step of steps) extension.owners.set(step.review.id, step.lifecycle ? releasedIds.get(step) ?? [] : [step.managementId]);
     update?.plan(steps.flatMap(step => step.root && step.members ? step.members.map(descriptor => planMember(step, descriptor,
       step.lifecycle ? releasedIds.get(step) ?? [] : [step.managementId], stepOwners.get(step)?.approval ?? step.review.details.approval)) : []));
     const review: PreparedReview = deepFreezeStrictJsonV1({ ...base,
@@ -1532,7 +1596,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request, REQUEST_MAX_SIZE)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ...(extension ? { planned: true as const } : {}), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ...(extension ? { planned: true as const } : {}), ...(extension?.effects ? { effects: extension.effects } : {}), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(checksScans ? { rechecks: { own: owned, indexStatus: indexStatus! } } : {}),
         ...(organization ? { organization: clone({ source: organization.read.source, contentDigest: organization.read.contentDigest,
@@ -1645,7 +1709,9 @@ function prepareCheck(check: RecipeCheck, bound: Record<string, Json>, project: 
 }
 
 export async function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {},
-    preEffectCheck?: () => void | Promise<void>): Promise<RunResult> {
+    preEffectCheck?: () => void | Promise<void>,
+    /** Told when each program step starts and finishes (plan requests' `onProgress`); never changes the run. */
+    observe?: (operationId: string, phase: 'start' | 'finish', application?: string) => void): Promise<RunResult> {
   const runId = randomUUID(); let state: PreparedState | undefined; let started = false;
   const result: RunResult = { schema: 'urn:aihq:core:run-result:1.0.0', runId, useCase: 'policy', completion: 'rejected',
     effectiveOptions: { logging: { value: 'off', origin: 'default' } }, operations: [], checks: [], diagnostics: [], record: disabled, followUp: [] };
@@ -1745,7 +1811,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       step.review.effects === 'conflict' || step.review.effects === 'unavailable');
     if (unresolved && !allowPartial) throw new Error('partial-approval-required');
     const mutatingRoots = [...new Set([...state.selectionUpdates.keys(), ...state.itemUpdates.keys(), ...state.steps.filter(step => step.path &&
-      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!)])].sort();
+      (['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || step.custodyOnly)).map(step => step.root!),
+      ...state.steps.filter(step => step.programClaim).map(step => step.root!)])].sort();
     if (mutatingRoots.length) protectState();
     // Acquire roots and the aggregate trust lock in one lexical order.
     for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(lockTarget(root));
@@ -1934,14 +2001,33 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertStep(step);
         if (receiptDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
-      if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
+      const effect = step.review.effects === 'already-satisfied' ? undefined : state.effects?.get(step.review.id);
+      if (effect && step.root && step.path) {
+        await preEffectCheck?.();
+        if (controls.signal?.aborted) throw new Error('cancelled');
+        assertInputs(); writePending(); started = true;
+        const outcome = await effect.run(controls.signal);
+        if (outcome.status !== 'passed') {
+          operation.application = 'failed'; operation.reason = outcome.reason; operation.effectsUncertain = outcome.effectsUncertain;
+          if (outcome.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
+        } else {
+          // The effect made the target's parent folders: pin them as they now are for the reviewed write.
+          step.pins = pathPins(join(step.root, ...step.path.split('/')));
+          if (outcome.facts !== undefined && step.item) for (const holder of [step.item, metadataState.itemUpdates.get(step.root)?.[step.item.id]?.item])
+            if (holder?.facts.plan) holder.facts.plan = { ...holder.facts.plan, aiSetup: outcome.facts as never };
+        }
+      }
+      if (operation.application === 'failed') { /* The effect failed: its write is not attempted. */ }
+      else if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');
         assertInputs();
         writePending(); started = true;
+        try { observe?.(step.review.id, 'start'); } catch { /* An observer never changes the run. */ }
         const processResult = await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
+        try { observe?.(step.review.id, 'finish', operation.application); } catch { /* An observer never changes the run. */ }
         if (processResult.status !== 'passed') {
           operation.reason = processResult.reason; operation.effectsUncertain = processResult.effectsUncertain;
           if (processResult.terminationUnconfirmed) stop = true;
@@ -2306,7 +2392,7 @@ function reservePending(value: Ownership, steps: PreparedStep[]): void {
 }
 /** Steps whose success changes target-keyed custody. */
 function writesCustody(step: PreparedStep): boolean {
-  return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly;
+  return ['create-file', 'replace-file', 'remove-file'].includes(step.review.effects) || step.resolution === 'adopt' || !!step.custodyOnly || !!step.programClaim;
 }
 function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[], extension?: EngineExtension): NonNullable<PreparedStep['item']> {
   const source = selectionSource(selection);

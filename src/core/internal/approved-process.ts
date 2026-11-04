@@ -9,6 +9,8 @@ export interface ResolvedExecutable { path: string; launchPath: string; pins: Pa
 export interface ProcessResult {
   status: 'passed' | 'failed' | 'unavailable' | 'cancelled'; reason: string;
   exitCode?: number; effectsUncertain: boolean; terminationUnconfirmed: boolean;
+  /** Standard output, only when the request asked to `capture` it (a read-only readback); bounded by `maxOutputBytes`. */
+  stdout?: Buffer;
 }
 const WINDOWS_SUFFIX = process.platform === 'win32' ? ['.exe', '.com'] : [''];
 
@@ -102,7 +104,7 @@ export function resolveLauncher(name: string): ResolvedExecutable | undefined {
 export async function runApprovedProcess(request: {
   executable: ResolvedExecutable; args: string[]; cwd: string; env: Record<string, string>;
   stdin?: string; timeoutMs: number; maxOutputBytes: number; acceptedExitCodes: number[];
-  signal?: AbortSignal;
+  signal?: AbortSignal; capture?: boolean;
 }): Promise<ProcessResult> {
   if (request.signal?.aborted) return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false, terminationUnconfirmed: false };
   const live = executableIdentityMatches(request.executable) ?
@@ -111,14 +113,15 @@ export async function runApprovedProcess(request: {
     return { status: 'unavailable', reason: 'executable-changed', effectsUncertain: false, terminationUnconfirmed: false };
   return new Promise(resolve => {
     let child: ReturnType<typeof spawn>;
-    let byteCount = 0; let settled = false; let closing = false; let forcedReason: string | undefined;
+    let byteCount = 0; let settled = false; const captured: Buffer[] = []; let closing = false; let forcedReason: string | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let cleanup: ReturnType<typeof setTimeout> | undefined;
     const finish = (status: ProcessResult['status'], reason: string, exitCode?: number, uncertain = false, unconfirmed = false) => {
       if (settled) return;
       settled = true; if (timeout) clearTimeout(timeout); if (cleanup) clearTimeout(cleanup);
       request.signal?.removeEventListener('abort', abort);
-      resolve({ status, reason, ...(exitCode === undefined ? {} : { exitCode }), effectsUncertain: uncertain, terminationUnconfirmed: unconfirmed });
+      resolve({ status, reason, ...(exitCode === undefined ? {} : { exitCode }), effectsUncertain: uncertain, terminationUnconfirmed: unconfirmed,
+        ...(request.capture ? { stdout: Buffer.concat(captured) } : {}) });
     };
     const stop = (reason: string) => {
       if (closing || settled) return;
@@ -135,7 +138,8 @@ export async function runApprovedProcess(request: {
         env: { ...process.env, ...request.env }, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { finish('unavailable', 'spawn-failed'); return; }
     const observe = (chunk: Buffer) => { byteCount += chunk.byteLength; if (byteCount > request.maxOutputBytes) stop('output-bytes'); };
-    child.stdout?.on('data', observe); child.stderr?.on('data', observe);
+    child.stdout?.on('data', (chunk: Buffer) => { if (request.capture) captured.push(chunk); observe(chunk); });
+    child.stderr?.on('data', observe);
     child.once('error', () => finish('unavailable', 'spawn-failed', undefined, false));
     child.once('close', code => {
       if (request.signal?.aborted) { finish('cancelled', 'cancelled', code ?? undefined, true); return; }

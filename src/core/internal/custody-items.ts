@@ -11,6 +11,8 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
+import type { PluginFacts } from '../plan/types.js';
+export type { PluginFacts } from '../plan/types.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -44,14 +46,21 @@ export interface PlanItemFacts {
   clis: string[];
   /** The Catalog data the plan was made from, or `null` for own content. */
   data: { repository: string; commit: string } | null;
-  /** `chosen`; a proven recipe origin is recorded by a later contract slice. */
-  origin: 'chosen';
+  /** `chosen`, or the recipe origin Core proved at Prepare (8.2, C44). */
+  origin: 'chosen' | { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null };
   /** The caller's Catalog version when one was passed in `controls.catalog`; otherwise `null`. */
   catalog: string | null;
   /** The tool profiles supplied with the plan for the CLIs named here. */
   profiles: { id: string; version: string | number }[];
   /** The plan step indexes grouped under this management id, ascending. */
   steps: number[];
+  /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
+  /**
+   * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
+   * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
+   */
+  plugins?: PluginFacts[];
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -219,19 +228,48 @@ function validOrigin(value: unknown): boolean {
 const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
 /** Plan-request receipt facts, bounded like the rest of an item record. */
+function validAiSetupFacts(value: unknown): boolean {
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'])) return false;
+  const interpreter = value.interpreter;
+  return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
+    (value.fallbackReason === null || text(value.fallbackReason, 64)) &&
+    (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
+}
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
+  if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
+    value.plugins.every(validPluginFacts))) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
     list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
   if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
   if (value.data !== null && !(exact(value.data, ['repository', 'commit']) && text(value.data.repository, 512) && text(value.data.commit, 128))) return false;
-  if (value.origin !== 'chosen' || value.catalog !== null && !text(value.catalog, 64)) return false;
+  const pin = (entry: unknown): boolean => exact(entry, ['repository', 'commit']) && text(entry.repository, 512) && text(entry.commit, 128);
+  if (value.data !== null && !pin(value.data)) return false;
+  const origin = value.origin;
+  if (origin !== 'chosen' && !(exact(origin, ['recipe', 'data']) && exact(origin.recipe, ['id', 'sha256', 'repository', 'commit']) &&
+      typeof origin.recipe.id === 'string' && PLAN_ID.test(origin.recipe.id) && hex(origin.recipe.sha256) &&
+      text(origin.recipe.repository, 512) && text(origin.recipe.commit, 128) && (origin.data === null || pin(origin.data)))) return false;
+  if (value.catalog !== null && !text(value.catalog, 64)) return false;
   if (!Array.isArray(value.profiles) || value.profiles.length > 64 || !value.profiles.every(profile => exact(profile, ['id', 'version']) &&
       typeof profile.id === 'string' && PLAN_ID.test(profile.id) &&
       (text(profile.version, 64) || Number.isSafeInteger(profile.version) && (profile.version as number) >= 0))) return false;
   const steps = value.steps;
   return Array.isArray(steps) && steps.length > 0 && steps.length <= 65536 &&
     steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
+}
+
+const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
+  value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
+function validPluginFacts(value: unknown): boolean {
+  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'])) return false;
+  if (!Number.isSafeInteger(value.step) || (value.step as number) < 0 || typeof value.cli !== 'string' || !PLAN_ID.test(value.cli) ||
+      !text(value.plugin, 256) || !text(value.commit, 128)) return false;
+  if (!Array.isArray(value.contains) || value.contains.length > 4096 ||
+      !value.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) || !ascending(value.contains)) return false;
+  if (value.undo !== null && !(Array.isArray(value.undo) && value.undo.length > 0 && value.undo.length <= 8 && value.undo.every(argv))) return false;
+  const check = value.presenceCheck;
+  return check === 'none' || exact(check, ['argv', 'expect']) && argv(check.argv) && text(check.expect, 4096);
 }
 
 function validProvenance(value: unknown): boolean {
@@ -280,13 +318,15 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
         owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
+      // A plan merge's replaced entry or block is restorable by a reference to its file's protected original (secret-safe).
+      const merged = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' || owner.descriptor?.kind === 'block').map(([key]) => key));
       // A replaced whole file is restorable by a reference to its protected original, never by its bytes.
       const files = new Set(owned.filter(([, owner]) => owner.descriptor === undefined || owner.descriptor.kind === 'file').map(([key]) => key));
       const original = (entry: unknown): boolean => exact(entry, ['value']) && exact(entry.value, ['originalFile']) &&
         exact(entry.value.originalFile, ['sha256', 'byteLength']) && hex(entry.value.originalFile.sha256) &&
         Number.isSafeInteger(entry.value.originalFile.byteLength) && (entry.value.originalFile.byteLength as number) >= 0;
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
-          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || files.has(key) && original(entry))) return false;
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || (files.has(key) || merged.has(key)) && original(entry))) return false;
     }
     if (item.redactedPaths !== undefined) {
       const keys = new Set(owned.map(([key]) => key));

@@ -15,9 +15,15 @@ export interface Plan {
   status: 'ok' | 'incomplete';
   data: { repository: string; commit: string } | null;
   recipe?: { id: string; sha256: string; repository: string; commit: string };
+  /** The profile ids and versions the plan was made with, when Catalog records them. */
+  profiles?: { id: string; version: string | number }[];
   plan: PlanStep[];
   missing: Json[]; unavailable: Json[]; clashes: Json[]; duplicates: Json[]; references: Json[]; warnings: Json[];
 }
+/** A recipe origin Core proved by reproducing the plan (8.2): the plan's own `recipe` and its `data`. */
+export interface ProvenOrigin { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null }
+/** `chosen`, or a proven recipe origin (C44). */
+export type Origin = 'chosen' | ProvenOrigin;
 /** One source file the plan names. In the Node API it carries its `bytes`; a saved request document never does (C65). */
 export interface PlanFile { sourceId: string; sourcePath: string; sha256: string; bytes?: Uint8Array }
 export interface PlanResolution { managementId: string; step: number; choice: 'replace' | 'adopt' | 'skip'; observedSha256: string | null }
@@ -36,43 +42,89 @@ export interface PlanRequest {
   /** A second Prepare's conflict choices (section 7). */
   resolutions?: PlanResolution[];
 }
+/**
+ * The caller's installed Catalog reader (samartomar/aih-catalog#197): `renderStep(step, contents, profiles, files)` and
+ * `planRecipe(recipe, contents, profiles, choices, options)`, with the Catalog `version`. Core never bundles its own.
+ */
+export interface CatalogControls {
+  version: string;
+  renderStep?: (step: Json, contents: Json[], profiles: Json[], files: { sourceId: string; sourcePath: string; bytes: Uint8Array }[]) => unknown;
+  planRecipe?: (recipe: Json, contents: Json[], profiles: Json[], choices: Json, options: Json) => unknown;
+}
 /** Controls for plan requests; the rest of `HostControls` stays with the older request formats. */
 export interface PlanControls {
   signal?: AbortSignal;
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
   /** The caller's Catalog, the module that made the plan (C51). */
-  catalog?: { version: string; renderStep?: unknown; planRecipe?: unknown };
+  catalog?: CatalogControls;
   onProgress?: (event: Json) => void;
 }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
-export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string;
+  /** `file-too-large-for-client`: the file and the size it would have. */
+  file?: string; size?: number }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
 export interface ReviewStep {
-  step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
-  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-process';
+  /** A plan step index; for a change, the operation id. */
+  step: number | string; op: string; managementId: string; sentence: string; cantPromise: string | null;
+  effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged' | 'run-program' | 'opaque-process' | 'unavailable';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** A change: the operations this one waits for, and its exact effects (paths, edits, executable, argv, cwd, env, exit codes), redacted. */
+  requires?: string[]; details?: Json;
+  /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
+  framework?: string; cli?: string; plugin?: string; commit?: string; contains?: string[];
+  /** The exact commands, each with the executable and sha256 Prepare pinned; only these run, in this order. */
+  commands?: ReviewCommand[];
+  /** The removal commands copied into the receipt at install, or `null` when the profile gave none. */
+  undo?: string[][] | null;
+  /** The presence check that decides `present`/`absent`, or `none` (then the step stays unverified, C56). */
+  presenceCheck?: 'none' | (ReviewCommand & { expect: string });
+  /** An earlier run of this program step was interrupted: its effects are uncertain. */
+  previous?: 'interrupted';
+  /** An `acquire` step: the AI setup, the qualified artifact it downloads and the folder it fills. */
+  acquire?: { aiSetup: string; version: string; cell: string; kind: 'pypi-wheel' | 'native-archive'; qualification: string;
+    artifact: { file: string; sha256: string }; into: string; members: number; closure: number };
+  /** A Python AI setup's two interpreter branches (C46): approval covers both. */
+  interpreter?: { installed: { path: string; version: string; note: 'in range, not qualified' } | null; range: string;
+    fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
+  /** A merge: its format, key, and the entry it adds (known secret slots read `[REDACTED]`). */
+  format?: 'json' | 'toml' | 'markdown'; key?: string; entry?: Json;
 }
+export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
-  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number;
-  target: string; observedSha256: string | null; choices: ('replace' | 'adopt' | 'skip')[];
+  code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number | string;
+  target: string;
+  /** A merge's key: the entry or block the conflict is about. */
+  key?: string;
+  /** The digest of the whole target file now, which a resolution names; `null` when it is absent. */
+  observedSha256: string | null;
+  /** The exact existing bytes (a merge's entry or block, or a written file), with known secret slots `[REDACTED]`; `null` when absent or not text. */
+  existing: string | null;
+  /** The pointers of the secret slots `existing` redacts. */
+  redacted: string[];
+  choices: ('replace' | 'adopt' | 'skip')[];
+  /** Why only some fixes are offered: `resolution-stale` (the bytes changed since the choice), or the editor's reason. */
+  detail?: string;
 }
 export interface Review {
   schema: typeof REVIEW;
-  request: 'plan' | 'removal' | 'repair' | 'export' | 'macos-session';
+  request: 'plan' | 'removal' | 'change' | 'repair' | 'export' | 'macos-session';
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
-  origin?: 'chosen';
+  origin?: Origin;
   /** "origin not proven" when the plan names a recipe it did not prove (C44); otherwise `null`. */
   originNote?: string | null;
   steps: ReviewStep[];
   conflicts: ReviewConflict[];
   /** `files` entries no step names: ignored, and listed (4.1). */
   ignoredFiles?: { sourceId: string; sourcePath: string }[];
+  /** A change request's named groups, as stated (C50). */
+  groups?: { id: string; members: string[] }[];
   failureRule: string;
   warnings: string[];
   /** Repair, export and macOS session reviews only (contract 10). */
@@ -88,9 +140,15 @@ export type PlanPreparation = Preparation | Refusal | Invalid | UnsupportedVersi
 export interface Approval { approved: true; origin: 'interactive' | 'automation'; reviewDigest: string; allowPartial?: boolean }
 
 export interface RunStep {
-  step: number; managementId: string;
+  step: number | string; managementId: string;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
+  /** A program step that may have changed something although it did not finish: never claimed as rolled back. */
+  effectsUncertain?: true;
+  /** A failed step's reason, such as `artifact-mismatch`. */
+  reason?: string;
+  /** An AI setup step: the interpreter branch that actually ran (C46). */
+  interpreter?: { branch: 'installed' | 'fallback'; path: string; version: string; fallback: boolean; fallbackReason: string | null };
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
@@ -113,8 +171,14 @@ export interface Run {
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
-  items: string[]; origin: 'chosen' | null; data: { repository: string; commit: string } | null; clis: string[];
+  items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
+  /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
+  catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** Native plugin installs with the undo facts the receipt keeps for them. */
+  plugins?: PluginFacts[];
+  /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';
@@ -126,9 +190,27 @@ export interface RemovalMember { kind: string; path: string; pointer?: string; a
 export interface RemovalEntry {
   managementId: string; disposition: 'prepared' | 'absent' | 'retained' | 'reconcile-required' | 'unavailable';
   status?: 'ready' | 'partial' | 'blocked'; members: RemovalMember[];
+  /** A removal named by one item inside a plugin (C45). */
+  item?: string;
+  /** Why an entry is not prepared: `plugin-indivisible` when the item is one part of a plugin that can't be split. */
+  reason?: string;
+  /** Everything the indivisible plugin holds. */
+  contains?: string[];
+  /** The removals the person can prepare instead: the whole plugin. */
+  offers?: { managementId: string }[];
 }
 export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
+/** One native plugin install's receipt facts; argv lists are filled, never templates. */
+export interface PluginFacts {
+  step: number; cli: string; plugin: string; commit: string;
+  /** The content items the plugin's recorded folder holds; the plugin is still one indivisible install (C68). */
+  contains: string[];
+  /** The CLI's own removal commands (`plugins.remove`), or `null` when the profile gave none. */
+  undo: string[][] | null;
+  /** The profile's presence check for this route, or `none` (C56). */
+  presenceCheck: 'none' | { argv: string[]; expect: string };
+}
 
 /** A problem that keeps environment work from being admitted on this host, named by its retained code and reason. */
 export interface EnvironmentProblem { code: string; reason: string; message: string; path?: string }
