@@ -91,6 +91,8 @@
         "item": { "type": "string" },
         "items": { "type": "array", "items": { "type": "string" } },
         "clis": { "type": "array", "items": { "type": "string" } },
+        "to": { "type": "string", "description": "A link step: the folder it points to, under the user root" },
+        "linkType": { "enum": ["junction", "symlink", "copy"], "description": "How a link step lands on this host (C29)" },
         "requires": { "type": "array", "items": { "type": "string" } },
         "details": { "type": "object" },
         "acquire": { "type": "object", "additionalProperties": false,

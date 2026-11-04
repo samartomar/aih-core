@@ -2447,7 +2447,7 @@ elsewhere (for example in the user's own state) is not seen.
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
 with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
-(including `render`), `fetch`, `merge`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
+(including `render`), `fetch`, `merge`, `link` (see [Sharing](#shared-content-across-projects-and-clis)), `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
 [Native plugins](#native-plugins-plugin-steps)); every other step kind is refused (`step-unknown`) before any effect. The
 format is not marked ready.
 
@@ -2499,7 +2499,33 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
-  Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+  `removals: [{ managementId, clis }]` releases only those CLIs' claims (see below).
+
+### Shared content across projects and CLIs
+
+- **Claims.** A receipt claim is one management id, scope, CLI and project: the CLI comes from the step's `clis`, the
+  project from `target.project`, for user-scope members too. A place several CLIs read (one `write` with `clis:
+  ['codex', 'kimi']`) or a user-scope entry two projects plan identically is one member with a claim each. The review
+  shows such a step once. A member stays until its last claim is released; removal of the others reports `keep-shared`.
+- **`list`** returns one entry per management id and scope, with `clis`, every claim as `{ cli, project }` (`cli: null`
+  when the steps recorded no `clis`), and per member the `clis` holding it and, for links, `kind: 'link'` and `linkType`.
+- **Removal** names the place: a user-scope removal releases the claims of the project in `target.project` (or of
+  requests that named none). With `clis`, only those CLIs' claims go; a management id with no claim for those CLIs is
+  `absent`. A claim whose steps recorded no `clis` can't be split: removal by CLI is refused
+  (`client-attribution-missing`); remove it for every CLI instead.
+- **`link` steps** (`{ op: 'link', root: 'user', path, to, item, clis }`) place a CLI's folder over a shared version
+  folder the plan writes. On macOS and Linux it is a symlink. On Windows it is a folder junction when every CLI in `clis`
+  is one observed to load junctioned folders (Claude Code, Codex, Copilot CLI, Kimi, Kiro CLI, OpenCode), and otherwise
+  (Antigravity, Cursor, dsh, or no `clis`) a copy of the files the plan writes into `to`. The review step and `list`
+  name the `linkType`. Core never replaces something already at the link's place (a conflict offered as skip only) and
+  never places a link through another link. Each claim on a junction or symlink keeps a record in Core's private state
+  (`~/.aih/core/content/<claim>/links/`); when the last claim goes, Core removes the link (only while it still points at its folder) and the parent folders it created
+  for it, if empty. A copy's files are ordinary members. These are Core-side placement facts, not evidence that a CLI
+  loads a linked folder.
+- **AI setup folders** in `~/.aihq/ai-setup/` stay while any project's claim holds them.
+- **Changes** at user scope that name `target.project` are claimed for that project too: two projects pushing the same
+  change hold two claims, and the value stays until both are removed. A user-scope change request without a project keeps
+  one claim per management id, anchored on the home folder.
 
 ### Input values (`inputs` bindings)
 

@@ -2,7 +2,7 @@
 // from, then let the engine re-check and carry out its reviewed steps. Never throws for a stale or lost handle.
 import { randomUUID } from 'node:crypto';
 import { apply as applyEngine } from '../recipe-engine.js';
-import { forgetProvenState } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
 import { take, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
@@ -12,6 +12,8 @@ import { SETUP_MARKER } from './steps/upstream-setup.js';
 import { projectRoot } from '../internal/host-files.js';
 import { removeAcquiredFolder } from './acquire/effect.js';
 import { MANIFEST } from './acquire/types.js';
+import { linkRecordPath, removeLink } from './links.js';
+import type { LinkFacts } from '../internal/custody-items.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
 import { privateInputsHold } from './inputs.js';
@@ -82,6 +84,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   const run = runOf(result, state);
   if (state.readback) checkSwitchOff(run, state.readback);
   removeReleasedSetups(run);
+  if (state.links) removeReleasedLinks(run, state.links);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
   if (before) {
     run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
@@ -172,9 +175,17 @@ export function runOf(result: RunResult, state: HandleState): Run {
       { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : step.application });
   for (const step of steps) if (programStep(step) && step.application !== 'applied')
     step.verification = { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : 'not-attempted' };
-  const members: RunMember[] = (result.members ?? []).map(member => ({ managementId: member.managementId, scope: member.scope,
-    kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
-    ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check }));
+  // A plan claim's engine key names its management id; one member several claims (CLIs, projects) hold is listed once.
+  const listed = new Set<string>();
+  const members: RunMember[] = (result.members ?? []).flatMap(member => {
+    const entry: RunMember = { managementId: state.claims?.get(member.managementId) ?? member.managementId, scope: member.scope,
+      kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
+      ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check };
+    const key = JSON.stringify(entry);
+    if (listed.has(key)) return [];
+    listed.add(key);
+    return [entry];
+  });
   const history: Run['history'] = result.record.status === 'written' ? { status: 'recorded' } : result.record.status === 'disabled' ?
     { status: 'disabled' } : { status: 'not-recorded', ...(result.record.reason === 'record-limit' ? { limit: 'history-bytes' } : {}) };
   const run: Run = { schema: RUN, status: 'ok', runId: result.runId, completion: result.completion, reviewDigest: state.reviewDigest,
@@ -190,6 +201,28 @@ export function runOf(result: RunResult, state: HandleState): Run {
   return run;
 }
 
+/**
+ * A folder link goes with its last claim: once a run released a claim's record and no other recorded claim, of any CLI or
+ * project, still names that link, the link and the parents Core made for it go (C28).
+ */
+function removeReleasedLinks(run: Run, links: LinkFacts[]): void {
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return; }
+  const fold = (path: string) => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+  const released = run.members.filter(member => member.scope === 'user' && member.intent === 'remove' && member.check === 'absent')
+    .map(member => fold(member.path.replaceAll('\\', '/')));
+  const held = new Set<string>();
+  try {
+    for (const root of [home, ...ownershipInventory().targets]) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+      for (const link of item.plan?.links ?? []) held.add(fold(link.path));
+  } catch { return; /* receipts unreadable: leave every link in place */ }
+  const done = new Set<string>();
+  for (const link of links) if (link.linkType !== 'copy' && !done.has(link.path) && !held.has(fold(link.path)) &&
+      released.some(path => path.endsWith('/' + fold(linkRecordPath(link.path))))) {
+    done.add(link.path);
+    try { removeLink(home, link); } catch { /* left for the person; list no longer claims it */ }
+  }
+}
 /** An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28). */
 function removeReleasedSetups(run: Run): void {
   const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);

@@ -69,7 +69,25 @@ export interface LoweredPlugin {
   acquire?: undefined;
   bound?: undefined;
 }
-export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge | LoweredProgram;
+export type Lowered = LoweredWrite | LoweredPlugin | LoweredMerge | LoweredLink | LoweredProgram;
+/**
+ * One user-scope folder link (`link`): a junction or symlink Core places before writing the link's record, or, for a
+ * CLI not confirmed to load junctions on Windows, a copy of the files the plan writes into `to` (C29).
+ */
+export interface LoweredLink {
+  kind: 'link';
+  managementIds: string[];
+  root: 'user';
+  path: string;
+  to: string;
+  linkType: 'junction' | 'symlink' | 'copy';
+  sentence: string;
+  cantPromise: string | null;
+  review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[]; to: string; linkType: 'junction' | 'symlink' | 'copy' };
+  /** A link binds no inputs. */
+  bound?: undefined;
+  acquire?: never; profiles?: never;
+}
 /** A command and the value its output must show (D57): the readback of a `tool-command`, or of its reverse. */
 export interface Readback { argv: string[]; expected: string }
 /**

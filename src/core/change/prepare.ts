@@ -18,6 +18,7 @@ import { FAILURE_RULE, digestOf, problemsOf } from '../plan/prepare.js';
 import { requestDigests } from '../plan/request.js';
 import { REVIEW, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from '../plan/types.js';
 import { CHANGE, CHANGE_REQUEST, engineRecipe, leftOut, validateChange, type Change, type ChangeReference } from './validate.js';
+import { claimKey } from '../plan/claims.js';
 import type { ReviewOperation } from '../host-types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 
@@ -143,13 +144,18 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const skipped = new Map<string, { change: Change; ids: string[] }>();
   // One engine selection per change, keyed by its management id (C48): `requires` and private inputs name it too.
   const inline = new Map<string, string>();
+  // Claim identity includes the project for user-scope members too (contract 5): a user-scope change made for a project
+  // is its own claim. Without a project it stays the home-anchored claim of its management id.
+  const attributed = request.scope === 'user' && project !== null;
+  const engineId = (managementId: string): string => attributed ? claimKey(managementId, 'user', null, project) : managementId;
+  const claims = new Map(request.changes.map(entry => [engineId(entry.managementId), entry.managementId]));
   const selections: ExecutionPolicy['selections'] = request.changes.map(entry => {
     if (entry.change) inline.set(entry.managementId, sha256(canonicalJson(entry.change as unknown as Json)));
-    return { id: entry.managementId, managementId: entry.managementId, scope: request.scope, configuration: entry.inputs,
+    return { id: entry.managementId, managementId: engineId(entry.managementId), scope: request.scope, configuration: entry.inputs,
       requires: entry.requires, recipe: entry.change ? { inline: engineRecipe(entry.change, skips.get(entry.managementId)) } : { reference: entry.reference! } };
   });
   const policy: ExecutionPolicy = { schema: POLICY, mode: 'vibe', selections,
-    ...(request.groups ? { managedSelections: request.groups.map(group => ({ id: group.id, scope: request.scope, members: group.members })) } : {}) };
+    ...(request.groups ? { managedSelections: request.groups.map(group => ({ id: group.id, scope: request.scope, members: group.members.map(engineId) })) } : {}) };
   for (const entry of request.changes) if (entry.change && skips.has(entry.managementId))
     skipped.set(entry.managementId, { change: entry.change, ids: leftOut(entry.change, skips.get(entry.managementId)!) });
   const resolutions = (request.resolutions ?? []).filter(item => item.choice !== 'skip').map(item => ({ selectionId: item.managementId, operationId: item.step,
@@ -165,7 +171,8 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const engine = await prepareEngine({ useCase: 'policy', policy, target: { project: project ?? home }, ...(resolutions.length ? { resolutions } : {}) },
     { ...(controls.signal ? { signal: controls.signal } : {}), ...(controls.logging ? { logging: controls.logging } : {}),
       ...(controls.privateInputs ? { privateInputs: controls.privateInputs } : {}), ...(controls.materialRoots ? { materialRoots: controls.materialRoots } : {}) },
-    undefined, undefined, undefined, undefined, undefined, { change: { inline, read }, owners });
+    undefined, undefined, undefined, undefined, undefined, { change: { inline, read }, owners,
+      ...(attributed ? { claims: new Map(request.changes.map(entry => [entry.managementId, { managementId: entry.managementId, project }])) } : {}) });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))
@@ -192,7 +199,8 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   for (const operation of engine.review.operations) {
     const authored = bySelection.get(operation.id);
     const lifecycle = !authored?.selectionId;
-    const managementId = authored?.selectionId ?? owners.get(operation.id)?.[0] ?? '';
+    const owner = owners.get(operation.id)?.[0];
+    const managementId = authored?.selectionId ?? (owner === undefined ? '' : claims.get(owner) ?? owner);
     const step = authored?.operationId ?? operation.id;
     operations.set(operation.id, { step, managementId });
     const effect: ReviewStep['effect'] = operation.effects;
@@ -222,7 +230,7 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
   const partial = engine.status === 'partial' || skipped.size > 0;
   const digests = requestDigests(input)!;
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial,
-    operations, request: { value: input, ...digests } });
+    operations, claims, request: { value: input, ...digests } });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }
 

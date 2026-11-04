@@ -32,6 +32,9 @@
         "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
           "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
         "clis": { "type": "array", "items": { "type": "string" } },
+        "claims": { "type": "array", "description": "Every claim on this management id here: its CLI (null when its steps recorded none) and the project that made it (C28)",
+          "items": { "type": "object", "additionalProperties": false, "required": ["cli", "project"],
+            "properties": { "cli": { "type": ["string", "null"] }, "project": { "type": ["string", "null"] } } } },
         "installState": { "enum": ["complete", "interrupted"] },
         "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
           "properties": { "branch": { "enum": ["installed", "fallback", null] },
@@ -48,6 +51,7 @@
           "properties": {
             "kind": { "type": "string" }, "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
             "linkType": { "enum": ["junction", "symlink", "copy"] },
+            "clis": { "type": "array", "items": { "type": "string" }, "description": "The CLIs whose claims hold this member" },
             "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked"] }
           } } },
         "plugins": { "type": "array", "items": {

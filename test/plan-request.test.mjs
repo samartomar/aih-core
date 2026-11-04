@@ -92,7 +92,7 @@ test('a request is refused or invalid before any target effect, naming the cause
     ['source mismatch', request => { request.files[0].bytes = Buffer.from('other bytes'); }, { status: 'refused', code: 'source-mismatch' }],
     ['tool unknown in a profile', request => { request.profiles.push(profile('gemini')); }, { status: 'refused', code: 'tool-unknown', tool: 'gemini' }],
     ['tool unknown in a step', request => { request.plan.plan[0].clis = ['emacs']; }, { status: 'refused', code: 'tool-unknown', tool: 'emacs' }],
-    ['a step kind not carried out yet', request => { request.plan.plan.push({ op: 'link', item: ID, root: 'user', path: 'x', to: 'y' }); }, { status: 'refused', code: 'step-unknown', op: 'link' }],
+    ['a step kind not carried out yet', request => { request.plan.plan.push({ op: 'tool-command', aiSetup: ID, argv: ['x'] }); }, { status: 'refused', code: 'step-unknown', op: 'tool-command' }],
     ['an unknown step kind', request => { request.plan.plan.push({ op: 'teleport' }); }, { status: 'refused', code: 'step-unknown', op: 'teleport' }],
     ['a path leaving its root', request => { request.plan.plan[0].path = '../outside/SKILL.md'; }, { status: 'refused', code: 'path-escape', step: 0 }],
     ['an absolute path', request => { request.plan.plan[0].path = '/etc/SKILL.md'; }, { status: 'refused', code: 'path-escape' }],

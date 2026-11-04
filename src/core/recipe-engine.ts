@@ -258,6 +258,8 @@ const handles = new WeakMap<PreparedHandle, PreparedState>();
 export interface EngineExtension {
   supplied?: ReadonlyMap<string, { readonly materials: readonly OwnMaterial[]; readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> }>;
   plans?: ReadonlyMap<string, PlanItemFacts>;
+  /** Selection id -> the management id and project of a claim kept under a claim key (user-scope changes, contract 5). */
+  claims?: ReadonlyMap<string, { managementId: string; project: string | null }>;
   /**
    * A change request (contract 4.2): each inline change's own canonical digest, by selection id, so its identity is the
    * change's; and the reader that turns an acquired change document into the recipe shape this engine carries out.
@@ -1017,11 +1019,23 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // The Catalog item another claim installs: from this request's selections, else as recorded at install.
           const claimItem = (claim: Claim) => policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item ??
             stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.item ?? undefined;
+          // A plan claim (C28): another CLI's or project's claim of the same management id shares the member.
+          const myPlan = extension?.plans?.get(selection.id);
+          const claimPlan = (claim: Claim) => { const found = policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope);
+            return found ? extension?.plans?.get(found.id) : stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.plan; };
+          const samePlanItem = (claim: Claim, inRequest = false) => { if (!myPlan) return false;
+            const other = inRequest ? policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope) : undefined;
+            const plan = inRequest ? other && extension?.plans?.get(other.id) : claimPlan(claim);
+            return !!plan && canonicalJson(plan.items) === canonicalJson(myPlan.items); };
+          // A user-scope change made for another project (or for none) is the same change: it shares the member too.
+          const myClaim = extension?.claims?.get(selection.id);
+          const sameChange = (claim: Claim) => !!myClaim && (claim.managementId === myClaim.managementId ||
+            stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.claim?.managementId === myClaim.managementId);
           const sameItem = (claim: Claim) => { const other = claimItem(claim);
-            return !!selection.item && !!other && other.framework === selection.item.framework && other.itemId === selection.item.itemId; };
+            return samePlanItem(claim) || sameChange(claim) || !!selection.item && !!other && other.framework === selection.item.framework && other.itemId === selection.item.itemId; };
           // A claimant in this request that installs exactly this item version writes the same bytes, so it changes with us.
           const changesTogether = (claim: Claim) => { const other = policy.selections.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.item;
-            return !!selection.item && !!other && canonicalJson(other) === canonicalJson(selection.item); };
+            return samePlanItem(claim, true) || !!selection.item && !!other && canonicalJson(other) === canonicalJson(selection.item); };
           const sharedChange = !editConflict && descriptors.some(member => { const prior = projected.members[memberKey(member)]; const oldBytes = memberBytes(member, before!); const newBytes = memberBytes(member, after!);
             return prior?.claims?.some(claim => (claim.managementId !== selection.managementId || claim.scope !== selection.scope) && !changesTogether(claim)) &&
               (oldBytes === null ? newBytes !== null : newBytes === null || !oldBytes.equals(newBytes)); });
@@ -1043,7 +1057,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
           // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
           // file or value, another item's, or a tool's approval entry is never acquired.
-          const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
+          const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval || op.kind === 'text.block' && !!myPlan) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
               // An entry a tool's approval owns is the person's decision there, never a shared copy.
@@ -2434,14 +2448,15 @@ function writesCustody(step: PreparedStep): boolean {
 function selectionItem(selection: ExecutionPolicy['selections'][number], project: string, privateValues: string[], extension?: EngineExtension): NonNullable<PreparedStep['item']> {
   const source = selectionSource(selection);
   const plan = extension?.plans?.get(selection.id);
-  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined || plan !== undefined,
+  return { id: claimIdentity(selection.scope, selection.managementId, project), named: selection.item !== undefined || plan !== undefined || !!extension?.claims?.has(selection.id),
     facts: { managementId: selection.managementId, scope: selection.scope,
       name: selection.name === undefined ? null : safeText(selection.name, privateValues), kind: selection.kind ?? null,
       framework: selection.item?.framework ?? null, item: selection.item === undefined ? null : clone(selection.item),
       tool: selection.tool ?? null, origins: selection.origins === undefined ? [] : clone(selection.origins),
       ...(selection.projectFacts === undefined ? {} : { projectFacts: selection.projectFacts.map(fact => ({ ...fact, value: safeText(fact.value, privateValues) })) }),
       ...(source === undefined ? {} : { materialSource: source }),
-      ...(plan === undefined ? {} : { plan: clone(plan) }) } };
+      ...(plan === undefined ? {} : { plan: clone(plan) }),
+      ...(extension?.claims?.has(selection.id) ? { claim: { ...extension.claims.get(selection.id)! } } : {}) } };
 }
 /** The exact git provenance of a selection's referenced recipe; undefined for inline recipes and other sources. */
 function selectionSource(selection: ExecutionPolicy['selections'][number]): GitMaterialProvenance | undefined {
@@ -2454,5 +2469,5 @@ function factsOf(item: ItemFacts): ItemFacts {
     item: item.item, tool: item.tool, origins: item.origins,
     ...(item.projectFacts ? { projectFacts: clone(item.projectFacts) } : {}),
     ...(item.materialSource ? { materialSource: item.materialSource } : {}),
-    ...(item.plan ? { plan: item.plan } : {}) };
+    ...(item.plan ? { plan: item.plan } : {}), ...(item.claim ? { claim: item.claim } : {}) };
 }
