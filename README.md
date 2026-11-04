@@ -2413,9 +2413,9 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`,
-`fetch` and `acquire` steps (see [AI setups](#ai-setups-acquire-steps)); every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
-Catalog that made the plan (`catalog-required`). The format is not marked ready.
+with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
+(including `render`), `fetch` and `acquire` steps (see [AI setups](#ai-setups-acquire-steps)); every other step kind is
+refused (`step-unknown`) before any effect. The format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2453,6 +2453,35 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
 
+### Renders and recipe origins through your Catalog
+
+Core never renders Catalog content itself and never bundles a Catalog. Pass the Catalog that made the plan as
+`controls.catalog: { version, renderStep, planRecipe }` (its `@aihq/catalog/reader` functions); Core uses it only for
+`write` steps with a `render` and for recipe proofs.
+
+```js
+import { renderStep, planRecipe } from '@aihq/catalog/reader';
+const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, planRecipe } };
+const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJson, choices, options } }, controls);
+```
+
+- **A render step** records the profile id and version it was planned with (`render: { name, profile, version, … }`,
+  or a combined render's `profiles`). Before calling `renderStep`, Prepare checks each recorded version against the
+  supplied profile documents (`profile-mismatch`) and every source byte against its sha256 (`source-mismatch`); it
+  passes the Catalog only the checked bytes, and reports the Catalog's own `source-mismatch` or `profile-mismatch`
+  refusal as that code. Bytes that don't match the sha256 the Catalog returned, or a failed render, are `invalid`
+  (`render-failed`). Without `controls.catalog.renderStep` the step is refused `catalog-required`, naming the step.
+- **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
+  `list` shows them as `catalog` and `profiles`.
+- **Recipe origin.** A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
+  `recipe.json` text, and the planner `choices` and `options`; Core supplies `scope` and `source` itself), Prepare checks
+  the `recipe.json` sha256 against `plan.recipe.sha256`, re-runs `planRecipe` with the request's contents, profiles and
+  qualifications, and compares the result with the plan byte for byte. A match records the origin
+  `{ recipe: { id, sha256, repository, commit }, data }` in the review, the receipt and `list`. No proof, a mismatch or a
+  failed reproduction still installs, records `chosen`, and the review says "origin not proven". A plan without
+  `recipe` (`planInstall`) is always `chosen`. Only a malformed proof (`invalid`, `recipe-proof`) or a proof without
+  `controls.catalog.planRecipe` (`catalog-required`) stops Prepare.
+
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
 
@@ -2463,7 +2492,8 @@ aih remove local-my-skills.skill.notes --scope project --project /work/app [--ap
 ```
 
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
-command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
+command is refused `catalog-required`. `aih install` also passes that Catalog's `/reader` `renderStep` and
+`planRecipe`, with the version from its `package.json`, as `controls.catalog`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
 
 ### AI setups (`acquire` steps)

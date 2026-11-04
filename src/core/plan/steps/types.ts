@@ -33,10 +33,13 @@ export interface LoweredWrite {
   review: { item?: string; items?: string[]; clis?: string[] };
   /** An `acquire` step: the acquisition Apply carries out immediately before writing this marker file. */
   acquire?: AcquireSpec;
+  /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
+  profiles?: { id: string; version: string | number }[];
 }
 export type Lowered = LoweredWrite;
 export type StepOutcome = { lowered: Lowered } | { refusal: Refusal } | { problem: Problem };
 export interface StepHandler {
   op: string;
-  prepare(step: PlanStep & Record<string, Json>, context: StepContext): StepOutcome;
+  /** May be asynchronous: a render calls the caller's Catalog (C51). */
+  prepare(step: PlanStep & Record<string, Json>, context: StepContext): StepOutcome | Promise<StepOutcome>;
 }

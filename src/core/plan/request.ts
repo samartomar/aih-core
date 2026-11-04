@@ -33,7 +33,7 @@ export interface CheckedPlan {
 }
 
 /** Admits a plan request; `files[].bytes` are copied, never kept by reference. */
-export function checkPlanRequest(input: unknown, controls: PlanControls): { checked: CheckedPlan } | Refusal | Invalid | UnsupportedVersion {
+export async function checkPlanRequest(input: unknown, controls: PlanControls): Promise<{ checked: CheckedPlan } | Refusal | Invalid | UnsupportedVersion> {
   const invalid = (problems: Problem[]): Invalid => ({ status: 'invalid', problems });
   if (!input || typeof input !== 'object' || Array.isArray(input) || isProxy(input))
     return invalid([{ path: '', reason: 'type', message: 'A plan request is an object.' }]);
@@ -118,7 +118,7 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
         return { bytes: Buffer.from(entry.bytes) };
       }
     };
-    const outcome = handler.prepare(step as never, context);
+    const outcome = await handler.prepare(step as never, context);
     if ('problem' in outcome) { stepProblems.push(outcome.problem); continue; }
     if ('refusal' in outcome) return outcome.refusal;
     if (captured > limitValue('captured-bytes')) return limit('captured-bytes', 'The plan names more source bytes than one Apply may capture.');

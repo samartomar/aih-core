@@ -44,8 +44,8 @@ export interface PlanItemFacts {
   clis: string[];
   /** The Catalog data the plan was made from, or `null` for own content. */
   data: { repository: string; commit: string } | null;
-  /** `chosen`; a proven recipe origin is recorded by a later contract slice. */
-  origin: 'chosen';
+  /** `chosen`, or the recipe origin Core proved at Prepare (8.2, C44). */
+  origin: 'chosen' | { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null };
   /** The caller's Catalog version when one was passed in `controls.catalog`; otherwise `null`. */
   catalog: string | null;
   /** The tool profiles supplied with the plan for the CLIs named here. */
@@ -235,7 +235,13 @@ export function validPlanFacts(value: unknown): boolean {
     list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
   if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
   if (value.data !== null && !(exact(value.data, ['repository', 'commit']) && text(value.data.repository, 512) && text(value.data.commit, 128))) return false;
-  if (value.origin !== 'chosen' || value.catalog !== null && !text(value.catalog, 64)) return false;
+  const pin = (entry: unknown): boolean => exact(entry, ['repository', 'commit']) && text(entry.repository, 512) && text(entry.commit, 128);
+  if (value.data !== null && !pin(value.data)) return false;
+  const origin = value.origin;
+  if (origin !== 'chosen' && !(exact(origin, ['recipe', 'data']) && exact(origin.recipe, ['id', 'sha256', 'repository', 'commit']) &&
+      typeof origin.recipe.id === 'string' && PLAN_ID.test(origin.recipe.id) && hex(origin.recipe.sha256) &&
+      text(origin.recipe.repository, 512) && text(origin.recipe.commit, 128) && (origin.data === null || pin(origin.data)))) return false;
+  if (value.catalog !== null && !text(value.catalog, 64)) return false;
   if (!Array.isArray(value.profiles) || value.profiles.length > 64 || !value.profiles.every(profile => exact(profile, ['id', 'version']) &&
       typeof profile.id === 'string' && PLAN_ID.test(profile.id) &&
       (text(profile.version, 64) || Number.isSafeInteger(profile.version) && (profile.version as number) >= 0))) return false;

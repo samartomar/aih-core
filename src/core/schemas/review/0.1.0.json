@@ -20,11 +20,19 @@
           "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
         "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
           "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+        "profiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "type": "string" }, "version": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } } } },
         "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
         "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
       }
     },
-    "origin": { "const": "chosen" },
+    "origin": { "oneOf": [{ "const": "chosen" }, { "type": "object", "additionalProperties": false, "required": ["recipe", "data"],
+          "description": "A proven recipe origin (8.2)",
+          "properties": {
+            "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+              "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+            "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] } } }] },
     "originNote": { "type": ["string", "null"] },
     "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
     "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
