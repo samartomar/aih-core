@@ -1,0 +1,5 @@
+{
+  "schema": "urn:aihq:core:native-verification-request:0.1.0",
+  "client": "claude-code",
+  "maxTurns": 4
+}

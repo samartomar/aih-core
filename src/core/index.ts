@@ -8,6 +8,8 @@ export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, Operati
   OrganizationFulfillmentResult } from './types.js';
 export { verifyNativeClient } from './native-verification.js';
 export type { NativeVerificationControls } from './native-verification.js';
+export { verifyClient } from './verify-client.js';
+export type { NativeVerificationRequest010, NativeVerificationResult010, NativeVerificationRefusal, NativeVerificationControls010 } from './verify-client.js';
 export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
   NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
   NativeVerificationResult } from './native-contracts.js';

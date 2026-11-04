@@ -20,8 +20,8 @@ export const trustCapabilities = buildTrustCapabilities(distribution, trustCellR
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
 export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
 export { renderDelivery, renderSelectionDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
-export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
-  validateNativeTestIdentity } from './native/contracts.mjs';
+export { nativeClientIds, nativeVerificationDefinitions } from './native/contracts.mjs';
+export { nativeClientDefinitions, validateNativeVerificationDefinition, validateNativeTestIdentity } from './native/tool-names.mjs';
 export const contractSupport = Object.freeze({
   schema: 'urn:aihq:package-support:1.1.0',
   package: distribution,
