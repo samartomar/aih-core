@@ -9,6 +9,7 @@ import prepared11Schema from '../dist/core/schemas/prepared-work/1.1.0.json' wit
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';
 import { fakeFetch, orgRoutes, orgSource, orgDocument, enterprisePolicy } from './fixtures/github-org.mjs';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 const approve = prepared => ({ reviewDigest: prepared.review.reviewDigest, approved: true, origin: 'automation' });
@@ -58,7 +59,7 @@ test('an unresolved current-user home returns unavailable custody instead of thr
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 const claimKey = (scope, id, anchor) => `${scope}:${sha(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${id}`;
 const projectReceipt = s => receiptPath(s, realpathSync.native(s.project));
-const rewriteReceipt = (s, change) => { const path = projectReceipt(s); const value = readJson(path); change(value); writeFileSync(path, JSON.stringify(value)); };
+const rewriteReceipt = (s, change) => { const path = projectReceipt(s); const value = readReceipt(path); change(value); writeReceipt(path, value); };
 const alsoNamed = (selection, id, file, extra = {}) => {
   const copy = structuredClone(selection);
   copy.id = id; copy.managementId = id; Object.assign(copy, extra);
@@ -288,7 +289,7 @@ test('claimless custody in a receipt shared by project and home has no scope and
   await install(s);
   // Treat the home as the project: the one receipt then answers for both scopes.
   const home = realpathSync.native(s.home);
-  const claimlessHome = { schema: 'urn:aihq:core:ownership:1.0.0', target: home, members: { 'LEGACY.md': {
+  const claimlessHome = { schema: 'urn:aihq:core:receipt:0.1.0', target: home, members: { 'LEGACY.md': {
     managementId: 'legacy-item', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: sha('x'), mode: 0o644 } } };
   writeFileSync(receiptPath(s, home), JSON.stringify(claimlessHome), { mode: 0o600 });
   for (const scope of ['project', 'user']) {

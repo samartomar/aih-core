@@ -158,7 +158,7 @@ test('an undescribed selection keeps its earlier receipt format once complete', 
   assert.equal((await apply(prepared.prepared, approve(prepared.review), { logging: 'off' })).completion, 'complete');
   const receipt = readReceipt(target);
   assert.equal(receipt.items, undefined);
-  assert.notEqual(receipt.schema, 'urn:aihq:core:ownership:1.6.0');
+  assert.notEqual(receipt.schema, 'urn:aihq:core:receipt:0.1.0');
 });
 
 test('a lock left by a process that no longer runs on this host is reclaimed; any other lock is kept', async () => {

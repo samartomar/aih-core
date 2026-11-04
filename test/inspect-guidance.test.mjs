@@ -8,7 +8,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import childProcess from 'node:child_process';
 import tls from 'node:tls';
 import { inspect } from '../dist/core/engine-api.js';
-import { getGuidance } from '@aihq/core/support';
+import { getGuidance } from '../dist/core/support.js';
 
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 

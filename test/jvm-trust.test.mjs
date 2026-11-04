@@ -6,11 +6,11 @@ import { dirname, join } from 'node:path';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { prepare, apply, prepareManagedRemoval } from '@aihq/core';
-import { repairIndex } from '@aihq/core/harness';
-import { getRepairRecipe } from '@aihq/core/harness/runtime';
+import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
+import { repairIndex } from '../dist/harness/contracts.mjs';
+import { getRepairRecipe } from '../dist/harness/runtime.mjs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+import legacyRunSchema from '../dist/core/schemas/run-result/1.0.0.json' with { type: 'json' };
 
 const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 
@@ -149,7 +149,7 @@ test('boundary fixture: changed installed JVM helper bytes reject before effects
   try {
     cpSync(new URL('../dist/', import.meta.url), join(installed, 'dist'), { recursive: true });
     copyFileSync(new URL('../package.json', import.meta.url), join(installed, 'package.json'));
-    const api = await import(pathToFileURL(join(installed, 'dist', 'core', 'index.js')).href);
+    const api = await import(pathToFileURL(join(installed, 'dist', 'core', 'engine-api.js')).href);
     const prepared = await api.prepare(request(source('helper-stale.pem')), { logging: 'off' });
     assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
     const helper = join(installed, 'dist', 'harness', 'jvm-trust.mjs');

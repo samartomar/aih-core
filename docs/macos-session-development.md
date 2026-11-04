@@ -6,25 +6,23 @@ and trust provenance. Prepare shows intended configuration; Apply requires its
 exact review digest. An unchanged repeat retains the managed selection. Removal
 previews managed operations and preserves unrelated shell settings.
 
-Save this input beside `team-ca.pem`:
+Save this input as `macos-session-inputs.json` beside `team-ca.pem`:
 
 ```json
 {
-  "schema": "urn:aihq:core:repair-inputs:1.1.0",
+  "schema": "urn:aihq:core:macos-session-inputs:0.1.0",
   "route": "file",
-  "repairs": { "node-npm-ca": {} },
   "sources": { "os": false, "supplied": [{ "id": "team", "file": "team-ca.pem" }] },
-  "macosSession": { "context": "terminal", "applications": [] }
+  "session": { "context": "terminal", "applications": [] }
 }
 ```
 
 ```sh
-aih repair node-npm-ca --target node --inputs-file repair-inputs.json --offline --no-log --json
-aih repair node-npm-ca --target node --inputs-file repair-inputs.json --offline --apply --no-log --json
-aih verify-macos-session --management-id node-npm-trust --no-log --json
-aih managed list --scope user --json
-aih managed remove node-npm-trust --scope user --mode vibe --no-log --json
-aih managed remove node-npm-trust --scope user --mode vibe --apply --no-log --json
+aih repair node-npm-ca --target node --inputs-file macos-session-inputs.json --offline --no-log --json
+aih repair node-npm-ca --target node --inputs-file macos-session-inputs.json --offline --apply --no-log --json
+aih list --scope user --json
+aih remove node-npm-ca --scope user --no-log --json
+aih remove node-npm-ca --scope user --apply --no-log --json
 ```
 
 Start a new login shell after application so it reads the managed `.zprofile`

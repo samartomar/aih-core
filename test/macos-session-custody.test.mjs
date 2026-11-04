@@ -50,7 +50,7 @@ test('a protected session participant can execute and reconcile its intent while
     const bytes = Buffer.from('export NODE_EXTRA_CA_CERTS=fixture\n');
     writeFileSync(join(root, '.zprofile'), bytes);
     entry.files[0].sha256 = sha256(bytes);
-    stateFiles().writeAtomic(ownershipPath(root), Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:ownership:1.0.0', target: root,
+    stateFiles().writeAtomic(ownershipPath(root), Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:receipt:0.1.0', target: root,
       members: { [memberKey({ kind: 'file', path: '.zprofile' })]: {
         managementId: entry.managementId, recipeIdentity: entry.recipeIdentity, sha256: sha256(bytes), mode: 0o600 } } })), 0o600);
     let published = image, advanced = pending;

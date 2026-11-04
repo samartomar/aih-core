@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as runtime from '@aihq/core/harness/runtime';
+import * as runtime from '../dist/harness/runtime.mjs';
 
 // Disposable process protocols: no selected JDK/manager artifact or native TLS claim.
 test('JVM discovery keeps the selected launcher separate from Gradle daemon and toolchain', {skip:process.platform==='win32'}, async () => {

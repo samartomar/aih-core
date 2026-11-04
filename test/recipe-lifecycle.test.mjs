@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { prepare, apply } from '../dist/core/engine-api.js';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-recipe-lifecycle-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -359,8 +360,8 @@ test('stale adoption and malformed custody cannot authorize managed effects', as
     observedSha256: createHash('sha256').update('matching').digest('hex') }]), { logging: 'off' });
   assert.equal((await apply(fresh.prepared, approve(fresh), { logging: 'off' })).completion, 'complete');
   const receipt = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(realpathSync.native(project)).digest('hex') + '.json');
-  const record = JSON.parse(readFileSync(receipt, 'utf8'));
-  Object.values(record.members)[0].descriptor.path = '../human.txt'; writeFileSync(receipt, JSON.stringify(record));
+  const record = readReceipt(receipt);
+  Object.values(record.members)[0].descriptor.path = '../human.txt'; writeReceipt(receipt, record);
   const invalid = await prepare(request(project, op('file.remove', 'project', 'owned.txt')), { logging: 'off' });
   assert.equal(invalid.status, 'invalid'); assert.equal(invalid.prepared, undefined);
   assert.equal(readFileSync(join(project, 'owned.txt'), 'utf8'), 'matching');

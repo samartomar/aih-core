@@ -32,7 +32,7 @@ test('selected npm uses effective system trust and respects an explicit CA overr
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const registry = `https://localhost:${server.address().port}`;
-    const script = `import { diagnose } from '@aihq/core/harness/runtime';
+    const script = `import { diagnose } from './dist/harness/runtime.mjs';
       const result = await diagnose({requestId:'effective', targets:['npm'],network:'declared'});
       console.log(JSON.stringify(result.checks.find(check=>check.id==='npm/tls/effective')));`;
     const env = { ...process.env, HOME: home, USERPROFILE: home, PATH: bin,
@@ -53,7 +53,7 @@ test('selected npm uses effective system trust and respects an explicit CA overr
     assert.equal((await observe({ NODE_OPTIONS: '--no-use-system-ca' })).outcome, 'failed');
     unlinkSync(join(bin, 'curl')); // Working Node trust needs no OS comparison helper or repair.
     const prepared = await exec(process.execPath, ['--input-type=module', '-e', `
-      import { prepare } from '@aihq/core';
+      import { prepare } from './dist/core/engine-api.js';
       const result = await prepare({useCase:'repair',repairs:[{id:'node-os-trust',targets:['node'],inputs:{originId:'npm-registry'}}]}, {logging:'off'});
       console.log(JSON.stringify(result));`], { cwd: resolve('.'), env, timeout: 25000, maxBuffer: 65536 });
     const noRepair = JSON.parse(prepared.stdout);

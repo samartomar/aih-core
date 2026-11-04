@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { policy as legacyPolicy } from './fixture.mjs';
 import { CONTAINER, PREPARED_11, RESULT_11, SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11,
   request, sandbox, selectorSha, sha } from './hook-group-fixture.mjs';
@@ -55,7 +55,7 @@ test('a 1.0 policy keeps its 1.0 prepared/result identities and 1.0 ownership by
     const result = await apply(prepared.prepared, authorize(prepared), controls);
     assert.equal(result.schema, 'urn:aihq:core:run-result:1.0.0');
     assert.equal(result.completion, 'complete');
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.0.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:receipt:0.1.0']);
   } finally { s.dispose(); }
 });
 
@@ -65,7 +65,7 @@ test('the first group records hook and directory custody and stores only digests
     await run(s, guard());
     const roots = ownershipRoots(s);
     assert.equal(roots.length, 1);
-    assert.equal(roots[0].schema, 'urn:aihq:core:ownership:1.7.0');
+    assert.equal(roots[0].schema, 'urn:aihq:core:receipt:0.1.0');
     const members = Object.values(roots[0].members);
     assert.equal(members.length, 1);
     assert.equal(members[0].descriptor.kind, 'hook');

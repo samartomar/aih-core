@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { build, stop } from 'esbuild';
-import { getGuidance, renderSupportMarkdown } from '@aihq/core/support';
+import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';
 import { formatGuidanceText } from '../dist/core/internal/guidance-text.js';
 
 const sentinel = 'SENTINEL-c0ffee-secret';
@@ -265,7 +265,7 @@ test('256-item and 256-KiB bounds explicitly summarize omitted data while retain
 test('local dist support entry bundles and runs without filesystem/process/network globals', async () => {
   try {
     const browser = await build({ stdin: { contents: `
-      import {getGuidance,renderSupportMarkdown} from '@aihq/core/support';
+      import {getGuidance,renderSupportMarkdown} from '@aihq/core/contracts';
       const input = ${JSON.stringify(inspect([check()]))};
       globalThis.presentation = [getGuidance(input,{platform:'linux'}),renderSupportMarkdown(input,{platform:'linux'})];`,
       resolveDir: process.cwd() }, bundle: true, platform: 'browser', format: 'iife', write: false, metafile: true });

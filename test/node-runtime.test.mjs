@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepare, apply } from '@aihq/core';
-import { diagnose } from '@aihq/core/harness/runtime';
+import { prepare, apply } from '../dist/core/engine-api.js';
+import { diagnose } from '../dist/harness/runtime.mjs';
 
 test('public preparation refuses simulated lower patch and unassessed major runtime boundaries', async () => {
   const original = Object.getOwnPropertyDescriptor(process.versions, 'node');

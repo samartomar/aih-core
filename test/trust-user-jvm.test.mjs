@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody } from '../dist/core/engine-contracts.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
+import legacyRunSchema from '../dist/core/schemas/run-result/1.0.0.json' with { type: 'json' };
 
 const validateLegacyRun = new Ajv2020({ strict: true }).compile(legacyRunSchema);
 

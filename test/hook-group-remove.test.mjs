@@ -49,11 +49,11 @@ test('removing the final claim leaves an empty array, keeps the file, and downgr
   try {
     s.write(SETTINGS, compact([neighbor('a')]));
     await run(s, guard());
-    assert.equal(ownershipRoots(s)[0].schema, 'urn:aihq:core:ownership:1.1.0');
+    assert.equal(ownershipRoots(s)[0].schema, 'urn:aihq:core:receipt:0.1.0');
     const removal = policy11([hookSelection('guard-a', [hookOp('drop', 'guard-a', { action: 'remove' })])]);
     await run(s, removal);
     assert.deepEqual(groupsOf(s), [neighbor('a')]);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.0.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:receipt:0.1.0']);
     assert.equal(Object.keys(ownershipRoots(s)[0].members).length, 0);
     const again = await run(s, removal);
     assert.equal(only(again.prepared).effects, 'already-satisfied', 'an already absent owned group is satisfied');

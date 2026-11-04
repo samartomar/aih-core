@@ -36,6 +36,8 @@ const commands: Record<string, () => Promise<{ run(args: string[], signal: Abort
   'export-ca': async () => { const module = await import('./cli/environment.js'); return { run: (args, signal) => module.run('export-ca', args, signal) }; }
 };
 
+// Commands whose module prints no usage of its own; the others answer `<command> --help` themselves.
+const OWN_HELP_ABSENT = ['repair', 'export-ca', 'report', 'validate'];
 const controller = new AbortController();
 process.once('SIGINT', () => controller.abort());
 const [command, ...args] = process.argv.slice(2);
@@ -45,7 +47,7 @@ if (command === '--version' || command === '-V') {
   else if (json) process.stdout.write(JSON.stringify({ name: distribution.name, version: distribution.version }) + '\n');
   else process.stdout.write(`${distribution.name} ${distribution.version}\n`);
 } else if (command === undefined || command === 'help' || command === '--help' || command === '-h' ||
-    Object.hasOwn(commands, command) && args.some(arg => arg === '--help' || arg === '-h')) {
+    OWN_HELP_ABSENT.includes(command) && args.some(arg => arg === '--help' || arg === '-h')) {
   process.stdout.write(USAGE);
 } else if (Object.hasOwn(commands, command)) {
   await (await commands[command]!()).run(args, controller.signal);

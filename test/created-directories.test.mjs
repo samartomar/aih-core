@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { policy } from './fixture.mjs';
 import { sandbox, authorize } from './hook-group-fixture.mjs';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 let live = [];
 const open = () => { const s = sandbox('aih-directories-'); live.push(s); return s; };
@@ -120,10 +121,9 @@ test('old file custody without directory evidence never implies directory owners
   await install(s);
   const digest = createHash('sha256').update(realpathSync.native(s.project)).digest('hex');
   const receipt = join(s.home, '.aih', 'core', 'ownership', `${digest}.json`);
-  const legacy = JSON.parse(readFileSync(receipt, 'utf8'));
+  const legacy = readReceipt(receipt);
   delete legacy.directories;
-  legacy.schema = 'urn:aihq:core:ownership:1.0.0';
-  writeFileSync(receipt, JSON.stringify(legacy));
+  writeReceipt(receipt, legacy);
   await remove(s);
   assert.equal(existsSync(join(s.project, 'delivered', 'nested', 'TEAM.md')), false);
   assert.equal(existsSync(join(s.project, 'delivered', 'nested')), true);

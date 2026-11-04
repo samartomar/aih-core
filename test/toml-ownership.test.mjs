@@ -52,14 +52,14 @@ test('custody of a quoted TOML name uses ownership 1.3.0, and a created table 1.
     const original = '# keep\n[mcp_servers."name.with.dots"]\ncommand = "npx"\n';
     s.write('config.toml', original);
     await install(s, document('quoted', ['mcp_servers', 'name.with.dots', 'enabled'], true));
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.3.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     await install(s, document('bare', [...aih, 'args'], ['server.js', '--stdio']));
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0', 'a created table outranks the quoted-name root');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0', 'a created table outranks the quoted-name root');
     await remove(s, 'bare');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.3.0', 'the root returns to its previous version');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0', 'the root returns to its previous version');
     assert.equal(s.read('config.toml'), original + 'enabled = true\n');
     await remove(s, 'quoted');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     assert.equal(s.read('config.toml'), original);
   } finally { s.dispose(); }
 });
@@ -73,10 +73,10 @@ test('removing a selection restores a file that did not have its table, byte for
       const eol = original.includes('\r\n') ? '\r\n' : '\n';
       const lead = /[\r\n]$/u.test(original) ? '' : eol;
       assert.equal(s.read('config.toml'), original + lead + ['[mcp_servers.aih]', 'command = "aih"', 'args = ["--stdio"]', '[mcp_servers.aih.env]', 'TOKEN = "x"', ''].join(eol));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       await remove(s, 'aih');
       assert.equal(s.read('config.toml'), original, JSON.stringify(original));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -113,7 +113,7 @@ test('removal keeps the header of a table that gained a key or a comment after s
       s.write('config.toml', edit(s.read('config.toml')));
       await remove(s, 'aih');
       assert.equal(s.read('config.toml'), original + expected);
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -126,7 +126,7 @@ test('removal keeps the header of a table that existed before setup', async () =
       await install(s, codexServer('aih'));
       await remove(s, 'aih');
       assert.equal(s.read('config.toml'), original);
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -142,10 +142,10 @@ test('a created table keeps its header until the last managed key of any selecti
       assert.equal(s.read('config.toml'), 'a = 1\n[mcp_servers.aih]\ncommand = "aih"\nstartup_timeout_sec = 20\n');
       await remove(s, order[0]);
       assert.equal(s.read('config.toml'), order[0] === 'first' ? 'a = 1\n[mcp_servers.aih]\nstartup_timeout_sec = 20\n' : 'a = 1\n[mcp_servers.aih]\ncommand = "aih"\n');
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       await remove(s, order[1]);
       assert.equal(s.read('config.toml'), original, order.join(','));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -163,7 +163,7 @@ test('removal keeps a comment the client added after a managed value, and the he
         s.write('config.toml', installed.replace(`x = 1${eol}`, `x = 1 # keep this${eol}`));
         await remove(s, 'one');
         assert.equal(s.read('config.toml'), `${original}${lead}[t]${eol}# keep this${eol}`, JSON.stringify([eol, original]));
-        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+        assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       } finally { s.dispose(); }
     }
   }
@@ -186,10 +186,10 @@ test('a recipe that removes the keys it set drops the table header Core created'
     try {
       s.write('config.toml', original);
       await install(s, entriesDocument('one', [[['t', 'x'], 1], [['t', 'y'], 2]]));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       await install(s, removeDocument('one', [['t', 'x'], ['t', 'y']]));
       assert.equal(s.read('config.toml'), original, JSON.stringify(original));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       assert.deepEqual(recordsOf(s), []);
     } finally { s.dispose(); }
   }
@@ -203,10 +203,10 @@ test('a recipe that removes one key keeps the header while another managed key i
     await install(s, entriesDocument('two', [[['t', 'y'], 2]]));
     await install(s, removeDocument('one', [['t', 'x']]));
     assert.equal(s.read('config.toml'), 'a = 1\n[t]\ny = 2\n');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     await remove(s, 'two');
     assert.equal(s.read('config.toml'), 'a = 1');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });
 
@@ -217,7 +217,7 @@ test('a recipe that removes a key of a table that existed before setup keeps tha
     await install(s, entriesDocument('one', [[['t', 'x'], 1]]));
     await install(s, removeDocument('one', [['t', 'x']]));
     assert.equal(s.read('config.toml'), '[t]\nother = 1\n');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });
 
@@ -236,10 +236,10 @@ test('the added line break moves to the header that follows when a created table
         await remove(s, order[0]);
         assert.equal(s.read('config.toml'), original + eol + (order[0] === 'one' ? table('u', 'y', 2) : table('t', 'x', 1)), order.join(','));
         assert.deepEqual(recordsOf(s), ['created-after-newline'], 'the record moved to the surviving table');
-        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.4.0');
+        assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
         await remove(s, order[1]);
         assert.equal(s.read('config.toml'), original, JSON.stringify([original, order]));
-        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+        assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       } finally { s.dispose(); }
     }
   }
@@ -266,7 +266,7 @@ test('a header a client added after the created table does not receive the recor
     s.write('config.toml', s.read('config.toml') + '[u]\nz = 1\n');
     await remove(s, 'one');
     assert.equal(s.read('config.toml'), 'a = 1\n[u]\nz = 1\n');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });
 
@@ -286,7 +286,7 @@ test('one reviewed removal of several selections restores the original, in eithe
         assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
         assert.equal((await apply(prepared.prepared, authorize(prepared), { logging: 'off' })).completion, 'complete');
         assert.equal(s.read('config.toml'), original, JSON.stringify([original, reinstall]));
-        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+        assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
       } finally { s.dispose(); }
     }
   }
@@ -300,7 +300,7 @@ test('a created table whose key comes first in the recipe still restores the ori
       await install(s, entriesDocument('aih', [[[...aih, 'env', 'TOKEN'], 'x'], [[...aih, 'command'], 'aih']]));
       await remove(s, 'aih');
       assert.equal(s.read('config.toml'), original, JSON.stringify(original));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -316,7 +316,7 @@ test('a recipe that removes its keys passes the added line break to the table th
     assert.deepEqual(recordsOf(s), ['created-after-newline']);
     await remove(s, 'two');
     assert.equal(s.read('config.toml'), 'a = 1');
-    assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+    assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });
 
@@ -330,7 +330,7 @@ test('one authored removal of several tables keeps the inherited line break, wha
         assert.deepEqual(recordsOf(s), ['created-after-newline', 'created']);
         await install(s, removeDocument('one', order));
         assert.equal(s.read('config.toml'), original, JSON.stringify([original, order]));
-        assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+        assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
         assert.deepEqual(Object.keys(JSON.parse(readFileSync(receiptOf(s))).members), [], 'no stale owner remains');
       } finally { s.dispose(); }
     }
@@ -345,7 +345,7 @@ test('an inherited line break does not stop cleanup of a member the next recipe 
       await install(s, entriesDocument('one', [[['t', 'x'], 1], [['u', 'y'], 2]]));
       await install(s, removeDocument('one', [['t', 'x']]));
       assert.equal(s.read('config.toml'), original, JSON.stringify(original));
-      assert.equal(schemaOf(s), 'urn:aihq:core:ownership:1.0.0');
+      assert.equal(schemaOf(s), 'urn:aihq:core:receipt:0.1.0');
     } finally { s.dispose(); }
   }
 });
@@ -360,17 +360,17 @@ test('ownership validation requires 1.3.0 for a non-bare TOML entry segment', as
     const owner = { managementId: 'quoted', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: 'b'.repeat(64), mode: 420, descriptor,
       claims: [{ managementId: 'quoted', scope: 'project', sets: [], requires: [] }] };
     const root = schema => ({ schema, target, members: { [memberKey(descriptor)]: owner } });
-    assert.equal(sealOwnership(root('urn:aihq:core:ownership:1.0.0')).schema, 'urn:aihq:core:ownership:1.3.0');
+    assert.equal(sealOwnership(root('urn:aihq:core:receipt:0.1.0')).schema, 'urn:aihq:core:receipt:0.1.0');
     for (const schema of ['1.0.0', '1.1.0', '1.2.0'])
       assert.throws(() => validateOwnership(root(`urn:aihq:core:ownership:${schema}`), target), /ownership-invalid/);
-    validateOwnership(root('urn:aihq:core:ownership:1.3.0'), target);
+    validateOwnership(root('urn:aihq:core:receipt:0.1.0'), target);
     // An INI entry may share a 1.3.0 root, which returns to 1.2.0 once the quoted entry is gone.
     const ini = { path: 'settings.ini', kind: 'entry', format: 'ini', entry: ['global', 'cert'] };
-    const mixed = { ...root('urn:aihq:core:ownership:1.3.0'), members: { ...root('').members,
+    const mixed = { ...root('urn:aihq:core:receipt:0.1.0'), members: { ...root('').members,
       [memberKey(ini)]: { ...owner, managementId: 'ini', descriptor: ini, claims: [{ ...owner.claims[0], managementId: 'ini' }] } } };
     validateOwnership(mixed, target);
     const remaining = { ...mixed, members: { [memberKey(ini)]: mixed.members[memberKey(ini)] } };
-    assert.equal(sealOwnership(remaining).schema, 'urn:aihq:core:ownership:1.2.0');
+    assert.equal(sealOwnership(remaining).schema, 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });
 
@@ -384,7 +384,7 @@ test('ownership validation admits tomlTable only on a 1.4.0 root, a TOML entry w
     const owner = (descriptor, extra = {}) => ({ managementId: 'aih', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: 'b'.repeat(64), mode: 420, descriptor, claims, ...extra });
     const toml = { path: 'config.toml', kind: 'entry', format: 'toml', entry: ['mcp_servers', 'aih', 'command'] };
     const root = (schema, descriptor, extra) => ({ schema, target, members: { [memberKey(descriptor)]: owner(descriptor, extra) } });
-    const v14 = 'urn:aihq:core:ownership:1.4.0';
+    const v14 = 'urn:aihq:core:receipt:0.1.0';
     for (const value of ['created', 'created-after-newline']) validateOwnership(root(v14, toml, { tomlTable: value }), target);
     validateOwnership(root(v14, toml), target);
     for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0'])
@@ -396,11 +396,11 @@ test('ownership validation admits tomlTable only on a 1.4.0 root, a TOML entry w
       assert.throws(() => validateOwnership(root(v14, descriptor, { tomlTable: 'created' }), target), /ownership-invalid/, descriptor.path);
     // The seal picks 1.4.0 over the 1.3.0, 1.2.0 and 1.1.0 rules and returns once no owner records a table.
     const quoted = { ...toml, entry: ['mcp_servers', 'name.with.dots', 'command'] };
-    const mixed = { schema: 'urn:aihq:core:ownership:1.0.0', target, members: { [memberKey(toml)]: owner(toml, { tomlTable: 'created' }),
+    const mixed = { schema: 'urn:aihq:core:receipt:0.1.0', target, members: { [memberKey(toml)]: owner(toml, { tomlTable: 'created' }),
       [memberKey(quoted)]: owner(quoted), [memberKey(ini)]: owner(ini) } };
     assert.equal(sealOwnership(mixed).schema, v14);
     validateOwnership(sealOwnership(mixed), target);
     delete mixed.members[memberKey(toml)];
-    assert.equal(sealOwnership(mixed).schema, 'urn:aihq:core:ownership:1.3.0');
+    assert.equal(sealOwnership(mixed).schema, 'urn:aihq:core:receipt:0.1.0');
   } finally { s.dispose(); }
 });

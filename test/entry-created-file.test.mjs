@@ -36,7 +36,7 @@ const selection = { id: 'mcp', managementId: 'mcp', scope: 'project', configurat
   tool: 'claude', name: 'Example server', kind: 'mcp-server', origins: [{ reasonIncluded: 'chosen' }] };
 
 async function install(s) {
-  const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections: [selection] },
+  const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [selection] },
     target: { project: s.project } }, { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const run = await apply(prepared.prepared, approve(prepared.review), { logging: 'off' });

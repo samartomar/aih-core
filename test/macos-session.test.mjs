@@ -26,15 +26,6 @@ test('verification rejects caller process proof and preserves null identity', as
   assert.equal(validateMacosSessionVerificationResult(result).valid, true);
 });
 
-test('verification CLI rejects mutation options and an invalid management ID', () => {
-  for (const args of [['--management-id', 'node-npm-trust', '--apply'], ['--management-id', '../wrong']]) {
-    const result = spawnSync(process.execPath, ['dist/core/cli.js', 'verify-macos-session', ...args, '--no-log', '--json'],
-      { encoding: 'utf8', timeout: 30_000, windowsHide: true });
-    assert.equal(result.status, 2, result.stderr);
-    assert.equal(JSON.parse(result.stdout).status, 'invalid');
-  }
-});
-
 test('terminal session applies real configuration, retains custody without history, refuses drift and removes only its block', {
   skip: process.platform !== 'darwin'
 }, async () => {

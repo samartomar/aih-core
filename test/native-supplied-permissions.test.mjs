@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import * as installed from '../src/harness/native/runtime.mjs';
-import {validateFormat,validateNativeVerificationBundle,validateNativeVerificationResult} from '@aihq/core/contracts';
+import {validateFormat,validateNativeVerificationBundle,validateNativeVerificationResult} from '../dist/core/engine-contracts.js';
 
 const hash=installed.sha256, canonical=installed.canonicalJson;
 const treeHash=files => hash(canonical(files.map(({root,path,member}) => ({root,path,sha256:member.sha256,byteLength:member.byteLength})).sort((a,b) => a.root < b.root ? -1 : a.root > b.root ? 1 : a.path < b.path ? -1 : a.path > b.path ? 1 : 0)));
@@ -62,7 +62,7 @@ export function createNativeRuntime(_module,dependencies) {
  return runtime;
 }`;
   writeFileSync(join(native,'runtime.mjs'),wrapper);
-  writeFileSync(join(directory,'entry.mjs'),"export {verifyNativeClient,verifyClient} from '@aihq/core';");
+  writeFileSync(join(directory,'entry.mjs'),"export {verifyNativeClient,verifyClient} from './dist/core/engine-api.js';");
   const runtime=installed.createNativeRuntime(installed,{readPinned(){throw Error('no process');},Stop:Error});
   const definition=runtime.nativeDefinitions.find(d=>d.platform.os==='win32'), bundled=runtime.nativeBundledFixture(definition,{check(){}});
   const outputTree=structuredClone(bundled.outputTree), bytes=new Map(bundled.bytes);

@@ -7,8 +7,8 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { diagnose } from '@aihq/core/harness/runtime';
-import { CLAIMS_SCHEMA, projectClaims } from '@aihq/core/report';
+import { diagnose } from '../dist/harness/runtime.mjs';
+import { CLAIMS_SCHEMA, projectClaims } from '../dist/harness/report/data.mjs';
 import { inspect, prepare, apply } from '../dist/core/engine-api.js';
 import { createRegistryCertificates, startRegistry, redirectRegistry, fakeNpmPath } from './fixtures/tls-registry.mjs';
 

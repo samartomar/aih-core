@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply } from '../dist/core/index.js';
+import { apply } from '../dist/core/engine-api.js';
 import { receiptText } from './fixtures/ownership-receipt.mjs';
 import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
 import { SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11, sandbox, sha } from './hook-group-fixture.mjs';

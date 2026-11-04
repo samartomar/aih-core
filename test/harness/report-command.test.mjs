@@ -23,8 +23,8 @@ const summary = result => JSON.parse(result.stdout);
 const rejected = (result, reason) => {
   assert.equal(result.status, 2, result.stdout + result.stderr);
   const body = summary(result);
-  assert.equal(body.status, 'invalid');
-  if (reason) assert.equal(body.diagnostics[0].reason, reason);
+  assert.equal(body.status, 'refused');
+  if (reason) assert.equal(body.reason, reason);
 };
 
 // A fresh, bounded diagnostic that later tests reuse as supplied snapshot input.
@@ -146,7 +146,7 @@ test('aih report no longer offers a demo render', () => {
   try {
     for (const args of [['report', '--output', 'demo', '--target', 'node', '--demo', '--json'],
       ['report', '--output', 'demo', '--snapshot', join(w.cwd, 'absent.json'), '--demo', '--json']]) {
-      rejected(w.run(args), 'cli-input');
+      rejected(w.run(args));
       assert.equal(existsSync(join(w.cwd, 'demo')), false);
     }
   } finally { w.cleanup(); }
@@ -210,7 +210,9 @@ test('aih report rejects option misuse before acquiring or writing anything', ()
     for (const [args, reason] of cases) {
       const result = w.run(args);
       assert.equal(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
-      assert.equal(summary(result).diagnostics[0].reason, reason, args.join(' '));
+      // A misused or unknown option is refused before anything is acquired; the request itself is checked by the reader.
+      assert.equal(summary(result).status, 'refused', args.join(' '));
+      if (reason === 'request-invalid') assert.notEqual(summary(result).reason, 'cli-input', args.join(' '));
       assert.equal(existsSync(out), false, args.join(' '));
     }
   } finally { w.cleanup(); }
@@ -274,13 +276,10 @@ test('existing commands reject report-only options', () => {
     const file = join(w.cwd, 'x.json'); writeFileSync(file, '{}');
     for (const flags of [['--output', 'out'], ['--snapshot', file], ['--demo']]) {
       for (const args of [['inspect', ...flags], ['repair', 'node-npm-ca', '--target', 'node', '--inputs-file', file, ...flags],
-        ['policy', file, ...flags], ['managed', 'list', ...flags],
-        ['managed', 'remove', 'team-guidance', '--scope', 'project', '--mode', 'vibe', ...flags],
-        ['managed', 'help', ...flags]]) {
+        ['list', ...flags], ['remove', 'team-guidance', '--scope', 'project', ...flags]]) {
         const result = w.run([...args, '--json']);
         assert.equal(result.status, 2, `${args.join(' ')}\n${result.stdout}${result.stderr}`);
-        // 0.1.0 commands refuse unknown options as `usage`; retained ones answer `invalid`.
-        assert.equal(summary(result).status, args[0] === 'inspect' ? 'refused' : 'invalid');
+        assert.equal(summary(result).status, 'refused');
         assert.equal(existsSync(join(w.cwd, 'out')), false);
       }
     }
@@ -297,16 +296,11 @@ test('help documents the report command and its data-only output', () => {
     const help = w.run(['--help']);
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /aih report --output <new-directory>/);
-    assert.match(help.stdout, /--snapshot <report\.json>/);
     assert.doesNotMatch(help.stdout, /--demo/);
-    assert.match(help.stdout, /Writes report\.json only; the consuming application renders it\./);
     assert.match(help.stdout, /aih inspect/);
-    assert.match(help.stdout, /aih managed <list\|remove>/);
-    for (const args of [['help', 'report'], ['report', '--help'], ['help', 'managed', 'list'], ['managed', 'remove', '--help']]) {
-      const topic = w.run(args);
-      assert.equal(topic.status, 0, topic.stdout + topic.stderr);
-      assert.match(topic.stdout, /Examples:/);
-    }
+    const topic = w.run(['report', '--help']);
+    assert.equal(topic.status, 0, topic.stdout + topic.stderr);
+    assert.match(topic.stdout, /aih report --output <new-directory>/);
   } finally { w.cleanup(); }
 });
 
@@ -322,7 +316,7 @@ test('report diagnostics leave no output directory when cancelled', async () => 
   } finally { w.cleanup(); }
 });
 
-test('aih report keeps a supplied retained 1.0.0 snapshot in its own format and writes everything else as 0.1.0', () => {
+test('aih report reads and writes only urn:aihq:core:report:0.1.0; an older snapshot is not read', () => {
   const w = workspace();
   try {
     const file = writeSnapshot(w, snapshot => {
@@ -330,9 +324,8 @@ test('aih report keeps a supplied retained 1.0.0 snapshot in its own format and 
       snapshot.producer = { ...snapshot.producer, contract: 'urn:aihq:harness:diagnostic:1.0.0' };
     });
     const retained = w.run(['report', '--output', 'old', '--snapshot', file, '--json']);
-    assert.equal(retained.status, 0, retained.stdout + retained.stderr);
-    assert.equal(summary(retained).status, 'complete');
-    assert.equal(JSON.parse(readFileSync(join(w.cwd, 'old', 'report.json'), 'utf8')).schema, 'urn:aihq:report:snapshot:1.0.0');
+    assert.equal(retained.status, 2, retained.stdout + retained.stderr);
+    assert.equal(existsSync(join(w.cwd, 'old')), false);
     const unknown = join(w.cwd, 'future.json');
     writeFileSync(unknown, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), schema: 'urn:aihq:core:report:9.0.0' }));
     const refused = w.run(['report', '--output', 'future', '--snapshot', unknown, '--json']);

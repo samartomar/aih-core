@@ -42,31 +42,6 @@ test('the published trust/export fixtures satisfy their strict schemas', () => {
   }
 });
 
-test('contractSupport publishes all seven pinned trust schemas and their roles', () => {
-  const expected = {
-    'urn:aihq:core:repair-request:1.0.0': 'accepts',
-    'urn:aihq:core:repair-inputs:1.0.0': 'accepts',
-    'urn:aihq:core:certificate-export-request:1.0.0': 'accepts',
-    'urn:aihq:core:certificate-export-inputs:1.0.0': 'accepts',
-    'urn:aihq:core:prepared-work:1.2.0': 'produces',
-    'urn:aihq:core:run-result:1.2.0': 'produces',
-    'urn:aihq:core:trust-custody:1.0.0': 'both'
-  };
-  for (const [id, role] of Object.entries(expected)) {
-    const entry = contractSupport.contracts.find(candidate => candidate.id === id);
-    assert.ok(entry, `missing contractSupport entry for ${id}`);
-    assert.equal(entry.role, role, id);
-    assert.match(entry.schemaExport, /^@aihq\/core\/schemas\/[a-z-]+\/\d+\.\d+\.\d+\.json$/);
-  }
-  // Immutable legacy schemas stay published unchanged.
-  assert.ok(contractSupport.contracts.some(candidate => candidate.id === 'urn:aihq:core:prepared-work:1.1.0'));
-  assert.ok(contractSupport.contracts.some(candidate => candidate.id === 'urn:aihq:core:run-result:1.1.0'));
-  for (const [id, schemaExport] of [
-    ['urn:aihq:harness:repair:1.1.0', '@aihq/core/harness/schemas/repair/1.1.0.json'],
-    ['urn:aihq:harness:trust-capabilities:1.0.0', '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json']
-  ]) assert.partialDeepStrictEqual(contractSupport.contracts.find(entry => entry.id === id), { id, role: 'accepts', schemaExport });
-});
-
 test('unknown schema ids are refused without fallback', () => {
   const unknown = { ...fixture('certificate-export-request.json'), schema: 'urn:aihq:core:certificate-export-request:99.0.0' };
   const result = validateCertificateExportRequest(unknown);

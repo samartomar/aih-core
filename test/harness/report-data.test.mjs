@@ -12,7 +12,7 @@ import {
   importSnapshot,
   exportSnapshot,
   ReportInputError,
-} from '@aihq/core/report';
+} from '../../dist/harness/report/data.mjs';
 
 /** A schema-valid @aihq/core diagnostic result; independent of this package. */
 function validDiagnostic(overrides = {}) {

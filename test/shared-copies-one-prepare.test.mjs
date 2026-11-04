@@ -12,7 +12,7 @@ const SCRIPT = '.agents/skills/brainstorming/start.sh';
 const GUIDE = '.agents/skills/brainstorming/SKILL.md';
 const MCP = '.mcp.json';
 const INVENTORY = 'urn:aihq:core:managed-inventory-result:1.1.0';
-const POLICY = 'urn:aihq:core:execution-policy:1.5.0';
+const POLICY = 'urn:aihq:core:execution-policy:1.4.0';
 const posix = process.platform !== 'win32';
 let live = [];
 afterEach(() => { for (const s of live) s.dispose(); live = []; });

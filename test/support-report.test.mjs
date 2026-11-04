@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeExclusiveReportFile } from '../dist/core/internal/report-file.js';
-import { inspect, writeSupportReport } from '../dist/core/index.js';
+import { inspect, writeSupportReport } from '../dist/core/engine-api.js';
 import { renderSupportMarkdown } from '../dist/core/support.js';
 
 const SENTINEL = 'SENTINEL-c0ffee-secret';
