@@ -335,8 +335,10 @@ test('CLI previews and applies user-tools-ca with a temp home and fixture PATH',
   if (process.platform === 'win32') env.APPDATA = join(cliHome, 'AppData', 'Roaming');
   for (const key of envOverrides) delete env[key];
   fixtureTool('git');
+  // On Windows one apply runs several state-protection PowerShell checks and fixture probes; beside a concurrent
+  // suite (the nested package run) it has exceeded 30 s, which killed the CLI and left a null status.
   const run = flags => spawnSync(process.execPath, [cli, 'repair', 'user-tools-ca', '--target', 'git',
-    '--inputs-file', inputs, '--offline', '--json', ...flags], { encoding: 'utf8', timeout: 30_000, env });
+    '--inputs-file', inputs, '--offline', '--json', ...flags], { encoding: 'utf8', timeout: 120_000, env });
   const denied = run(['--target', 'node']);
   assert.equal(denied.status, 2);
   const preview = run([]);
