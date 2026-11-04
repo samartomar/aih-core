@@ -2640,6 +2640,40 @@ qualification documents the plan's acquire steps name in `qualifications`.
   redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
   last claim, the whole folder goes.
 
+### Tool commands, upstream installers and upstream setups
+
+These program steps run an exact argv after approval. Core never shows or promises what a program changes; each review
+step carries `effect: run-program`, a "can't promise" line and a `program` block: the argv (secret values
+`[REDACTED]`), the program and its sha256, the folder it runs in, the environment names a binding sets, the readback,
+the undo, and `cantRemove`, which says what Core can't remove around it.
+
+- **`tool-command`** runs `argv` with the AI setup's acquired `executable` (`{ root: "user", path }`, inside the AI setup
+  folder; with the qualified member's sha256 when the qualification lists it), then its `readback` (`{ argv, expected }`).
+  The step passes only when one output line of the readback equals `expected` (an empty `expected` needs empty output):
+  verification `readback-matched`; otherwise the step fails (`readback-mismatch`). Inputs bind at argv slots (`{NAME}`
+  markers) or environment names (`inputs: [{ item, input, at: { argv } | { env } }]`); a secret comes only from
+  `controls.privateInputs` (`--private-input`), runs as its value, and is redacted from the review, history and receipt.
+  The step is grouped under its `aiSetup` id, after that setup's `acquire`. When the AI setup item's settings command names
+  a reverse (`aiSetup.settings.commands[].reverse: { argv, readback }`), it is copied into the receipt; removal runs it
+  and its readback before the AI setup folder goes, and a differing readback keeps the receipt. Without one, the review
+  and the removal say Core can't undo the command.
+- **`upstream-installer`** (`managed: false`) runs the AI setup's own installer argv, whose program is found on `PATH` and
+  pinned by sha256 at Prepare. Core clones nothing and can't remove what it installs; removal releases only its receipt.
+- **`upstream-setup`** clones `repository` at the exact `commit` into `into` with the `git` Prepare pinned (`clone
+  --no-checkout`, `checkout --detach <commit>`, and `HEAD` must be that commit), marks the clone with `.aih-setup`, then
+  runs `command` inside it: `./<file>` from the clone, or a program on `PATH` pinned at Prepare. The review lists what the
+  command `needs`. Removal removes the clone with its marker; what the command wrote elsewhere stays. A folder holding
+  files Core didn't clone is `refused` `setup-folder-occupied`.
+- **Host support** is checked at Prepare, never halfway through Apply: a program this host can't run (no `git`, an
+  installer not on `PATH`, or on Windows a program that is not an `.exe` or `.com`) is `program-unavailable`.
+- **Outcomes (C60).** A failed step makes the rest of its item and every item that depends on it `not-attempted`
+  (Catalog `dependencies`, or the MCP item that starts the AI setup's executable); unrelated items continue and the run
+  is `incomplete`. An item runs after the items it depends on. A command that started and then failed, was cancelled or
+  was interrupted is `effectsUncertain`; the next Prepare shows it again (`previous: interrupted`) for a fresh approval,
+  and Core never re-runs or rolls it back by itself. Without a readback an applied command is `unverified`
+  (`command-effects-unknown`); an exit status never confirms its effects. `list` shows the saved facts under `programs`.
+- **Not yet:** Catalog records no reverse on settings commands; the tests use fake programs and a local git repository.
+
 ## Apply authored changes through a change request (0.1.0, in development)
 
 A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an

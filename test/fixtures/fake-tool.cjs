@@ -5,8 +5,8 @@
 // On Windows each fake is a copy of the Node executable named `fake-tool.exe`, `fake-setup.exe` or `fake-installer.exe`,
 // loaded with `NODE_OPTIONS=--require <this file>`; elsewhere it is a shell script that runs this file with
 // `FAKE_TOOL_NAME`. In any other process it does nothing. State goes to `<FAKE_TOOL_STATE>/<name>.json`.
-// `FAKE_TOOL_MODE` (comma-separated): `set-fail` (exit 1), `readback-wrong` (get prints `wrong`), `set-hang` (never
-// exits; writes `<name>.started`), `setup-fail`, `unset-noop` (exit 0, changes nothing).
+// `FAKE_TOOL_MODE` (comma-separated): `set-fail` (exit 1), `readback-wrong` (get prints `wrong`), `set-hang` (waits
+// 30 s, then fails; writes `<name>.started`), `setup-fail`, `unset-noop` (exit 0, changes nothing).
 'use strict';
 const { basename, join } = require('node:path');
 const fs = require('node:fs');
@@ -30,7 +30,9 @@ if (name) {
   state.calls.push({ argv: args, cwd: process.cwd(), ...(token ? { tokenSha256: createHash('sha256').update(token).digest('hex') } : {}) });
   const save = () => fs.writeFileSync(file, JSON.stringify(state, null, 2));
   save();
-  const hang = () => { fs.appendFileSync(join(dir, `${name}.started`), 'x'); const cell = new Int32Array(new SharedArrayBuffer(4)); for (;;) Atomics.wait(cell, 0, 0, 1000); };
+  const hang = () => { fs.appendFileSync(join(dir, `${name}.started`), 'x'); const cell = new Int32Array(new SharedArrayBuffer(4));
+    // Bounded, so a fake orphaned by a killed host (Windows keeps children alive) never outlives its test for long.
+    for (let waited = 0; waited < 30; waited++) Atomics.wait(cell, 0, 0, 1000); process.exit(1); };
   if (name === 'fake-tool') {
     const [group, verb, key, value] = args;
     if (group !== 'config') process.exit(64);
