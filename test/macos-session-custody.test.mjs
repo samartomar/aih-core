@@ -122,7 +122,7 @@ test('session verification requires joined trust material custody and rejects it
     const entry = { managementId: 'node-npm-trust', selectionId: 'trust', recipeIdentity: `sha256:${'a'.repeat(64)}`,
       files: [{ operationId: 'material', pathKey, sha256: 'b'.repeat(64) }] };
     assert.equal(sessionTrustMatches(entry), false);
-    const trust = { schema: 'urn:aihq:core:trust-custody:1.0.0', entries: [{ managementId: entry.managementId,
+    const trust = { schema: 'urn:aihq:core:trust-custody:0.1.0', entries: [{ managementId: entry.managementId,
       selectionId: entry.selectionId, operationId: 'material', pathKey, relativePath: 'trust.pem', format: 'pem',
       outputSha256: 'b'.repeat(64), recipeIdentity: entry.recipeIdentity, sourceSetSha256: 'c'.repeat(64), sources: [] }] };
     stateFiles().writeAtomic('trust-custody.json', Buffer.from(JSON.stringify(trust)), 0o600);

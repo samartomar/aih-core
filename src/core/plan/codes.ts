@@ -41,6 +41,9 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },
   { status: 'refused', code: 'tls-untrusted', fix: 'Run the repair the result names, then Prepare again.' },
   { status: 'refused', code: 'cell-mismatch', fix: "Replan for this host's platform cell." },
+  // Environment work: repair, certificate export and the macOS session (samartomar/aih-core#170).
+  { status: 'refused', code: 'host-unsupported', fix: 'Run on a supported Node runtime and host.' },
+  { status: 'refused', code: 'resolution-unknown', fix: 'Prepare again with resolutions taken from the conflicts of the review.' },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
@@ -49,6 +52,14 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog and profiles the plan was made with.' },
   { status: 'invalid', code: 'render-failed', fix: 'Pass the Catalog that made the plan; its render did not return checked bytes.' },
   { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
+  // Merges with reviewed conflict choices (samartomar/aih-core#165).
+  { status: 'refused', code: 'file-too-large-for-client', fix: 'Shorten your file, or choose fewer always-on rules.' },
+  // Typed input bindings (samartomar/aih-core#172).
+  { status: 'refused', code: 'input-missing', fix: 'Pass the value: an ordinary one in the request `inputs`, a secret in `controls.privateInputs` (`--private-input`).' },
+  { status: 'refused', code: 'input-binding-missing', fix: 'Replan with a Catalog that marks where each input value goes.' },
+  // Local plugins and one-item switch-offs (samartomar/aih-core#173).
+  { status: 'refused', code: 'switch-off-unsupported', fix: 'Remove the whole plugin; this CLI has no supported switch-off for one item.' },
+  { status: 'invalid', code: 'switch-off-alone', fix: 'Prepare the switch-off as the only entry of its removal request.' },
   // Inspection, file comparison and reporting (samartomar/aih-core#174).
   { status: 'refused', code: 'tool-not-observed', fix: 'Inspect the host of a tool Core has an observed layout for.' },
   { status: 'refused', code: 'output-unavailable', fix: 'Name a new file or folder whose parent folder exists.' },

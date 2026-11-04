@@ -61,6 +61,18 @@ export interface PlanItemFacts {
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
    */
   plugins?: PluginFacts[];
+  /**
+   * The item's input bindings as installed (C59): how each was written and where its value came from. Only an ordinary
+   * value is kept; a secret's value never is. Absent when the item binds no inputs.
+   */
+  inputs?: { input: string; secret: boolean; written: 'value' | 'reference' | 'omitted'; from: 'inputs' | 'default' | 'privateInputs' | null; value?: Json }[];
+  /** A local-plugin route (C68): the items its plan said it contains, or `null` when the plan gave none. */
+  localPlugin?: { contains: string[] | null };
+  /**
+   * A switch-off of one item inside a plugin (C45, C69): this claim owns one marked Codex `[[skills.config]]` block that
+   * turns the skill `name` (`<plugin>:<skill>`) off; the framework's own install stays. Removing this claim turns it back on.
+   */
+  switchOff?: { framework: string; item: string; cli: string; name: string };
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -236,8 +248,15 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs'])) return false;
+  if (value.inputs !== undefined && !validInputFacts(value.inputs)) return false;
   if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
+  if (value.localPlugin !== undefined && !(exact(value.localPlugin, ['contains']) && (value.localPlugin.contains === null ||
+      Array.isArray(value.localPlugin.contains) && value.localPlugin.contains.length <= 4096 &&
+      value.localPlugin.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) && ascending(value.localPlugin.contains)))) return false;
+  if (value.switchOff !== undefined && !(exact(value.switchOff, ['framework', 'item', 'cli', 'name']) &&
+      [value.switchOff.framework, value.switchOff.item, value.switchOff.cli].every(id => typeof id === 'string' && PLAN_ID.test(id)) &&
+      typeof value.switchOff.name === 'string' && SKILL_NAME.test(value.switchOff.name))) return false;
   if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
     value.plugins.every(validPluginFacts))) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
@@ -259,10 +278,26 @@ export function validPlanFacts(value: unknown): boolean {
     steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
 }
 
+function validInputFacts(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 256) return false;
+  return value.every((row, index) => exact(row, ['input', 'secret', 'written', 'from'], ['value']) &&
+    typeof row.input === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/.test(row.input) &&
+    (index === 0 || (value[index - 1] as { input: string }).input < row.input) && typeof row.secret === 'boolean' &&
+    ['value', 'reference', 'omitted'].includes(row.written as string) && [null, 'inputs', 'default', 'privateInputs'].includes(row.from as string | null) &&
+    // A secret's value is never kept.
+    (row.value === undefined || !row.secret && (typeof row.value === 'string' && row.value.length <= 65_536 || typeof row.value === 'boolean' ||
+      typeof row.value === 'number' && Number.isFinite(row.value))));
+}
 const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
   value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
+/** A plugin-qualified skill name, `<plugin>:<skill>`, as Codex keys `[[skills.config]]` (no quotes or control characters). */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SKILL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function validPluginFacts(value: unknown): boolean {
-  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'])) return false;
+  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'], ['skills'])) return false;
+  if (value.skills !== undefined && !(value.skills && typeof value.skills === 'object' && !Array.isArray(value.skills) && Array.isArray(value.contains) &&
+      Object.entries(value.skills).every(([item, name]) => (value.contains as unknown[]).includes(item) && typeof name === 'string' && SKILL.test(name))))
+    return false;
   if (!Number.isSafeInteger(value.step) || (value.step as number) < 0 || typeof value.cli !== 'string' || !PLAN_ID.test(value.cli) ||
       !text(value.plugin, 256) || !text(value.commit, 128)) return false;
   if (!Array.isArray(value.contains) || value.contains.length > 4096 ||
@@ -318,13 +353,15 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
         owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
+      // A plan merge's replaced entry or block is restorable by a reference to its file's protected original (secret-safe).
+      const merged = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' || owner.descriptor?.kind === 'block').map(([key]) => key));
       // A replaced whole file is restorable by a reference to its protected original, never by its bytes.
       const files = new Set(owned.filter(([, owner]) => owner.descriptor === undefined || owner.descriptor.kind === 'file').map(([key]) => key));
       const original = (entry: unknown): boolean => exact(entry, ['value']) && exact(entry.value, ['originalFile']) &&
         exact(entry.value.originalFile, ['sha256', 'byteLength']) && hex(entry.value.originalFile.sha256) &&
         Number.isSafeInteger(entry.value.originalFile.byteLength) && (entry.value.originalFile.byteLength as number) >= 0;
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
-          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || files.has(key) && original(entry))) return false;
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || (files.has(key) || merged.has(key)) && original(entry))) return false;
     }
     if (item.redactedPaths !== undefined) {
       const keys = new Set(owned.map(([key]) => key));

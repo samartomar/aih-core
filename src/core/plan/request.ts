@@ -9,6 +9,7 @@ import { schemaProblems } from './formats.js';
 import { limitValue } from './limits.js';
 import { handlerFor } from './steps/index.js';
 import { knownCli } from './tools.js';
+import { checkValues, declarations, unboundInput } from './inputs.js';
 import type { Json } from '../types.js';
 import type { Invalid, PlanControls, PlanRequest, Problem, Refusal, UnsupportedVersion } from './types.js';
 import { PLAN_REQUEST } from './types.js';
@@ -83,13 +84,30 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
       { fixes: ['names', 'overrides', 'bundle'] });
 
   const itemFiles = new Map<string, SourceFacts>(); const notices = new Map<string, SourceFacts>();
+  const itemInputs = new Map<string, { isSecret: boolean }>();
+  const pluginFiles = new Map<string, SourceFacts>();
   for (const content of document.contents as unknown as { sources: { id: string; notices?: { sourcePath: string; sha256: string }[] }[];
-      items: { id: string; files: SourceFacts[] }[] }[]) {
+      items: { id: string; files: SourceFacts[]; requirements?: { inputs?: Record<string, { isSecret?: unknown }> } }[] }[]) {
     for (const source of content.sources) for (const notice of source.notices ?? [])
       notices.set(key(source.id, notice.sourcePath), { sourceId: source.id, sourcePath: notice.sourcePath, sha256: notice.sha256, executable: false });
+    for (const item of content.items) for (const [name, spec] of Object.entries(item.requirements?.inputs ?? {}))
+      itemInputs.set(key(item.id, name), { isSecret: !!spec && typeof spec === 'object' && spec.isSecret === true });
     for (const item of content.items) for (const file of item.files)
       itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
+    // A framework's recorded plugin folders: the files a local-plugin route copies as one unit (Catalog D120).
+    const framework = (content as { framework?: { id?: unknown } }).framework?.id;
+    const folders = (content as { plugins?: unknown }).plugins;
+    if (typeof framework === 'string' && Array.isArray(folders)) for (const folder of folders as { sourceId?: unknown; files?: unknown }[])
+      if (folder && typeof folder.sourceId === 'string' && Array.isArray(folder.files))
+        for (const file of folder.files as { sourcePath?: unknown; sha256?: unknown; executable?: unknown }[])
+          if (file && typeof file.sourcePath === 'string' && typeof file.sha256 === 'string')
+            pluginFiles.set(key(framework, key(folder.sourceId, file.sourcePath)), { sourceId: folder.sourceId, sourcePath: file.sourcePath,
+              sha256: file.sha256, executable: file.executable === true });
   }
+  // Ordinary values in the request, secrets only in the controls, each for an input its item declares (4.1, C59).
+  const declared = declarations(document.contents);
+  const valueProblems = checkValues(declared, document.inputs, controls.privateInputs);
+  if (valueProblems.length) return invalid(valueProblems);
   const qualifications = new Map<string, { [field: string]: Json }>();
   for (const entry of document.qualifications ?? []) if (entry && typeof entry === 'object' && !Array.isArray(entry))
     qualifications.set(sha256(Buffer.from(canonicalJson(entry))), entry as { [field: string]: Json });
@@ -107,6 +125,9 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
       itemFile: (item, sourcePath) => itemFiles.get(key(item, sourcePath)),
       notice: (sourceId, sourcePath) => notices.get(key(sourceId, sourcePath)),
       qualification: sha => qualifications.get(sha),
+      itemInput: (item, input) => itemInputs.get(key(item, input)),
+      inputs: clis => ({ index, request: document, privateInputs: controls.privateInputs, declared, clis }),
+      pluginFile: (framework, sourceId, sourcePath) => pluginFiles.get(key(framework, key(sourceId, sourcePath))),
       bytesFor: facts => {
         const entry = files.get(key(facts.sourceId, facts.sourcePath));
         if (!entry || !entry.bytes) return { refusal: refused('source-missing',
@@ -125,6 +146,11 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     steps.push({ index, op: step.op, lowered: outcome.lowered, skipped: skips.has(index) });
   }
   if (stepProblems.length) return invalid(stepProblems);
+  // Every declared input of a planned item lands at a place some step marks; otherwise it is never guessed (C63).
+  const bound = new Set(steps.flatMap(step => (step.lowered.bound?.review ?? []).map(row => `${row.item}\0${row.input}`)));
+  const unbound = unboundInput(declared, new Set(steps.flatMap(step => step.lowered.managementIds)), bound);
+  if (unbound) return refused('input-binding-missing', `\`${unbound.input}\` of \`${unbound.item}\` has no place marked in the plan; replan with a Catalog that marks input places.`,
+    { item: unbound.item, input: unbound.input });
   for (const resolution of document.resolutions ?? [])
     if (!steps.some(step => step.index === resolution.step && step.lowered.managementIds.includes(resolution.managementId)))
       return invalid([{ path: '/resolutions', reason: 'resolution-unknown', message: `No step ${resolution.step} belongs to \`${resolution.managementId}\`.` }]);

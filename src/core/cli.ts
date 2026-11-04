@@ -185,6 +185,8 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
   remove: () => import('./cli/remove.js'),
   change: () => import('./cli/change.js'),
 };
+// 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
+const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;
 // `aih inspect` is the 0.1.0 inspection unless a retained-only option asks for the retained result.
 const RETAINED_INSPECT = /^--(?:probe-configured-mcp|project)(?:=|$)/;
 /** `aih check-files` reads a plan or change request with the 0.1.0 comparison; an execution policy keeps the retained one. */
@@ -204,6 +206,8 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
   await (await import('./cli/inspect.js')).run(process.argv.slice(3), controller.signal);
 } else if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
   await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
+} else if (environmentCli?.accepts(process.argv[2]!, process.argv.slice(3))) {
+  await environmentCli.run(process.argv[2] as 'repair' | 'export-ca', process.argv.slice(3), controller.signal);
 } else if (process.argv[2] === 'verify-macos-session') {
   const { runMacosSessionCli } = await import('./macos-session-cli.js');
   await runMacosSessionCli(process.argv.slice(3), controller.signal);

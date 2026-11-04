@@ -314,3 +314,118 @@ export function removeCreatedTomlTable(bytes: Buffer, table: string[], created: 
   const next = [...parse(output).tables.values()].find(candidate => candidate.segments.length && candidate.first === header.first);
   return { bytes: Buffer.from(output, 'utf8'), ...(created === 'created-after-newline' && start === header.first && next ? { heir: identity(next.segments) } : {}) };
 }
+
+/**
+ * Plan merges (one TOML table as an entry): every key path assigned at or under `table`, and each table header there,
+ * in file order. A table holding a key the entry doesn't name is the person's entry, never silently merged into.
+ */
+export function tomlEntryPaths(before: Buffer | null, table: string[]): { assignments: string[][]; tables: string[][] } {
+  if (before === null) return { assignments: [], tables: [] };
+  const parsed = parse(decode(before));
+  return { assignments: [...parsed.assignments.keys()].map(id => JSON.parse(id) as string[]).filter(path => startsWith(path, table)),
+    tables: [...parsed.tables.values()].filter(item => item.segments.length && startsWith(item.segments, table)).map(item => item.segments) };
+}
+/**
+ * The exact text of one table entry: each table header at or under `table` with its region, and any dotted assignment
+ * under it elsewhere, in file order. Values at `redact` paths read `"[REDACTED]"`. `null` when nothing is there.
+ */
+export function tomlEntryText(before: Buffer | null, table: string[], redact: string[][] = []): string | null {
+  if (before === null) return null;
+  const text = decode(before);
+  const parsed = parse(text);
+  const spans: { start: number; end: number }[] = [...parsed.tables.values()]
+    .filter(item => item.segments.length && startsWith(item.segments, table)).map(item => ({ start: item.first, end: item.last }));
+  for (const [id, assignment] of parsed.assignments) if (startsWith(JSON.parse(id) as string[], table) &&
+      !spans.some(span => assignment.start >= span.start && assignment.end <= span.end)) spans.push({ start: assignment.start, end: assignment.end });
+  if (!spans.length) return null;
+  spans.sort((a, b) => a.start - b.start);
+  const hidden = redact.map(path => parsed.assignments.get(identity(path))).filter((item): item is Assignment => !!item)
+    .sort((a, b) => b.valueStart - a.valueStart);
+  return spans.map(span => {
+    let slice = text.slice(span.start, span.end);
+    for (const item of hidden) if (item.valueStart >= span.start && item.valueEnd <= span.end)
+      slice = slice.slice(0, item.valueStart - span.start) + '"[REDACTED]"' + slice.slice(item.valueEnd - span.start);
+    return slice;
+  }).join('');
+}
+/** Writes back one key's exact original value text, replacing only the value Core put there. */
+export function restoreTomlValue(current: Buffer, path: string[], original: Buffer): Buffer | null {
+  const raw = tomlMember(original, path);
+  if (raw === null) return null;
+  const text = decode(current);
+  const member = parse(text).assignments.get(identity(path));
+  if (!member) return null;
+  const output = text.slice(0, member.valueStart) + raw.toString('utf8') + text.slice(member.valueEnd);
+  parse(output);
+  return Buffer.from(output, 'utf8');
+}
+
+/** One `[[table]]` entry an array-table scan found: where it starts and ends, and its own string and boolean values. */
+export interface TomlArrayEntry { start: number; end: number; values: Record<string, string | boolean> }
+/**
+ * A read-only scan that also reads array tables (which the editor refuses): every `[[table]]` entry, in file order, with
+ * the string and boolean values of its own keys. Fails with `unsupported-toml-syntax` or `unsupported-toml-table` on
+ * syntax the scanner does not read, so an unreadable file is never taken to hold no entry. It never edits anything.
+ */
+export function tomlArrayTableEntries(before: Buffer | null, table: string[]): TomlArrayEntry[] {
+  if (before === null) return [];
+  const text = decode(before);
+  const out: TomlArrayEntry[] = [];
+  let current: TomlArrayEntry | undefined;
+  const line = (stop: number): number => {
+    const end = skipComment(text, skipBlank(text, stop));
+    const eol = newlineAt(text, end);
+    return end < text.length && !eol ? -1 : end + eol;
+  };
+  const dotted = (from: number): { segments: string[]; end: number } => {
+    const segments: string[] = [];
+    let i = from;
+    for (;;) {
+      i = skipBlank(text, i);
+      const name = key(text, i);
+      if (!name) fail('unsupported-toml-syntax');
+      segments.push(name.value);
+      i = skipBlank(text, name.end);
+      if (text[i] !== '.') return { segments, end: i };
+      i += 1;
+    }
+  };
+  let at = 0;
+  while (at < text.length) {
+    const lineStart = at;
+    const i = skipBlank(text, at);
+    if (text[i] === '[') {
+      const array = text[i + 1] === '[';
+      const header = dotted(i + (array ? 2 : 1));
+      if (text[header.end] !== ']' || array && text[header.end + 1] !== ']') fail('unsupported-toml-table');
+      const next = line(header.end + (array ? 2 : 1));
+      if (next < 0) fail('unsupported-toml-table');
+      if (current) current.end = lineStart;
+      current = array && header.segments.length === table.length && header.segments.every((part, index) => part === table[index]) ?
+        { start: lineStart, end: text.length, values: {} } : undefined;
+      if (current) out.push(current);
+      at = next;
+    } else if (i >= text.length || text[i] === '#' || newlineAt(text, i)) {
+      const next = line(i);
+      if (next < 0) fail('unsupported-toml-syntax');
+      at = next;
+    } else {
+      const name = dotted(i);
+      if (text[name.end] !== '=') fail('unsupported-toml-syntax');
+      const valueStart = skipBlank(text, name.end + 1);
+      const parsed = value(text, valueStart, 0);
+      const next = line(parsed.end);
+      if (next < 0) fail('unsupported-toml-syntax');
+      if (current && name.segments.length === 1) {
+        const raw = text.slice(parsed.start, parsed.end);
+        const field = name.segments[0]!;
+        if (Object.hasOwn(current.values, field)) fail('duplicate-toml-key');
+        if (raw === 'true' || raw === 'false') current.values[field] = raw === 'true';
+        else if (raw.startsWith('"') && !raw.startsWith('"""')) current.values[field] = basicString(text, parsed.start)!.value;
+        else if (raw.startsWith("'") && !raw.startsWith("'''")) current.values[field] = literalString(text, parsed.start)!.value;
+      }
+      at = next;
+    }
+  }
+  return out;
+}

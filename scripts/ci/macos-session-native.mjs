@@ -93,7 +93,7 @@ try {
   assert.equal(verified.status, 'incomplete'); assert.equal(verified.verification, 'skipped');
   assert.equal(validateMacosSessionVerificationResult(verified).valid, true, JSON.stringify(validateMacosSessionVerificationResult(verified))); passed('offline-observation-is-not-a-pass');
   const trustPath = join(home, '.aih/core/trust-custody.json'), trustBytes = readFileSync(trustPath);
-  writeFileSync(trustPath, JSON.stringify({ schema: 'urn:aihq:core:trust-custody:1.0.0', entries: [] }));
+  writeFileSync(trustPath, JSON.stringify({ schema: 'urn:aihq:core:trust-custody:0.1.0', entries: [] }));
   const absentTrust = await verifyMacosSession(verificationRequest, { logging: 'off' });
   assert.equal(absentTrust.configuration, 'not-applied'); assert.equal(absentTrust.bindingSha256, null);
   writeFileSync(trustPath, trustBytes);

@@ -7,7 +7,7 @@
   "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
   "properties": {
     "schema": { "const": "urn:aihq:core:review:0.1.0" },
-    "request": { "enum": ["plan", "removal", "change"] },
+    "request": { "enum": ["plan", "removal", "change", "repair", "export", "macos-session"] },
     "scope": { "enum": ["project", "user"] },
     "target": { "type": "object", "additionalProperties": false, "required": ["project"],
       "properties": { "project": { "type": ["string", "null"] } } },
@@ -42,9 +42,30 @@
       "properties": { "id": { "type": "string" }, "members": { "type": "array", "items": { "type": "string" } } } } },
     "failureRule": { "type": "string" },
     "warnings": { "type": "array", "items": { "type": "string" } },
+    "environment": { "$ref": "#/$defs/environment" },
     "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
   "$defs": {
+    "environment": {
+      "description": "Repair, certificate export and macOS session facts (contract 10): what was found, what is admitted, and why anything is unavailable",
+      "type": "object", "additionalProperties": false,
+      "required": ["job", "repair", "targets", "route", "network", "facts", "observations", "unavailable"],
+      "properties": {
+        "job": { "enum": ["repair", "export", "macos-session"] },
+        "repair": { "type": ["string", "null"] },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "route": { "enum": ["file", "native", "os", "export"] },
+        "network": { "enum": ["declared", "off"] },
+        "facts": { "type": "object" },
+        "observations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+          "properties": { "id": { "type": "string" }, "reason": { "type": "string" } } } },
+        "unavailable": { "type": "array", "items": { "$ref": "#/$defs/environmentProblem" } }
+      }
+    },
+    "environmentProblem": {
+      "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+      "properties": { "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" } }
+    },
     "step": {
       "type": "object", "additionalProperties": false,
       "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
@@ -81,11 +102,16 @@
               "properties": { "version": { "type": "string" }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
             "switchesOn": { "type": "array", "items": { "enum": ["none-found", "outside-range", "wheel-install-failed", "readback-failed"] } }
           } },
+        "format": { "enum": ["json", "toml", "markdown"] },
+        "key": { "type": "string" },
+        "entry": {},
+        "inputs": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/input" } },
         "framework": { "type": "string" },
         "cli": { "type": "string" },
         "plugin": { "type": "string" },
         "commit": { "type": "string" },
         "contains": { "type": "array", "items": { "type": "string" } },
+        "route": { "const": "local-plugin" },
         "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/argv" } }] },
         "presenceCheck": { "oneOf": [{ "const": "none" }, {
@@ -96,6 +122,24 @@
       }
     },
     "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "input": {
+      "description": "One input binding of a step (C59): where its value lands and how it is written. A secret's value never appears.",
+      "type": "object", "additionalProperties": false, "required": ["item", "input", "at", "secret", "written", "from"],
+      "properties": {
+        "item": { "type": "string" },
+        "input": { "type": "string" },
+        "at": { "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["pointer"], "properties": { "pointer": { "type": "string" } } },
+          { "type": "object", "additionalProperties": false, "required": ["placeholder"], "properties": { "placeholder": { "type": "string" } } },
+          { "type": "object", "additionalProperties": false, "required": ["argv"], "properties": { "argv": { "type": "integer", "minimum": 0 } } },
+          { "type": "object", "additionalProperties": false, "required": ["env"], "properties": { "env": { "type": "string" } } } ] },
+        "secret": { "type": "boolean" },
+        "written": { "enum": ["value", "reference", "omitted"] },
+        "from": { "enum": [null, "inputs", "default", "privateInputs"] },
+        "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] }
+      },
+      "if": { "properties": { "secret": { "const": true } } }, "then": { "properties": { "value": false } }
+    },
     "command": {
       "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256"],
       "properties": {
@@ -106,15 +150,19 @@
     },
     "conflict": {
       "type": "object", "additionalProperties": false,
-      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "choices"],
+      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "existing", "redacted", "choices"],
       "properties": {
         "code": { "const": "STATE_CONFLICT" },
         "reason": { "enum": ["existing-content", "managed-content-changed"] },
         "managementId": { "type": "string" },
         "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
         "target": { "type": "string" },
+        "key": { "type": "string" },
         "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
-        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } }
+        "existing": { "type": ["string", "null"] },
+        "redacted": { "type": "array", "items": { "type": "string" } },
+        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } },
+        "detail": { "type": "string" }
       }
     }
   }

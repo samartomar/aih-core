@@ -7,7 +7,7 @@ import { resolveTrustPath, nativeTrustPathEquivalent } from './trust-path.js';
 import { stateFiles, stateRoot, protectState, readOwnership, type Ownership } from './state.js';
 import type { TrustEngineParticipant, TrustEngineStep } from './trust-participant.js';
 import type { RunResult } from '../host-types.js';
-import { validateTrustCustody } from '../trust-contracts.js';
+import { validateTrustCustodyRecord } from '../trust-contracts.js';
 import { readRegularFile } from './fsxn.js';
 import { memberKey } from './recipe-lifecycle.js';
 import { guardMacosSessionMember } from './macos-session-custody.js';
@@ -16,7 +16,7 @@ export interface TrustCustodySource { id: string; kind: 'os' | 'supplied' | 'nod
   sourceSha256: string; policySha256: string | null; runtimeVersion: string | null; privateFile: string | null }
 export interface TrustCustodyEntry { managementId: string; selectionId: string; operationId: string; pathKey: string; relativePath: string;
   format: 'pem' | 'pkcs7-der' | 'jks'; outputSha256: string; recipeIdentity: string; sourceSetSha256: string; sources: TrustCustodySource[] }
-export interface TrustCustody { schema: 'urn:aihq:core:trust-custody:1.0.0'; entries: TrustCustodyEntry[] }
+export interface TrustCustody { schema: 'urn:aihq:core:trust-custody:0.1.0'; entries: TrustCustodyEntry[] }
 export interface TrustCustodyImage { value: TrustCustody; digest: string | null }
 interface PendingIntent { schema: string; transactionId: string; outputs: {pathKey:string;oldSha256:string|null;newSha256:string|null}[];
   before:string;after:string;recovery:string|null;beforeSha256?:string;afterSha256?:string;contexts?:{reference:string;sha256:string}[] }
@@ -24,11 +24,11 @@ export interface TrustPendingImage { intent:PendingIntent;bytes:Buffer;digest:st
   beforeSha256:string;afterSha256:string;pins:PathPin[];liveSha256:string;contextSha256:string;requiredContexts:{reference:string;sha256:string}[] }
 const FILE = 'trust-custody.json'; const INTENT = 'trust-custody-pending.json'; const LIMIT = 1_048_576;
 const hex = /^[a-f0-9]{64}$/; const id = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const empty = (): TrustCustody => ({ schema: 'urn:aihq:core:trust-custody:1.0.0', entries: [] });
+const empty = (): TrustCustody => ({ schema: 'urn:aihq:core:trust-custody:0.1.0', entries: [] });
 function exact(value: object, keys: string[]) { return Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key)); }
 function validate(value: unknown): asserts value is TrustCustody {
   const fail = () => { throw new Error('trust-custody-conflict'); };
-  if (!validateTrustCustody(value).valid) fail();
+  if (!validateTrustCustodyRecord(value).valid) fail();
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
   const v = value as TrustCustody;
   if (!exact(v, ['schema', 'entries']) || v.schema !== empty().schema || !Array.isArray(v.entries)) fail();

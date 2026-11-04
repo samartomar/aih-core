@@ -23,8 +23,18 @@ import { forgetProvenState } from './internal/state.js';
 import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
 import { prepareTrust, applyTrust, isTrustHandle } from './trust.js';
 import { prepareMacosSession, applyMacosSession, isMacosSessionHandle } from './macos-session.js';
-import type { MacosRepairRequest } from './macos-session-contracts.js';
-export { verifyMacosSession } from './macos-session.js';
+import type { MacosRepairRequest, MacosSessionVerificationRequest, MacosSessionVerificationResult } from './macos-session-contracts.js';
+import { verifyMacosSession as verifyMacosSessionRetained } from './macos-session.js';
+import { isSessionVerificationRequest, verifyMacosSessionRequest, type MacosSessionVerificationResult010 } from './environment/index.js';
+export type { MacosSessionVerificationResult010 } from './environment/index.js';
+/** A `macos-session-verification-request:0.1.0` returns the 0.1.0 result; the retained 1.0.0 request keeps its own. */
+export function verifyMacosSession(request: { schema: 'urn:aihq:core:macos-session-verification-request:0.1.0'; managementId: string },
+  controls?: Pick<HostControls, 'signal' | 'logging'>): Promise<MacosSessionVerificationResult010>;
+export function verifyMacosSession(request: MacosSessionVerificationRequest, controls?: Pick<HostControls, 'signal' | 'logging'>): Promise<MacosSessionVerificationResult>;
+export function verifyMacosSession(request: unknown, controls: Pick<HostControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult | MacosSessionVerificationResult010> {
+  return isSessionVerificationRequest(request) ? verifyMacosSessionRequest(request, controls) :
+    verifyMacosSessionRetained(request as MacosSessionVerificationRequest, controls);
+}
 export type { MacosSessionClientId, MacosSessionContext, MacosSessionLaunch, MacosSessionApplication, MacosSessionSelection,
   MacosRepairRequest, MacosSessionState, MacosSessionApplicationReview, MacosSessionEffect, MacosSessionReview,
   MacosSessionConfiguration, MacosSessionVerification, MacosSessionApplicationRun, MacosSessionRun,
@@ -42,8 +52,10 @@ import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { preparePlan } from './plan/prepare.js';
 import { applyPlan } from './plan/apply.js';
 import { isPlanHandle } from './plan/handles.js';
+import { applyEnvironment, isEnvironmentHandle, isEnvironmentRequest, prepareEnvironment } from './environment/index.js';
 import { prepareChange, type ChangeControls, type ChangeRequest } from './change/prepare.js';
 import type { PreparationResult, RunResult } from './host-types.js';
+import type { EnvironmentRequest } from './environment/request.js';
 import { PLAN_REQUEST, type Approval, type PlanControls, type PlanHandle, type PlanPreparation, type PlanRequest, type Run } from './plan/types.js';
 /** Any `urn:aihq:core:plan-request:*` document goes to the plan path, which answers `unsupported-version` for other versions. */
 const isPlanRequest = (request: unknown): boolean => {
@@ -63,10 +75,13 @@ export type { ChangeRequest, ChangeControls } from './change/prepare.js';
 export function prepare(request: PlanRequest, controls?: PlanControls): Promise<PlanPreparation>;
 /** A change request (`urn:aihq:core:change-request:0.1.0`) returns the 0.1.0 preparation (contract 4.2, 9). */
 export function prepare(request: ChangeRequest, controls?: ChangeControls): Promise<PlanPreparation>;
+/** A repair, export or macOS session request (`urn:aihq:core:{repair,export,macos-session}-request:0.1.0`, contract 10). */
+export function prepare(request: EnvironmentRequest, controls?: Pick<PlanControls, 'signal' | 'logging'>): Promise<PlanPreparation>;
 export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls?: HostControls): Promise<PreparationResult>;
-export function prepare(request: PlanRequest | ChangeRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls | ChangeControls = {}): Promise<PreparationResult | PlanPreparation> {
+export function prepare(request: PlanRequest | ChangeRequest | EnvironmentRequest | PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls | PlanControls | ChangeControls = {}): Promise<PreparationResult | PlanPreparation> {
   if (isPlanRequest(request)) return preparePlan(request, controls);
   if (isChangeRequest(request)) return prepareChange(request, controls);
+  if (isEnvironmentRequest(request)) return prepareEnvironment(request, controls);
   return prepareOlder(request as PolicyRequest, controls as HostControls);
 }
 function prepareOlder(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
@@ -84,6 +99,7 @@ export function apply(handle: PlanHandle, approval: Approval, controls?: PlanCon
 export function apply(prepared: PreparedHandle, authorization: Authorization, controls?: HostControls): Promise<RunResult>;
 export function apply(prepared: PreparedHandle | PlanHandle, authorization: Authorization | Approval, controls: HostControls | PlanControls | ChangeControls = {}): Promise<RunResult | Run> {
   if (isPlanHandle(prepared)) return applyPlan(prepared, authorization, controls);
+  if (isEnvironmentHandle(prepared)) return applyEnvironment(prepared, authorization, controls);
   return applyOlder(prepared as PreparedHandle, authorization as Authorization, controls as HostControls);
 }
 function applyOlder(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}): Promise<RunResult> {
@@ -95,7 +111,9 @@ export { list, prepareRemoval } from './plan/lifecycle.js';
 export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFile, PlanResolution, Preparation, Refusal, Invalid,
   UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember as PlanRunMember, StaleChange, PlanHandle,
   Inventory, InventoryEntry, InventoryMember, ListResult, RemovalSelector as PlanRemovalSelector, RemovalMember as PlanRemovalMember, RemovalEntry as PlanRemovalEntry,
-  RemovalPreparation, RemovalResult } from './plan/types.js';
+  RemovalPreparation, RemovalResult, EnvironmentReview, EnvironmentRun, EnvironmentProblem } from './plan/types.js';
+export type { EnvironmentRequest, RepairRequest010 as EnvironmentRepairRequest, ExportRequest010 as EnvironmentExportRequest,
+  MacosSessionRequest010 as EnvironmentMacosSessionRequest, EnvironmentResolution } from './environment/request.js';
 import { inspectRetained, type InspectControls, type InspectRequest, type InspectResult } from './inspection.js';
 import { inspectMachine, type Inspect0Request, type InspectionResult } from './inspect.js';
 export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';

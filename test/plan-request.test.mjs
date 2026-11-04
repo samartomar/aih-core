@@ -238,7 +238,15 @@ test('removal keeps your later edits and unrelated files, unregisters missing me
 
 test('the 0.1.0 documents conform to their published schemas', async () => {
   const { schemas, validateFormat, refusalCodes, limits } = await import('../dist/core/contracts.js');
-  assert.deepEqual(Object.keys(schemas).sort(), ['urn:aihq:core:change-request:0.1.0', 'urn:aihq:core:change:0.1.0', 'urn:aihq:core:claims:0.1.0', 'urn:aihq:core:file-check:0.1.0', 'urn:aihq:core:inspection:0.1.0', 'urn:aihq:core:inventory:0.1.0', 'urn:aihq:core:plan-request:0.1.0', 'urn:aihq:core:report:0.1.0', 'urn:aihq:core:review:0.1.0', 'urn:aihq:core:run:0.1.0', 'urn:aihq:core:tool-registry:0.1.0']);
+  assert.deepEqual(Object.keys(schemas).sort(), [
+    'urn:aihq:core:change-request:0.1.0', 'urn:aihq:core:change:0.1.0', 'urn:aihq:core:claims:0.1.0',
+    'urn:aihq:core:export-inputs:0.1.0', 'urn:aihq:core:export-request:0.1.0', 'urn:aihq:core:file-check:0.1.0',
+    'urn:aihq:core:inspection:0.1.0', 'urn:aihq:core:inventory:0.1.0', 'urn:aihq:core:macos-session-custody:0.1.0',
+    'urn:aihq:core:macos-session-inputs:0.1.0', 'urn:aihq:core:macos-session-profiles:0.1.0', 'urn:aihq:core:macos-session-request:0.1.0',
+    'urn:aihq:core:macos-session-verification-request:0.1.0', 'urn:aihq:core:macos-session-verification-result:0.1.0', 'urn:aihq:core:plan-request:0.1.0',
+    'urn:aihq:core:repair-inputs:0.1.0', 'urn:aihq:core:repair-request:0.1.0', 'urn:aihq:core:report:0.1.0',
+    'urn:aihq:core:review:0.1.0', 'urn:aihq:core:run:0.1.0', 'urn:aihq:core:tool-registry:0.1.0',
+    'urn:aihq:core:trust-custody:0.1.0']);
   for (const [id, entry] of Object.entries(schemas)) {
     assert.deepEqual(validateFormat(entry.fixtures.valid), { status: 'ok', schema: id });
     assert.equal(validateFormat(entry.fixtures.invalid).status, 'invalid', id);

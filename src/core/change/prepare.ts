@@ -205,7 +205,7 @@ export async function prepareChange(input: unknown, rawControls?: unknown): Prom
       const hint = hints.get(operation.id);
       const replaceable = !!hint && hint.availableChoices.length > 0;
       conflicts.push({ code: 'STATE_CONFLICT', reason: replaceable ? 'existing-content' : 'managed-content-changed', managementId, step,
-        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
+        target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, existing: null, redacted: [], choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
     }
   }
   for (const [managementId, { change, ids }] of skipped) for (const id of ids) {

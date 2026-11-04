@@ -69,7 +69,8 @@ test('a plugin step reviews its exact pinned commands, runs them after approval 
   assert.deepEqual([entry.installState, entry.clis, entry.items], ['complete', ['claude-code'], ['superpowers']]);
   assert.deepEqual(entry.plugins, [{ step: 0, cli: 'claude-code', plugin: 'superpowers', commit: '5bf4e78011075bcfc0dc295f0724994cd123ee71',
     contains: ['superpowers.skill.brainstorming', 'superpowers.skill.writing-plans'],
-    undo: [['claude', 'plugin', 'uninstall', 'superpowers']], presenceCheck: { argv: ['claude', 'plugin', 'list'], expect: SPEC } }]);
+    undo: [['claude', 'plugin', 'uninstall', 'superpowers']], presenceCheck: { argv: ['claude', 'plugin', 'list'], expect: SPEC },
+    skills: { 'superpowers.skill.brainstorming': 'brainstorming', 'superpowers.skill.writing-plans': 'writing-plans' } }]);
 });
 
 const install = async (verify, options) => {

@@ -1,5 +1,5 @@
 // aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>]
-//             [--apply [--yes] [--allow-partial]] [--no-log] [--json]      (contract 22)
+//             [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]      (contract 22)
 // Source bytes are read with `readLocalSource` from the Catalog installed beside this CLI; without it, `--source` is
 // refused `catalog-required`. Its `/reader` (`renderStep`, `planRecipe`) is passed as `controls.catalog` for render
 // steps and recipe proofs. The project is never taken from the working folder.
@@ -9,10 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { readRegularFile } from '../internal/fsxn.js';
 import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
 import { apply, prepare } from '../index.js';
-import { approved, emit, exitCode, printable, progressLine, readDocument, refusal } from './common.js';
+import { approved, emit, exitCode, printable, privateInputMappings, progressLine, readDocument, refusal } from './common.js';
 import type { CatalogControls, PlanControls, PlanRequest } from '../plan/types.js';
 
-const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]\n';
+const USAGE = 'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]\n';
 interface LocalSource { status: string; files?: { path: string; bytes?: Uint8Array }[] }
 
 export async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<LocalSource> | LocalSource } | undefined> {
@@ -54,7 +54,7 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
   try {
     parsed = parseArgs({ args, allowPositionals: true, strict: true, options: {
       project: { type: 'string' }, source: { type: 'string', multiple: true }, resolutions: { type: 'string' },
-      apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' }, 'no-log': { type: 'boolean' },
+      apply: { type: 'boolean' }, yes: { type: 'boolean' }, 'allow-partial': { type: 'boolean' }, 'no-log': { type: 'boolean' }, 'private-input': { type: 'string', multiple: true },
       json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch { process.stderr.write(USAGE); return emit(output, refusal('usage', 'The install options are not valid.'), 2); }
   const { values, positionals } = parsed;
@@ -92,7 +92,9 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
     }
   }
   const catalog = await catalogReader();
-  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(catalog ? { catalog } : {}) };
+  const privateInputs = privateInputMappings(values['private-input']);
+  if (!privateInputs) return emit(output, refusal('usage', '`--private-input` is `<item>.<input>=<ENV>` naming a set environment variable, once per input.'), 2);
+  const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(Object.keys(privateInputs).length ? { privateInputs } : {}), ...(catalog ? { catalog } : {}) };
   const preparation = await prepare(request, controls);
   if (!values.apply || !('handle' in preparation) || !preparation.handle)
     return emit(output, 'handle' in preparation ? printable(preparation) : preparation, exitCode(preparation));

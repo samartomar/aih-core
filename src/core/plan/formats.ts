@@ -19,6 +19,40 @@ import changeInvalid from '../../fixtures/core/change/0.1.0/refuse.json' with { 
 import changeRequestSchema from '../schemas/change-request/0.1.0.json' with { type: 'json' };
 import changeRequestValid from '../../fixtures/core/change-request/0.1.0/accept.json' with { type: 'json' };
 import changeRequestInvalid from '../../fixtures/core/change-request/0.1.0/refuse.json' with { type: 'json' };
+// Environment work: repair, certificate export and the macOS session (samartomar/aih-core#170).
+import repairRequestSchema from '../schemas/repair-request/0.1.0.json' with { type: 'json' };
+import repairRequestValid from '../../fixtures/core/repair-request/0.1.0/accept.json' with { type: 'json' };
+import repairRequestInvalid from '../../fixtures/core/repair-request/0.1.0/refuse.json' with { type: 'json' };
+import repairInputsSchema from '../schemas/repair-inputs/0.1.0.json' with { type: 'json' };
+import repairInputsValid from '../../fixtures/core/repair-inputs/0.1.0/accept.json' with { type: 'json' };
+import repairInputsInvalid from '../../fixtures/core/repair-inputs/0.1.0/refuse.json' with { type: 'json' };
+import exportRequestSchema from '../schemas/export-request/0.1.0.json' with { type: 'json' };
+import exportRequestValid from '../../fixtures/core/export-request/0.1.0/accept.json' with { type: 'json' };
+import exportRequestInvalid from '../../fixtures/core/export-request/0.1.0/refuse.json' with { type: 'json' };
+import exportInputsSchema from '../schemas/export-inputs/0.1.0.json' with { type: 'json' };
+import exportInputsValid from '../../fixtures/core/export-inputs/0.1.0/accept.json' with { type: 'json' };
+import exportInputsInvalid from '../../fixtures/core/export-inputs/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionRequestSchema from '../schemas/macos-session-request/0.1.0.json' with { type: 'json' };
+import macosSessionRequestValid from '../../fixtures/core/macos-session-request/0.1.0/accept.json' with { type: 'json' };
+import macosSessionRequestInvalid from '../../fixtures/core/macos-session-request/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionInputsSchema from '../schemas/macos-session-inputs/0.1.0.json' with { type: 'json' };
+import macosSessionInputsValid from '../../fixtures/core/macos-session-inputs/0.1.0/accept.json' with { type: 'json' };
+import macosSessionInputsInvalid from '../../fixtures/core/macos-session-inputs/0.1.0/refuse.json' with { type: 'json' };
+import trustCustodySchema from '../schemas/trust-custody/0.1.0.json' with { type: 'json' };
+import trustCustodyValid from '../../fixtures/core/trust-custody/0.1.0/accept.json' with { type: 'json' };
+import trustCustodyInvalid from '../../fixtures/core/trust-custody/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionCustodySchema from '../schemas/macos-session-custody/0.1.0.json' with { type: 'json' };
+import macosSessionCustodyValid from '../../fixtures/core/macos-session-custody/0.1.0/accept.json' with { type: 'json' };
+import macosSessionCustodyInvalid from '../../fixtures/core/macos-session-custody/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionVerificationRequestSchema from '../schemas/macos-session-verification-request/0.1.0.json' with { type: 'json' };
+import macosSessionVerificationRequestValid from '../../fixtures/core/macos-session-verification-request/0.1.0/accept.json' with { type: 'json' };
+import macosSessionVerificationRequestInvalid from '../../fixtures/core/macos-session-verification-request/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionVerificationResultSchema from '../schemas/macos-session-verification-result/0.1.0.json' with { type: 'json' };
+import macosSessionVerificationResultValid from '../../fixtures/core/macos-session-verification-result/0.1.0/accept.json' with { type: 'json' };
+import macosSessionVerificationResultInvalid from '../../fixtures/core/macos-session-verification-result/0.1.0/refuse.json' with { type: 'json' };
+import macosSessionProfilesSchema from '../schemas/macos-session-profiles/0.1.0.json' with { type: 'json' };
+import macosSessionProfilesValid from '../../fixtures/core/macos-session-profiles/0.1.0/accept.json' with { type: 'json' };
+import macosSessionProfilesInvalid from '../../fixtures/core/macos-session-profiles/0.1.0/refuse.json' with { type: 'json' };
 import toolRegistrySchema from '../schemas/tool-registry/0.1.0.json' with { type: 'json' };
 import toolRegistryValid from '../../fixtures/core/tool-registry/0.1.0/accept.json' with { type: 'json' };
 import toolRegistryInvalid from '../../fixtures/core/tool-registry/0.1.0/refuse.json' with { type: 'json' };
@@ -49,6 +83,17 @@ const entries: FormatEntry[] = [
   // Authored changes and named groups (samartomar/aih-core#166).
   { id: changeSchema.$id, schema: changeSchema, fixtures: { valid: changeValid, invalid: changeInvalid } },
   { id: changeRequestSchema.$id, schema: changeRequestSchema, fixtures: { valid: changeRequestValid, invalid: changeRequestInvalid } },
+  { id: repairRequestSchema.$id, schema: repairRequestSchema, fixtures: { valid: repairRequestValid, invalid: repairRequestInvalid } },
+  { id: repairInputsSchema.$id, schema: repairInputsSchema, fixtures: { valid: repairInputsValid, invalid: repairInputsInvalid } },
+  { id: exportRequestSchema.$id, schema: exportRequestSchema, fixtures: { valid: exportRequestValid, invalid: exportRequestInvalid } },
+  { id: exportInputsSchema.$id, schema: exportInputsSchema, fixtures: { valid: exportInputsValid, invalid: exportInputsInvalid } },
+  { id: macosSessionRequestSchema.$id, schema: macosSessionRequestSchema, fixtures: { valid: macosSessionRequestValid, invalid: macosSessionRequestInvalid } },
+  { id: macosSessionInputsSchema.$id, schema: macosSessionInputsSchema, fixtures: { valid: macosSessionInputsValid, invalid: macosSessionInputsInvalid } },
+  { id: trustCustodySchema.$id, schema: trustCustodySchema, fixtures: { valid: trustCustodyValid, invalid: trustCustodyInvalid } },
+  { id: macosSessionCustodySchema.$id, schema: macosSessionCustodySchema, fixtures: { valid: macosSessionCustodyValid, invalid: macosSessionCustodyInvalid } },
+  { id: macosSessionVerificationRequestSchema.$id, schema: macosSessionVerificationRequestSchema, fixtures: { valid: macosSessionVerificationRequestValid, invalid: macosSessionVerificationRequestInvalid } },
+  { id: macosSessionVerificationResultSchema.$id, schema: macosSessionVerificationResultSchema, fixtures: { valid: macosSessionVerificationResultValid, invalid: macosSessionVerificationResultInvalid } },
+  { id: macosSessionProfilesSchema.$id, schema: macosSessionProfilesSchema, fixtures: { valid: macosSessionProfilesValid, invalid: macosSessionProfilesInvalid } },
   // Tool registry, inspection, file comparison, report snapshots and claim sets (samartomar/aih-core#174).
   { id: toolRegistrySchema.$id, schema: toolRegistrySchema, fixtures: { valid: toolRegistryValid, invalid: toolRegistryInvalid } },
   { id: inspectionSchema.$id, schema: inspectionSchema, fixtures: { valid: inspectionValid, invalid: inspectionInvalid } },

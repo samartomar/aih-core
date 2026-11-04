@@ -24,14 +24,14 @@ never establishes working TLS. HTTPS queries preserve verification and inherited
 trust; package managers may update ordinary query caches. Use disposable homes
 and projects for fixtures.
 
-The qualification candidates are Python 3.15.2, pip 26.2.2, Conda 26.9.4,
-Git 2.56.0 (Windows 2.56.0.windows.4), and Rust 1.99.1. Cargo's version and
-reported TLS backend are observed separately from the required selected rustc
-executable. Python's explicit `pythonRecipe` exceptions are `pyyaml-onnx` and
-`code-review-graph` (3.14.10), and `serena` (3.13.18). The optional
-`interpreterSource` is a caller declaration: process paths are observed, but a
-uv-managed versus system distribution is never certified from its path alone.
-Exact interpreter/distributor/dependency artifacts still need qualification.
+Installed tools are tried first; versions are hints, not gates. The checks were tested on
+Python 3.15.2, pip 26.2.2, Conda 26.9.4, Git 2.56.0 (Windows 2.56.0.windows.4) and Rust 1.99.1; each observation
+reports these as `testedWith`. Another installed version is observed and used as it is, and no second copy is ever
+installed. When a selected tool really fails (a blocked observation or a certificate-chain failure) on a version other
+than the tested one, the result carries `hint: { testedWith, observed }`; the hint never changes the decision. Cargo's
+version and reported TLS backend are observed separately from the required selected rustc executable. The optional
+`interpreterSource` is a caller declaration: process paths are observed, but a uv-managed versus system distribution
+is never certified from its path alone. The earlier per-tool Python pins (`pythonRecipe`) are removed.
 
 Online user-tool CA repair runs the effective-process gate before rendering
 persistent changes. A working endpoint reports `REPAIR_NOT_NEEDED`; ambiguous
@@ -39,8 +39,7 @@ configuration, explicit trust overrides or unknown backends block fallback.
 Offline repair remains an explicitly unverified supplied-bundle path, and refuses
 known Conda truststore/Git Schannel modes. Cargo HTTP repair preserves its Git
 transport choice; Git CLI dependency fetches require a separate Git decision.
-Python recipe exceptions can be inspected explicitly; automatic repair currently
-uses the general candidate and refuses incompatible interpreters. Online pip
+Online pip
 inspection and repair verification both use the selected Python's `-m pip`.
 Conda inspection currently selects base and refuses a conflicting active environment.
 The Windows observer process/cleanup protocol remains unqualified and refuses
@@ -2448,8 +2447,9 @@ elsewhere (for example in the user's own state) is not seen.
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
 with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`
-(including `render`), `fetch`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see [Native plugins](#native-plugins-plugin-steps)); every other step kind is
-refused (`step-unknown`) before any effect. The format is not marked ready.
+(including `render`), `fetch`, `merge`, `acquire` (see [AI setups](#ai-setups-acquire-steps)) and `plugin` steps (see
+[Native plugins](#native-plugins-plugin-steps)); every other step kind is refused (`step-unknown`) before any effect. The
+format is not marked ready.
 
 ```js
 import { prepare, apply, list, prepareRemoval } from '@aihq/core';
@@ -2477,15 +2477,61 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
 - **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
   origin (`chosen`), conflicts and `reviewDigest`. It never holds source bytes. One management id per item and scope.
-- **Conflicts.** A file Core didn't write makes Prepare `blocked`, with no handle; each conflict carries its
-  `observedSha256` and choices. Prepare again with `resolutions: [{ managementId, step, choice, observedSha256 }]`:
-  `replace` keeps your original in protected recovery and removal writes it back; `adopt` takes identical bytes; `skip`
-  leaves the member out and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Merges** add one entry to a file you may already have and never replace the file: `json` sets one JSON Pointer
+  (`key: '/mcpServers/github'`, comments and other keys kept), `toml` one table (`key: 'mcp_servers.github'`, its
+  `entry` a table of scalar or scalar-array values; a nested table becomes a sub-table), and `markdown` one block
+  between `<!-- aih:begin <key> -->` and `<!-- aih:end <key> -->`. Every other byte is kept, and removal takes away only
+  what Core added, including a TOML table header it created. For Codex's `AGENTS.md`, Prepare checks the resulting file,
+  your bytes plus every planned block, against 32 KiB and refuses before any write (`file-too-large-for-client`, naming
+  the `file` and `size`). A slot an `inputs` binding fills with a secret is a known secret slot of the entry.
+- **Conflicts.** A file, entry, table or block Core didn't write makes Prepare `blocked`, with no handle. Each conflict
+  carries its `target`, a merge's `key`, `observedSha256` (the whole file's digest, or `null`), the `existing` bytes
+  exactly as they are (known secret slots read `[REDACTED]` and are listed in `redacted`) and its `choices`. Prepare
+  again with `resolutions: [{ managementId, step, choice, observedSha256 }]`: `replace` keeps your original file in
+  protected recovery (receipts name it by digest only) and removal writes your bytes back; `adopt` is offered only for
+  bytes identical to Core's and takes them without a write; `skip` leaves the member out and makes the review `partial`
+  (Apply then needs `allowPartial: true`). A resolution whose `observedSha256` no longer matches is not used: Prepare
+  is `blocked` again with the new facts (`detail: 'resolution-stale'`). A TOML table that already holds a key the entry
+  doesn't name is your entry: replace or skip only. Content Core can't edit safely is offered as skip only.
+- **Your edit wins.** A member Core wrote that you changed is `managed-content-changed` with no choices: no resolution,
+  update or removal overwrites it (`keep-changed`); undo your edit yourself to take Core's version.
 - **Apply** binds the exact `reviewDigest`, consumes the handle, and re-checks the request (document and bytes), the
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
   receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+
+### Input values (`inputs` bindings)
+
+An item's declared inputs (`requirements.inputs`: `isRequired`, `isSecret`, optional `default` and `placeholder`) land
+only where the plan marks them. A step's `inputs` lists bindings `{ item, input, at }` with exactly one destination:
+
+- `{ pointer }` in a `json` or `toml` merge entry: an absent slot is set (intermediate objects created), a string
+  holding the input's marker `{NAME}` has that marker replaced; anything else is `invalid` (`input-binding`).
+- `{ argv: n }` in a merge entry: slot `n` of the command and its arguments, where the step's profiles' `mcpFile.stdio`
+  say they are (`command` + `args`, or one `argv` array); the slot must hold `{NAME}`.
+- `{ env: NAME }` in a merge entry: that variable in the entry's environment field (`mcpFile.stdio.env`).
+- `{ placeholder }` in a `write` (after any render) or a Markdown merge: the marker the item declares for that source
+  file, which must occur; every occurrence is replaced. In `.json`, `.jsonc` and `.toml` files the value is written with
+  JSON string escapes; elsewhere it must be one line without control characters, otherwise `invalid` (`input-value`).
+
+Core does no other substitution. **Values.** Ordinary values come from the request's `inputs` (keyed by item id, then
+input), else the `default`; secrets come only from `controls.privateInputs` (same keys) and are `invalid` in the
+request. A required input with no value is refused `input-missing` (naming `item` and `input`); an optional one is
+left out (an absent slot stays absent, a slot that is only the marker is dropped, other marker text becomes empty).
+Undeclared names, a secret passed as an ordinary value or the reverse are `invalid`. An input of a planned item that no
+step marks is refused `input-binding-missing`, never guessed. **References.** A secret is written as the client's own
+environment reference when every profile the step serves declares one for that surface under `inputReferences`
+(`mcp-env`, `mcp-header`, `mcp-argv` for merge entries, by the `mcpFile` field the slot sits in; `file` for
+placeholders), for example `{ "syntax": "${<name>}" }` → `${GITHUB_TOKEN}`; then no value is needed. Otherwise its
+value is written and the review's `warnings` name the file: "this file will hold a secret". **Where values show.** Each
+review step lists its bindings (`inputs`: `at`, `secret`, `written: value|reference|omitted`, `from`, and the ordinary
+`value`); a slot holding a secret reads `[REDACTED]` in the review's `entry` and in conflicts. Receipts record the same
+facts per management id with ordinary values only; secrets appear in no review, run, history or receipt. Apply
+re-checks the private inputs by digest (those passed to Apply, or the object Prepare read): any change is `rejected`
+`REVIEW_STALE` `input`. `prepareRemoval` takes `privateInputs` the same way and binds them to its review.
+`aih install` and `aih remove` take `--private-input <item>.<input>=<ENV>` (the last literal dot separates the input; a
+dot inside either may be written `%2E`), reading the secret from that set environment variable.
 
 ### Renders and recipe origins through your Catalog
 
@@ -2542,22 +2588,57 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
   `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
   `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
-- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace), switching one item off,
-  and real-client evidence. The tests use a controlled fake client; an unattended run of each real client's plugin
-  commands is a pending live check.
+- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace) and real-client evidence.
+  The tests use a controlled fake client; an unattended run of each real client's plugin commands is a pending live
+  check.
+
+### Local plugins and switching one plugin item off
+
+A `local-plugin` route is not a step kind: Catalog lowers it to `write` steps (the plugin's files, copied from the
+framework's recorded plugin folder by `from: { sourceId, sourcePath, sha256 }`) and `merge` steps (its registration,
+such as Claude's `extraKnownMarketplaces` and `enabledPlugins`), each naming the `framework` and
+`route: "local-plugin"`; the route's first step lists the items it `contains`.
+
+- **One install.** Every step naming a `framework` belongs to that framework id: one review group, one receipt, removed
+  whole. Review steps carry `framework`, `route` and, on the first step, `contains`. A plugin file the content
+  document's `plugins[].files` doesn't record is `source-missing`; other bytes than it records are `source-mismatch`.
+- **Inventory.** `list` shows `localPlugin: { contains, files }`. Without the route's `contains` (an older plan),
+  `contains` is `null` and only the files are listed; Core never infers which items the plugin holds.
+- **One item.** `{ managementId: <framework>, item }` is `unavailable` `plugin-indivisible`, with `contains` (or, without
+  it, the plugin's `files`) and `offers`: the whole plugin's removal and, where the CLI supports it, the item's switch-off.
+- **Switching off** (`{ managementId, item, switchOff: true }`, alone in its request; `aih remove <framework> --item <id>
+  --switch-off`) is offered only for a Codex native plugin whose recorded folder holds the item as a skill: Codex keys
+  `[[skills.config]]` by the plugin-qualified `plugin:skill` name. Anything else is refused `switch-off-unsupported`;
+  Claude and the other CLIs get no invented toggle. The switch-off is a reviewed change owned by the item's own claim:
+  one marked block (`# aih:begin <framework>/<item>` … `# aih:end <framework>/<item>`) appended to
+  `~/.codex/config.toml`, holding `[[skills.config]] name = "<plugin>:<skill>" enabled = false`, in the file's own line
+  endings. Every byte outside the block is kept.
+- **Before writing,** Prepare parses the file read-only. Your own unmarked `[[skills.config]]` entry for the same skill,
+  two marked blocks for it, or syntax Core can't read is `blocked`: an `existing-content` conflict with the exact bytes,
+  offered as skip only, and no handle. Core never edits or replaces your entry.
+- **After writing,** Apply reads the file back: the block must parse and hold exactly one table naming the skill with
+  `enabled = false` (verification `readback-matched`), otherwise the step fails (`readback-mismatch`) and the run is
+  `incomplete`. The plugin and its framework claim stay; `list` shows the item's entry with `switchOff`.
+- **Switching on again** is removing that claim (`{ managementId: <item> }`, which the one-item entry then offers): the
+  block goes and the file is as it was (a file Core created goes with its last block; a line break Core added after
+  your last line stays). Removing the whole plugin also removes its items' switch-offs.
+- **Not yet:** a local plugin whose CLI can switch one item off (no Catalog profile has that route today). Whether a real
+  Codex honours the block is a pending live check.
 
 `@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
 `refusalCodes` and `limits`.
 
 ```sh
-aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--apply --yes] [--json]
+aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--resolutions choices.json]
+            [--private-input local-my-setup.mcp.github.GITHUB_TOKEN=GITHUB_TOKEN]... [--apply --yes [--allow-partial]] [--json]
 aih list --project /work/app --scope project --json
 aih remove local-my-skills.skill.notes --scope project --project /work/app [--apply --yes] [--json]
 ```
 
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
 command is refused `catalog-required`. `aih install` also passes that Catalog's `/reader` `renderStep` and
-`planRecipe`, with the version from its `package.json`, as `controls.catalog`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
+`planRecipe`, with the version from its `package.json`, as `controls.catalog`. `--resolutions` names a file holding
+`{ "resolutions": [...] }`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
 
 ### AI setups (`acquire` steps)
@@ -2662,6 +2743,61 @@ aih validate change-request change-request.json --json
 ```
 
 Exit codes are those of the plan request commands above.
+
+## Repair, export and the macOS session through the 0.1.0 review (in development)
+
+Environment work takes the shared review and run: `prepare` returns `ready`, `partial`, `blocked`, `refused`, `invalid`
+or `unsupported-version`, the review is `urn:aihq:core:review:0.1.0` with `request` set to `repair`, `export` or
+`macos-session`, and `apply` returns `urn:aihq:core:run:0.1.0`. Each request is carried out by the retained repair,
+trust or session preparation below, so source, host, target and custody checks, restoration and managed removal are
+unchanged. Standalone repair takes no organization document.
+
+```js
+import { prepare, apply } from '@aihq/core';
+
+const prepared = await prepare({ schema: 'urn:aihq:core:repair-request:0.1.0', repair: 'user-tools-ca', targets: ['git'],
+  route: 'file', sources: { os: false, supplied: [{ id: 'company', file: '/abs/company-ca.pem' }] } });
+// prepared.review.environment: job, repair, targets, route, network, facts (sources, certificates, outputs and each
+// target's admission), observations and anything `unavailable` on this host.
+if (prepared.status === 'ready')
+  await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+```
+
+| Request | Carries |
+| --- | --- |
+| `urn:aihq:core:repair-request:0.1.0` | `repair` (`node-npm-ca`, `node-os-trust`, `user-tools-ca`, `jvm-ca`), `targets`, `route` (`file` by default, or `native`), `sources` (by default the OS trust), `inputs` (such as `baselineStore`), `network`, `resolutions` |
+| `urn:aihq:core:export-request:0.1.0` | `format`, `output`, `sources`, `network`, `resolutions` |
+| `urn:aihq:core:macos-session-request:0.1.0` | a trust repair's fields plus `session` (`context`, `applications`) |
+
+- **Supplied file trust is not native trust.** A supplied-file route is admitted per target only for that file route;
+  `native` routes and OS-sourced file routes stay `blocked`, naming the reason in `environment.unavailable`, until a real
+  client binding is admitted. Certificate export needs an admitted platform cell; elsewhere it is `blocked`
+  (`trust-platform-unsupported` or `trust-format-unavailable`) with no effects. The macOS session is admitted only on
+  macOS with an admitted profile. No new native profile or platform is admitted by this format.
+- **Conflicts.** An edited managed output whose bytes still read as certificates is `existing-content` with `replace`;
+  prepare again with `resolutions: [{ managementId, step, choice: 'replace', observedSha256 }]` taken from the review.
+  Bytes that no longer read back are `managed-content-changed` with no choices and are kept. A resolution that names no
+  reviewed conflict is refused (`resolution-unknown`).
+- **Apply** binds the exact `reviewDigest` and the request object, then re-checks sources, configuration files,
+  executables, helpers and custody; a change is `rejected` `REVIEW_STALE`.
+- **Custody** is stored as `urn:aihq:core:trust-custody:0.1.0` and `urn:aihq:core:macos-session-custody:0.1.0`.
+- **The macOS session check.** `verifyMacosSession({ schema: 'urn:aihq:core:macos-session-verification-request:0.1.0',
+  managementId })` returns `urn:aihq:core:macos-session-verification-result:0.1.0`; it only observes, and an unsupported
+  host is `incomplete` with its reason. Admitted session profiles are described by `urn:aihq:core:macos-session-profiles:0.1.0`;
+  the bundled list admits none.
+
+The CLI takes 0.1.0 inputs files whose supplied paths resolve from the file's own folder:
+
+```sh
+aih repair user-tools-ca --target git --inputs-file repair-inputs.json [--offline] [--apply --yes] [--json]
+aih export-ca --format pem --output exports/company.pem --inputs-file export-inputs.json [--apply --yes] [--json]
+```
+
+`repair-inputs.json` is `{ "schema": "urn:aihq:core:repair-inputs:0.1.0", "route": "file", "sources": { "os": false,
+"supplied": [{ "id": "company", "file": "company-ca.pem" }] } }`; `export-inputs.json` uses
+`urn:aihq:core:export-inputs:0.1.0` with `sources`, and a macOS session uses `urn:aihq:core:macos-session-inputs:0.1.0`
+with `session`. Without an inputs file, `aih repair` prepares the OS-sourced file route. Older inputs files keep their
+earlier commands until those formats are removed.
 
 ## Managed lifecycle
 
