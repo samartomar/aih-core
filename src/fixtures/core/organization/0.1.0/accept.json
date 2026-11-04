@@ -1,0 +1,12 @@
+{
+  "schema": "urn:aihq:core:organization:0.1.0",
+  "id": "acme",
+  "entries": [
+    { "id": "need-ecc", "obligation": "required", "scopes": ["project"], "clients": ["codex"], "content": { "recipe": { "id": "ecc-base" } } },
+    { "id": "no-hooks", "obligation": "prohibited", "scopes": ["project", "user"], "content": { "kind": "hook" } },
+    { "id": "codex-approval", "obligation": "required", "change": { "identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+      "inputs": {}, "lifecycle": { "replace": true, "remove": false } }
+  ],
+  "sources": { "published": [{ "repository": "samartomar/aih-catalog" }], "own": { "kinds": ["skill", "rule"] } },
+  "scanSigners": { "add": [{ "issuer": "https://token.actions.githubusercontent.com", "subject": "https://github.com/acme/scan/.github/workflows/scan.yml@refs/heads/main" }] }
+}

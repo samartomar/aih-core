@@ -40,6 +40,7 @@
       } } },
     "history": { "type": "object", "additionalProperties": false, "required": ["status"],
       "properties": { "status": { "enum": ["recorded", "disabled", "not-recorded"] }, "limit": { "type": "string" } } },
+    "organization": {"type":"object","additionalProperties":false,"description":"Enterprise runs: actual fulfilment over the claims the run left (C71)","required":["id","fulfilment"],"properties":{"id":{"type":"string"},"fulfilment":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["entry","status","unknown","managementIds"],"properties":{"entry":{"type":"string"},"status":{"enum":["fulfilled","not-fulfilled","not-applicable","unknown"]},"unknown":{"type":"array","items":{"enum":["client","repository","content","origin"]}},"managementIds":{"type":"array","items":{"type":"string"}}}}}}},
     "environment": {
       "description": "What a repair, certificate export or macOS session run wrote and verified (contract 10)",
       "type": "object", "additionalProperties": false, "required": ["job", "outputs", "targets", "diagnostics"],

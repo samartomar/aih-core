@@ -1,0 +1,184 @@
+// Enterprise admission (contract 11) through the built public entries, in a disposable home and project. Organization
+// documents are local fixture files (no GitHub reads); producer documents are Core-side fixtures, not Catalog output.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { apply, list, prepare, prepareRemoval, prepareUpdate } from '../dist/core/index.js';
+import { validateFormat } from '../dist/core/contracts.js';
+import { ownRequest, renderRequest } from './fixtures/plan-fixture.mjs';
+import * as reader from './fixtures/catalog-node-fixture/reader.mjs';
+
+const scratch = mkdtempSync(join(tmpdir(), 'aih-enterprise-'));
+const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+before(() => { const home = join(scratch, 'home'); mkdirSync(home); process.env.HOME = home; process.env.USERPROFILE = home; });
+after(() => { for (const [key, value] of Object.entries(previous)) {
+  if (value === undefined) delete process.env[key]; else process.env[key] = value;
+} rmSync(scratch, { recursive: true, force: true }); });
+
+const SKILLS = { notes: { 'SKILL.md': '---\nname: notes\ndescription: Take notes\n---\nTake notes.\n' } };
+const ORGANIZATION = 'urn:aihq:core:organization:0.1.0';
+const CODEX = { id: 'codex', surface: 'cli' };
+const catalog = { version: reader.FIXTURE_VERSION, renderStep: reader.renderStep, planRecipe: reader.planRecipe };
+const approve = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
+const conforms = value => { const read = validateFormat(value); assert.equal(read.status, 'ok', JSON.stringify(read)); return value; };
+let counter = 0;
+function project() { const path = join(scratch, `project-${counter++}`); mkdirSync(path); return path; }
+/** Writes a local organization fixture document and returns its source. */
+function organization(entries, extra = {}) {
+  const path = join(scratch, `org-${counter++}.json`);
+  writeFileSync(path, JSON.stringify({ schema: ORGANIZATION, id: 'acme', entries, ...extra }));
+  return { provider: 'local', path };
+}
+const enterprise = (request, client = CODEX) => ({ ...request, mode: 'enterprise', target: { ...request.target, ...(client ? { client } : {}) } });
+const withKind = (request, kind) => { for (const item of request.contents[0].items) item.kind = kind; return request; };
+
+test('sources.own denies own-content hooks for the whole request, naming the rule; skills of an allowed kind install', async () => {
+  const source = organization([], { sources: { own: { kinds: ['skill', 'rule'] } } });
+  const target = project();
+  const denied = await prepare(enterprise(withKind(ownRequest(target, SKILLS, ['codex']), 'hook')), { organization: source });
+  assert.equal(denied.status, 'blocked', JSON.stringify(denied));
+  assert.equal(denied.code, 'AUTHORITY_DENIED');
+  assert.match(denied.reason, /sources\.own/);
+  assert.equal(denied.handle, undefined);
+  conforms(denied.review);
+  assert.deepEqual(denied.review.organization.denials.map(item => [item.reason, item.rule]), [['own-content', 'sources.own']]);
+  assert.equal(denied.review.organization.admitted, false);
+
+  const allowed = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])), { organization: source });
+  assert.equal(allowed.status, 'ready', JSON.stringify(allowed));
+  assert.equal(allowed.review.organization.admitted, true);
+  assert.equal(allowed.review.organization.target.client.id, 'codex');
+  const run = conforms(await apply(allowed.handle, approve(allowed.review), { organization: source }));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(run.organization, { id: 'acme', fulfilment: [] });
+});
+
+test('Enterprise needs both the mode and the source; neither alone is admitted', async () => {
+  const target = project();
+  const source = organization([]);
+  const missing = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])));
+  assert.deepEqual([missing.status, missing.code], ['refused', 'organization-required']);
+  const vibe = await prepare(ownRequest(target, SKILLS, ['codex']), { organization: source });
+  assert.equal(vibe.status, 'invalid', JSON.stringify(vibe));
+  const unknownClient = await prepare(enterprise(ownRequest(target, SKILLS, ['codex']), { id: 'no-such-tool', surface: 'cli' }), { organization: source });
+  assert.deepEqual([unknownClient.status, unknownClient.code], ['refused', 'tool-unknown']);
+});
+
+test('a prohibition that needs an undeclared fact fails closed; a declared mismatch does not apply', async () => {
+  const target = project();
+  const source = organization([{ id: 'no-hooks', obligation: 'prohibited', content: { kind: 'hook' } },
+    { id: 'no-team-repo', obligation: 'prohibited', repositories: ['github.com/acme/app'], content: { item: 'local-my-skills.skill.notes' } }]);
+  const request = enterprise(ownRequest(target, SKILLS, ['codex']));
+  delete request.contents[0].items[0].kind;
+  const unknown = await prepare(request, { organization: source });
+  assert.equal(unknown.status, 'blocked', JSON.stringify(unknown));
+  assert.deepEqual(unknown.review.organization.denials.map(item => [item.reason, item.entry]).sort(),
+    [['target-unknown', 'no-hooks'], ['target-unknown', 'no-team-repo']]);
+  const declared = enterprise(ownRequest(target, SKILLS, ['codex']));
+  declared.target.repository = 'github.com/acme/other';
+  const fine = await prepare(declared, { organization: source });
+  assert.equal(fine.status, 'ready', JSON.stringify(fine));
+  const named = enterprise(ownRequest(target, SKILLS, ['codex']));
+  named.target.repository = 'github.com/acme/app';
+  const prohibited = await prepare(named, { organization: source });
+  assert.deepEqual([prohibited.status, prohibited.review.organization.denials[0].reason, prohibited.review.organization.denials[0].entry],
+    ['blocked', 'prohibited', 'no-team-repo']);
+});
+
+test('sources.published allows only listed, pinned data repositories', async () => {
+  const target = project();
+  const listed = organization([], { sources: { published: [{ repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) }] } });
+  const other = organization([], { sources: { published: [{ repository: 'acme/catalog' }] } });
+  const pinned = organization([], { sources: { published: [{ repository: 'samartomar/aih-catalog', commit: 'a'.repeat(40) }] } });
+  const request = () => enterprise(renderRequest(reader, target, SKILLS, ['codex'], { recipe: true }));
+  assert.equal((await prepare(request(), { organization: listed, catalog })).status, 'ready');
+  const denied = await prepare(request(), { organization: other, catalog });
+  assert.deepEqual([denied.status, denied.review.organization.denials[0].rule, denied.review.organization.denials[0].reason],
+    ['blocked', 'sources.published', 'source-published']);
+  const moved = await prepare(request(), { organization: pinned, catalog });
+  assert.deepEqual([moved.status, moved.review.organization.denials[0].reason], ['blocked', 'source-pin']);
+});
+
+test('a required recipe is fulfilled only by a proven origin, projected at Prepare and reported after the run and a removal', async () => {
+  const source = organization([{ id: 'need-notes', obligation: 'required', scopes: ['project'], clients: ['codex'], content: { recipe: { id: 'notes-base' } } },
+    { id: 'try-notes', obligation: 'recommended', content: { item: 'local-my-skills.skill.notes' } }]);
+  const handEdited = project();
+  // A plan that claims the recipe but whose proof does not reproduce it installs as `chosen` and fulfils nothing.
+  const forged = enterprise(renderRequest(reader, handEdited, SKILLS, ['codex'], { recipe: true }));
+  forged.recipeProof.recipeJson = forged.recipeProof.recipeJson.replace('notes-base', 'notes-base ');
+  const unproven = await prepare(forged, { organization: source, catalog });
+  assert.equal(unproven.status, 'ready', JSON.stringify(unproven));
+  assert.equal(unproven.review.origin, 'chosen');
+  assert.deepEqual(unproven.review.organization.fulfilment.map(item => [item.entry, item.status]), [['need-notes', 'not-fulfilled']]);
+  assert.deepEqual(unproven.review.organization.advisory.map(item => [item.entry, item.status]), [['try-notes', 'taken']]);
+  const unprovenRun = await apply(unproven.handle, approve(unproven.review), { organization: source, catalog });
+  assert.deepEqual(unprovenRun.organization.fulfilment.map(item => item.status), ['not-fulfilled']);
+
+  const target = project();
+  const proven = await prepare(enterprise(renderRequest(reader, target, SKILLS, ['codex'], { recipe: true })), { organization: source, catalog });
+  assert.equal(proven.status, 'ready', JSON.stringify(proven));
+  assert.notEqual(proven.review.origin, 'chosen');
+  assert.deepEqual(proven.review.organization.fulfilment.map(item => [item.entry, item.status]), [['need-notes', 'fulfilled']]);
+  const run = conforms(await apply(proven.handle, approve(proven.review), { organization: source, catalog }));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(run.organization.fulfilment.map(item => [item.entry, item.status, item.managementIds]),
+    [['need-notes', 'fulfilled', ['local-my-skills.skill.notes']]]);
+  const listed = await list({ target: { project: target }, scope: 'project' });
+  assert.deepEqual([listed.entries[0].kind, listed.entries[0].framework], ['skill', 'local-my-skills']);
+
+  // Removing the last receipt holding the recipe's origin reads as not fulfilled, projected and actual.
+  const removal = await prepareRemoval({ target: { project: target, client: CODEX }, scope: 'project', mode: 'enterprise',
+    removals: [{ managementId: 'local-my-skills.skill.notes' }] }, { organization: source });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  conforms(removal.review);
+  assert.deepEqual(removal.review.organization.fulfilment.map(item => item.status), ['not-fulfilled']);
+  const removed = await apply(removal.handle, approve(removal.review), { organization: source });
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.deepEqual(removed.organization.fulfilment.map(item => item.status), ['not-fulfilled']);
+});
+
+test('without a declared client a client-narrowed obligation is judged over each claim’s recorded CLI; an undeclared repository is unknown', async () => {
+  const source = organization([{ id: 'need-notes', obligation: 'required', clients: ['codex'], repositories: ['github.com/acme/app'],
+    content: { item: 'local-my-skills.skill.notes' } }]);
+  const target = project();
+  const prepared = await prepare(enterprise(ownRequest(target, SKILLS, ['codex']), null), { organization: source });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.organization.fulfilment.map(item => [item.status, item.unknown]), [['unknown', ['repository']]]);
+  const declared = enterprise(ownRequest(target, SKILLS, ['codex']), null);
+  declared.target.repository = 'github.com/acme/app';
+  const known = await prepare(declared, { organization: source });
+  assert.deepEqual(known.review.organization.fulfilment.map(item => item.status), ['fulfilled']);
+});
+
+test('a changed organization document makes Apply rejected before anything runs; a contradictory one is invalid', async () => {
+  const target = project();
+  const source = organization([]);
+  const prepared = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])), { organization: source });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  writeFileSync(source.path, JSON.stringify({ schema: ORGANIZATION, id: 'acme', entries: [{ id: 'no-skills', obligation: 'prohibited', content: { kind: 'skill' } }] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { organization: source }));
+  assert.deepEqual([run.completion, run.code, run.changed], ['rejected', 'REVIEW_STALE', 'policy']);
+  assert.deepEqual((await list({ target: { project: target }, scope: 'project' })).entries, []);
+
+  const contradictory = organization([{ id: 'need', obligation: 'required', content: { item: 'x.skill.a' } },
+    { id: 'ban', obligation: 'prohibited', scopes: ['project'], content: { item: 'x.skill.a', kind: 'skill' } }]);
+  const invalid = await prepare(enterprise(ownRequest(target, SKILLS, ['codex'])), { organization: contradictory });
+  assert.equal(invalid.status, 'invalid', JSON.stringify(invalid));
+  assert.ok(invalid.problems.some(problem => problem.reason === 'obligation-contradiction'), JSON.stringify(invalid));
+});
+
+test('an update needs admission too: a prohibited new plan is blocked as a whole', async () => {
+  const target = project();
+  const installed = await prepare(ownRequest(target, SKILLS, ['codex']));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const source = organization([{ id: 'no-notes', obligation: 'prohibited', content: { item: 'local-my-skills.skill.notes' } }]);
+  const update = await prepareUpdate({ target: { project: target }, scope: 'project',
+    updates: [{ managementIds: ['local-my-skills.skill.notes'], request: enterprise(ownRequest(target, { notes: { 'SKILL.md': 'Newer.\n' } }, ['codex'])) }] },
+  { organization: source });
+  assert.equal(update.status, 'ok', JSON.stringify(update));
+  assert.equal(update.handle, undefined);
+  assert.deepEqual(update.entries.map(entry => entry.status), ['blocked']);
+  assert.deepEqual(update.review.organization.denials.map(item => item.entry), ['no-notes']);
+});

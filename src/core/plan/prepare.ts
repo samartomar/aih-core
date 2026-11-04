@@ -26,6 +26,8 @@ import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
 import { proveOrigin } from './origin.js';
+import { enterpriseControls, denialReason } from '../enterprise/host.js';
+import { admitPlanRequest, contentFacts, enterpriseContext } from '../enterprise/plan.js';
 import type { PlanUpdateContext, UpdateSelection } from './update.js';
 import type { PlannedMember } from '../internal/update-plan.js';
 import type { CleanupPlanRow } from '../internal/removal-plan.js';
@@ -52,7 +54,8 @@ export function planControls(controls: unknown): PlanControls | undefined {
   if (controls === undefined) return {};
   if (!controls || typeof controls !== 'object' || Array.isArray(controls)) return undefined;
   const value = controls as PlanControls;
-  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'catalog', 'onProgress'].includes(key))) return undefined;
+  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'catalog', 'onProgress', 'organization', 'authentication'].includes(key))) return undefined;
+  if (!enterpriseControls(value as unknown as Record<string, unknown>)) return undefined;
   if (value.signal !== undefined && !(value.signal instanceof AbortSignal)) return undefined;
   if (value.logging !== undefined && !['on', 'off'].includes(value.logging)) return undefined;
   if (value.catalog !== undefined) {
@@ -105,6 +108,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   let project: string | null;
   try { project = typeof request.target.project === 'string' ? projectRoot(request.target.project) : null; }
   catch { return { status: 'invalid', problems: [{ path: '/target/project', reason: 'project', message: 'The project folder is not usable.' }] }; }
+  // Enterprise (contract 11): the organization is read fresh now, and again at Apply.
+  const enterprise = await enterpriseContext(request.mode, request.scope, request.target, controls);
+  if (enterprise && 'status' in enterprise) return enterprise;
 
   // AI setups (8.1, C36, C46): a download this host's trust rejects is refused now, naming the repair; a Python tool's
   // installed interpreter inside its range is found now, so the review shows both branches.
@@ -187,6 +193,10 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     groups: [...groups.values()].map(({ key, managementId, scope, cli }) => ({ key, managementId, scope, cli })) });
   if (selected && 'status' in selected) return selected;
   for (const removal of selected?.removals ?? []) claims.set(removal.key, removal.managementId);
+  // Enforced, advisory and projected fulfilment results over the claims after this request (C57, C71).
+  const admission = enterprise ? admitPlanRequest(enterprise, request, checked.steps, proven.origin, [...groups.values()],
+    (selected?.removals ?? []).map(removal => removal.key), request.scope === 'project' ? project! : home, project) : undefined;
+  const itemFacts = contentFacts(request);
   // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
   // last can remove them; a copy holds the files the plan writes into the linked folder.
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
@@ -336,6 +346,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       origin: before ? structuredClone(before.origin) : proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
       profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
+      kind: itemFacts.get(group.managementId)?.kind ?? null, framework: itemFacts.get(group.managementId)?.framework ?? (itemFacts.has(group.managementId) ? null : group.managementId),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
       ...pluginFacts(group.steps), ...programFacts(group.steps), ...localPluginFacts(group.steps),
@@ -524,9 +535,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
     ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...heldWarnings, ...(compared?.warnings ?? [])],
-    ...(compared ? { versions: compared.versions as unknown as Json[] } : {}) };
+    ...(compared ? { versions: compared.versions as unknown as Json[] } : {}), ...(admission ? { organization: admission.review } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
+  // An organization denial blocks the whole request: no subset runs (contract 11).
+  if (admission?.denials.length) return { status: 'blocked', code: 'AUTHORITY_DENIED', reason: denialReason(admission.denials), review };
   // Unowned content needs the person's choice and a new Prepare: no handle (section 7).
   if (conflicts.some(conflict => conflict.reason === 'existing-content' || conflict.reason === 'second-displacement')) return { status: 'blocked', review };
   if (!engine.prepared) return { status: 'blocked', review };
@@ -535,6 +548,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}), verifications,
     privateInputs: bindPrivateInputs(controls.privateInputs),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest },
+    ...(enterprise ? { enterprise: { ...enterprise.state, root: request.scope === 'project' ? project! : home, project } } : {}),
     ...(selected ? updateRecord(selected, [...groups.values()], conflicts, project, home, request.plan.data, proven.origin) : {}) });
   return { status: partial ? 'partial' : 'ready', review, handle };
 }

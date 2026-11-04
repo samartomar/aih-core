@@ -26,6 +26,7 @@
               "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
             "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
               "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] } } }] },
+        "kind": { "type": ["string", "null"] }, "framework": { "type": ["string", "null"] },
         "catalog": { "oneOf": [{ "type": "string" }, { "type": "null" }], "description": "The caller's Catalog version recorded at install, or null" },
         "profiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
           "properties": { "id": { "type": "string" }, "version": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } } } },

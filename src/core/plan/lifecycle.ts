@@ -19,6 +19,9 @@ import { resolveExecutable } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
+import { enterpriseContext } from '../enterprise/plan.js';
+import { admitRemovals, obligations } from '../enterprise/admission.js';
+import { denialReason, organizationReview, projected, recordedClaims } from '../enterprise/host.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { PluginFacts, ProgramFacts } from './types.js';
 import { join } from 'node:path';
@@ -37,7 +40,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /** The project and the folder the engine anchors a request on: the project, or home for a user-only place. */
 export function place(request: Record<string, unknown>, scopes: string[]): { project: string | null; anchor: string; scope: string } | { status: 'invalid'; problems: Problem[] } {
   if (!scopes.includes(request.scope as string)) return invalid('/scope', 'scope', `The scope is one of ${scopes.join(', ')}.`);
-  if (!plain(request.target, ['project'])) return invalid('/target', 'target', 'The target is `{ project? }`.');
+  if (!plain(request.target, ['project', 'client', 'repository'])) return invalid('/target', 'target', 'The target is `{ project?, client?, repository? }`.');
   const named = request.target.project;
   if (named !== undefined && named !== null && (typeof named !== 'string' || !isAbsolute(named)))
     return invalid('/target/project', 'absolute', 'The project folder is an absolute path.');
@@ -109,7 +112,8 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     if (!entry) {
       entry = { managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
         data: plan?.data ? { ...plan.data } : null, clis: [], ...(plan || changeClaim ? { claims: [] } : {}),
-        ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}), installState: row.installState,
+        ...(plan ? { catalog: plan.catalog, profiles: plan.profiles.map(profile => ({ ...profile })) } : {}),
+        ...(plan && plan.kind !== undefined ? { kind: plan.kind, framework: plan.framework ?? null } : {}), installState: row.installState,
         ...(plan?.aiSetup ? { aiSetup: { ...plan.aiSetup, interpreter: plan.aiSetup.interpreter ? { ...plan.aiSetup.interpreter } : null } } : {}),
         ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
           files: pluginFiles(row.members, row.scope === 'project' ? located.anchor : home) } } : {}),
@@ -177,12 +181,15 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
 
 export async function prepareRemoval(request: unknown, controls: unknown = {}): Promise<RemovalResult> {
   forgetProvenState();
-  if (!plain(request, ['target', 'scope', 'removals'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals }`.');
+  if (!plain(request, ['target', 'scope', 'removals', 'mode'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals, mode? }`.');
   const located = place(request, ['project', 'user']);
   if ('status' in located) return located;
   const options = planControls(controls);
   if (!options) return invalid('', 'controls', 'The controls are not valid.');
   if (options.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
+  // Enterprise (contract 11): the organization is read fresh now, and again at Apply.
+  const enterprise = await enterpriseContext(request.mode, located.scope as 'project' | 'user', request.target as never, options);
+  if (enterprise && 'status' in enterprise) return enterprise;
   const removals = request.removals;
   if (!Array.isArray(removals) || removals.length === 0 || removals.length > 4096) return invalid('/removals', 'removals', 'Name one or more removals.');
   const scope = located.scope as 'project' | 'user';
@@ -302,15 +309,28 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
       effect === 'already-satisfied' ? `Releases \`${target}\`, already as it should be` : `Leaves \`${target}\` as it is`;
     return { step: index, op: 'remove', managementId, sentence, cantPromise: null, effect, path: target };
   })];
+  // A change goes only where its entry permits removal; fulfilment is projected over the claims left (C71).
+  const root = scope === 'project' ? located.anchor : home;
+  const admission = enterprise ? (() => {
+    const recorded = recordedClaims(root, scope, located.project);
+    const releasing = new Set(selectors.flatMap(selector => selector.engineIds));
+    const denials = admitRemovals(enterprise.state.bound.organization, enterprise.target, recorded.filter(claim => releasing.has(claim.key)));
+    const results = obligations(enterprise.state.bound.organization, enterprise.target, [], projected(recorded, releasing, []));
+    return { denials, review: organizationReview(enterprise.state.bound, enterprise.target, denials, results) };
+  })() : undefined;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'removal', scope, target: { project: located.project }, steps,
-    conflicts: [], failureRule: FAILURE_RULE, warnings: [] };
+    conflicts: [], failureRule: FAILURE_RULE, warnings: [], ...(admission ? { organization: admission.review } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest + (program ? '\0' + program.engineDigest : ''));
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
+  // An organization denial blocks the whole removal: no handle, every prepared entry blocked (contract 11).
+  if (admission?.denials.length) return { status: 'ok', entries: entries.map(entry => entry.disposition === 'prepared' ? { ...entry, status: 'blocked' as const } : entry),
+    review, code: 'AUTHORITY_DENIED', reason: denialReason(admission.denials) };
   const partial = engine.status === 'partial';
   // Private inputs passed for a removal (such as a secret a restored value needs again, C64) bind its review.
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: partial, reviewDigest, partial, operations,
     claims: engineOwner, ...(links.length ? { links } : {}),
     privateInputs: bindPrivateInputs(options.privateInputs),
+    ...(enterprise ? { enterprise: { ...enterprise.state, root, project: located.project } } : {}),
     ...(program ? { before: { engine: program.engine, engineDigest: program.engineDigest, operations: program.operations, programs: program.programs,
       unremovable: program.unremovable } } : {}) });
   return { status: 'ok', entries, review, handle };

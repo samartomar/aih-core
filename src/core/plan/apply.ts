@@ -20,6 +20,7 @@ import { privateInputsHold } from './inputs.js';
 import { checkSwitchOff } from './switch-off.js';
 import { changeControls } from '../change/prepare.js';
 import { recordUpdate } from './update.js';
+import { actualFulfilment, stillHolds } from '../enterprise/host.js';
 import type { RunResult } from '../host-types.js';
 import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
 
@@ -55,6 +56,8 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   if (state.privateInputs && !privateInputsHold(state.privateInputs, controls.privateInputs)) return stale('input', state.reviewDigest);
   if (state.progress && controls.onProgress) state.progress.onProgress = controls.onProgress;
   if (controls.signal?.aborted) return { ...rejected('cancelled', { reviewDigest: state.reviewDigest }), completion: 'cancelled' };
+  // Fresh authority for this Apply (contract 11): the same source must still hold the same organization document.
+  if (state.enterprise && !await stillHolds(state.enterprise.bound, controls.signal)) return stale('policy', state.reviewDigest);
   const origin = value.origin as 'interactive' | 'automation';
   // A removal's plugin commands run first; the receipt is released only after every one of them ran and no presence
   // check still lists its plugin, so a failed removal keeps the undo facts for another try.
@@ -94,6 +97,8 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
     if (run.completion === 'complete' && before.completion !== 'complete') run.completion = 'incomplete';
   }
+  // The actual fulfilment over the claims this run left (C71); it differs from the projection when steps fail.
+  if (state.enterprise) run.organization = actualFulfilment(state.enterprise);
   return run;
 }
 

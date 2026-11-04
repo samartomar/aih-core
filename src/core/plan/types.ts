@@ -31,7 +31,10 @@ export interface PlanResolution { managementId: string; step: number; choice: 'r
 export interface PlanRequest {
   schema: typeof PLAN_REQUEST;
   scope: 'project' | 'user';
-  target: { project?: string | null };
+  /** Enterprise (contract 11) applies with `enterprise` and an organization source in `controls.organization`. */
+  mode?: 'vibe' | 'enterprise';
+  /** `client` and `repository` are what the caller declares for Enterprise admission; Core never infers them. */
+  target: { project?: string | null; client?: { id: string; surface: 'cli' | 'ide' }; repository?: string };
   plan: Plan;
   contents: { [field: string]: Json }[];
   profiles: { [field: string]: Json }[];
@@ -60,7 +63,27 @@ export interface PlanControls {
   /** The caller's Catalog, the module that made the plan (C51). */
   catalog?: CatalogControls;
   onProgress?: (event: Json) => void;
+  /** Enterprise: the organization source, read fresh at Prepare and again at Apply (contract 11). */
+  organization?: OrganizationSource;
+  /** Enterprise: credentials for a private GitHub organization repository. */
+  authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
 }
+/** One organization file in a GitHub repository at a branch, tag or commit, or a local file. */
+export type OrganizationSource = { provider: 'github'; repository: { owner: string; name: string }; path: string;
+  revision: { kind: 'commit' | 'branch' | 'tag'; value: string } } | { provider: 'local'; path: string };
+/** The Enterprise block of a review (contract 11): enforced denials, advisory and projected fulfilment results. */
+export interface OrganizationReview {
+  id: string; source: Json; contentDigest: string;
+  target: { scope: 'project' | 'user'; client: { id: string; surface: 'cli' | 'ide' } | null; repository: string | null };
+  admitted: boolean;
+  denials: { code: 'AUTHORITY_DENIED'; reason: string; message: string; entry?: string; rule?: 'sources.published' | 'sources.own';
+    managementId?: string; step?: number; input?: string }[];
+  advisory: { entry: string; status: 'taken' | 'not-taken'; applicability: 'applies' | 'not-applicable' | 'unknown'; unknown: string[]; managementIds: string[] }[];
+  fulfilment: OrganizationFulfilment[];
+  scanSigners: { replace?: ScanSignerRecord[]; add?: ScanSignerRecord[] } | null;
+}
+export interface OrganizationFulfilment { entry: string; status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown'; unknown: string[]; managementIds: string[] }
+export interface ScanSignerRecord { identity?: string; issuer: string; subject: string; extensions?: { [field: string]: Json } }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
 export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string;
@@ -178,10 +201,14 @@ export interface Review {
   environment?: EnvironmentReview;
   /** Several updates in one review: each update's request kind, plan reports, origin and own review digest. */
   updates?: { update: number; request: 'plan' | 'change'; plan?: Omit<Plan, 'plan'>; origin?: Origin; originNote?: string | null; reviewDigest: string }[];
+  /** Enterprise requests only (contract 11). */
+  organization?: OrganizationReview;
   reviewDigest: string;
 }
 export interface Preparation {
   status: 'ready' | 'partial' | 'blocked';
+  /** `AUTHORITY_DENIED` when the organization denies (blocked, no handle), naming the entry or source rule in `reason`. */
+  code?: 'AUTHORITY_DENIED'; reason?: string;
   review: Review;
   handle?: PlanHandle;
 }
@@ -217,6 +244,8 @@ export interface Run {
   history: { status: 'recorded' | 'disabled' | 'not-recorded'; limit?: string };
   /** Repair, export and macOS session runs only (contract 10). */
   environment?: EnvironmentRun;
+  /** Enterprise runs: the actual fulfilment over the claims this run left (C71), which differs from the review's projection when steps fail. */
+  organization?: { id: string; fulfilment: OrganizationFulfilment[] };
 }
 
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string;
@@ -232,6 +261,8 @@ export interface InventoryEntry {
   items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
   /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
   catalog?: string | null; profiles?: { id: string; version: string | number }[];
+  /** The content kind and framework recorded at install, which Enterprise fulfilment counts; `null` when the plan gave none. */
+  kind?: string | null; framework?: string | null;
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
   /** Every claim that holds this management id here: its CLI (`null` when its steps recorded none) and project (C28). */
   claims?: { cli: string | null; project: string | null }[];
@@ -272,7 +303,9 @@ export interface RemovalEntry {
    */
   offers?: { managementId: string; item?: string; switchOff?: true }[];
 }
-export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle }
+export interface RemovalPreparation { status: 'ok'; entries: RemovalEntry[]; review?: Review; handle?: PlanHandle;
+  /** `AUTHORITY_DENIED` when the organization denies the removal (no handle), naming the entry in `reason`. */
+  code?: 'AUTHORITY_DENIED'; reason?: string }
 export type RemovalResult = RemovalPreparation | Refusal | Invalid;
 /** One update (contract 12): a complete new plan or change request, and the management ids it replaces when no proven origin names them. */
 export interface UpdateSelector { managementIds?: string[]; request: Json }

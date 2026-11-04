@@ -8,9 +8,11 @@
   "properties": {
     "schema": { "const": "urn:aihq:core:plan-request:0.1.0" },
     "scope": { "enum": ["project", "user"] },
+    "mode": { "enum": ["vibe", "enterprise"] },
     "target": {
       "type": "object", "additionalProperties": false,
-      "properties": { "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 } }
+      "properties": { "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 },
+        "client": { "$ref": "#/$defs/client" }, "repository": { "type": "string", "minLength": 1, "maxLength": 512 } }
     },
     "plan": { "$ref": "#/$defs/plan" },
     "contents": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/content" } },
@@ -23,7 +25,9 @@
     "resolutions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/resolution" } }
   },
   "$defs": {
-    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "client": { "type": "object", "additionalProperties": false, "required": ["id", "surface"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "surface": { "enum": ["cli", "ide"] } } },
+    "id":{ "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "profileVersion": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "integer", "minimum": 0 }] },
     "sourcePath": { "type": "string", "minLength": 1, "maxLength": 4096 },

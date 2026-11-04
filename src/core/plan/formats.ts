@@ -83,6 +83,10 @@ import nativeDefinitionInvalid from '../../fixtures/core/native-verification-def
 import nativeTestIdentitySchema from '../schemas/native-test-identity/0.1.0.json' with { type: 'json' };
 import nativeTestIdentityValid from '../../fixtures/core/native-test-identity/0.1.0/accept.json' with { type: 'json' };
 import nativeTestIdentityInvalid from '../../fixtures/core/native-test-identity/0.1.0/refuse.json' with { type: 'json' };
+// Enterprise admission (samartomar/aih-core#179).
+import organizationSchema from '../schemas/organization/0.1.0.json' with { type: 'json' };
+import organizationValid from '../../fixtures/core/organization/0.1.0/accept.json' with { type: 'json' };
+import organizationInvalid from '../../fixtures/core/organization/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -121,6 +125,8 @@ const entries: FormatEntry[] = [
   { id: nativeBundleSchema.$id, schema: nativeBundleSchema, fixtures: { valid: nativeBundleValid, invalid: nativeBundleInvalid } },
   { id: nativeDefinitionSchema.$id, schema: nativeDefinitionSchema, fixtures: { valid: nativeDefinitionValid, invalid: nativeDefinitionInvalid } },
   { id: nativeTestIdentitySchema.$id, schema: nativeTestIdentitySchema, fixtures: { valid: nativeTestIdentityValid, invalid: nativeTestIdentityInvalid } },
+  // Enterprise admission (samartomar/aih-core#179).
+  { id: organizationSchema.$id, schema: organizationSchema, fixtures: { valid: organizationValid, invalid: organizationInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

@@ -68,6 +68,11 @@ export interface PlanItemFacts {
   plugins?: PluginFacts[];
   /** Program steps (`tool-command`, `upstream-installer`, `upstream-setup`) and their undo facts (C30, C54). */
   programs?: ProgramFacts[];
+  /**
+   * The content facts Enterprise fulfilment counts (contract 11): the item's kind and framework from the content documents
+   * the plan was made from, `null` when they gave none. Absent on receipts made before they were recorded.
+   */
+  kind?: string | null; framework?: string | null;
   /** The management id this claim belongs to (C48); the engine keeps the claim under its claim key. */
   managementId?: string;
   /** The one CLI that makes this claim (from the steps' `clis`), or `null` when the steps recorded none (C55). */
@@ -273,7 +278,8 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework'])) return false;
+  for (const fact of [value.kind, value.framework]) if (fact !== undefined && fact !== null && !(typeof fact === 'string' && PLAN_ID.test(fact))) return false;
   if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&
       value.secretSlots.every(slot => exact(slot, ['file', 'path', 'item', 'input', 'template']) && text(slot.file, 4096) &&
         Array.isArray(slot.path) && slot.path.length > 0 && slot.path.length <= 64 && slot.path.every(part => typeof part === 'string' && part.length <= 256) &&

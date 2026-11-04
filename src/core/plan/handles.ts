@@ -52,6 +52,8 @@ export interface HandleState {
    * An update (contract 12): the new data and origin each of its claims records once the run completes. Steps it kept
    * because you edited their member (`<step>\0<managementId>`) are reviewed as left alone, so they don't hold it back.
    */
+  /** Enterprise (contract 11): the organization read at Prepare, re-read before Apply, and where actual fulfilment is counted. */
+  enterprise?: import('../enterprise/host.js').EnterpriseState;
   record?: { data: { repository: string; commit: string } | null; origin: import('../internal/custody-items.js').PlanItemFacts['origin'];
     claims: { root: string; identity: string }[]; kept: string[] };
 }

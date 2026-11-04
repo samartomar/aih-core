@@ -41,7 +41,17 @@
           ],
           "minLength": 1,
           "maxLength": 4096
-        }
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "surface"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+            "surface": { "enum": ["cli", "ide"] }
+          }
+        },
+        "repository": { "type": "string", "minLength": 1, "maxLength": 512 }
       }
     },
     "changes": {
