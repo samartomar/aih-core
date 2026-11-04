@@ -1,5 +1,5 @@
 import type { BindingKind, BindingPlatform, BindingSupport, ObservedLevel, ToolBinding } from './tool-binding.mjs';
-import type { RegistryTool } from './tool-registry.mjs';
+import type { RegistryTool } from './tool-registry-legacy.mjs';
 
 /** A checked Catalog release 1.6 item as its reader returns it; only the fields rendering reads are named. */
 export interface CatalogItem {

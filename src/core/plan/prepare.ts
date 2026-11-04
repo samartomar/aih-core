@@ -1,5 +1,7 @@
 // Prepare for a plan request (contract 7, 8.1): admit the request, lower its steps into the one existing engine, and
 // present the engine's review as a frozen 0.1.0 review whose digest the person approves.
+import { reviewVersions } from '../inspect.js';
+import { knownCli } from './tools.js';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { findNodeAtLocation, parseTree } from 'jsonc-parser';
@@ -366,9 +368,13 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed)) });
   steps.sort((a, b) => (a.step as number) - (b.step as number) || codeUnitCompare(a.managementId, b.managementId));
   const { plan: _steps, ...reports } = request.plan;
+  // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop.
+  const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
+  const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
-    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: secretWarnings(checked.steps) };
+    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...(compared?.warnings ?? [])],
+    ...(compared ? { versions: compared.versions as unknown as Json[] } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest);
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   // Unowned content needs the person's choice and a new Prepare: no handle (section 7).

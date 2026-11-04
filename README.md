@@ -573,39 +573,73 @@ Inspection also covers the helpers `rg`, `fd` (or Debian's `fdfind`), `jq`, `cur
 
 ## AI tool registry
 
-`toolRegistry` from `@aihq/core/harness` (`urn:aihq:harness:tool-registry:1.0.0`)
-lists the AI tools Harness knows. It is portable, frozen data with no host effects.
-Each entry is `{ id, label, surface, binaries, aliases }`, where `surface` is
-`"cli"` or `"ide"`.
+`toolRegistry` from `@aihq/core/harness` (`urn:aihq:core:tool-registry:0.1.0`) lists every AI tool Core knows: 15
+tools, each `{ id, label, surface, binaries, aliases }` with `surface` `"cli"` or `"ide"`. It is portable, frozen data
+with no host effects. Registry ids match Catalog's tool profile ids.
 
-- Command-line tools and IDEs are separate entries. For example `kiro` is Kiro CLI
-  and `kiro-ide` is Kiro IDE; an IDE layout is never used for a CLI.
-- `claude-code` is an alias of `claude`. Antigravity's CLI is `antigravity`
-  (binary `agy`), distinct from Gemini CLI (`gemini`).
-- Every existing native client ID is a registry ID.
+| Id (surface) | Aliases | Notes |
+|---|---|---|
+| `claude-code` (cli) | `claude` | The old id is accepted for selection only |
+| `codex`, `kiro`, `copilot`, `antigravity`, `gemini`, `opencode`, `kimi` (cli) | — | Antigravity's CLI (`agy`) is not Gemini CLI |
+| `cursor` (cli) | — | The Cursor CLI (`cursor-agent`) |
+| `dsh` (cli) | — | DeepSeek Harness |
+| `cursor-ide`, `windsurf`, `zed`, `kiro-ide`, `copilot-vscode` (ide) | — | An IDE is never mapped to a CLI profile |
 
-**Registry IDs and labels are a stable vocabulary.** Other packages may cite them.
-Aliases are other IDs for the same tool.
+Aliases never appear in plans, receipts or organization documents: a plan whose profile or step names `claude` is
+refused `tool-unknown`. What can be selected comes from the registry alone, not from observations.
 
 ```js
-import { listTools, selectTool } from '@aihq/core/harness';
+import { listTools, selectTool, validateToolRegistry } from '@aihq/core/harness';
 
-listTools();                            // tools with at least one observed binding cell
-listTools({ includeUnobserved: true }); // every registry tool, in registry order
-selectTool('claude-code');              // { status: 'selected', tool: { id: 'claude', ... } }
-selectTool('kiro-ide');                 // { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE',
-                                        //   reason: 'tool-not-observed', tool: { id: 'kiro-ide', ... } }
-selectTool('unknown');                  // { status: 'refused', code: 'INPUT_INVALID', reason: 'unknown-tool' }
+listTools();                   // { status: 'ok', tools: [...all 15, in registry order] }
+listTools({ surface: 'ide' }); // { status: 'ok', tools: [cursor-ide, windsurf, zed, kiro-ide, copilot-vscode] }
+selectTool('claude');          // { status: 'ok', tool: { id: 'claude-code', ... }, via: 'alias' }
+selectTool('unknown');         // { status: 'refused', code: 'tool-unknown', reason: '...' }
+validateToolRegistry(doc);     // { status: 'ok' } | { status: 'invalid', problems } | { status: 'unsupported-version', ... }
 ```
 
-`listTools()` offers only tools with an observed binding cell: today Claude Code,
-Codex CLI, Kiro CLI, Copilot CLI and Antigravity CLI. No IDE has been observed, so
-no IDE is offered. Use `listTools({ includeUnobserved: true })` to display the
-others. Observation presence comes from the [observed tool bindings](#observed-tool-bindings)
-shipped with this package. A request naming an unobserved tool is refused with
-`tool-not-observed`. IDE support claims in Catalog 1.x content are display data
-only; Core never binds content from them. Being listed does not mean a tool is
-installed, configured or verified.
+Being listed does not mean a tool is installed, configured or verified. The retained recipe delivery, observed tool
+bindings and organization targets 1.1.0 keep the earlier tool vocabulary until they are removed.
+
+## Inspect, compare files and report (0.1.0, in development)
+
+**Inspect.** `inspect({ target?, offline?, profiles? }, { signal?, budgetMs? })` returns
+`urn:aihq:core:inspection:0.1.0` (`subject: "machine"`, `status: "ok"`, `observation` `complete`, `incomplete` or
+`cancelled`), with the retained tools, observations, checks and repair choices. `target` names inspection targets or
+registry tools (ids or aliases). `profiles` are Catalog tool profile documents; Core reads only `id`, `version` and
+`checkedWith`. For each inspected CLI, `versions` compares the version its own version command printed with the
+`checkedWith` entry for that command; an older CLI gives a `cli-older-than-profile` warning and is never blocked or
+refused. A CLI without a profile says "Version not compared" (`reason: no-profile`). A malformed profile, or one naming
+an alias or an unknown tool, is `invalid` with exact problems. A request with the retained fields (`targets`,
+`network`, `probeConfiguredMcp`, `configuration`) keeps the retained result until it retires.
+
+```sh
+aih inspect --target codex --offline --profiles ./profiles --json   # exit 0; 130 if cancelled; 2 refused or invalid
+```
+
+**Host and project facts.** `inspectToolHost` returns `inspection:0.1.0` with `subject: "tool-host"` and the
+registry id; an unknown tool is `refused` `tool-unknown`, a tool without an observed layout `refused`
+`tool-not-observed`, and bad input `invalid` with `problems`. `detectProjectFacts` adds `problems` to an `invalid`
+answer. `resolveStateLocation()` returns `{ status: 'ok', root, markers }`, or `refused` `home-unavailable`; it never
+throws and creates nothing.
+
+**Compare files.** `checkFiles(request, { signal?, catalog?, privateInputs?, materialRoots?, budgetMs? })` compares what
+a plan request or change request would write with the disk and returns `urn:aihq:core:file-check:0.1.0`. It has no
+effects: no state, history, receipts, network or processes. A plan's write steps are compared with their checked bytes
+(supplied, or rendered by the caller's Catalog); program and acquisition steps are listed in `notChecked`. `observation`
+is `complete` only when every planned file was compared and nothing was left unchecked; `fileState` is `match` only
+then, `changed` when any compared file differs or is absent, and `unverified` otherwise. At most 4,096 targets.
+
+```sh
+aih check-files plan-request.json --project ./app --source my-skills=./skills --json   # 0 complete match; 1 otherwise
+```
+
+**Reports and claims.** `@aihq/core/contracts` holds `createReport`, `validateSnapshot`, `importSnapshot`,
+`exportSnapshot` (`urn:aihq:core:report:0.1.0`, which includes the diagnostic data it reads) and `validateClaimSet`,
+`readClaimSet`, `projectClaims` (`urn:aihq:core:claims:0.1.0`), with `getGuidance` and `renderSupportMarkdown`. Each
+returns `ok`, `invalid` with problems, or `unsupported-version`, and never throws for bad input. Redaction, bounds,
+duplicate-key refusal and the claim predicates are the retained ones: a claim is never inferred from the steps that
+succeeded.
 
 Unqualified editor candidate layouts and exact identities are available as a
 [packed preparation fixture](docs/editor-content-candidates.md). They do not

@@ -1,98 +1,26 @@
 // Runs inside a disposable consumer with the packed @aihq/core installed; public entries only.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { prepare } from '@aihq/core';
 import { contractSupport as coreSupport, deriveRecipeIdentity, validateOrganizationTarget } from '@aihq/core/contracts';
-import { contractSupport as harnessSupport, listTools, nativeClientIds, selectTool, targets, toolRegistry,
-  validateToolRegistry } from '@aihq/core/harness';
-import registrySchema from '@aihq/core/harness/schemas/tool-registry/1.0.0.json' with { type: 'json' };
 import target10Schema from '@aihq/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
 import target11Schema from '@aihq/core/schemas/organization-target/1.1.0.json' with { type: 'json' };
-import acceptRegistry from '@aihq/core/fixtures/harness/tool-registry/1.0.0/accept.json' with { type: 'json' };
-import refuseRegistry from '@aihq/core/fixtures/harness/tool-registry/1.0.0/refuse.json' with { type: 'json' };
 import acceptTarget11 from '@aihq/core/fixtures/core/organization-target/1.1.0/accept.json' with { type: 'json' };
 import refuseTarget11 from '@aihq/core/fixtures/core/organization-target/1.1.0/refuse.json' with { type: 'json' };
 
-const REGISTRY = 'urn:aihq:harness:tool-registry:1.0.0';
+// Organization targets 1.1.0 are a retiring format: they keep the pre-0.1.0 tool vocabulary (registry 1.0.0 ids) until
+// samartomar/aih-core#181 removes them. The 0.1.0 registry itself is checked by inspect-report-consumer.mjs.
+const LEGACY_TOOLS = [['claude', 'cli'], ['codex', 'cli'], ['kiro', 'cli'], ['copilot', 'cli'], ['antigravity', 'cli'], ['gemini', 'cli'],
+  ['opencode', 'cli'], ['kimi', 'cli'], ['cursor', 'ide'], ['windsurf', 'ide'], ['zed', 'ide'], ['kiro-ide', 'ide'], ['copilot-vscode', 'ide']];
 const TARGET10 = 'urn:aihq:core:organization-target:1.0.0';
 const TARGET11 = 'urn:aihq:core:organization-target:1.1.0';
-const golden = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const reasons = result => result.diagnostics.map(item => [item.code, item.reason]);
 const checks = [];
 const check = (name, body) => { body(); checks.push(name); };
-
-check('registry is published with its schema', () => {
-  assert.equal(registrySchema.$id, REGISTRY);
-  assert.equal(toolRegistry.schema, REGISTRY);
-  assert.partialDeepStrictEqual(harnessSupport.contracts.find(item => item.id === REGISTRY),
-    { id: REGISTRY, role: 'produces', schemaExport: '@aihq/core/harness/schemas/tool-registry/1.0.0.json' });
-  const ajv = new Ajv2020({ strict: true });
-  assert.equal(ajv.validate(registrySchema, toolRegistry), true, JSON.stringify(ajv.errors));
-  assert.equal(validateToolRegistry(toolRegistry).valid, true);
-  assert.deepEqual(acceptRegistry, JSON.parse(JSON.stringify(toolRegistry)), 'the accept fixture is the shipped registry');
-  assert.equal(validateToolRegistry(refuseRegistry).valid, false);
-  for (const entry of toolRegistry.tools) assert.deepEqual(Object.keys(entry), ['id', 'label', 'surface', 'binaries', 'aliases']);
-  assert.ok(Object.isFrozen(toolRegistry) && Object.isFrozen(toolRegistry.tools) && toolRegistry.tools.every(Object.isFrozen));
-});
-
-check('command-line tools and IDEs are separate entries', () => {
-  const byId = Object.fromEntries(toolRegistry.tools.map(entry => [entry.id, entry]));
-  assert.deepEqual(new Set(toolRegistry.tools.map(entry => entry.surface)), new Set(['cli', 'ide']));
-  assert.equal(byId.kiro.surface, 'cli');
-  assert.equal(byId['kiro-ide'].surface, 'ide');
-  assert.equal(byId.copilot.surface, 'cli');
-  assert.equal(byId['copilot-vscode'].surface, 'ide');
-  assert.deepEqual(byId.claude.aliases, ['claude-code']);
-  assert.deepEqual(byId.antigravity.binaries, ['agy']);
-  assert.notEqual(byId.antigravity.id, byId.gemini.id);
-  assert.deepEqual(byId.gemini.binaries, ['gemini']);
-  const names = toolRegistry.tools.flatMap(entry => [entry.id, ...entry.aliases]);
-  assert.equal(new Set(names).size, names.length, 'ids and aliases name one tool each');
-});
-
-check('existing native client ids stay valid registry ids', () => {
-  const ids = toolRegistry.tools.map(entry => entry.id);
-  for (const client of nativeClientIds) assert.ok(ids.includes(client), client);
-  assert.deepEqual(target10Schema.properties.client.enum, [...nativeClientIds]);
-  // A registry binary is one the inspection targets already recognise for that tool.
-  for (const entry of toolRegistry.tools) {
-    const known = targets.find(item => item.id === entry.id);
-    if (known) for (const binary of entry.binaries) assert.ok(known.executables.includes(binary), `${entry.id}: ${binary}`);
-  }
-});
-
-check('listTools offers only observed tools: today\'s command-line tools and no IDE', () => {
-  const offered = listTools();
-  assert.deepEqual(JSON.parse(JSON.stringify(offered)), golden);
-  assert.deepEqual(JSON.parse(JSON.stringify(listTools({}))), golden);
-  assert.equal(offered.some(entry => entry.surface === 'ide'), false);
-  const all = listTools({ includeUnobserved: true });
-  assert.deepEqual(all.map(entry => entry.id), toolRegistry.tools.map(entry => entry.id));
-  for (const id of ['kiro-ide', 'copilot-vscode', 'gemini', 'cursor']) assert.ok(all.some(entry => entry.id === id), id);
-  assert.deepEqual(JSON.parse(JSON.stringify(listTools({ includeUnobserved: false }))), golden);
-  assert.throws(() => listTools({ includeUnobserved: 'yes' }), TypeError);
-  assert.throws(() => listTools({ unknown: true }), TypeError);
-});
-
-check('a request naming a tool resolves its alias or is refused with a named reason', () => {
-  const alias = selectTool('claude-code');
-  assert.equal(alias.status, 'selected');
-  assert.equal(alias.tool.id, 'claude');
-  assert.equal(selectTool('claude').tool, alias.tool);
-  for (const id of ['kiro-ide', 'copilot-vscode', 'gemini']) {
-    const refused = selectTool(id);
-    assert.deepEqual({ status: refused.status, code: refused.code, reason: refused.reason },
-      { status: 'refused', code: 'PREREQUISITE_UNAVAILABLE', reason: 'tool-not-observed' }, id);
-    assert.equal(refused.tool.id, id);
-  }
-  const unknown = selectTool('not-a-tool');
-  assert.deepEqual(unknown, { status: 'refused', code: 'INPUT_INVALID', reason: 'unknown-tool' });
-  assert.equal(selectTool(42).reason, 'unknown-tool');
-});
 
 check('organization target 1.1 accepts registry tool ids with their surface', () => {
   assert.equal(target11Schema.$id, TARGET11);
@@ -100,9 +28,9 @@ check('organization target 1.1 accepts registry tool ids with their surface', ()
     assert.partialDeepStrictEqual(coreSupport.contracts.find(item => item.id === id), { id, role: 'accepts' });
   assert.equal(validateOrganizationTarget(acceptTarget11).valid, true);
   assert.equal(validateOrganizationTarget(refuseTarget11).valid, false);
-  for (const entry of toolRegistry.tools) {
-    const declared = { schema: TARGET11, tool: { id: entry.id, surface: entry.surface }, repository: 'github.com/example-org/app' };
-    assert.equal(validateOrganizationTarget(declared).valid, true, entry.id);
+  for (const [id, surface] of LEGACY_TOOLS) {
+    const declared = { schema: TARGET11, tool: { id, surface }, repository: 'github.com/example-org/app' };
+    assert.equal(validateOrganizationTarget(declared).valid, true, id);
   }
   const invalid = tool => reasons(validateOrganizationTarget({ schema: TARGET11, tool }));
   assert.deepEqual(invalid({ id: 'kiro', surface: 'ide' }), [['INPUT_INVALID', 'tool-surface-mismatch']]);

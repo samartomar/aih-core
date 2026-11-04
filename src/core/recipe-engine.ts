@@ -10,7 +10,7 @@ import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type Re
   type LocalPolicySource } from '../harness/runtime.mjs';
 import { localPolicySourceLabel } from '../harness/local-policy.mjs';
 import { contentFactsOf, SetMembership } from './internal/organization-content.js';
-import { selectTool } from '../harness/tool-registry.mjs';
+import { selectTool } from '../harness/tool-registry-legacy.mjs';
 import { bindingLayout, bindingPermissionNotice, hookGroupCommands, selectionDeliveredSize, type DeliveredEntry } from '../harness/delivery-review.mjs';
 import { isNativeClient } from './internal/policy-validation.js';
 import { admitOrganizationSelections, evaluateOrganizationObligations, type AdmissionLifecycle, type AdmissionSelection } from './internal/organization-admission.js';

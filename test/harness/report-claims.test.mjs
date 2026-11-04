@@ -70,7 +70,7 @@ function deepFreeze(value) {
 }
 
 test('the accepted versions, calculation methods and schema export are advertised', async () => {
-  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0']);
+  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0', 'urn:aihq:core:claims:0.1.0']);
   assert.equal(Object.isFrozen(CLAIMS_ACCEPTED_VERSIONS), true);
   assert.equal(CLAIMS_SCHEMA, 'urn:aihq:report:claims:1.0.0');
   assert.equal(CLAIMS_PROJECTION_SCHEMA, 'urn:aihq:report:claims-projection:1.0.0');

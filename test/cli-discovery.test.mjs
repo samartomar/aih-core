@@ -186,7 +186,9 @@ test('CLI --no-log disables run history but preserves ownership and recovery rec
     for (const args of [['inspect', '--no-log'], ['validate', 'execution-policy', file, '--no-log']]) {
       const refused = run(args);
       assert.equal(refused.status, 2, args.join(' '));
-      assert.equal(JSON.parse(refused.stdout).diagnostics[0].code, 'INPUT_INVALID');
+      const printed = JSON.parse(refused.stdout);
+      // 0.1.0 commands refuse unknown options as `usage`; retained ones as INPUT_INVALID.
+      assert.equal(printed.code ?? printed.diagnostics[0].code, args[0] === 'inspect' ? 'usage' : 'INPUT_INVALID');
     }
   } finally { close(); }
 });

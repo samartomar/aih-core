@@ -7,10 +7,14 @@ export interface ReportCommandRequest {
   snapshotJson?: string;
   /** Explicit bounded offline probes for a fresh diagnostic. Defaults to Node and Git. */
   targets?: string[];
+  /** `'0.1.0'`: write (and read a supplied) `urn:aihq:core:report:0.1.0` snapshot; omitted, the retained 1.0.0 snapshot. */
+  format?: '0.1.0';
 }
 
 export interface ReportCommandSummary {
-  status: 'complete';
+  /** `ok` with `schema` for `format: '0.1.0'`; `complete` for the retained snapshot. */
+  status: 'complete' | 'ok';
+  schema?: 'urn:aihq:core:report:0.1.0';
   source: 'fresh' | 'snapshot';
   /** The installed distribution that ran this command. */
   package: { name: string; version: string };

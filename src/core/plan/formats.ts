@@ -53,6 +53,21 @@ import macosSessionVerificationResultInvalid from '../../fixtures/core/macos-ses
 import macosSessionProfilesSchema from '../schemas/macos-session-profiles/0.1.0.json' with { type: 'json' };
 import macosSessionProfilesValid from '../../fixtures/core/macos-session-profiles/0.1.0/accept.json' with { type: 'json' };
 import macosSessionProfilesInvalid from '../../fixtures/core/macos-session-profiles/0.1.0/refuse.json' with { type: 'json' };
+import toolRegistrySchema from '../schemas/tool-registry/0.1.0.json' with { type: 'json' };
+import toolRegistryValid from '../../fixtures/core/tool-registry/0.1.0/accept.json' with { type: 'json' };
+import toolRegistryInvalid from '../../fixtures/core/tool-registry/0.1.0/refuse.json' with { type: 'json' };
+import inspectionSchema from '../schemas/inspection/0.1.0.json' with { type: 'json' };
+import inspectionValid from '../../fixtures/core/inspection/0.1.0/accept.json' with { type: 'json' };
+import inspectionInvalid from '../../fixtures/core/inspection/0.1.0/refuse.json' with { type: 'json' };
+import fileCheckSchema from '../schemas/file-check/0.1.0.json' with { type: 'json' };
+import fileCheckValid from '../../fixtures/core/file-check/0.1.0/accept.json' with { type: 'json' };
+import fileCheckInvalid from '../../fixtures/core/file-check/0.1.0/refuse.json' with { type: 'json' };
+import reportSchema from '../schemas/report/0.1.0.json' with { type: 'json' };
+import reportValid from '../../fixtures/core/report/0.1.0/accept.json' with { type: 'json' };
+import reportInvalid from '../../fixtures/core/report/0.1.0/refuse.json' with { type: 'json' };
+import claimsSchema from '../schemas/claims/0.1.0.json' with { type: 'json' };
+import claimsValid from '../../fixtures/core/claims/0.1.0/accept.json' with { type: 'json' };
+import claimsInvalid from '../../fixtures/core/claims/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -79,6 +94,12 @@ const entries: FormatEntry[] = [
   { id: macosSessionVerificationRequestSchema.$id, schema: macosSessionVerificationRequestSchema, fixtures: { valid: macosSessionVerificationRequestValid, invalid: macosSessionVerificationRequestInvalid } },
   { id: macosSessionVerificationResultSchema.$id, schema: macosSessionVerificationResultSchema, fixtures: { valid: macosSessionVerificationResultValid, invalid: macosSessionVerificationResultInvalid } },
   { id: macosSessionProfilesSchema.$id, schema: macosSessionProfilesSchema, fixtures: { valid: macosSessionProfilesValid, invalid: macosSessionProfilesInvalid } },
+  // Tool registry, inspection, file comparison, report snapshots and claim sets (samartomar/aih-core#174).
+  { id: toolRegistrySchema.$id, schema: toolRegistrySchema, fixtures: { valid: toolRegistryValid, invalid: toolRegistryInvalid } },
+  { id: inspectionSchema.$id, schema: inspectionSchema, fixtures: { valid: inspectionValid, invalid: inspectionInvalid } },
+  { id: fileCheckSchema.$id, schema: fileCheckSchema, fixtures: { valid: fileCheckValid, invalid: fileCheckInvalid } },
+  { id: reportSchema.$id, schema: reportSchema, fixtures: { valid: reportValid, invalid: reportInvalid } },
+  { id: claimsSchema.$id, schema: claimsSchema, fixtures: { valid: claimsValid, invalid: claimsInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

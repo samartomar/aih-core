@@ -1,4 +1,4 @@
-import type { RegistryTool } from './tool-registry.mjs';
+import type { RegistryTool } from './tool-registry-legacy.mjs';
 export type BindingKind = 'skill' | 'agent' | 'command' | 'rule' | 'hook' | 'mcp-server' | 'document';
 export type BindingSupport = 'native' | 'none' | 'unconfirmed';
 export type ObservedLevel = 'recognised' | 'registered' | 'listed-only' | 'delivered' | 'none';

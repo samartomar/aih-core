@@ -61,7 +61,7 @@ test('config trace does not prove a runnable executable and offline suppresses d
 });
 
 test('invalid targets and budgets run no diagnostics', async () => {
-  for (const [request, controls] of [[{ targets: ['unknown'] }, {}], [{}, { budgetMs: 180001 }], [{ network: 'surprise' }, {}]]) {
+  for (const [request, controls] of [[{ targets: ['unknown'] }, {}], [{ network: 'declared' }, { budgetMs: 180001 }], [{ network: 'surprise' }, {}]]) {
     const result = await inspect(request, controls);
     assert.equal(result.status, 'invalid');
     assert.deepEqual(result.tools, []);

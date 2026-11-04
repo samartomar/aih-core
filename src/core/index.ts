@@ -114,8 +114,19 @@ export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFi
   RemovalPreparation, RemovalResult, EnvironmentReview, EnvironmentRun, EnvironmentProblem } from './plan/types.js';
 export type { EnvironmentRequest, RepairRequest010 as EnvironmentRepairRequest, ExportRequest010 as EnvironmentExportRequest,
   MacosSessionRequest010 as EnvironmentMacosSessionRequest, EnvironmentResolution } from './environment/request.js';
-export { inspect } from './inspection.js';
+import { inspectRetained, type InspectControls, type InspectRequest, type InspectResult } from './inspection.js';
+import { inspectMachine, type Inspect0Request, type InspectionResult } from './inspect.js';
 export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
+export type { Inspect0Request, Inspection, InspectionResult, InspectionTool, InspectionWarning, VersionComparison, CheckedWith } from './inspect.js';
+const RETAINED_INSPECT = ['targets', 'network', 'probeConfiguredMcp', 'configuration'];
+/** `{ target?, offline?, profiles? }` returns `urn:aihq:core:inspection:0.1.0` (contract 10, D110). */
+export function inspect(request?: Inspect0Request, controls?: InspectControls): Promise<InspectionResult>;
+/** The retained request (`targets`, `network`, `probeConfiguredMcp`, `configuration`) keeps its result until it retires. */
+export function inspect(request: InspectRequest, controls?: InspectControls): Promise<InspectResult>;
+export function inspect(request?: Inspect0Request | InspectRequest, controls?: InspectControls): Promise<InspectionResult | InspectResult> {
+  const retained = !!request && typeof request === 'object' && !isProxy(request) && RETAINED_INSPECT.some(key => Object.hasOwn(request, key));
+  return retained ? inspectRetained(request as InspectRequest, controls) : inspectMachine(request, controls);
+}
 export { writeSupportReport } from './support-report.js';
 export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
 export type { ReportFileResult, ReportFileStatus } from './internal/report-file.js';
@@ -135,3 +146,6 @@ export type { ManagedUpdateRequest, ManagedUpdatePreparationResult, UpdateSelect
   UpdateItemFacts } from './managed-update.js';
 export { resolveStateLocation } from './resolve-state-location.js';
 export type { ResolvedStateLocation, ResolvedStateLocationMarker } from './resolve-state-location.js';
+// Read-only file comparison of a plan or change request (samartomar/aih-core#174).
+export { checkFiles } from './file-check.js';
+export type { FileCheck as FileCheckDocument, FileCheckResult, FileCheckTarget, FileCheckControls } from './file-check.js';

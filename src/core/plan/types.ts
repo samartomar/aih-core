@@ -136,6 +136,8 @@ export interface Review {
   groups?: { id: string; members: string[] }[];
   failureRule: string;
   warnings: string[];
+  /** Plan reviews whose served profiles list `checkedWith`: each served CLI's version against it (D110); warnings only. */
+  versions?: Json[];
   /** Repair, export and macOS session reviews only (contract 10). */
   environment?: EnvironmentReview;
   reviewDigest: string;

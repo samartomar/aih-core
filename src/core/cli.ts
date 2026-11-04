@@ -2,11 +2,13 @@
 import { parseArgs } from 'node:util';
 import { repairIndex, selectVerificationKeys, selectVerificationPublishers } from '../harness/contracts.mjs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stderr } from 'node:process';
 import { contractSupport, parseOrganizationPolicy, parsePolicy, validateRecipe,
   validateTrustRepairInputs, validateCertificateExportInputs } from './contracts.js';
-import { prepare, apply, inspect, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
+import { inspectRetained } from './inspection.js';
+import { prepare, apply, checkFileState, listManagedSelections, prepareManagedRemoval } from './index.js';
 import { invalidFileStateResult } from './file-state.js';
 import type { FileStateControls, FileStateRequest } from './file-state-types.js';
 import { readRegularFile } from './internal/fsxn.js';
@@ -185,8 +187,23 @@ const commandModules: Record<string, () => Promise<{ run(args: string[], signal:
 };
 // 0.1.0 environment commands (repair, export-ca) when their inputs are 0.1.0; the retained forms keep their branch below.
 const environmentCli = ['repair', 'export-ca'].includes(process.argv[2] ?? '') ? await import('./cli/environment.js') : undefined;
+// `aih inspect` is the 0.1.0 inspection unless a retained-only option asks for the retained result.
+const RETAINED_INSPECT = /^--(?:probe-configured-mcp|project)(?:=|$)/;
+/** `aih check-files` reads a plan or change request with the 0.1.0 comparison; an execution policy keeps the retained one. */
+function requestKind(args: string[]): boolean {
+  return args.filter(arg => !arg.startsWith('-')).some(file => {
+    try {
+      const schema = (JSON.parse(readFileSync(resolve(file), 'utf8')) as { schema?: unknown }).schema;
+      return typeof schema === 'string' && /^urn:aihq:core:(?:plan|change)-request:/.test(schema);
+    } catch { return false; }
+  });
+}
 if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(process.argv[3] ?? '')) {
   await (await import('./cli/validate.js')).run(process.argv.slice(3));
+} else if (process.argv[2] === 'check-files' && requestKind(process.argv.slice(3))) {
+  await (await import('./cli/check-files.js')).run(process.argv.slice(3), controller.signal);
+} else if (process.argv[2] === 'inspect' && !process.argv.slice(3).some(arg => RETAINED_INSPECT.test(arg))) {
+  await (await import('./cli/inspect.js')).run(process.argv.slice(3), controller.signal);
 } else if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
   await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
 } else if (environmentCli?.accepts(process.argv[2]!, process.argv.slice(3))) {
@@ -296,8 +313,13 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
       else {
         // Report projection and diagnostics load only for this command.
         const { runReportCommand, ReportCommandError } = await import('../harness/report-command.mjs');
+        // A fresh report, or a supplied 0.1.0 one, is written as `urn:aihq:core:report:0.1.0`; only a supplied retained
+        // 1.0.0 snapshot keeps its own format until it retires.
+        let retained = false;
+        try { retained = snapshotJson !== undefined && (JSON.parse(snapshotJson) as { schema?: unknown })?.schema === 'urn:aihq:report:snapshot:1.0.0'; }
+        catch { retained = false; }
         try {
-          emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }),
+          emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }), ...(retained ? {} : { format: '0.1.0' as const }),
             ...(values.target === undefined ? {} : { targets: values.target }) },
           { signal: controller.signal }), 0);
         } catch (error) {
@@ -396,7 +418,7 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
       !values.apply && !values.yes && !values['allow-partial'] && !values['private-input']?.length &&
       !values['material-root']?.length && !values.resolutions && !values['inputs-file'] && !hasOrganizationFlags && !values.evidence && !values['no-log'] &&
       values['budget-ms'] === undefined && values.scope === undefined && values.mode === undefined) {
-    const result = await inspect({
+    const result = await inspectRetained({
       ...(values.target === undefined ? {} : { targets: values.target }),
       ...(values.offline ? { network: 'off' as const } : {}),
       ...(values['probe-configured-mcp'] ? { probeConfiguredMcp: true } : {}),

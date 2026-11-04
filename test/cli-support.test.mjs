@@ -122,7 +122,8 @@ test('option and parser rejection with the flag writes no report', () => {
     ]) {
       const result = run(args);
       assert.equal(result.status, 2, args.join(' ') + result.stdout + result.stderr);
-      assert.equal(JSON.parse(result.stdout).diagnostics[0].code, 'INPUT_INVALID', args.join(' '));
+      const printed = JSON.parse(result.stdout);
+      assert.equal(printed.code ?? printed.diagnostics[0].code, args[0] === 'inspect' ? 'usage' : 'INPUT_INVALID', args.join(' '));
       assert.equal(existsSync(target), false, args.join(' '));
       assert.equal(result.stderr, 'Support report not written: input-rejected\n', args.join(' '));
     }

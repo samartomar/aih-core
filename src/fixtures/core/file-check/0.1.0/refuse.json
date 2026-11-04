@@ -1,0 +1,6 @@
+{
+  "schema": "urn:aihq:core:file-check:0.1.0",
+  "status": "ok",
+  "request": "plan",
+  "fileState": "same"
+}
