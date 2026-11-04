@@ -47,7 +47,7 @@ export interface PlanControls {
 }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
-export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
@@ -55,6 +55,12 @@ export interface ReviewStep {
   step: number; op: string; managementId: string; sentence: string; cantPromise: string | null;
   effect: 'create-file' | 'replace-file' | 'remove-file' | 'already-satisfied' | 'conflict' | 'skipped' | 'unchanged';
   root?: 'project' | 'user'; path?: string; item?: string; items?: string[]; clis?: string[];
+  /** An `acquire` step: the AI setup, the qualified artifact it downloads and the folder it fills. */
+  acquire?: { aiSetup: string; version: string; cell: string; kind: 'pypi-wheel' | 'native-archive'; qualification: string;
+    artifact: { file: string; sha256: string }; into: string; members: number; closure: number };
+  /** A Python AI setup's two interpreter branches (C46): approval covers both. */
+  interpreter?: { installed: { path: string; version: string; note: 'in range, not qualified' } | null; range: string;
+    fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
 }
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed'; managementId: string; step: number;
@@ -89,6 +95,10 @@ export interface RunStep {
   step: number; managementId: string;
   application: 'applied' | 'already-satisfied' | 'failed' | 'not-attempted';
   verification: { status: string; reason: string };
+  /** A failed step's reason, such as `artifact-mismatch`. */
+  reason?: string;
+  /** An AI setup step: the interpreter branch that actually ran (C46). */
+  interpreter?: { branch: 'installed' | 'fallback'; path: string; version: string; fallback: boolean; fallbackReason: string | null };
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
@@ -111,6 +121,8 @@ export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
   items: string[]; origin: 'chosen' | null; data: { repository: string; commit: string } | null; clis: string[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';

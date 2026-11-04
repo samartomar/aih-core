@@ -29,6 +29,11 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'existing-content', fix: 'Prepare again with a resolution: replace, adopt if identical, or skip.' },
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
+  // AI setup acquisition (samartomar/aih-core#169).
+  { status: 'refused', code: 'qualification-missing', fix: "Pass the qualification documents that the plan's acquire steps name." },
+  { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },
+  { status: 'refused', code: 'tls-untrusted', fix: 'Run the repair the result names, then Prepare again.' },
+  { status: 'refused', code: 'cell-mismatch', fix: "Replan for this host's platform cell." },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
