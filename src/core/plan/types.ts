@@ -16,9 +16,15 @@ export interface Plan {
   status: 'ok' | 'incomplete';
   data: { repository: string; commit: string } | null;
   recipe?: { id: string; sha256: string; repository: string; commit: string };
+  /** The profile ids and versions the plan was made with, when Catalog records them. */
+  profiles?: { id: string; version: string | number }[];
   plan: PlanStep[];
   missing: Json[]; unavailable: Json[]; clashes: Json[]; duplicates: Json[]; references: Json[]; warnings: Json[];
 }
+/** A recipe origin Core proved by reproducing the plan (8.2): the plan's own `recipe` and its `data`. */
+export interface ProvenOrigin { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null }
+/** `chosen`, or a proven recipe origin (C44). */
+export type Origin = 'chosen' | ProvenOrigin;
 /** One source file the plan names. In the Node API it carries its `bytes`; a saved request document never does (C65). */
 export interface PlanFile { sourceId: string; sourcePath: string; sha256: string; bytes?: Uint8Array }
 export interface PlanResolution { managementId: string; step: number; choice: 'replace' | 'adopt' | 'skip'; observedSha256: string | null }
@@ -37,18 +43,27 @@ export interface PlanRequest {
   /** A second Prepare's conflict choices (section 7). */
   resolutions?: PlanResolution[];
 }
+/**
+ * The caller's installed Catalog reader (samartomar/aih-catalog#197): `renderStep(step, contents, profiles, files)` and
+ * `planRecipe(recipe, contents, profiles, choices, options)`, with the Catalog `version`. Core never bundles its own.
+ */
+export interface CatalogControls {
+  version: string;
+  renderStep?: (step: Json, contents: Json[], profiles: Json[], files: { sourceId: string; sourcePath: string; bytes: Uint8Array }[]) => unknown;
+  planRecipe?: (recipe: Json, contents: Json[], profiles: Json[], choices: Json, options: Json) => unknown;
+}
 /** Controls for plan requests; the rest of `HostControls` stays with the older request formats. */
 export interface PlanControls {
   signal?: AbortSignal;
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
   /** The caller's Catalog, the module that made the plan (C51). */
-  catalog?: { version: string; renderStep?: unknown; planRecipe?: unknown };
+  catalog?: CatalogControls;
   onProgress?: (event: Json) => void;
 }
 export interface Problem { path: string; reason: string; message: string }
 /** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
-export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[]; repair?: string }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 
@@ -66,6 +81,12 @@ export interface ReviewStep {
   presenceCheck?: 'none' | (ReviewCommand & { expect: string });
   /** An earlier run of this program step was interrupted: its effects are uncertain. */
   previous?: 'interrupted';
+  /** An `acquire` step: the AI setup, the qualified artifact it downloads and the folder it fills. */
+  acquire?: { aiSetup: string; version: string; cell: string; kind: 'pypi-wheel' | 'native-archive'; qualification: string;
+    artifact: { file: string; sha256: string }; into: string; members: number; closure: number };
+  /** A Python AI setup's two interpreter branches (C46): approval covers both. */
+  interpreter?: { installed: { path: string; version: string; note: 'in range, not qualified' } | null; range: string;
+    fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
 }
 export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
 export interface ReviewConflict {
@@ -78,7 +99,7 @@ export interface Review {
   scope: 'project' | 'user';
   target: { project: string | null };
   plan?: Omit<Plan, 'plan'>;
-  origin?: 'chosen';
+  origin?: Origin;
   /** "origin not proven" when the plan names a recipe it did not prove (C44); otherwise `null`. */
   originNote?: string | null;
   steps: ReviewStep[];
@@ -103,6 +124,10 @@ export interface RunStep {
   verification: { status: string; reason: string };
   /** A program step that may have changed something although it did not finish: never claimed as rolled back. */
   effectsUncertain?: true;
+  /** A failed step's reason, such as `artifact-mismatch`. */
+  reason?: string;
+  /** An AI setup step: the interpreter branch that actually ran (C46). */
+  interpreter?: { branch: 'installed' | 'fallback'; path: string; version: string; fallback: boolean; fallbackReason: string | null };
 }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
@@ -123,10 +148,14 @@ export interface Run {
 export interface InventoryMember { kind: string; path: string; pointer?: string; blockId?: string; state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' }
 export interface InventoryEntry {
   managementId: string; scope: 'project' | 'user';
-  items: string[]; origin: 'chosen' | null; data: { repository: string; commit: string } | null; clis: string[];
+  items: string[]; origin: Origin | null; data: { repository: string; commit: string } | null; clis: string[];
+  /** The caller's Catalog version and the profiles recorded at install (C23); absent for records without plan facts. */
+  catalog?: string | null; profiles?: { id: string; version: string | number }[];
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
   /** Native plugin installs with the undo facts the receipt keeps for them. */
   plugins?: PluginFacts[];
+  /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
 }
 export interface Inventory {
   schema: typeof INVENTORY; status: 'ok'; target: { project: string | null }; scope: 'project' | 'user' | 'both';

@@ -33,7 +33,7 @@ export interface CheckedPlan {
 }
 
 /** Admits a plan request; `files[].bytes` are copied, never kept by reference. */
-export function checkPlanRequest(input: unknown, controls: PlanControls): { checked: CheckedPlan } | Refusal | Invalid | UnsupportedVersion {
+export async function checkPlanRequest(input: unknown, controls: PlanControls): Promise<{ checked: CheckedPlan } | Refusal | Invalid | UnsupportedVersion> {
   const invalid = (problems: Problem[]): Invalid => ({ status: 'invalid', problems });
   if (!input || typeof input !== 'object' || Array.isArray(input) || isProxy(input))
     return invalid([{ path: '', reason: 'type', message: 'A plan request is an object.' }]);
@@ -90,6 +90,9 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
     for (const item of content.items) for (const file of item.files)
       itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
   }
+  const qualifications = new Map<string, { [field: string]: Json }>();
+  for (const entry of document.qualifications ?? []) if (entry && typeof entry === 'object' && !Array.isArray(entry))
+    qualifications.set(sha256(Buffer.from(canonicalJson(entry))), entry as { [field: string]: Json });
   const named = new Set<string>();
   let captured = 0;
   const skips = new Set((document.resolutions ?? []).filter(item => item.choice === 'skip').map(item => item.step));
@@ -103,6 +106,7 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
       request: document, controls, index,
       itemFile: (item, sourcePath) => itemFiles.get(key(item, sourcePath)),
       notice: (sourceId, sourcePath) => notices.get(key(sourceId, sourcePath)),
+      qualification: sha => qualifications.get(sha),
       bytesFor: facts => {
         const entry = files.get(key(facts.sourceId, facts.sourcePath));
         if (!entry || !entry.bytes) return { refusal: refused('source-missing',
@@ -114,7 +118,7 @@ export function checkPlanRequest(input: unknown, controls: PlanControls): { chec
         return { bytes: Buffer.from(entry.bytes) };
       }
     };
-    const outcome = handler.prepare(step as never, context);
+    const outcome = await handler.prepare(step as never, context);
     if ('problem' in outcome) { stepProblems.push(outcome.problem); continue; }
     if ('refusal' in outcome) return outcome.refusal;
     if (captured > limitValue('captured-bytes')) return limit('captured-bytes', 'The plan names more source bytes than one Apply may capture.');

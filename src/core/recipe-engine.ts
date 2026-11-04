@@ -115,6 +115,8 @@ interface PreparedState {
   rechecks?: { own: Map<string, OwnMaterial[]>; indexStatus: Record<string, ReleaseIndexStatus> };
   /** Lowered from a plan request: a rejected Apply names the changed binding whatever the internal review version. */
   planned?: true;
+  /** Plan effects run immediately before a reviewed file write (`EngineExtension.effects`). */
+  effects?: EngineExtension['effects'];
 }
 // Authority read outcome that is not a successful read; carried as a precise diagnostic.
 class AuthorityFailure extends Error {
@@ -256,6 +258,12 @@ const handles = new WeakMap<PreparedHandle, PreparedState>();
 export interface EngineExtension {
   supplied?: ReadonlyMap<string, { readonly materials: readonly OwnMaterial[]; readMaterial(id: string): Buffer | undefined; recheck(): Promise<boolean> }>;
   plans?: ReadonlyMap<string, PlanItemFacts>;
+  /**
+   * Per operation id (`<selection>/<operation>`), work Apply runs immediately before writing that file, after the pending
+   * receipt: a failure fails the operation (its write and dependants are not attempted); `facts` on success are recorded
+   * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1).
+   */
+  effects?: ReadonlyMap<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
 }
 const disabled = { status: 'disabled', reason: 'logging-off' } as const;
 const clone = <T>(value: T, maxSize = 1_000_000): T => cloneJsonValueStructureV1(value, 'request', 32, maxSize);
@@ -1539,7 +1547,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     if (available) {
       const prepared = Object.freeze({}) as PreparedHandle;
       handles.set(prepared, { request, requestDigest: digest(clone(request, REQUEST_MAX_SIZE)), privateInputs: controls.privateInputs,
-        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ...(extension ? { planned: true as const } : {}), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
+        privateDigest: digest(privateInputs), review, steps, project, home: homedir(), ...(extension ? { planned: true as const } : {}), ...(extension?.effects ? { effects: extension.effects } : {}), ownership, selectionUpdates, itemUpdates, inventory: inventory ? new Map(inventory.entries) : undefined, bindings, captures, trustParticipant,
         ...(policy.evidence === undefined ? {} : { evidence: clone(policy.evidence) }),
         ...(checksScans ? { rechecks: { own: owned, indexStatus: indexStatus! } } : {}),
         ...(organization ? { organization: clone({ source: organization.read.source, contentDigest: organization.read.contentDigest,
@@ -1944,7 +1952,24 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertStep(step);
         if (receiptDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
-      if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
+      const effect = step.review.effects === 'already-satisfied' ? undefined : state.effects?.get(step.review.id);
+      if (effect && step.root && step.path) {
+        await preEffectCheck?.();
+        if (controls.signal?.aborted) throw new Error('cancelled');
+        assertInputs(); writePending(); started = true;
+        const outcome = await effect.run(controls.signal);
+        if (outcome.status !== 'passed') {
+          operation.application = 'failed'; operation.reason = outcome.reason; operation.effectsUncertain = outcome.effectsUncertain;
+          if (outcome.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
+        } else {
+          // The effect made the target's parent folders: pin them as they now are for the reviewed write.
+          step.pins = pathPins(join(step.root, ...step.path.split('/')));
+          if (outcome.facts !== undefined && step.item) for (const holder of [step.item, metadataState.itemUpdates.get(step.root)?.[step.item.id]?.item])
+            if (holder?.facts.plan) holder.facts.plan = { ...holder.facts.plan, aiSetup: outcome.facts as never };
+        }
+      }
+      if (operation.application === 'failed') { /* The effect failed: its write is not attempted. */ }
+      else if (step.review.effects === 'already-satisfied') operation.application = 'already-satisfied';
       else if (step.process) {
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');

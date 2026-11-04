@@ -18,13 +18,14 @@
     "files": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/file" } },
     "qualifications": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
     "inputs": { "type": "object", "additionalProperties": { "type": "object" } },
-    "recipeProof": { "type": "object" },
+    "recipeProof": { "$ref": "#/$defs/recipeProof" },
     "scans": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
     "resolutions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/resolution" } }
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "profileVersion": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "integer", "minimum": 0 }] },
     "sourcePath": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "data": {
       "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
@@ -40,6 +41,12 @@
           "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
           "properties": { "id": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/sha256" },
             "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        },
+        "profiles": {
+          "description": "The tool profile ids and versions the plan was made with, as Catalog records them.",
+          "type": "array", "maxItems": 64,
+          "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+            "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "$ref": "#/$defs/profileVersion" } } }
         },
         "plan": { "type": "array", "items": { "$ref": "#/$defs/step" } },
         "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
@@ -70,12 +77,22 @@
       "properties": {
         "schema": { "const": "urn:aihq:catalog:tool-profile:0.1.0" },
         "id": { "$ref": "#/$defs/id" },
-        "version": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "integer", "minimum": 0 }] }
+        "version": { "$ref": "#/$defs/profileVersion" }
       }
     },
     "file": {
       "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath", "sha256"],
       "properties": { "sourceId": { "$ref": "#/$defs/id" }, "sourcePath": { "$ref": "#/$defs/sourcePath" }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "recipeProof": {
+      "description": "The recipe plugin's exact `plugin.json` and `recipe.json` text and the planner choices and options, so Core can re-run `planRecipe` (8.2). Core supplies `scope` and `source` itself.",
+      "type": "object", "additionalProperties": false, "required": ["pluginJson", "recipeJson", "choices"],
+      "properties": {
+        "pluginJson": { "type": "string", "minLength": 2 },
+        "recipeJson": { "type": "string", "minLength": 2 },
+        "choices": { "type": "object", "additionalProperties": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/id" } } },
+        "options": { "type": "object", "propertyNames": { "not": { "enum": ["scope", "source"] } } }
+      }
     },
     "resolution": {
       "type": "object", "additionalProperties": false, "required": ["managementId", "step", "choice", "observedSha256"],

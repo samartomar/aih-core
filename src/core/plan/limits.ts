@@ -19,6 +19,11 @@ const entries: Limit[] = [
   { name: 'ownership-entries', value: 8_192, unit: 'count', check: 'ceiling' },
   { name: 'ownership-total-bytes', value: 32 * 1_048_576, unit: 'bytes', check: 'ceiling' },
   { name: 'check-files-targets', value: 4_096, unit: 'count', check: 'ceiling' },
+  // Acquisition bounds (samartomar/aih-core#169): one acquired artifact expands to at most this many bytes and members,
+  // and a Python closure lists at most this many wheels.
+  { name: 'artifact-expanded-bytes', value: 1_024 * 1_048_576, unit: 'bytes', check: 'pre-effect' },
+  { name: 'artifact-members', value: 65_536, unit: 'count', check: 'pre-effect' },
+  { name: 'closure-wheels', value: 4_096, unit: 'count', check: 'pre-effect' },
 ];
 
 export const limits: readonly Readonly<Limit>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

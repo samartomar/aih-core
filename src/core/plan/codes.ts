@@ -34,10 +34,19 @@ const entries: RefusalCode[] = [
   { status: 'refused', code: 'plugin-command-unresolved', fix: 'Replan with a Catalog whose plugin step and profile give every value of an unattended, pinned install.' },
   { status: 'refused', code: 'program-unavailable', fix: 'Install the CLI the step runs, then prepare again.' },
   { status: 'invalid', code: 'item-removal-unavailable', fix: 'Remove the whole management id; only an item inside a plugin is named by item.' },
+  // AI setup acquisition (samartomar/aih-core#169).
+  { status: 'refused', code: 'qualification-missing', fix: "Pass the qualification documents that the plan's acquire steps name." },
+  { status: 'refused', code: 'qualification-mismatch', fix: 'Replan with the qualification that matches the artifact.' },
+  { status: 'refused', code: 'tls-untrusted', fix: 'Run the repair the result names, then Prepare again.' },
+  { status: 'refused', code: 'cell-mismatch', fix: "Replan for this host's platform cell." },
   // The aih CLI's own refusals (contract 22).
   { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
   { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
   { status: 'refused', code: 'approval-required', fix: 'Approve with --yes or answer yes interactively.' },
+  // Renders and recipe proofs through the caller's Catalog (samartomar/aih-core#167).
+  { status: 'refused', code: 'profile-mismatch', fix: 'Pass the Catalog and profiles the plan was made with.' },
+  { status: 'invalid', code: 'render-failed', fix: 'Pass the Catalog that made the plan; its render did not return checked bytes.' },
+  { status: 'invalid', code: 'recipe-proof', fix: 'Pass the recipe plugin’s exact `plugin.json` and `recipe.json` text.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

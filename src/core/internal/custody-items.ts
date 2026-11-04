@@ -44,14 +44,16 @@ export interface PlanItemFacts {
   clis: string[];
   /** The Catalog data the plan was made from, or `null` for own content. */
   data: { repository: string; commit: string } | null;
-  /** `chosen`; a proven recipe origin is recorded by a later contract slice. */
-  origin: 'chosen';
+  /** `chosen`, or the recipe origin Core proved at Prepare (8.2, C44). */
+  origin: 'chosen' | { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null };
   /** The caller's Catalog version when one was passed in `controls.catalog`; otherwise `null`. */
   catalog: string | null;
   /** The tool profiles supplied with the plan for the CLIs named here. */
   profiles: { id: string; version: string | number }[];
   /** The plan step indexes grouped under this management id, ascending. */
   steps: number[];
+  /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
   /**
    * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
@@ -234,15 +236,29 @@ function validOrigin(value: unknown): boolean {
 const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
 /** Plan-request receipt facts, bounded like the rest of an item record. */
+function validAiSetupFacts(value: unknown): boolean {
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'])) return false;
+  const interpreter = value.interpreter;
+  return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
+    (value.fallbackReason === null || text(value.fallbackReason, 64)) &&
+    (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
+}
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['plugins'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins'])) return false;
+  if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
   if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
     value.plugins.every(validPluginFacts))) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
     list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
   if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
   if (value.data !== null && !(exact(value.data, ['repository', 'commit']) && text(value.data.repository, 512) && text(value.data.commit, 128))) return false;
-  if (value.origin !== 'chosen' || value.catalog !== null && !text(value.catalog, 64)) return false;
+  const pin = (entry: unknown): boolean => exact(entry, ['repository', 'commit']) && text(entry.repository, 512) && text(entry.commit, 128);
+  if (value.data !== null && !pin(value.data)) return false;
+  const origin = value.origin;
+  if (origin !== 'chosen' && !(exact(origin, ['recipe', 'data']) && exact(origin.recipe, ['id', 'sha256', 'repository', 'commit']) &&
+      typeof origin.recipe.id === 'string' && PLAN_ID.test(origin.recipe.id) && hex(origin.recipe.sha256) &&
+      text(origin.recipe.repository, 512) && text(origin.recipe.commit, 128) && (origin.data === null || pin(origin.data)))) return false;
+  if (value.catalog !== null && !text(value.catalog, 64)) return false;
   if (!Array.isArray(value.profiles) || value.profiles.length > 64 || !value.profiles.every(profile => exact(profile, ['id', 'version']) &&
       typeof profile.id === 'string' && PLAN_ID.test(profile.id) &&
       (text(profile.version, 64) || Number.isSafeInteger(profile.version) && (profile.version as number) >= 0))) return false;

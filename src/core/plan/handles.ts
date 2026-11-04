@@ -3,6 +3,7 @@
 import type { PreparedHandle } from '../host-types.js';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PlanHandle } from './types.js';
+import type { AcquireFacts } from './acquire/types.js';
 
 export interface StepRef { step: number; managementId: string; /** A plugin step's command or removal. */ program?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
@@ -24,6 +25,10 @@ export interface HandleState {
    */
   before?: { engine: PreparedHandle | undefined; engineDigest: string; operations: Map<string, StepRef>; programs: Map<number, ProgramCheck>;
     unremovable: StepRef[] };
+  /** Plan step index -> what its AI setup acquisition did, filled during Apply. */
+  acquired?: Map<number, AcquireFacts>;
+  /** Where an acquisition reports progress: the Apply call's `onProgress`. */
+  progress?: { onProgress?: (event: import('../types.js').Json) => void };
   /** The caller's request object and the digests Prepare read from it (plan requests only). */
   request?: { value: unknown; documentDigest: string; bytesDigest: string };
 }

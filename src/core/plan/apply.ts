@@ -5,6 +5,11 @@ import { apply as applyEngine } from '../recipe-engine.js';
 import { forgetProvenState } from '../internal/state.js';
 import { take, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
+import { homedir } from 'node:os';
+import { isAbsolute, relative } from 'node:path';
+import { projectRoot } from '../internal/host-files.js';
+import { removeAcquiredFolder } from './acquire/effect.js';
+import { MANIFEST } from './acquire/types.js';
 import { engineControls, planControls } from './prepare.js';
 import { requestDigests } from './request.js';
 import type { RunResult } from '../host-types.js';
@@ -35,6 +40,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     if (!now || now.documentDigest !== state.request.documentDigest || now.bytesDigest !== state.request.bytesDigest)
       return stale('binding', state.reviewDigest);
   }
+  if (state.progress && controls.onProgress) state.progress.onProgress = controls.onProgress;
   if (controls.signal?.aborted) return { ...rejected('cancelled', { reviewDigest: state.reviewDigest }), completion: 'cancelled' };
   const origin = value.origin as 'interactive' | 'automation';
   // A removal's plugin commands run first; the receipt is released only after every one of them ran and no presence
@@ -63,8 +69,10 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
     }
   }
   const result = await applyEngine(state.engine, { reviewDigest: state.engineDigest, approved: true, origin: value.origin as 'interactive' | 'automation',
-    ...(state.enginePartial ? { allowPartial: true } : {}) }, engineControls(controls), undefined, progress(controls, state));
+    // Plan work never stops at a failed step: its item and dependants are not attempted, unrelated items continue (C60).
+    ...(state.enginePartial || state.request ? { allowPartial: true } : {}) }, engineControls(controls), undefined, progress(controls, state));
   const run = runOf(result, state);
+  removeReleasedSetups(run);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
   if (before) {
     run.steps = [...before.steps, ...run.steps].sort((a, b) => a.step - b.step);
@@ -125,8 +133,12 @@ export function runOf(result: RunResult, state: HandleState): Run {
     const key = `${ref.step}\0${ref.managementId}`;
     let entry = byStep.get(key);
     if (!entry) {
+      const facts = state.acquired?.get(ref.step);
       entry = { step: { step: ref.step, managementId: ref.managementId, application: operation.application,
-        verification: { status: operation.verification.status, reason: operation.verification.reason } }, applications: [] };
+        verification: { status: operation.verification.status, reason: operation.verification.reason },
+        ...(operation.application === 'failed' && operation.reason ? { reason: operation.reason } : {}),
+        ...(facts?.branch && facts.interpreter ? { interpreter: { branch: facts.branch, path: facts.interpreter.path, version: facts.interpreter.version,
+          fallback: facts.fallback, fallbackReason: facts.fallbackReason } } : {}) }, applications: [] };
       byStep.set(key, entry); steps.push(entry.step);
       if (ref.program) programSteps.add(entry.step);
     }
@@ -157,4 +169,16 @@ export function runOf(result: RunResult, state: HandleState): Run {
     run.reason = cause?.reason ?? 'rejected';
   }
   return run;
+}
+
+/** An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28). */
+function removeReleasedSetups(run: Run): void {
+  const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return; }
+  for (const member of run.members) {
+    if (member.scope !== 'user' || member.intent !== 'remove' || member.check !== 'absent') continue;
+    const into = pattern.exec((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))?.[1];
+    if (into) try { removeAcquiredFolder(home, into); } catch { /* left for the person; list no longer claims it */ }
+  }
 }
