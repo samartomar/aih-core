@@ -3,7 +3,7 @@
 // one level of restore, never an undo stack. A secret written by value is never kept: its slot holds the binding's
 // template and is filled again from the removal's private inputs.
 import { renderConfigEntries, decode, configMemberBytes, blockMemberBytes, parsedObject } from './recipe-editors.js';
-import { tomlMember, restoreTomlText } from './toml-editor.js';
+import { tomlMember, restoreTomlText, tomlTableCustody, type TomlTableCustody } from './toml-editor.js';
 import { validClaim, type Claim, type MemberDescriptor } from './recipe-lifecycle.js';
 import { findNodeAtLocation } from 'jsonc-parser';
 
@@ -15,6 +15,24 @@ export interface DisplacedValue {
   /** The member's exact text, every secret slot holding its template instead of the secret. */
   text: string;
   secrets?: DisplacedSecret[];
+  /** The holder's own owner facts, given back with its value: never the overriding install's. */
+  facts?: DisplacedFacts;
+}
+/** Owner facts an entry or block member may hold of its own (what Core created for it). */
+export interface DisplacedFacts { createdFile?: true; tomlTable?: TomlTableCustody; sharedContent?: string }
+/** The facts of `owner` a displaced record keeps; `undefined` when it has none. */
+export function displacedFacts(owner: DisplacedFacts): DisplacedFacts | undefined {
+  const facts: DisplacedFacts = { ...(owner.createdFile ? { createdFile: true as const } : {}), ...(owner.tomlTable ? { tomlTable: owner.tomlTable } : {}),
+    ...(owner.sharedContent !== undefined ? { sharedContent: owner.sharedContent } : {}) };
+  return Object.keys(facts).length ? facts : undefined;
+}
+function validFacts(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const f = value as Record<string, unknown>;
+  return Object.keys(f).length > 0 && Object.keys(f).every(key => ['createdFile', 'tomlTable', 'sharedContent'].includes(key)) &&
+    (f.createdFile === undefined || f.createdFile === true) &&
+    (f.tomlTable === undefined || (tomlTableCustody as readonly unknown[]).includes(f.tomlTable)) &&
+    (f.sharedContent === undefined || typeof f.sharedContent === 'string' && f.sharedContent.length <= TEXT_BOUND);
 }
 /** A secret slot an install recorded (C59): the file, the full editor path, the item input and the slot's template. */
 export interface SecretSlot { file: string; path: string[]; item: string; input: string; template: string }
@@ -26,7 +44,8 @@ const segment = (value: unknown): value is string => typeof value === 'string' &
 export function validDisplaced(value: unknown): value is DisplacedValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const d = value as Record<string, unknown>;
-  if (Object.keys(d).some(key => !['managementId', 'recipeIdentity', 'sha256', 'claims', 'text', 'secrets'].includes(key))) return false;
+  if (Object.keys(d).some(key => !['managementId', 'recipeIdentity', 'sha256', 'claims', 'text', 'secrets', 'facts'].includes(key))) return false;
+  if (d.facts !== undefined && !validFacts(d.facts)) return false;
   if (typeof d.managementId !== 'string' || typeof d.recipeIdentity !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(d.recipeIdentity) ||
       typeof d.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(d.sha256) || typeof d.text !== 'string' || d.text.length > TEXT_BOUND) return false;
   if (!Array.isArray(d.claims) || !d.claims.length || d.claims.length > 4096 || !d.claims.every(validClaim) ||

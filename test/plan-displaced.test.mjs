@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { inputProfile, mergeRequest, sha256 } from './fixtures/plan-fixture.mjs';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-displaced-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -163,6 +164,37 @@ test('your later edits are never taken for a displacement: an edited shared valu
   // Member by member: your edited command stays C's and A's claim on it stays displaced; the unchanged args go back to A.
   const states = Object.fromEntries((await entryOf(a, SHARED)).members.map(member => [member.pointer, member.state]));
   assert.deepEqual(states, { '/mcp_servers/github/args': 'matching', '/mcp_servers/github/command': 'displaced-by' });
+});
+
+test('the restored holder keeps its own owner facts: what the overriding install created is not for the holder to delete', async () => {
+  freshHome();
+  // Your own settings file: the holder adds its entry to it, it does not create the file.
+  const file = join(home, '.claude.json');
+  writeFileSync(file, '{}');
+  const jsonServer = (item, command) => ({ item, root: 'user', file: '.claude.json', format: 'json', key: '/mcpServers/github',
+    entry: { command, args: ['-y', '@example/github-mcp'] }, clis: ['claude-code'] });
+  const build = (target, item, command, resolutions) => ({ ...mergeRequest(target, [jsonServer(item, command)], { scope: 'user' }),
+    ...(resolutions ? { resolutions } : {}) });
+  const a = project(), c = project();
+  const installed = await prepare(build(a, SHARED, 'npx'));
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const override = await replacing(c, OVERRIDE, 'my-npx', build);
+  assert.equal(override.ready.status, 'ready', JSON.stringify(override.ready));
+  assert.equal((await apply(override.ready.handle, approve(override.ready.review))).completion, 'complete');
+  // The overriding install's member records that it created the file (as when it is the one that wrote it first).
+  const receipt = join(home, '.aih', 'core', 'ownership', `${sha256(realpathSync(home))}.json`);
+  const record = readReceipt(receipt);
+  const overriding = Object.values(record.members).filter(member => member.displaced);
+  assert.equal(overriding.length, 1, 'the overriding member displaces the holder');
+  for (const member of overriding) member.createdFile = true;
+  writeReceipt(receipt, record);
+  // Removing the overrider gives the holder its value back, with the holder's own facts, not the overrider's.
+  await remove(c, OVERRIDE);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).mcpServers.github.command, 'npx');
+  // Removing the holder then takes away only its entry: your file stays.
+  await remove(a, SHARED);
+  assert.equal(existsSync(file), true, 'the holder never created the file, so its removal keeps it');
 });
 
 const SECRET = 'ghp_displacedSECRET0123456789';

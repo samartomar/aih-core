@@ -24,7 +24,7 @@ import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, restoreMemberBytes, tomlEntryPaths, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts } from './internal/custody-items.js';
-import { displacedText, restoredText, spliceMember, type DisplacedValue, type SecretSlot } from './internal/displaced.js';
+import { displacedFacts, displacedText, restoredText, spliceMember, type DisplacedValue, type SecretSlot } from './internal/displaced.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
 import { missingContainers, pruneEmptyContainers } from './internal/hook-group.js';
@@ -898,8 +898,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               const slots: SecretSlot[] = prior.claims!.flatMap(claim => (claimPlan(claim) as { secretSlots?: SecretSlot[] } | undefined)?.secretSlots ?? []);
               const kept = prior.approval || prior.claims!.some(mine) ? undefined : displacedText(member, bytes, slots);
               if (!kept) break;
+              const facts = displacedFacts(prior);
               displacedRecords.set(memberKey(member), { managementId: prior.managementId, recipeIdentity: prior.recipeIdentity, sha256: prior.sha256,
-                claims: prior.claims!.map(claim => ({ ...claim })), ...kept });
+                claims: prior.claims!.map(claim => ({ ...claim })), ...kept, ...(facts ? { facts } : {}) });
             }
           } catch (error) { if (!(error instanceof RecipeEditError)) throw error; }
           const displaceable = holders.length > 0 && displacedRecords.size === holders.length;
@@ -1266,9 +1267,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           const spliced = before ? spliceMember(descriptor, before, text) : null;
           if (spliced) {
             after = spliced; restores = true;
-            const { displaced: record, ...rest } = owner;
-            restoredOwner = { ...rest, managementId: record!.managementId, recipeIdentity: record!.recipeIdentity,
-              sha256: sha256(memberBytes(descriptor, spliced)!), claims: survivors };
+            // The holder gets back its own facts from its displaced record, never the overriding install's (what that
+            // install created is not the holder's to remove later).
+            const record = owner.displaced!;
+            restoredOwner = { managementId: record.managementId, recipeIdentity: record.recipeIdentity,
+              sha256: sha256(memberBytes(descriptor, spliced)!), mode: owner.mode, descriptor, claims: survivors, ...record.facts };
           }
         } else if (!remaining.length && matching) {
           // A member that replaced the person's value gives that value back instead of leaving the pointer
