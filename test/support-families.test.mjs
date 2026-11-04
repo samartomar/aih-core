@@ -126,7 +126,8 @@ test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guid
       [['developer', 'policy', 'existing-content', ['/diagnostics/0']], ['developer', 'policy', 'existing-content', ['/review/conflicts/0']]]);
     assert.match(developer[0].steps.join(' '), /exact observed digest/);
     assert.doesNotMatch(developer[0].steps.join(' '), /bypass|skip|force/i);
-    assert.deepEqual(guidance.items.filter(item => item.id === 'managed-content-decision').map(item => item.audience), ['administrator', 'administrator']);
+    // Without organization policy 1.x there is no administrator decision (C15).
+    assert.equal(guidance.items.some(item => item.audience === 'administrator'), false);
     assert.match(markdown, /Existing content at a selected target differs from the reviewed content/);
     assert.doesNotMatch(markdown, /project-guidance|example-org-policy|TEAM\.md/);
 

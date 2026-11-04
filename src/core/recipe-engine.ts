@@ -1393,6 +1393,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     preflightOwnershipCapacity(steps, ownership, selectionUpdates, itemUpdates);
     trustParticipant?.preflight(steps, ownership);
     const bindings = [...pathPins(project), ...pathPins(homedir())];
+    // Yield once between reading custody and freezing the review, so a concurrent custody change is seen by the
+    // caller's post-preparation check (the retired evidence read used to provide this turn).
+    await Promise.resolve();
     const selections: PreparedSelection[] | undefined = namesSelections ? policy.selections.map(selection => {
       const facts = selectionFacts.get(selection.id);
       // The server no longer waits for the person's OK when this review writes its approval or finds it already given;

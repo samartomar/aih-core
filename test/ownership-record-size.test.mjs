@@ -108,7 +108,7 @@ test('the stored record leaves out what it derives from itself and reads back as
   assert.equal(stored.facts.length, 1 + 4, 'one entry per Catalog item, whatever the number of tools');
   const copies = Object.values(record.items).filter(item => item.item.itemId === 'example.skill.skill-2');
   assert.deepEqual(copies.map(item => item.tool).sort(), [...TOOLS].sort());
-  assert.ok(copies.every(item => item.members.length === 2 && item.name === 'skill-2' && item.origins[0].set.setId === SET.setId));
+  assert.ok(copies.every(item => item.members.length === 2 && item.name === 'skill-2' && item.origins[0].reasonIncluded === 'chosen'));
   // Expansion gives back exactly the record a seal writes, and that record's stored text is these bytes.
   assert.equal(JSON.stringify(storedOwnership(record)), text);
   assert.deepEqual(sealOwnership(record), record);

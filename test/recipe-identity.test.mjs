@@ -91,6 +91,43 @@ test('the literal vectors are self-consistent known answers', () => {
 
 
 
+
+// Child probe: admits/denies the mixed recipe and prints the outcomes plus the
+// collated order of the material ids. Node 24 on Windows accepts no --icu-locale
+// option and ignores LANG/LC_ALL for the ICU default locale, so the probe pins the
+// default collation itself: it replaces String.prototype.localeCompare with an
+// Intl.Collator for the requested tag BEFORE Core is imported, which is exactly the
+// call shape a different default locale would produce for Core's no-argument
+// localeCompare calls. The parent requires byte-identical outcomes under every tag.
+const CHILD_PROBE = `
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+const tag = process.env.AIH_PROBE_LOCALE;
+if (tag) {
+  const collator = new Intl.Collator(tag);
+  String.prototype.localeCompare = function (that) { return collator.compare(String(this), String(that)); };
+  const NativeCollator = Intl.Collator;
+  Intl.Collator = function (locales, options) { return new NativeCollator(locales ?? tag, options); };
+  Intl.Collator.prototype = NativeCollator.prototype; Intl.Collator.supportedLocalesOf = NativeCollator.supportedLocalesOf;
+}
+const home = process.env.AIH_PROBE_HOME;
+mkdirSync(home, { recursive: true });
+process.env.HOME = home; process.env.USERPROFILE = home;
+const { prepare } = await import(process.env.AIH_PROBE_CORE);
+const { orgSource, orgRoutes, fakeFetch } = await import(process.env.AIH_PROBE_FIXTURES);
+const recipe = JSON.parse(process.env.AIH_PROBE_RECIPE);
+const run = async recipeIdentity => {
+  const document = { schema: 'urn:aihq:core:organization-policy:1.0.0', id: 'org-policy',
+    selections: [{ selectionId: 'project-guidance', recipeIdentity, scopes: ['project'], inputs: {} }] };
+  globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(document)) }));
+  const policy = { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'enterprise', selections: [{
+    id: 'guidance', managementId: 'team-guidance', scope: 'project', configuration: {}, requires: [],
+    organizationSelectionId: 'project-guidance', recipe: { inline: recipe } }] };
+  const result = await prepare({ useCase: 'policy', policy,
+    target: { project: mkdtempSync(join(home, 'project-')) }, organizationSource: orgSource() },
+    { logging: 'off', materialRoots: { materials: process.env.AIH_PROBE_MATERIALS } });
+  return { status: result.status, findings: result.diagnostics.map(item => item.code + ':' + item.reason) };
+};
 const codeUnit = await run(process.env.AIH_PROBE_CODE_UNIT_IDENTITY);
 const legacy = await run(process.env.AIH_PROBE_LEGACY_IDENTITY);
 const order = recipe.materials.map(item => item.id).sort((a, b) => a.localeCompare(b));

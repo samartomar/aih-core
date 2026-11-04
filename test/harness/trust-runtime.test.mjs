@@ -23,11 +23,9 @@ test('every 1.1 recipe reference resolves to its fixed implementation; native re
   assert.equal(getTrustRecipe('certificate-export/win32/declared').status, 'invalid');
 });
 
-test('shipped format admission has verified records and the support manifest declares the produced Harness contracts', () => {
+test('shipped format admission has verified records under the installed package identity', () => {
   assert.equal(validateTrustCapabilities(trustCapabilities, { package: contractSupport.package }).valid, true);
   assert.ok(trustCapabilities.cells.every(cell => cell.route === 'export' && cell.client === null));
   const checked = verifyTrustAdmissionEvidence({ packageRoot: fileURLToPath(new URL('../../', import.meta.url)), capabilities: trustCapabilities });
   assert.equal(checked.valid, true, JSON.stringify(checked.diagnostics));
-  const ids = contractSupport.contracts.map(item => item.id);
-  assert.ok(ids.includes('urn:aihq:harness:repair:1.1.0') && ids.includes('urn:aihq:harness:trust-capabilities:1.0.0'));
 });

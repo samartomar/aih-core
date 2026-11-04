@@ -206,7 +206,7 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
   assert.deepEqual(kept, prior, 'members, claims, sets, requires, selectors, markers, modes, tables and directories are unchanged');
   assert.equal(Object.keys(items).length, 4);
   const named = await inventory(root);
-  assert.deepEqual(named.selections.map(entry => [entry.managementId, entry.name, entry.origins[0].set.setId, entry.members.length]), [
+  assert.deepEqual(named.selections.map(entry => [entry.managementId, entry.name, entry.origins[0].requiredBy.itemId, entry.members.length]), [
     ['guard-managed', 'Item guard', 'bundle', 1], ['guide-managed', 'Item guide', 'bundle', 1], ['notes-managed', 'Item notes', 'bundle', 1], ['tool-managed', 'Item tool', 'bundle', 1]]);
 
   // Protected custody stays authoritative: the existing set and dependency removal still governs cleanup.
