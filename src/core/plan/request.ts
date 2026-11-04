@@ -16,8 +16,8 @@ import type { Lowered, SourceFacts, StepContext } from './steps/types.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const key = (sourceId: string, sourcePath: string): string => `${sourceId}\0${sourcePath}`;
-const refused = (code: string, reason: string, extra: Record<string, Json> = {}): Refusal => ({ status: 'refused', code, reason, ...extra });
-const limit = (name: string, reason: string, extra: Record<string, Json> = {}): Refusal =>
+const refused = (code: string, reason: string, extra: Partial<Refusal> = {}): Refusal => ({ status: 'refused', code, reason, ...extra });
+const limit = (name: string, reason: string, extra: Partial<Refusal> = {}): Refusal =>
   refused('limit-exceeded', reason, { limit: name, value: limitValue(name), ...extra });
 
 export interface CheckedStep { index: number; op: string; lowered: Lowered; skipped: boolean }

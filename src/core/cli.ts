@@ -176,7 +176,15 @@ async function supportReport(input: SupportInput, operationCode: number): Promis
   } catch { fail('failed'); }
 }
 
-if (process.argv[2] === 'verify-macos-session') {
+// 0.1.0 commands, one module each (src/core/cli/<command>.ts). Append-only: a new command adds one row.
+const commandModules: Record<string, () => Promise<{ run(args: string[], signal: AbortSignal): Promise<void> }>> = {
+  install: () => import('./cli/install.js'),
+  list: () => import('./cli/list.js'),
+  remove: () => import('./cli/remove.js'),
+};
+if (Object.hasOwn(commandModules, process.argv[2] ?? '')) {
+  await (await commandModules[process.argv[2]!]!()).run(process.argv.slice(3), controller.signal);
+} else if (process.argv[2] === 'verify-macos-session') {
   const { runMacosSessionCli } = await import('./macos-session-cli.js');
   await runMacosSessionCli(process.argv.slice(3), controller.signal);
 } else if (process.argv[2] === 'verify-client') {

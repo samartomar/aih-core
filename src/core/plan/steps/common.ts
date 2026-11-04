@@ -1,11 +1,10 @@
 // Checks every placement step shares: what it belongs to, where it lands, and which CLIs it serves.
 import { stateLocation } from '../../state-location.js';
 import { knownCli } from '../tools.js';
-import type { Json } from '../../types.js';
 import type { PlanStep, Problem, Refusal } from '../types.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-export const refusal = (code: string, reason: string, step: number, extra: Record<string, Json> = {}): { refusal: Refusal } =>
+export const refusal = (code: string, reason: string, step: number, extra: Partial<Refusal> = {}): { refusal: Refusal } =>
   ({ refusal: { status: 'refused', code, reason, step, ...extra } });
 export const problem = (index: number, field: string, reason: string, message: string): { problem: Problem } =>
   ({ problem: { path: `/plan/plan/${index}${field ? '/' + field : ''}`, reason, message } });

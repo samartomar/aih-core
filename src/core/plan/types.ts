@@ -46,7 +46,8 @@ export interface PlanControls {
   onProgress?: (event: Json) => void;
 }
 export interface Problem { path: string; reason: string; message: string }
-export type Refusal = { status: 'refused'; code: string; reason: string; step?: number; limit?: string; [field: string]: Json | undefined };
+/** `refused` with `code` and `reason`; the optional fields name the step, limit, tool, step kind or the planner inputs that fix it. */
+export interface Refusal { status: 'refused'; code: string; reason: string; step?: number; op?: string; tool?: string; limit?: string; value?: number; fixes?: string[] }
 export type Invalid = { status: 'invalid'; problems: Problem[] };
 export type UnsupportedVersion = { status: 'unsupported-version'; encountered: string; supported: string[] };
 

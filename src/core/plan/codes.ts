@@ -29,6 +29,10 @@ const entries: RefusalCode[] = [
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'existing-content', fix: 'Prepare again with a resolution: replace, adopt if identical, or skip.' },
   { status: 'blocked', code: 'STATE_CONFLICT', reason: 'managed-content-changed', fix: 'Your edit is kept; undo it yourself to take Core\'s version.' },
   { status: 'rejected', code: 'REVIEW_STALE', fix: 'Prepare again.' },
+  // The aih CLI's own refusals (contract 22).
+  { status: 'refused', code: 'usage', fix: 'Run the command with --help.' },
+  { status: 'refused', code: 'request-unreadable', fix: 'Pass a strict JSON file within the request limit.' },
+  { status: 'refused', code: 'approval-required', fix: 'Approve with --yes or answer yes interactively.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

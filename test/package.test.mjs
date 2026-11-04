@@ -17,15 +17,15 @@ import { enterprisePolicy, orgDocument, orgRoutes, orgSource } from './fixtures/
 // declarations, must update these lists deliberately.
 const expectedRuntimeNames = {
   '@aihq/core': [
-    'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'inspect', 'listManagedSelections',
-    'prepare', 'prepareManagedRemoval', 'prepareUpdate', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
+    'apply', 'associateEvidence', 'authenticateEvidence', 'checkFileState', 'inspect', 'list', 'listManagedSelections',
+    'prepare', 'prepareManagedRemoval', 'prepareRemoval', 'prepareUpdate', 'resolveStateLocation', 'verifyMacosSession', 'verifyNativeClient', 'writeSupportReport'
   ],
   '@aihq/core/contracts': [
     'MACOS_PREPARED_WORK_SCHEMA', 'MACOS_REPAIR_INPUTS_SCHEMA', 'MACOS_REPAIR_REQUEST_SCHEMA',
     'MACOS_RUN_RESULT_SCHEMA', 'MACOS_SESSION_CUSTODY_SCHEMA', 'MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA',
-    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'parseOrganizationPolicy',
-    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationContent', 'previewOrganizationObligations', 'recipeOperationKinds', 'removalClaims', 'runMemberClaims', 'stateLocation',
-    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateMacosRepairInputs',
+    'MACOS_SESSION_VERIFICATION_RESULT_SCHEMA', 'checkContracts', 'contractSupport', 'deriveRecipeIdentity', 'limits', 'parseOrganizationPolicy',
+    'parsePolicy', 'previewOrganizationAdmission', 'previewOrganizationContent', 'previewOrganizationObligations', 'recipeOperationKinds', 'refusalCodes', 'removalClaims', 'runMemberClaims', 'schemas', 'stateLocation',
+    'validateCertificateExportInputs', 'validateCertificateExportRequest', 'validateFileStateResult', 'validateFormat', 'validateMacosRepairInputs',
     'validateMacosRepairRequest', 'validateMacosSessionCustody', 'validateMacosSessionProfiles',
     'validateMacosSessionReview', 'validateMacosSessionRun', 'validateMacosSessionVerificationRequest',
     'validateMacosSessionVerificationResult', 'validateNativeVerificationBundle',
