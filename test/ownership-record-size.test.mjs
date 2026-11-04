@@ -45,7 +45,7 @@ function pick(tools, items, files = 3) {
     const folder = `.${tool}/skills/skill-${index}`;
     return { id: `${tool}-${index}`, managementId: id(itemId, tool), scope: 'project', configuration: {}, requires: ['notices'],
       recipe: { inline: recipe(`${tool}.${itemId}`, Array.from({ length: files }, (_, file) => `${folder}/${file === 0 ? 'SKILL.md' : `references/part-${file}.md`}`)) },
-      ...described(itemId, tool, 'skill', [{ reasonIncluded: 'in-set', set: SET }]) };
+      ...described(itemId, tool, 'skill', [{ reasonIncluded: 'chosen' }]) };
   }));
   return { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [notices, ...copies] };
 }
@@ -133,7 +133,7 @@ function sealedRecord(tools, items, files, target = '/project') {
       members[memberKey({ path, kind: 'file' })] = { managementId, recipeIdentity: `sha256:${sha(`${tool}.${itemId}`)}`, sha256: sha(path), mode: 0o600,
         descriptor: { path, kind: 'file' }, createdFile: true, claims: [claim] };
     }
-    items_[identity(managementId)] = { managementId, scope: 'project', framework: 'example', ...described(itemId, tool, 'skill', [{ reasonIncluded: 'in-set', set: SET }]), members: [] };
+    items_[identity(managementId)] = { managementId, scope: 'project', framework: 'example', ...described(itemId, tool, 'skill', [{ reasonIncluded: 'chosen' }]), members: [] };
   }
   const record = sealOwnership({ schema: 'urn:aihq:core:receipt:0.1.0', target, members, selections, items: items_ });
   validateOwnership(record, target);

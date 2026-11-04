@@ -13,7 +13,7 @@ export type UpdateMemberAction = 'add' | 'replace' | 'unchanged' | 'remove' | 'r
  */
 export interface UpdatePolicy {
   schema: 'urn:aihq:core:execution-policy:1.4.0' | 'urn:aihq:core:execution-policy:1.5.0' | 'urn:aihq:core:execution-policy:1.6.0';
-  catalogReleases?: ExecutionPolicy['catalogReleases']; evidence?: ExecutionPolicy['evidence'];
+  catalogReleases?: ExecutionPolicy['catalogReleases'];
 }
 /** One update: the installed selection's management id and the exact replacement selection the consumer chose. */
 export interface UpdateSelector { managementId: string; replacement: Selection }

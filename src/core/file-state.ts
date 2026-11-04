@@ -532,8 +532,6 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       omissions.push({ kind: 'managed-set', id: `${set.scope}/${set.id}`, reason: 'custody-not-evaluated' });
     for (const removal of policy.removals ?? [])
       omissions.push({ kind: 'removal', id: `${removal.scope}/${removal.managementId}`, reason: 'custody-not-evaluated' });
-    for (const association of policy.evidence ?? [])
-      omissions.push({ kind: 'evidence', id: association.scanId, reason: 'evidence-not-evaluated' });
 
     const observe = (key: string): KeyOutcome => {
       const target = groups.get(key) ?? checkOnlyTargets.get(key)!;

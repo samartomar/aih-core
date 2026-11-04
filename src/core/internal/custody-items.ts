@@ -260,10 +260,6 @@ const exact = (value: unknown, keys: string[], optional: string[] = []): value i
   Object.keys(value).every(key => keys.includes(key) || optional.includes(key));
 function validOrigin(value: unknown): boolean {
   if (exact(value, ['reasonIncluded']) && value.reasonIncluded === 'chosen') return true;
-  if (exact(value, ['reasonIncluded', 'set'], ['options']) && value.reasonIncluded === 'in-set')
-    return exact(value.set, ['framework', 'setId', 'setSha256']) && text(value.set.framework, 128) && text(value.set.setId, 128) && hex(value.set.setSha256) &&
-      (value.options === undefined || exact(value.options, []) || !!value.options && typeof value.options === 'object' && !Array.isArray(value.options) &&
-        Object.values(value.options).every(choice => Array.isArray(choice) && choice.length <= 64 && choice.every(entry => text(entry, 128))));
   return exact(value, ['reasonIncluded', 'requiredBy']) && value.reasonIncluded === 'required-by' &&
     exact(value.requiredBy, ['itemId'], ['framework']) && text(value.requiredBy.itemId, 128) &&
     (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));

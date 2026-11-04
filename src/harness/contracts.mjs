@@ -1,4 +1,3 @@
-import { describeContract } from '../contract-fixtures.mjs';
 // This entry is data only. Importing it performs no host observation.
 import { distribution } from '../distribution.mjs';
 import { userToolsRepair } from './user-trust-definitions.mjs';
@@ -19,44 +18,11 @@ export { toolRegistry, listTools, selectTool, validateToolRegistry } from './too
 export { signerRecords } from './signer-records.mjs';
 export { nativeClientIds, nativeVerificationDefinitions } from './native/contracts.mjs';
 export { nativeClientDefinitions, validateNativeVerificationDefinition, validateNativeTestIdentity } from './native/tool-names.mjs';
+// Internal: the installed package identity and the repair definition version the retained repair helpers read.
+// The published format declaration is contractSupport in @aihq/core/contracts (package-support 0.1.0).
 export const contractSupport = Object.freeze({
-  schema: 'urn:aihq:package-support:1.1.0',
   package: distribution,
-  contracts: Object.freeze([
-    Object.freeze({ id: 'urn:aihq:harness:diagnostic:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/diagnostic/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:repair:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/repair/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:repair:1.1.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/repair/1.1.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:repair:1.2.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/repair/1.2.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:macos-session-profiles:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/macos-session-profiles/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:trust-capabilities:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/trust-capabilities/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:tool-binding:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/harness/schemas/tool-binding/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:report:snapshot:1.0.0', role: 'both',
-      schemaExport: '@aihq/core/report/schema' }),
-    Object.freeze({ id: 'urn:aihq:report:claims:1.0.0', role: 'accepts',
-      schemaExport: '@aihq/core/report/schemas/claims/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:report:claims:1.1.0', role: 'accepts',
-      schemaExport: '@aihq/core/report/schemas/claims/1.1.0.json' }),
-    Object.freeze({ id: 'urn:aihq:core:recipe:1.0.0', role: 'produces',
-      schemaExport: '@aihq/core/schemas/recipe/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:native-verification-definition:1.0.0', role: 'both',
-      schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.0.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:native-verification-definition:1.1.0', role: 'both',
-      schemaExport: '@aihq/core/harness/schemas/native-verification-definition/1.1.0.json' }),
-    Object.freeze({ id: 'urn:aihq:harness:native-test-identity:1.0.0', role: 'accepts',
-      schemaExport: '@aihq/core/harness/schemas/native-test-identity/1.0.0.json' })
-  ].map(describeContract)),
-  entries: Object.freeze([
-    { export: '@aihq/core/harness', runtime: 'portable' },
-    { export: '@aihq/core/report', runtime: 'portable' },
-    { export: '@aihq/core/harness/runtime', runtime: 'node', nodeRange: '>=26.12.1 <27' }
-  ])
+  contracts: Object.freeze([Object.freeze({ id: 'urn:aihq:harness:repair:1.0.0', role: 'produces' })])
 });
 
 // Presence signals and fixed origins are extracted from the prior CLI registry

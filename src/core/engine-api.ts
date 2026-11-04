@@ -6,7 +6,6 @@ export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, Operati
   InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance, Prerequisite, Recipe, Selection, SelectionMetadata, ItemScanRecord, ItemMaterial, InclusionOrigin, CatalogItemRef, CatalogReleaseReference, ExecutionPolicy, OrganizationTargetFact,
   OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
   OrganizationFulfillmentResult } from './types.js';
-export { verifyNativeClient } from './native-verification.js';
 export type { NativeVerificationControls } from './native-verification.js';
 export { verifyClient } from './verify-client.js';
 export type { NativeVerificationRequest010, NativeVerificationResult010, NativeVerificationRefusal, NativeVerificationControls010 } from './verify-client.js';
@@ -17,9 +16,6 @@ export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effect
   HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
   ResolutionInput, OperationSelection, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource,
   PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic, RunMember, ScanSummary } from './host-types.js';
-export { authenticateEvidence, associateEvidence } from './evidence/index.js';
-export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
-  AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
 import { prepare as preparePolicy, apply as applyPolicy } from './recipe-engine.js';
 import { forgetProvenState } from './internal/state.js';
 import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
@@ -138,7 +134,7 @@ export type { FileStateRequest, FileStateControls, FileStateStatus, FileStateOut
   FileStateCheck, FileStateOmission, FileStateResult } from './file-state-types.js';
 export { listManagedSelections } from './managed-inventory.js';
 export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventoryResult,
-  ManagedInventorySelection, ManagedInventoryIndex, ManagedInventoryMember, ManagedInventorySelection11,
+  ManagedInventorySelection, ManagedInventoryMember, ManagedInventorySelection11,
   ManagedInventoryResult11 } from './managed-inventory.js';
 export { prepareManagedRemoval } from './managed-removal.js';
 export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult, ManagedRemovalsRequest, ManagedRemovalPreparationResult12,

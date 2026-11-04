@@ -62,7 +62,7 @@ export function createNativeRuntime(_module,dependencies) {
  return runtime;
 }`;
   writeFileSync(join(native,'runtime.mjs'),wrapper);
-  writeFileSync(join(directory,'entry.mjs'),"export {verifyNativeClient,verifyClient} from './dist/core/engine-api.js';");
+  writeFileSync(join(directory,'entry.mjs'),"export {verifyClient} from './dist/core/engine-api.js'; import { verifyNative } from './dist/core/native-verification.js'; export const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });");
   const runtime=installed.createNativeRuntime(installed,{readPinned(){throw Error('no process');},Stop:Error});
   const definition=runtime.nativeDefinitions.find(d=>d.platform.os==='win32'), bundled=runtime.nativeBundledFixture(definition,{check(){}});
   const outputTree=structuredClone(bundled.outputTree), bytes=new Map(bundled.bytes);

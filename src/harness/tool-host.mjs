@@ -9,7 +9,7 @@ import { isProxy } from 'node:util/types';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { deriveCellSupport, toolBindingKinds, toolBindings } from './tool-binding.mjs';
 import { selectTool } from './tool-registry.mjs';
-import { selectTool as selectBoundTool } from './tool-registry-legacy.mjs';
+import { selectBindingTool as selectBoundTool } from './tool-binding-data.mjs';
 
 const INSPECTION = 'urn:aihq:core:inspection:0.1.0';
 // The retained binding table still names tools by their pre-0.1.0 ids (samartomar/aih-core#181 removes it).

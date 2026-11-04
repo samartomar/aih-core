@@ -2,7 +2,7 @@
 // Core engine import. Core's engine calls them with the bytes it actually prepared, so the review describes what will
 // be delivered rather than what a consumer claims.
 import { toolBindings } from './tool-binding-data.mjs';
-import { selectTool } from './tool-registry-legacy.mjs';
+import { selectBindingTool as selectTool } from './tool-binding-data.mjs';
 import { deriveCellSupport } from './tool-binding.mjs';
 
 const decoder = new TextDecoder('utf-8');

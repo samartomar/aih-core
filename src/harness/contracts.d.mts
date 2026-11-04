@@ -27,9 +27,10 @@ export interface SupportedContract {
 }
 export type PublicEntry = { readonly export: string; readonly runtime: 'portable' } |
   { readonly export: string; readonly runtime: 'node'; readonly nodeRange: string };
+/** Internal: the installed package identity and the repair definition version the retained repair helpers read. */
 export declare const contractSupport: {
-  readonly schema: 'urn:aihq:package-support:1.1.0'; readonly package: { readonly name: string; readonly version: string };
-  readonly contracts: readonly SupportedContract[]; readonly entries: readonly PublicEntry[];
+  readonly package: { readonly name: string; readonly version: string };
+  readonly contracts: readonly { readonly id: string; readonly role: 'accepts' | 'produces' | 'both' }[];
 };
 export declare const repairIndex: readonly { id: string; description: string;
   schema: 'urn:aihq:harness:repair:1.0.0'; scope: 'user'; managementId: string; materialName: string;

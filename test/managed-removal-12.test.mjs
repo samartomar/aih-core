@@ -100,35 +100,3 @@ test('whole-request failures: invalid shapes, unverifiable custody and cancellat
 });
 
 const originalFetch = globalThis.fetch;
-test('Enterprise keeps its custody-only refusal per removal and delegates file removal to lifecycle admission', async () => {
-  const s = open();
-  const base = policy().selections[0];
-  // The organization admits removal of the standard guidance recipe; "empty" keeps only its claim.
-  await install(s, document => { document.selections = [named(base, 'empty', 'EMPTY.md'), base]; });
-  // A claim recorded without members: only custody would change.
-  rewriteReceipt(s, value => {
-    for (const [key, member] of Object.entries(value.members)) if (member.managementId === 'empty') delete value.members[key];
-    // A claim identity names the project as Core does: in lower case on Windows, whose paths are case-insensitive.
-    const anchor = process.platform === 'win32' ? realpathSync.native(s.project).toLowerCase() : realpathSync.native(s.project);
-    value.selections = { ...value.selections, [`project:${sha(anchor)}:empty`]: { managementId: 'empty', scope: 'project', sets: [], requires: [] } };
-  });
-  const counter = { calls: 0 };
-  try {
-    // A denial stops the inner preparation before its review: nothing is listed and the entry carries the reason.
-    const deniedFetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(orgDocument(enterprisePolicy()))) }));
-    globalThis.fetch = (...args) => { counter.calls++; return deniedFetch(...args); };
-    const denied = await prepareManagedRemoval(many(s, [{ managementId: 'team-guidance' }], { mode: 'enterprise', organizationSource: orgSource() }), { logging: 'off' });
-    assert.deepEqual([denied.disposition, denied.preparation.status, Object.hasOwn(denied, 'reviewDigest')], ['prepared', 'blocked', false]);
-    assert.deepEqual([denied.removals[0].members, denied.removals[0].diagnostics.map(item => item.reason)], [[], ['lifecycle-remove']]);
-    const inner = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }))) }));
-    globalThis.fetch = (...args) => { counter.calls++; return inner(...args); };
-    const result = await prepareManagedRemoval(many(s, [{ managementId: 'empty' }, { managementId: 'team-guidance' }], { mode: 'enterprise', organizationSource: orgSource() }), { logging: 'off' });
-    assert.deepEqual(reasons(result), [['empty', 'unavailable', ['metadata-only-removal']], ['team-guidance', 'prepared', []]]);
-    assert.equal(result.removals[0].diagnostics[0].code, 'AUTHORITY_DENIED');
-    assert.equal(result.preparation.status, 'ready', JSON.stringify(result.preparation.diagnostics));
-    assert.equal(result.preparation.review.mode, 'enterprise');
-    const run = await apply(result.preparation.prepared, approve(result.preparation.review), { logging: 'off' });
-    assert.equal(run.completion, 'complete', JSON.stringify(run.diagnostics));
-    assert.deepEqual(removalClaims(result, run).removals.map(item => item.claim), ['not-confirmed', 'removed']);
-  } finally { globalThis.fetch = originalFetch; }
-});

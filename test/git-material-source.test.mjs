@@ -253,17 +253,6 @@ test('the read-only file check never fetches a git source and reports it not adm
   } finally { s.dispose(); }
 });
 
-test('a git-sourced reference derives the same recipe identity as its bytes from any other source', async () => {
-  const { deriveRecipeIdentity } = await import('../dist/core/engine-contracts.js');
-  const bytes = pinnedArchive();
-  const git = await deriveRecipeIdentity({ recipeBytes: pinnedRecipe, reference: pinnedReference(bytes) });
-  const local = await deriveRecipeIdentity({ recipeBytes: pinnedRecipe, reference: { ...pinnedReference(bytes), source: { kind: 'local', input: 'checkout' } } });
-  assert.equal(git.status, 'ok', JSON.stringify(git));
-  assert.equal(git.value.recipeIdentity, local.value.recipeIdentity);
-  const moving = await deriveRecipeIdentity({ recipeBytes: pinnedRecipe, reference: { ...pinnedReference(bytes), source: { ...pinnedReference(bytes).source, commit: 'main' } } });
-  assert.equal(moving.status, 'refused');
-  assert.deepEqual(moving.diagnostics[0].details.diagnostics.map(item => item.reason), ['git-commit-not-exact']);
-});
 
 test('releasing one inclusion keeps the recorded git provenance of the selection that stays', async () => {
   const { prepare, apply, listManagedSelections, prepareManagedRemoval } = await import('../dist/core/engine-api.js');
@@ -271,7 +260,7 @@ test('releasing one inclusion keeps the recorded git provenance of the selection
   const s = sandbox('aih-git-origin-');
   try {
     const bytes = pinnedArchive();
-    const starter = { reasonIncluded: 'in-set', set: { framework: 'team-skills', setId: 'starter', setSha256: sha('starter') } };
+    const starter = { reasonIncluded: 'required-by', requiredBy: { framework: 'team-skills', itemId: 'starter' } };
     const policy = pinnedPolicy(pinnedReference(bytes));
     Object.assign(policy.selections[0], { item: { framework: 'team-skills', itemId: 'pinned', contentSha256: sha('content'), behaviourSha256: sha('behaviour') },
       tool: 'claude', name: 'Pinned skill', kind: 'skill', origins: [{ reasonIncluded: 'chosen' }, starter] });
@@ -303,7 +292,7 @@ test('a git-sourced run without a description keeps the recorded description and
     format: 'urn:aihq:core:managed-inventory-result:1.1.0' })).selections[0];
   try {
     const bytes = pinnedArchive();
-    const starter = { reasonIncluded: 'in-set', set: { framework: 'team-skills', setId: 'starter', setSha256: sha('starter') } };
+    const starter = { reasonIncluded: 'required-by', requiredBy: { framework: 'team-skills', itemId: 'starter' } };
     const local = join(s.root, 'local');
     mkdirSync(join(local, PREFIX, 'skills', 'pinned'), { recursive: true });
     writeFileSync(join(local, PREFIX, 'recipe.json'), pinnedRecipe);

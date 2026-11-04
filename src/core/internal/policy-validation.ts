@@ -2,8 +2,7 @@ import { hookBindingIssues } from './hook-bindings.js';
 import { canonicalJson } from './canonical.js';
 import { gitSourceProblem } from './material-descriptors.js';
 import { nativeClients } from './native-clients.js';
-import { findTool } from '../../harness/tool-registry-legacy.mjs';
-import { entriesOverlap, SetMembership } from './organization-content.js';
+import { findBindingTool as findTool } from '../../harness/tool-binding-data.mjs';
 import type { Diagnostic, ExecutionPolicy, InputSpec, Json, OrganizationPolicy, OrganizationPolicy11, OrganizationPolicy12, OrganizationSelection12, ProcessInvocation, Recipe, Slot, TargetPath } from '../types.js';
 
 export function inputAccepts(spec: InputSpec, value: unknown): value is Json {
@@ -163,71 +162,6 @@ export const isRepositoryIdentity = (value: string): boolean =>
 export const isOrganizationPolicy11 = (policy: OrganizationPolicy): policy is OrganizationPolicy11 | OrganizationPolicy12 =>
   policy.schema === 'urn:aihq:core:organization-policy:1.1.0' || policy.schema === 'urn:aihq:core:organization-policy:1.2.0';
 export const isNativeClient = (value: string): boolean => (nativeClients as readonly string[]).includes(value);
-
-/** Rechecks the client against Core's list and requires a well-formed declared repository identity. */
-export function organizationTargetSemantics(target: { client?: string; tool?: { id: string; surface: string }; repository?: string }): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  if (target.tool !== undefined) {
-    // 1.1.0 names a Harness registry tool by its canonical id; the 1.0.0 client roster stays closed.
-    const { id, surface } = target.tool;
-    const found = findTool(id);
-    if (found?.via !== 'id') diagnostics.push(found ?
-      { code: 'INPUT_INVALID', reason: 'tool-alias', path: '/tool/id', message: 'The organization target names a tool alias; use its registry id.' } :
-      { code: 'INPUT_INVALID', reason: 'unknown-tool', path: '/tool/id', message: 'The organization target names a tool the registry does not know.' });
-    else if (found.tool.surface !== surface) diagnostics.push({ code: 'INPUT_INVALID', reason: 'tool-surface-mismatch', path: '/tool/surface',
-      message: 'The organization target names a surface the registry tool does not have.' });
-  } else if (!isNativeClient(target.client!)) diagnostics.push({ code: 'INPUT_INVALID', reason: 'unknown-client', path: '/client',
-    message: 'The organization target names a client that Core does not know.' });
-  if (target.repository !== undefined && !isRepositoryIdentity(target.repository)) diagnostics.push({ code: 'INPUT_INVALID',
-    reason: 'repository-identity', path: '/repository', message: 'The organization target names a malformed repository identity.' });
-  return diagnostics;
-}
-
-const intersects = (left: readonly string[] | undefined, right: readonly string[] | undefined): boolean =>
-  left === undefined || right === undefined || left.some(value => right.includes(value));
-const overlaps = (left: OrganizationSelection12, right: OrganizationSelection12): boolean =>
-  left.scopes.some(scope => right.scopes.includes(scope)) && intersects(left.clients, right.clients) &&
-  intersects(left.repositories, right.repositories);
-
-/**
- * Duplicate identities, closed client and repository selectors, and required/prohibited contradictions over overlapping
- * targets and content. A pair whose overlap depends on a set without supplied members is not matched; the set selector is
- * reported `unavailable` by the caller instead.
- */
-export function organizationSemantics(policy: OrganizationPolicy, membership: SetMembership = new SetMembership(undefined)): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  const invalid = (reason: string, path: string, message: string) => diagnostics.push({ code: 'INPUT_INVALID', reason, path, message });
-  const seen = new Set<string>();
-  const current = isOrganizationPolicy11(policy) ? policy : undefined;
-  const decided: { entry: OrganizationSelection12; index: number }[] = [];
-  policy.selections.forEach((selection, index) => {
-    if (seen.has(selection.selectionId)) invalid('duplicate-selection-id', `/selections/${index}/selectionId`,
-      'The organization document has a duplicate selection identity.');
-    seen.add(selection.selectionId);
-    const entry: OrganizationSelection12 | undefined = current?.selections[index];
-    if (entry === undefined) return;
-    entry.clients?.forEach((client, position) => {
-      if (!isNativeClient(client)) invalid('unknown-client', `/selections/${index}/clients/${position}`,
-        'The organization entry names a client that Core does not know.');
-    });
-    entry.repositories?.forEach((repository, position) => {
-      if (!isRepositoryIdentity(repository)) invalid('repository-identity', `/selections/${index}/repositories/${position}`,
-        'The organization entry names a malformed repository identity.');
-    });
-    // Exact recipe admission: only an entry naming a recipe can permit, so a content-only permission would do nothing.
-    if (entry.recipeIdentity === undefined && entry.obligation === 'permitted') invalid('content-permitted-without-recipe',
-      `/selections/${index}/obligation`, 'A content-only entry cannot permit; name the recipe it admits and narrow it with content.');
-    if (entry.obligation !== 'required' && entry.obligation !== 'prohibited') return;
-    const opposite = entry.obligation === 'required' ? 'prohibited' : 'required';
-    if (decided.some(other => other.entry.obligation === opposite && overlaps(other.entry, entry) &&
-        entriesOverlap(other.entry, entry, membership) === 'yes'))
-      invalid('obligation-contradiction', `/selections/${index}/obligation`, entry.content ?
-        'The organization document both requires and prohibits overlapping content for an overlapping target.' :
-        'The organization document both requires and prohibits this recipe for an overlapping target.');
-    decided.push({ entry, index });
-  });
-  return diagnostics;
-}
 
 export function policySemantics(policy: ExecutionPolicy): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];

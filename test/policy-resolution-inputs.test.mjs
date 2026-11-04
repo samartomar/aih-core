@@ -249,28 +249,6 @@ test('repair Prepare keeps its own contract and omits resolution inputs', async 
   } finally { s.dispose(); }
 });
 
-test('an Enterprise hint is local semantics only: the organization can still deny the offered choice', async () => {
-  const original = globalThis.fetch;
-  const s = sandbox('aih-resolution-');
-  try {
-    s.write('TEAM.md', 'Local notes.\n');
-    const document = enterprisePolicy();
-    const enterprise = (resolutions, grant) => {
-      globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(orgDocument(document, grant ? { lifecycle: { replace: true } } : {}))) }));
-      return prepare({ ...request(s.project, document, resolutions), organizationSource: orgSource() }, controls);
-    };
-    const blocked = await enterprise(undefined, false);
-    assert.equal(blocked.status, 'blocked', JSON.stringify(blocked.diagnostics));
-    assert.deepEqual(blocked.resolutionInputs, [{ selectionId: 'guidance', operationId: 'write', observedSha256: sha('Local notes.\n'), availableChoices: ['replace'] }]);
-    const [hint] = blocked.resolutionInputs;
-    const denied = await enterprise([replaceWith(hint)], false);
-    assert.equal(denied.status, 'blocked');
-    assert.equal(denied.prepared, undefined);
-    assert.deepEqual(denied.diagnostics.map(item => [item.code, item.reason]), [['AUTHORITY_DENIED', 'lifecycle-replace']]);
-    const granted = await enterprise([replaceWith(hint)], true);
-    assert.equal(granted.status, 'ready', JSON.stringify(granted.diagnostics));
-  } finally { globalThis.fetch = original; s.dispose(); }
-});
 
 test('operationSelections names the selection behind every review operation, including generated cleanup', async () => {
   const s = sandbox('aih-resolution-');

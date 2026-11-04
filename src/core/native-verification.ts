@@ -56,10 +56,6 @@ function environment(cell: NativeCell, executable: string, runtimes: string[]): 
   return env;
 }
 
-/** Explicit native verification. Imports and input rejection perform no filesystem/process work. */
-export async function verifyNativeClient(request: unknown, controls?: NativeVerificationControls): Promise<NativeVerificationResult> {
-  return verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });
-}
 /** This host's native cell, as the definitions name it. */
 export function nativePlatform(): NativeVerificationResult['platform'] {
   return { os: process.platform === 'win32' || process.platform === 'linux' || process.platform === 'darwin' ? process.platform : 'unsupported',
@@ -67,7 +63,7 @@ export function nativePlatform(): NativeVerificationResult['platform'] {
 }
 /** Internal options of one verification: the supplied bundle format the caller's request generation reads. */
 export interface NativeVerificationOptions { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' | 'urn:aihq:core:native-verification-bundle:0.1.0' }
-/** @internal The one verification path behind `verifyNativeClient` and `verifyClient`. */
+/** @internal The one verification path behind `verifyClient` (contract 10). */
 export async function verifyNative(request: unknown, controls: NativeVerificationControls | undefined, options: NativeVerificationOptions): Promise<NativeVerificationResult> {
   let selected: NativeVerificationRequest; let host: NativeVerificationControls;
   try {

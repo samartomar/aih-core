@@ -111,45 +111,13 @@ test('macOS session families (prepared-work and run-result 1.3.0) give guidance 
   assert.match(present({ kind: 'run', result: macos('run-result-1.3-complete') }).markdown, /Status: complete/);
 });
 
-test('targeted organization reviews (prepared-work 1.5.0) give policy guidance without authored identifiers', async () => {
-  const s = sandbox('aih-support-15-');
-  const originalFetch = globalThis.fetch;
-  try {
-    const entry = orgDocument().selections[0];
-    const document = obligation => Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'example-org-policy',
-      selections: [{ ...entry, obligation }] }));
-    const targeted = async (bytes, clients) => {
-      globalThis.fetch = fakeFetch(orgRoutes({ bytes }));
-      return prepare({ useCase: 'policy', policy: enterprisePolicy(), target: { project: s.project }, organizationSource: orgSource(),
-        organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' } }, { logging: 'off' });
-    };
-    const ready = await targeted(document('required'));
-    assert.equal(ready.status, 'ready', JSON.stringify(ready.diagnostics));
-    assert.equal(ready.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
-    const presented = present({ kind: 'prepare', result: ready });
-    assert.deepEqual(presented.guidance.items, []);
-    assert.match(presented.markdown, /Status: ready/);
-    assert.doesNotMatch(presented.markdown, /project-guidance|example-org-policy|Example-Org/);
-
-    const denied = await targeted(Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'example-org-policy',
-      selections: [{ ...entry, obligation: 'required', clients: ['claude'] }] })));
-    assert.equal(denied.status, 'blocked');
-    const blocked = present({ kind: 'prepare', result: denied });
-    assert.deepEqual(blocked.guidance.items.filter(item => item.reason === 'authority-denied').map(item => [item.id, item.target]),
-      [['access-review', 'policy'], ['managed-access', 'policy']]);
-  } finally { globalThis.fetch = originalFetch; s.dispose(); }
-});
 
 test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guidance; unknown reasons still fall back', async () => {
   const s = sandbox('aih-support-conflict-');
   const originalFetch = globalThis.fetch;
   try {
     s.write('TEAM.md', `${sentinel}\n`);
-    globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0',
-      id: 'example-org-policy', selections: [{ ...orgDocument().selections[0], obligation: 'required' }] })) }));
-    const blocked = await prepare({ useCase: 'policy', policy: enterprisePolicy(), target: { project: s.project }, organizationSource: orgSource(),
-      organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' } }, { logging: 'off' });
-    assert.equal(blocked.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
+    const blocked = await prepare({ useCase: 'policy', policy: policy(), target: { project: s.project } }, { logging: 'off' });
     assert.deepEqual(blocked.review.conflicts.map(item => [item.code, item.reason]), [['STATE_CONFLICT', 'existing-content']]);
     const { guidance, markdown } = present({ kind: 'prepare', result: blocked });
     assert.equal(guidance.items.some(item => item.reason === 'unrecognized-diagnostic'), false, JSON.stringify(guidance.items));
