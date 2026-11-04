@@ -6,6 +6,18 @@ import { createReport, exportSnapshot, importSnapshot, ReportInputError } from '
 import { diagnose, validDiagnosticTargets } from './runtime.mjs';
 
 const DEFAULT_TARGETS = Object.freeze(['node', 'git']);
+// `format: '0.1.0'` writes and reads `urn:aihq:core:report:0.1.0`: the retained snapshot under its Core format id, with the
+// diagnostic contract part of the format (no `producer.contract`). The retained snapshot 1.0.0 stays for its own inputs.
+const REPORT = 'urn:aihq:core:report:0.1.0';
+const toRetained = value => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || value.schema !== REPORT) return value;
+  const { producer, ...rest } = value;
+  return { ...rest, schema: 'urn:aihq:report:snapshot:1.0.0',
+    ...(producer !== undefined ? { producer: producer && typeof producer === 'object' && !Array.isArray(producer) ?
+      { ...producer, contract: 'urn:aihq:harness:diagnostic:1.0.0' } : producer } : {}) };
+};
+const toCore = snapshot => Object.fromEntries(Object.entries(snapshot).map(([key, value]) => key === 'schema' ? [key, REPORT] :
+  key === 'producer' ? [key, Object.fromEntries(Object.entries(value).filter(([name]) => name !== 'contract'))] : [key, value]));
 
 export class ReportCommandError extends Error {
   constructor(code, reason) { super(reason); this.name = 'ReportCommandError'; this.code = code; this.reason = reason; }
@@ -43,7 +55,13 @@ function write(path, files) {
   }
 }
 
-function importSupplied(json) {
+function importSupplied(json, modern) {
+  if (modern) {
+    let parsed;
+    try { parsed = JSON.parse(json); } catch { throw refuse('snapshot-invalid'); }
+    if (parsed?.schema !== REPORT) throw refuse(typeof parsed?.schema === 'string' ? 'snapshot-unsupported' : 'snapshot-invalid');
+    json = JSON.stringify(toRetained(parsed));
+  }
   try { return importSnapshot(json, { homePaths: localRoots() }); } catch (error) {
     throw refuse(error instanceof ReportInputError && error.code === 'SCHEMA_UNSUPPORTED' ? 'snapshot-unsupported' : 'snapshot-invalid');
   }
@@ -66,21 +84,23 @@ async function acquire(targets, signal) {
 
 export async function runReportCommand(request, controls = {}) {
   if (typeof request?.output !== 'string' || !request.output || request.output.includes('\0') ||
-      request.snapshotJson !== undefined && (typeof request.snapshotJson !== 'string' || request.targets !== undefined))
+      request.snapshotJson !== undefined && (typeof request.snapshotJson !== 'string' || request.targets !== undefined) ||
+      request.format !== undefined && request.format !== '0.1.0')
     throw refuse('request-invalid');
   const directory = resolve(request.output);
   const unavailable = checkDestination(directory);
   if (unavailable) throw refuse(unavailable);
   const { signal } = controls;
   const snapshot = request.snapshotJson === undefined ?
-    await acquire(request.targets ?? DEFAULT_TARGETS, signal) : importSupplied(request.snapshotJson);
-  const json = exportSnapshot(snapshot);
+    await acquire(request.targets ?? DEFAULT_TARGETS, signal) : importSupplied(request.snapshotJson, request.format === '0.1.0');
+  const exported = exportSnapshot(snapshot);
+  const json = request.format === '0.1.0' ? JSON.stringify(toCore(JSON.parse(exported))) : exported;
   // The snapshot is serialized before the directory exists, so cancellation leaves nothing behind.
   // Presentation belongs to the consuming application; this command writes only the data snapshot.
   if (cancelled(signal)) throw new ReportCommandError('CANCELLED', 'cancelled');
   write(directory, [['report.json', json]]);
   return {
-    status: 'complete', source: request.snapshotJson === undefined ? 'fresh' : 'snapshot',
+    ...(request.format === '0.1.0' ? { status: 'ok', schema: REPORT } : { status: 'complete' }), source: request.snapshotJson === undefined ? 'fresh' : 'snapshot',
     package: { name: distribution.name, version: distribution.version },
     producer: { name: snapshot.producer.name, version: snapshot.producer.version, revision: snapshot.producer.revision },
     evidence: { originalSha256: snapshot.evidence.originalSha256, authentication: snapshot.evidence.authentication },

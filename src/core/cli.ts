@@ -313,8 +313,13 @@ if (process.argv[2] === 'validate' && ['change', 'change-request'].includes(proc
       else {
         // Report projection and diagnostics load only for this command.
         const { runReportCommand, ReportCommandError } = await import('../harness/report-command.mjs');
+        // A fresh report, or a supplied 0.1.0 one, is written as `urn:aihq:core:report:0.1.0`; only a supplied retained
+        // 1.0.0 snapshot keeps its own format until it retires.
+        let retained = false;
+        try { retained = snapshotJson !== undefined && (JSON.parse(snapshotJson) as { schema?: unknown })?.schema === 'urn:aihq:report:snapshot:1.0.0'; }
+        catch { retained = false; }
         try {
-          emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }),
+          emit(await runReportCommand({ output: values.output, ...(snapshotJson === undefined ? {} : { snapshotJson }), ...(retained ? {} : { format: '0.1.0' as const }),
             ...(values.target === undefined ? {} : { targets: values.target }) },
           { signal: controller.signal }), 0);
         } catch (error) {

@@ -48,7 +48,7 @@ test('aih report acquires a bounded offline Node/Git diagnostic into a new direc
     const result = w.run(['report', '--output', 'out', '--json']);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const body = summary(result);
-    assert.equal(body.status, 'complete');
+    assert.deepEqual([body.status, body.schema], ['ok', 'urn:aihq:core:report:0.1.0']);
     assert.equal('mode' in body, false);
     assert.equal(body.source, 'fresh');
     assert.deepEqual(body.package, { name: manifest.name, version: manifest.version });
@@ -62,6 +62,8 @@ test('aih report acquires a bounded offline Node/Git diagnostic into a new direc
     assert.deepEqual(readdirSync(join(w.cwd, 'out')), ['report.json']);
 
     const snapshot = JSON.parse(readFileSync(join(w.cwd, 'out', 'report.json'), 'utf8'));
+    assert.equal(snapshot.schema, 'urn:aihq:core:report:0.1.0');
+    assert.equal('contract' in snapshot.producer, false, 'the diagnostic it reads is part of the 0.1.0 format');
     assert.equal(snapshot.producer.name, manifest.name);
     assert.equal(snapshot.producer.version, manifest.version);
     assert.equal(snapshot.producer.revision, null);
@@ -115,7 +117,7 @@ test('aih report imports a supplied snapshot without reacquiring or relabelling 
     const result = w.run(['report', '--output', 'imported', '--snapshot', file, '--json']);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const body = summary(result);
-    assert.equal(body.status, 'complete');
+    assert.equal(body.status, 'ok');
     assert.equal(body.source, 'snapshot');
     assert.deepEqual(body.counts, { passed: 0, failed: 0, unavailable: 0, skipped: 1 });
     const imported = JSON.parse(readFileSync(join(w.cwd, 'imported', 'report.json'), 'utf8'));
@@ -155,7 +157,7 @@ test('aih report prints a readable summary without --json and still writes the s
   try {
     const result = w.run(['report', '--output', 'plain', '--target', 'node']);
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(summary(result).status, 'complete');
+    assert.equal(summary(result).status, 'ok');
     assert.deepEqual(readdirSync(join(w.cwd, 'plain')), ['report.json']);
   } finally { w.cleanup(); }
 });
@@ -317,5 +319,24 @@ test('report diagnostics leave no output directory when cancelled', async () => 
     await assert.rejects(runReportCommand({ output: out, targets: ['node'] }, { signal: controller.signal }),
       error => error.code === 'CANCELLED' && error.reason === 'cancelled');
     assert.equal(existsSync(out), false);
+  } finally { w.cleanup(); }
+});
+
+test('aih report keeps a supplied retained 1.0.0 snapshot in its own format and writes everything else as 0.1.0', () => {
+  const w = workspace();
+  try {
+    const file = writeSnapshot(w, snapshot => {
+      snapshot.schema = 'urn:aihq:report:snapshot:1.0.0';
+      snapshot.producer = { ...snapshot.producer, contract: 'urn:aihq:harness:diagnostic:1.0.0' };
+    });
+    const retained = w.run(['report', '--output', 'old', '--snapshot', file, '--json']);
+    assert.equal(retained.status, 0, retained.stdout + retained.stderr);
+    assert.equal(summary(retained).status, 'complete');
+    assert.equal(JSON.parse(readFileSync(join(w.cwd, 'old', 'report.json'), 'utf8')).schema, 'urn:aihq:report:snapshot:1.0.0');
+    const unknown = join(w.cwd, 'future.json');
+    writeFileSync(unknown, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), schema: 'urn:aihq:core:report:9.0.0' }));
+    const refused = w.run(['report', '--output', 'future', '--snapshot', unknown, '--json']);
+    assert.equal(refused.status, 2, refused.stdout + refused.stderr);
+    assert.equal(existsSync(join(w.cwd, 'future')), false);
   } finally { w.cleanup(); }
 });
