@@ -2413,8 +2413,8 @@ elsewhere (for example in the user's own state) is not seen.
 ## Install your own content through a plan request (0.1.0, in development)
 
 `urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
-with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
-and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
+with `data: null`; it gets the same review, receipts and removal as published content. This Core carries out `write`,
+`fetch` and `acquire` steps (see [AI setups](#ai-setups-acquire-steps)); every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
 Catalog that made the plan (`catalog-required`). The format is not marked ready.
 
 ```js
@@ -2465,6 +2465,39 @@ aih remove local-my-skills.skill.notes --scope project --project /work/app [--ap
 `--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
 command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
 complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
+
+### AI setups (`acquire` steps)
+
+An `acquire` step downloads one AI setup's artifact into `~/.aihq/ai-setup/<name>/<version>/<cell>/`. Pass the
+qualification documents the plan's acquire steps name in `qualifications`.
+
+- **Before any effect**, Prepare finds the qualification by its sha256 over canonical JSON (`qualification-missing`
+  when none matches) and checks that the step agrees with it: AI setup, version and cell, `qualified` status, the
+  artifact's sha256 (and file and byte count where both name them), a native archive's members, a Python tool's wheel
+  closure and its fallback interpreter (`qualification-mismatch`). A step for another platform cell is `cell-mismatch`.
+  Core downloads only from an https `url`; a distribution with only a `file` is `invalid`. `npm` and `git`
+  distributions are refused `step-unknown` for now. Prepare probes each download host with this machine's Node trust:
+  a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`, never an Apply failure.
+- **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
+  `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
+  qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,
+  `wheel-install-failed`, `readback-failed`); approval covers both. Apply downloads the byte-checked closure and wheel,
+  makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
+  and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
+  `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
+- **Native archives** (`.tar.gz`, `.zip`): Apply extracts exactly the qualified members, each byte-checked, with their
+  executable bit.
+- **Bounds:** one artifact is at most `artifact-bytes`, expands to at most `artifact-expanded-bytes` and
+  `artifact-members`; a closure lists at most `closure-wheels` wheels (see `limits`).
+- **Outcomes.** Downloaded bytes that differ from the qualification fail that step (`reason: artifact-mismatch`); the
+  rest of its item and every item that depends on it (Catalog `dependencies`, or the AI setup's `mcpItem`) are
+  `not-attempted`, unrelated items continue, and the run is `incomplete`. The run step's `interpreter`, the receipt and
+  `list`'s `aiSetup` record which branch ran and why the fallback did. `onProgress` on the Apply call receives each
+  acquisition's `start`, `bytes`, `fallback` and `finish` events.
+- **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
+  acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
+  redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
+  last claim, the whole folder goes.
 
 ## Managed lifecycle
 

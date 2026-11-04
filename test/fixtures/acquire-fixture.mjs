@@ -8,7 +8,6 @@ import { copyFileSync, linkSync, mkdirSync, readFileSync, writeFileSync } from '
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { createRegistryCertificates } from './tls-registry.mjs';
 import { CONTENT, PLAN_REQUEST, sha256 } from './plan-fixture.mjs';
 
 export const QUALIFICATION = 'urn:aihq:catalog:qualification:0.1.0';
@@ -42,9 +41,12 @@ export function tarGz(entries, level = 6) {
   return gzipSync(Buffer.concat(blocks), { level });
 }
 
-/** A local HTTPS server for `{ '/path': bytes }`; `serve(path, bytes)` changes what it returns. Its CA is `caPem`. */
-export async function artifactServer(files = {}) {
-  const certificates = await createRegistryCertificates(['localhost']);
+/**
+ * A local HTTPS server for `{ '/path': bytes }`; `serve(path, bytes)` changes what it returns. Its CA is `caPem`.
+ * `certificates` ({ caPem, leafPem, keyPem } for `localhost`) are made fresh when not given.
+ */
+export async function artifactServer(files = {}, certificates) {
+  certificates ??= await (await import('./tls-registry.mjs')).createRegistryCertificates(['localhost']);
   const routes = new Map(Object.entries(files));
   const requests = [];
   const server = https.createServer({ cert: certificates.leafPem, key: certificates.keyPem }, (request, response) => {
