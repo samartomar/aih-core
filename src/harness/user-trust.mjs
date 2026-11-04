@@ -46,7 +46,9 @@ import { performance } from 'node:perf_hooks';
 
 
 const targets = ['python', 'pip', 'conda', 'git', 'cargo'];
-const recipes = { general: '3.15.2', 'pyyaml-onnx': '3.14.10', 'code-review-graph': '3.14.10', serena: '3.13.18' };
+// Versions these checks were qualified on: hints reported beside a real failure, never admission gates (C20).
+const testedWith = Object.freeze({ python: '3.15.2', pip: '26.2.2', conda: '26.9.4',
+  git: process.platform === 'win32' ? '2.56.0.windows.4' : '2.56.0', rust: '1.99.1' });
 const plain = (value, keys) => value && typeof value === 'object' && !isProxy(value) &&
   [Object.prototype, null].includes(Object.getPrototypeOf(value)) && Reflect.ownKeys(value).every(key => {
     const d = Object.getOwnPropertyDescriptor(value, key);
@@ -182,12 +184,18 @@ function cargoConfiguration(project) {
 
 /** Inspect exactly the caller-selected process; compatibility never upgrades or substitutes it. */
 export async function inspectUserToolTrust(request, controls = {}) {
-  const blocked = (reason, observation = {}) => ({ decision: 'blocked', reason, observation });
-  if (!plain(request, ['target', 'executable', 'project', 'network', 'endpoint', 'pythonRecipe', 'interpreterSource', 'rustcExecutable']) ||
+  // A real failure on a version other than the tested one names that version as a hint; it never refuses the tool.
+  const hintFor = observation => {
+    const observed = { python: observation.version, pip: observation.pip, conda: observation.version, git: observation.version,
+      rust: observation.rustVersion }[request?.target === 'cargo' ? 'rust' : request?.target];
+    const tested = testedWith[request?.target === 'cargo' ? 'rust' : request?.target === 'pip' ? 'pip' : request?.target];
+    return typeof observed === 'string' && tested && observed !== tested ? { hint: { testedWith: tested, observed } } : {};
+  };
+  const blocked = (reason, observation = {}) => ({ decision: 'blocked', reason, observation, ...hintFor(observation) });
+  if (!plain(request, ['target', 'executable', 'project', 'network', 'endpoint', 'interpreterSource', 'rustcExecutable']) ||
       !targets.includes(request.target) || !path(request.executable) || !path(request.project) ||
       !['declared', 'off'].includes(request.network) || request.endpoint !== undefined && !origin(request.endpoint) ||
       request.rustcExecutable !== undefined && !path(request.rustcExecutable) || request.target === 'cargo' && request.endpoint !== undefined ||
-      request.pythonRecipe !== undefined && !Object.hasOwn(recipes, request.pythonRecipe) ||
       request.interpreterSource !== undefined && !['system', 'uv-managed', 'unknown'].includes(request.interpreterSource) ||
       !plain(controls, ['signal', 'budgetMs']) || controls.signal !== undefined && !(controls.signal instanceof AbortSignal) ||
       controls.budgetMs !== undefined && (!Number.isInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > 60000))
@@ -209,10 +217,9 @@ export async function inspectUserToolTrust(request, controls = {}) {
     const identity = json(result);
     if (!identity || !/^\d+\.\d+\.\d+$/.test(identity.version ?? '') || typeof identity.executable !== 'string') return fail('identity-unavailable');
     Object.assign(observation, identity, { interpreterSource: { declared: request.interpreterSource ?? 'unknown', verified: false },
-      pythonRecipe: request.pythonRecipe ?? 'general', selectedVersion: recipes[request.pythonRecipe ?? 'general'] });
-    if (identity.version !== observation.selectedVersion) return fail('runtime-incompatible');
+      testedWith: target === 'pip' ? { python: testedWith.python, pip: testedWith.pip } : { python: testedWith.python } });
     if (target === 'pip') {
-      if (identity.pip !== '26.2.2') return fail('pip-incompatible');
+      if (typeof identity.pip !== 'string') return fail('pip-unavailable');
       result = await run(['-m', 'pip', 'config', 'list']);
       if (result.reason) return fail(result.reason);
       if (result.code !== 0) return fail('config-unavailable');
@@ -238,8 +245,7 @@ export async function inspectUserToolTrust(request, controls = {}) {
     if (result.reason) return fail(result.reason);
     const identity = json(result);
     if (!identity || typeof identity.version !== 'string' || !Array.isArray(identity.configSources)) return fail('identity-unavailable');
-    Object.assign(observation, identity);
-    if (identity.version !== '26.9.4') return fail('runtime-incompatible');
+    Object.assign(observation, identity, { testedWith: { conda: testedWith.conda } });
     if (env.CONDA_PREFIX && env.CONDA_PREFIX !== identity.prefix) return fail('conda-environment-ambiguous');
     if (identity.sslVerify === false) return fail('tls-verification-disabled');
     if (![true, 'truststore'].includes(identity.sslVerify) || env.REQUESTS_CA_BUNDLE || env.CURL_CA_BUNDLE || env.CONDA_SSL_VERIFY)
@@ -250,8 +256,7 @@ export async function inspectUserToolTrust(request, controls = {}) {
     if (result.reason) return fail(result.reason);
     const version = result.stdout?.trim().match(/^git version (\d+\.\d+\.\d+(?:\.windows\.\d+)?)$/)?.[1];
     if (!version) return fail('identity-unavailable');
-    observation.version = version;
-    if (version !== (process.platform === 'win32' ? '2.56.0.windows.4' : '2.56.0')) return fail('runtime-incompatible');
+    observation.version = version; observation.testedWith = { git: testedWith.git };
     result = await run(['config', '--show-origin', '--show-scope', '--get-regexp', '^(http\..*|include.*|remote\..*\.proxy|url\..*|core\.gitproxy)$']);
     if (result.reason) return fail(result.reason);
     if (![0, 1].includes(result.code)) return fail('config-unavailable');
@@ -281,13 +286,13 @@ export async function inspectUserToolTrust(request, controls = {}) {
     if (result.reason) return fail(result.reason);
     const version = result.stdout?.match(/^cargo (\d+\.\d+\.\d+)\b/m)?.[1];
     if (!version) return fail('identity-unavailable');
-    Object.assign(observation, { version, backend: 'unconfirmed', rustToolchainCandidate: '1.99.1',
+    Object.assign(observation, { version, backend: 'unconfirmed', testedWith: { rust: testedWith.rust },
       build: result.stdout.split(/\r?\n/).filter(line => /^(?:release|host|libgit2|libcurl|ssl):/.test(line)).slice(0, 8) });
     if(!request.rustcExecutable)return fail('rustc-observation-required');
     const rust = await processOutput(request.rustcExecutable,['-Vv'],request.project,deadline,controls.signal);
     if(rust.reason)return fail(rust.reason);
     observation.rustVersion=rust.stdout?.match(/^release: (\d+\.\d+\.\d+)$/m)?.[1];
-    if(rust.code!==0 || observation.rustVersion!=='1.99.1')return fail('rust-toolchain-incompatible');
+    if(rust.code!==0 || !observation.rustVersion)return fail('rust-toolchain-unavailable');
     const rustHost=rust.stdout.match(/^host: (\S+)$/m)?.[1],cargoHost=result.stdout.match(/^host: (\S+)$/m)?.[1];
     if(!rustHost || rustHost!==cargoHost)return fail('toolchain-host-ambiguous');
     observation.host=cargoHost;
@@ -328,7 +333,7 @@ export async function inspectUserToolTrust(request, controls = {}) {
       recommendation:{scope:'observed-conda-environment',key:'ssl_verify',value:'truststore'}};
     if(nativeTls!=='certificate-chain')return fail('native-truststore-unconfirmed');
   }
-  if (tls === 'certificate-chain') return { decision: 'bundle-fallback', reason: 'certificate-chain', observation };
+  if (tls === 'certificate-chain') return { decision: 'bundle-fallback', reason: 'certificate-chain', observation, ...hintFor(observation) };
   return fail('connection-unconfirmed');
 }
 

@@ -66,6 +66,13 @@ export interface PlanItemFacts {
    * value is kept; a secret's value never is. Absent when the item binds no inputs.
    */
   inputs?: { input: string; secret: boolean; written: 'value' | 'reference' | 'omitted'; from: 'inputs' | 'default' | 'privateInputs' | null; value?: Json }[];
+  /** A local-plugin route (C68): the items its plan said it contains, or `null` when the plan gave none. */
+  localPlugin?: { contains: string[] | null };
+  /**
+   * A switch-off of one item inside a plugin (C45, C69): this claim owns one marked Codex `[[skills.config]]` block that
+   * turns the skill `name` (`<plugin>:<skill>`) off; the framework's own install stays. Removing this claim turns it back on.
+   */
+  switchOff?: { framework: string; item: string; cli: string; name: string };
 }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
@@ -241,9 +248,15 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'inputs'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs'])) return false;
   if (value.inputs !== undefined && !validInputFacts(value.inputs)) return false;
   if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
+  if (value.localPlugin !== undefined && !(exact(value.localPlugin, ['contains']) && (value.localPlugin.contains === null ||
+      Array.isArray(value.localPlugin.contains) && value.localPlugin.contains.length <= 4096 &&
+      value.localPlugin.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) && ascending(value.localPlugin.contains)))) return false;
+  if (value.switchOff !== undefined && !(exact(value.switchOff, ['framework', 'item', 'cli', 'name']) &&
+      [value.switchOff.framework, value.switchOff.item, value.switchOff.cli].every(id => typeof id === 'string' && PLAN_ID.test(id)) &&
+      typeof value.switchOff.name === 'string' && SKILL_NAME.test(value.switchOff.name))) return false;
   if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
     value.plugins.every(validPluginFacts))) return false;
   const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
@@ -277,8 +290,14 @@ function validInputFacts(value: unknown): boolean {
 }
 const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
   value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
+/** A plugin-qualified skill name, `<plugin>:<skill>`, as Codex keys `[[skills.config]]` (no quotes or control characters). */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SKILL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 function validPluginFacts(value: unknown): boolean {
-  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'])) return false;
+  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'], ['skills'])) return false;
+  if (value.skills !== undefined && !(value.skills && typeof value.skills === 'object' && !Array.isArray(value.skills) && Array.isArray(value.contains) &&
+      Object.entries(value.skills).every(([item, name]) => (value.contains as unknown[]).includes(item) && typeof name === 'string' && SKILL.test(name))))
+    return false;
   if (!Number.isSafeInteger(value.step) || (value.step as number) < 0 || typeof value.cli !== 'string' || !PLAN_ID.test(value.cli) ||
       !text(value.plugin, 256) || !text(value.commit, 128)) return false;
   if (!Array.isArray(value.contains) || value.contains.length > 4096 ||

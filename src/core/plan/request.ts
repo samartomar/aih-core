@@ -85,6 +85,7 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
 
   const itemFiles = new Map<string, SourceFacts>(); const notices = new Map<string, SourceFacts>();
   const itemInputs = new Map<string, { isSecret: boolean }>();
+  const pluginFiles = new Map<string, SourceFacts>();
   for (const content of document.contents as unknown as { sources: { id: string; notices?: { sourcePath: string; sha256: string }[] }[];
       items: { id: string; files: SourceFacts[]; requirements?: { inputs?: Record<string, { isSecret?: unknown }> } }[] }[]) {
     for (const source of content.sources) for (const notice of source.notices ?? [])
@@ -93,6 +94,15 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
       itemInputs.set(key(item.id, name), { isSecret: !!spec && typeof spec === 'object' && spec.isSecret === true });
     for (const item of content.items) for (const file of item.files)
       itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
+    // A framework's recorded plugin folders: the files a local-plugin route copies as one unit (Catalog D120).
+    const framework = (content as { framework?: { id?: unknown } }).framework?.id;
+    const folders = (content as { plugins?: unknown }).plugins;
+    if (typeof framework === 'string' && Array.isArray(folders)) for (const folder of folders as { sourceId?: unknown; files?: unknown }[])
+      if (folder && typeof folder.sourceId === 'string' && Array.isArray(folder.files))
+        for (const file of folder.files as { sourcePath?: unknown; sha256?: unknown; executable?: unknown }[])
+          if (file && typeof file.sourcePath === 'string' && typeof file.sha256 === 'string')
+            pluginFiles.set(key(framework, key(folder.sourceId, file.sourcePath)), { sourceId: folder.sourceId, sourcePath: file.sourcePath,
+              sha256: file.sha256, executable: file.executable === true });
   }
   // Ordinary values in the request, secrets only in the controls, each for an input its item declares (4.1, C59).
   const declared = declarations(document.contents);
@@ -117,6 +127,7 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
       qualification: sha => qualifications.get(sha),
       itemInput: (item, input) => itemInputs.get(key(item, input)),
       inputs: clis => ({ index, request: document, privateInputs: controls.privateInputs, declared, clis }),
+      pluginFile: (framework, sourceId, sourcePath) => pluginFiles.get(key(framework, key(sourceId, sourcePath))),
       bytesFor: facts => {
         const entry = files.get(key(facts.sourceId, facts.sourcePath));
         if (!entry || !entry.bytes) return { refusal: refused('source-missing',

@@ -7,7 +7,7 @@
   "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
   "properties": {
     "schema": { "const": "urn:aihq:core:review:0.1.0" },
-    "request": { "enum": ["plan", "removal", "change"] },
+    "request": { "enum": ["plan", "removal", "change", "repair", "export", "macos-session"] },
     "scope": { "enum": ["project", "user"] },
     "target": { "type": "object", "additionalProperties": false, "required": ["project"],
       "properties": { "project": { "type": ["string", "null"] } } },
@@ -42,9 +42,30 @@
       "properties": { "id": { "type": "string" }, "members": { "type": "array", "items": { "type": "string" } } } } },
     "failureRule": { "type": "string" },
     "warnings": { "type": "array", "items": { "type": "string" } },
+    "environment": { "$ref": "#/$defs/environment" },
     "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
   "$defs": {
+    "environment": {
+      "description": "Repair, certificate export and macOS session facts (contract 10): what was found, what is admitted, and why anything is unavailable",
+      "type": "object", "additionalProperties": false,
+      "required": ["job", "repair", "targets", "route", "network", "facts", "observations", "unavailable"],
+      "properties": {
+        "job": { "enum": ["repair", "export", "macos-session"] },
+        "repair": { "type": ["string", "null"] },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "route": { "enum": ["file", "native", "os", "export"] },
+        "network": { "enum": ["declared", "off"] },
+        "facts": { "type": "object" },
+        "observations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+          "properties": { "id": { "type": "string" }, "reason": { "type": "string" } } } },
+        "unavailable": { "type": "array", "items": { "$ref": "#/$defs/environmentProblem" } }
+      }
+    },
+    "environmentProblem": {
+      "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+      "properties": { "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" } }
+    },
     "step": {
       "type": "object", "additionalProperties": false,
       "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
@@ -90,6 +111,7 @@
         "plugin": { "type": "string" },
         "commit": { "type": "string" },
         "contains": { "type": "array", "items": { "type": "string" } },
+        "route": { "const": "local-plugin" },
         "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/argv" } }] },
         "presenceCheck": { "oneOf": [{ "const": "none" }, {

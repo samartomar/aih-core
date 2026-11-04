@@ -9,8 +9,23 @@ export const refusal = (code: string, reason: string, step: number, extra: Parti
 export const problem = (index: number, field: string, reason: string, message: string): { problem: Problem } =>
   ({ problem: { path: `/plan/plan/${index}${field ? '/' + field : ''}`, reason, message } });
 
-/** The management ids a placement step belongs to (D108, C48): its `item`, or each of its shared `items`. */
-export function owners(step: PlanStep, index: number): { ids: string[]; review: { item?: string; items?: string[] } } | { problem: Problem } {
+/**
+ * The management ids a placement step belongs to (D108, C48): its `item`, or each of its shared `items`, or the one
+ * indivisible `framework` a local-plugin route belongs to (C68). A route step may carry `route: "local-plugin"` and, on
+ * the route's first step, the sorted ids of the items it `contains` (Catalog D120).
+ */
+export function owners(step: PlanStep, index: number): { ids: string[]; review: { item?: string; items?: string[]; framework?: string;
+    route?: 'local-plugin'; contains?: string[] } } | { problem: Problem } {
+  if (step.framework !== undefined) {
+    const { framework, route, contains } = step;
+    if (typeof framework !== 'string' || !ID.test(framework) || step.item !== undefined || step.items !== undefined)
+      return problem(index, 'framework', 'owner', 'A framework step names only its `framework`, never an `item` as well.');
+    if (route !== undefined && route !== 'local-plugin') return problem(index, 'route', 'route', 'A lowered route is `local-plugin`.');
+    if (contains !== undefined && !(Array.isArray(contains) && contains.length <= 4096 &&
+        contains.every((id, at) => typeof id === 'string' && ID.test(id) && (at === 0 || (contains[at - 1] as string) < id))))
+      return problem(index, 'contains', 'contains', 'A route\'s `contains` lists sorted, unique item ids.');
+    return { ids: [framework], review: { framework, ...(route ? { route } : {}), ...(contains ? { contains: [...contains as string[]] } : {}) } };
+  }
   if (typeof step.item === 'string' && ID.test(step.item) && step.items === undefined) return { ids: [step.item], review: { item: step.item } };
   if (step.item === undefined && Array.isArray(step.items) && step.items.length > 0 && step.items.every(id => typeof id === 'string' && ID.test(id)) &&
       new Set(step.items).size === step.items.length) return { ids: [...step.items as string[]].sort(), review: { items: [...step.items as string[]] } };

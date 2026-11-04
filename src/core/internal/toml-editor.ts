@@ -359,3 +359,73 @@ export function restoreTomlValue(current: Buffer, path: string[], original: Buff
   parse(output);
   return Buffer.from(output, 'utf8');
 }
+
+/** One `[[table]]` entry an array-table scan found: where it starts and ends, and its own string and boolean values. */
+export interface TomlArrayEntry { start: number; end: number; values: Record<string, string | boolean> }
+/**
+ * A read-only scan that also reads array tables (which the editor refuses): every `[[table]]` entry, in file order, with
+ * the string and boolean values of its own keys. Fails with `unsupported-toml-syntax` or `unsupported-toml-table` on
+ * syntax the scanner does not read, so an unreadable file is never taken to hold no entry. It never edits anything.
+ */
+export function tomlArrayTableEntries(before: Buffer | null, table: string[]): TomlArrayEntry[] {
+  if (before === null) return [];
+  const text = decode(before);
+  const out: TomlArrayEntry[] = [];
+  let current: TomlArrayEntry | undefined;
+  const line = (stop: number): number => {
+    const end = skipComment(text, skipBlank(text, stop));
+    const eol = newlineAt(text, end);
+    return end < text.length && !eol ? -1 : end + eol;
+  };
+  const dotted = (from: number): { segments: string[]; end: number } => {
+    const segments: string[] = [];
+    let i = from;
+    for (;;) {
+      i = skipBlank(text, i);
+      const name = key(text, i);
+      if (!name) fail('unsupported-toml-syntax');
+      segments.push(name.value);
+      i = skipBlank(text, name.end);
+      if (text[i] !== '.') return { segments, end: i };
+      i += 1;
+    }
+  };
+  let at = 0;
+  while (at < text.length) {
+    const lineStart = at;
+    const i = skipBlank(text, at);
+    if (text[i] === '[') {
+      const array = text[i + 1] === '[';
+      const header = dotted(i + (array ? 2 : 1));
+      if (text[header.end] !== ']' || array && text[header.end + 1] !== ']') fail('unsupported-toml-table');
+      const next = line(header.end + (array ? 2 : 1));
+      if (next < 0) fail('unsupported-toml-table');
+      if (current) current.end = lineStart;
+      current = array && header.segments.length === table.length && header.segments.every((part, index) => part === table[index]) ?
+        { start: lineStart, end: text.length, values: {} } : undefined;
+      if (current) out.push(current);
+      at = next;
+    } else if (i >= text.length || text[i] === '#' || newlineAt(text, i)) {
+      const next = line(i);
+      if (next < 0) fail('unsupported-toml-syntax');
+      at = next;
+    } else {
+      const name = dotted(i);
+      if (text[name.end] !== '=') fail('unsupported-toml-syntax');
+      const valueStart = skipBlank(text, name.end + 1);
+      const parsed = value(text, valueStart, 0);
+      const next = line(parsed.end);
+      if (next < 0) fail('unsupported-toml-syntax');
+      if (current && name.segments.length === 1) {
+        const raw = text.slice(parsed.start, parsed.end);
+        const field = name.segments[0]!;
+        if (Object.hasOwn(current.values, field)) fail('duplicate-toml-key');
+        if (raw === 'true' || raw === 'false') current.values[field] = raw === 'true';
+        else if (raw.startsWith('"') && !raw.startsWith('"""')) current.values[field] = basicString(text, parsed.start)!.value;
+        else if (raw.startsWith("'") && !raw.startsWith("'''")) current.values[field] = literalString(text, parsed.start)!.value;
+      }
+      at = next;
+    }
+  }
+  return out;
+}

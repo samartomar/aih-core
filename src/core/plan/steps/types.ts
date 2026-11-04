@@ -24,6 +24,8 @@ export interface StepContext {
   itemInput(item: string, input: string): { isSecret: boolean } | undefined;
   /** What filling this step's input bindings needs, for the CLIs it serves (contract 4.1, C59). */
   inputs(clis: string[]): InputContext;
+  /** A file of a framework's recorded plugin folder (Catalog content `plugins[].files`), by source id and source path. */
+  pluginFile(framework: string, sourceId: string, sourcePath: string): SourceFacts | undefined;
 }
 /** One owned file effect the engine carries out as a `file.write`. */
 export interface LoweredWrite {
@@ -35,7 +37,7 @@ export interface LoweredWrite {
   executable: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[]; inputs?: ReviewInput[] };
+  review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[]; inputs?: ReviewInput[] };
   /** The step's filled input bindings, when it has any. */
   bound?: BoundInputs;
   /** An `acquire` step: the acquisition Apply carries out immediately before writing this marker file. */
@@ -54,6 +56,8 @@ export interface LoweredPlugin {
   root: 'project' | 'user';
   cli: string; plugin: string; commit: string; framework: string;
   contains: string[];
+  /** Each contained skill item's name, by item id (for a supported one-skill switch-off, C45). */
+  skills?: Record<string, string>;
   commands: string[][];
   undo: string[][] | null;
   presenceCheck: 'none' | { argv: string[]; expect: string };
@@ -94,7 +98,8 @@ export interface LoweredMerge {
   codexGuidance: boolean;
   sentence: string;
   cantPromise: string | null;
-  review: { item?: string; items?: string[]; clis?: string[]; format: 'json' | 'toml' | 'markdown'; key: string; inputs?: ReviewInput[] };
+  review: { item?: string; items?: string[]; clis?: string[]; framework?: string; route?: 'local-plugin'; contains?: string[];
+    format: 'json' | 'toml' | 'markdown'; key: string; inputs?: ReviewInput[] };
   /** Only writes acquire or render. */
   acquire?: never; profiles?: never;
 }

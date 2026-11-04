@@ -9,6 +9,9 @@ import type { PrivateInputBinding } from './inputs.js';
 export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
 export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string }
+/** The switch-off block a run reads back: the file, its markers, and the `plugin:skill` name it must turn off. */
+export interface SwitchOffReadback { file: string; blockId: string; startMarker: string; endMarker: string; content: string; name: string;
+  step: number; managementId: string }
 export interface HandleState {
   engine: PreparedHandle;
   engineDigest: string;
@@ -30,6 +33,8 @@ export interface HandleState {
   acquired?: Map<number, AcquireFacts>;
   /** Where an acquisition reports progress: the Apply call's `onProgress`. */
   progress?: { onProgress?: (event: import('../types.js').Json) => void };
+  /** A one-item switch-off (C69): the block Apply reads back and checks after writing it. */
+  readback?: SwitchOffReadback;
   /** The caller's request object and the digests Prepare read from it (plan requests only). */
   request?: { value: unknown; documentDigest: string; bytesDigest: string };
   /** The private inputs the review was prepared with: Apply re-checks them by digest (`REVIEW_STALE` `input`). */

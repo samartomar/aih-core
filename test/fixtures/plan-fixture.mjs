@@ -161,3 +161,55 @@ export const NO_REFERENCES = { file: 'unknown', 'mcp-argv': 'unknown', 'mcp-env'
 export const inputProfile = (id, references = {}, { mcpFile = MCP_FILE, version = 1 } = {}) =>
   ({ ...profile(id, version), mcpFile, inputReferences: { ...NO_REFERENCES, ...references } });
 export const ENV_REFERENCE = { syntax: '${<name>}' };
+// Local-plugin routes (Catalog `local-plugin`, D120): the plugin's files copied by `write` steps and its registration
+// added by `merge` steps, each naming the `framework` and `route: "local-plugin"`; the route's first step lists the items
+// it `contains`. Step shapes follow Catalog's local-plugin lowering (`from: { sourceId, sourcePath, sha256 }`, `scanKey`,
+// `executable`, `clis`); the Claude registration entries follow its claude-code profile's `localPlugins` place. FIXTURES.
+export const LOCAL_PLUGIN_MANIFEST = '{"name":"superpowers-marketplace","plugins":[{"name":"superpowers","source":"./"}]}\n';
+
+/** `pluginContent` whose recorded plugin folder also holds the Claude marketplace manifest. */
+export function localPluginContent(framework = 'superpowers') {
+  const content = pluginContent(framework);
+  const bytes = Buffer.from(LOCAL_PLUGIN_MANIFEST);
+  const folder = content.plugins[0];
+  folder.files = [{ sourcePath: '.claude-plugin/marketplace.json', sha256: sha256(bytes), bytes: bytes.length, executable: false },
+    ...folder.files];
+  return { content, bytes: { '.claude-plugin/marketplace.json': bytes, ...Object.fromEntries(content.items.map(item =>
+    [item.files[0].sourcePath, Buffer.from(`---\nname: ${item.name}\n---\n${item.name}\n`)])) } };
+}
+
+/**
+ * A project-scope plan request copying `framework` as a Claude local plugin. `contains: false` leaves out the route's
+ * contained-item metadata (an older plan), so Core can only list the plugin's files.
+ */
+export function localPluginRequest(project, { framework = 'superpowers', contains = true } = {}) {
+  const { content, bytes } = localPluginContent(framework);
+  const folder = content.plugins[0];
+  const target = `.aihq/plugins/${framework}`;
+  const marks = { framework, route: 'local-plugin' };
+  const writes = folder.files.map(file => ({ op: 'write', root: 'project', path: `${target}/${file.sourcePath}`,
+    from: { sourceId: folder.sourceId, sourcePath: file.sourcePath, sha256: file.sha256 }, executable: file.executable, ...marks,
+    scanKey: folder.scanKey, clis: ['claude-code'] }));
+  const merges = [
+    { key: '/enabledPlugins/superpowers@superpowers-marketplace', entry: true },
+    { key: '/extraKnownMarketplaces/superpowers-marketplace', entry: { source: { source: 'directory', path: `./${target}` } } },
+  ].map(merge => ({ op: 'merge', root: 'project', file: '.claude/settings.json', format: 'json', ...merge, ...marks, clis: ['claude-code'] }));
+  const plan = [...writes, ...merges];
+  if (contains) plan[0].contains = content.items.map(item => item.id).sort();
+  return { schema: PLAN_REQUEST, scope: 'project', target: { project }, contents: [content], profiles: [profile('claude-code', 3)],
+    files: Object.entries(bytes).map(([sourcePath, value]) => ({ sourceId: folder.sourceId, sourcePath, sha256: sha256(value), bytes: value })),
+    plan: { status: 'ok', data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) }, plan,
+      missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] } };
+}
+
+/** A Codex-shaped tool profile with a native plugin route at user scope (Catalog's codex profile `plugins`). */
+export const codexPluginProfile = () => ({ ...profile('codex', 3), plugins: { pin: 'holds', scopes: ['user'], pinForm: 'marketplace',
+  install: [['codex', 'plugin', 'marketplace', 'add', '<marketplace>', '--ref', '<commit>'], ['codex', 'plugin', 'add', '<plugin>@<marketplace-name>']],
+  remove: [['codex', 'plugin', 'remove', '<plugin>']], verify: 'none' } });
+
+/** A user-scope plan request installing `framework` as a native Codex plugin. */
+export function codexPluginRequest(framework = 'superpowers') {
+  const request = pluginRequest('none', { framework, profileOptions: { id: 'codex', command: 'codex' } });
+  request.profiles = [codexPluginProfile()];
+  return request;
+}

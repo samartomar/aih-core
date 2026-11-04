@@ -2,7 +2,7 @@
 // claim and removal rules (14.2). The place is always named; Core never guesses it from the working folder.
 import { bindPrivateInputs } from './inputs.js';
 import { homedir } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
 import { prepareManagedRemoval } from '../managed-removal.js';
@@ -10,6 +10,8 @@ import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
 import { register, type ProgramCheck, type StepRef } from './handles.js';
+import { claimIdentity } from '../internal/recipe-lifecycle.js';
+import { prepareSwitchOff, switchOffClaims } from './switch-off.js';
 import { prepare as prepareEngine } from '../recipe-engine.js';
 import { resolveExecutable } from '../internal/approved-process.js';
 import type { PreparedHandle } from '../host-types.js';
@@ -48,6 +50,13 @@ function planFacts(roots: string[]): Map<string, PlanItemFacts> {
   return facts;
 }
 
+/** A local plugin's files: its whole-file members, by path relative to their root, in code-unit order. */
+function pluginFiles(members: readonly { kind: string; path: string }[], root: string): string[] {
+  return [...new Set(members.filter(member => member.kind === 'file').map(member =>
+    (isAbsolute(member.path) ? relative(root, member.path) : member.path).replaceAll('\\', '/')))]
+    .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+}
+
 export async function list(request: unknown, controls: unknown = {}): Promise<ListResult> {
   forgetProvenState();
   if (!plain(request, ['target', 'scope'])) return invalid('', 'request', 'A list request is `{ target, scope }`.');
@@ -73,7 +82,10 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
         ...(member.blockId === undefined ? {} : { blockId: member.blockId }),
         state: member.fileState === 'matches' ? 'matching' : member.fileState === 'changed' || member.fileState === 'block-changed' ? 'changed-by-you' :
           member.fileState === 'missing' || member.fileState === 'block-missing' ? 'missing' : 'unchecked' })),
-      ...(plan?.plugins ? { plugins: plan.plugins.map(facts => JSON.parse(JSON.stringify(facts)) as PluginFacts) } : {}) };
+      ...(plan?.plugins ? { plugins: plan.plugins.map(facts => JSON.parse(JSON.stringify(facts)) as PluginFacts) } : {}),
+      ...(plan?.localPlugin ? { localPlugin: { contains: plan.localPlugin.contains ? [...plan.localPlugin.contains] : null,
+        files: pluginFiles(row.members, row.scope === 'project' ? located.anchor : home) } } : {}),
+      ...(plan?.switchOff ? { switchOff: { ...plan.switchOff } } : {}) };
   });
   const inventory: Inventory = { schema: INVENTORY, status: 'ok', target: { project: located.project }, scope,
     observation: listed.status === 'complete' ? 'complete' : 'incomplete', entries };
@@ -94,8 +106,14 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   // One item inside an indivisible plugin (C45, C68): never split; the entry offers the whole plugin instead.
   const itemEntries = new Map<number, RemovalEntry>();
   for (const [index, entry] of removals.entries()) {
-    if (!plain(entry, ['managementId', 'item', 'origin', 'clis']) || typeof entry.managementId !== 'string' || !ID.test(entry.managementId))
+    if (!plain(entry, ['managementId', 'item', 'origin', 'clis', 'switchOff']) || typeof entry.managementId !== 'string' || !ID.test(entry.managementId))
       return invalid(`/removals/${index}`, 'removal', 'A removal names a `managementId`.');
+    if (entry.switchOff !== undefined) {
+      if (entry.switchOff !== true || typeof entry.item !== 'string' || !ID.test(entry.item) || entry.origin !== undefined || entry.clis !== undefined)
+        return invalid(`/removals/${index}/switchOff`, 'switch-off', 'A switch-off is `{ managementId, item, switchOff: true }`.');
+      if (removals.length !== 1) return invalid('/removals', 'switch-off-alone', 'A switch-off is prepared on its own.');
+      return switchOff(entry.managementId, entry.item, located.scope as 'project' | 'user', located.anchor, options);
+    }
     if (entry.clis !== undefined) return { status: 'refused', code: 'client-attribution-missing',
       reason: `Removal by CLI is refused: this Core does not yet record which CLI claims each member of \`${entry.managementId}\`.` };
     if (entry.origin !== undefined && entry.origin !== 'chosen') return invalid(`/removals/${index}/origin`, 'origin', 'Only the `chosen` origin can be recorded by this Core.');
@@ -108,9 +126,14 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     selectors.push({ managementId: entry.managementId, ...(entry.origin === 'chosen' ? { origin: { reasonIncluded: 'chosen' as const } } : {}) });
   }
   const scope = located.scope as 'project' | 'user';
+  // Removing a whole plugin also removes the switch-offs of its items: nothing is left to switch off (C45).
+  if (scope === 'user') for (const selector of [...selectors])
+    for (const item of switchOffClaims(located.anchor, selector.managementId))
+      if (!selectors.some(other => other.managementId === item)) selectors.push({ managementId: item });
   const inOrder = (engineEntries: RemovalEntry[]): RemovalEntry[] => {
     const queue = [...engineEntries];
-    return removals.map((_entry, index) => itemEntries.get(index) ?? queue.shift()!).filter(Boolean);
+    const ordered = removals.map((_entry, index) => itemEntries.get(index) ?? queue.shift()!).filter(Boolean);
+    return [...ordered, ...queue];
   };
   if (!selectors.length) return { status: 'ok', entries: inOrder([]) };
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
@@ -170,14 +193,43 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
  */
 function itemInPlugin(managementId: string, item: string, scope: 'project' | 'user', anchor: string): RemovalEntry | undefined {
   const root = scope === 'project' ? anchor : projectRoot(homedir());
-  const plan = planFacts([root]).get(`${scope}\0${managementId}`);
+  const facts = planFacts([root]);
+  const plan = facts.get(`${scope}\0${managementId}`);
   if (!plan) return { managementId, item, disposition: 'absent', members: [] };
+  const whole = { managementId, item, disposition: 'unavailable' as const, reason: 'plugin-indivisible', members: [] };
+  if (plan.localPlugin) {
+    // Without the route's contained-item metadata Core can't say what the plugin holds; it lists its files (C68).
+    if (plan.localPlugin.contains === null) {
+      const row = readOwnership(root).value.items?.[claimIdentity(scope, managementId, anchor)];
+      return { ...whole, files: pluginFiles((row?.members ?? []).map(member => ({ kind: member.kind, path: 'path' in member ? member.path : '' })), root), offers: [{ managementId }] };
+    }
+    if (!plan.localPlugin.contains.includes(item)) return { managementId, item, disposition: 'absent', members: [] };
+    return { ...whole, contains: [...plan.localPlugin.contains], offers: [{ managementId }] };
+  }
   if (!plan.plugins) return undefined;
   const holding = plan.plugins.filter(plugin => plugin.contains.includes(item));
   if (!holding.length) return { managementId, item, disposition: 'absent', members: [] };
-  return { managementId, item, disposition: 'unavailable', reason: 'plugin-indivisible', members: [],
-    contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers: [{ managementId }] };
+  const offers: NonNullable<RemovalEntry['offers']> = [{ managementId }];
+  if (switchable(holding, item)) offers.push(switchedOff(facts, scope, managementId, item) ? { managementId: item } : { managementId, item, switchOff: true });
+  return { ...whole, contains: [...new Set(holding.flatMap(plugin => plugin.contains))].sort(), offers };
 }
+/** `{ managementId, item, switchOff: true }`: `absent` when the install doesn't record the item, else its reviewed switch-off. */
+async function switchOff(framework: string, item: string, scope: 'project' | 'user', anchor: string, controls: PlanControls): Promise<RemovalResult> {
+  const root = scope === 'project' ? anchor : projectRoot(homedir());
+  const plan = planFacts([root]).get(`${scope}\0${framework}`);
+  const absent: RemovalResult = { status: 'ok', entries: [{ managementId: framework, item, disposition: 'absent', members: [] }] };
+  if (!plan) return absent;
+  const holding = [...(plan.plugins ?? []).filter(plugin => plugin.contains.includes(item)), ...(plan.localPlugin?.contains?.includes(item) ? [null] : [])];
+  if (!holding.length && plan.localPlugin?.contains !== null) return absent;
+  return prepareSwitchOff(framework, item, switchable(plan.plugins ?? [], item), plan, controls);
+}
+/** The plugin step that lets this one item be switched off: a Codex plugin naming the item's skill (C45, C69). */
+export function switchable(plugins: PluginFacts[], item: string): PluginFacts | undefined {
+  return plugins.find(plugin => plugin.cli === 'codex' && plugin.contains.includes(item) && typeof plugin.skills?.[item] === 'string');
+}
+/** Whether a switch-off claim for this item of this framework is recorded here. */
+const switchedOff = (facts: Map<string, PlanItemFacts>, scope: string, framework: string, item: string): boolean =>
+  facts.get(`${scope}\0${item}`)?.switchOff?.framework === framework;
 
 /**
  * The reviewed removal commands of native plugins, as their own engine preparation: one `process.run` per saved

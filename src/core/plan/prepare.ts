@@ -193,7 +193,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown): Promis
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
-      ...pluginFacts(group.steps), ...inputFacts(group.managementId, group.steps) });
+      ...pluginFacts(group.steps), ...localPluginFacts(group.steps),
+      ...inputFacts(group.managementId, group.steps) });
     const requires = [...groups.values()].filter(other => other.managementId !== group.managementId &&
       dependencies.get(group.managementId)?.has(other.managementId)).map(other => other.selectionId);
     selections.push({ id: group.selectionId, managementId: group.managementId, scope: group.scope, configuration: {}, requires,
@@ -333,8 +334,18 @@ function programOperations(lowered: LoweredPlugin, index: number, group: { selec
 function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
   const plugins = steps.flatMap(step => step.lowered.kind === 'plugin' && !step.skipped ? [{ step: step.index, cli: step.lowered.cli,
     plugin: step.lowered.plugin, commit: step.lowered.commit, contains: [...step.lowered.contains], undo: step.lowered.undo,
-    presenceCheck: step.lowered.presenceCheck }] : []);
+    presenceCheck: step.lowered.presenceCheck, ...(step.lowered.skills ? { skills: { ...step.lowered.skills } } : {}) }] : []);
   return plugins.length ? { plugins } : {};
+}
+/**
+ * A local-plugin route's receipt facts (C68, Catalog D120): the items its first step says it contains, or `null` when
+ * the plan gives no such metadata (then only its files are known; Core never infers membership).
+ */
+function localPluginFacts(steps: CheckedStep[]): { localPlugin?: { contains: string[] | null } } {
+  const route = steps.filter(step => step.lowered.kind !== 'plugin' && step.lowered.review.route === 'local-plugin');
+  if (!route.length) return {};
+  const named = route.flatMap(step => step.lowered.kind === 'plugin' ? [] : step.lowered.review.contains ? [step.lowered.review.contains] : []);
+  return { localPlugin: { contains: named.length ? [...new Set(named.flat())].sort(codeUnitCompare) : null } };
 }
 /** An AI setup's review facts (C46): what it downloads, and for a Python tool both interpreter branches. */
 function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>): Pick<ReviewStep, 'acquire' | 'interpreter'> {

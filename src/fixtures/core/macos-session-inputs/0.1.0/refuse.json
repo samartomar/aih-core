@@ -1,0 +1,8 @@
+{
+  "schema": "urn:aihq:core:macos-session-inputs:0.1.0",
+  "route": "file",
+  "sources": {
+    "os": false,
+    "supplied": []
+  }
+}

@@ -11,6 +11,7 @@
 import macosRepairRequestSchema from './schemas/repair-request/1.1.0.json' with { type: 'json' };
 import macosRepairInputsSchema from './schemas/repair-inputs/1.1.0.json' with { type: 'json' };
 import macosSessionCustodySchema from './schemas/macos-session-custody/1.0.0.json' with { type: 'json' };
+import macosSessionCustodyRecordSchema from './schemas/macos-session-custody/0.1.0.json' with { type: 'json' };
 import macosSessionProfilesSchemaDocument from '../harness/schemas/macos-session-profiles/1.0.0.json' with { type: 'json' };
 import preparedWork13Schema from './schemas/prepared-work/1.3.0.json' with { type: 'json' };
 import runResult13Schema from './schemas/run-result/1.3.0.json' with { type: 'json' };
@@ -35,6 +36,8 @@ export const MACOS_REPAIR_INPUTS_SCHEMA = 'urn:aihq:core:repair-inputs:1.1.0' as
 export const MACOS_PREPARED_WORK_SCHEMA = 'urn:aihq:core:prepared-work:1.3.0' as const;
 export const MACOS_RUN_RESULT_SCHEMA = 'urn:aihq:core:run-result:1.3.0' as const;
 export const MACOS_SESSION_CUSTODY_SCHEMA = 'urn:aihq:core:macos-session-custody:1.0.0' as const;
+/** The stored macOS session ownership format (contract 4, 5): `~/.aih/core/macos-session-custody.json`. */
+export const MACOS_SESSION_CUSTODY = 'urn:aihq:core:macos-session-custody:0.1.0' as const;
 export const MACOS_SESSION_VERIFICATION_REQUEST_SCHEMA = 'urn:aihq:core:macos-session-verification-request:1.0.0' as const;
 export const MACOS_SESSION_VERIFICATION_RESULT_SCHEMA = 'urn:aihq:core:macos-session-verification-result:1.0.0' as const;
 export const MACOS_SESSION_PROFILES_SCHEMA = 'urn:aihq:harness:macos-session-profiles:1.0.0' as const;
@@ -223,7 +226,7 @@ export interface MacosSessionCustodyEntry {
 }
 /** Protected session provenance supplement; never recipe authority. */
 export interface MacosSessionCustody {
-  schema: typeof MACOS_SESSION_CUSTODY_SCHEMA;
+  schema: typeof MACOS_SESSION_CUSTODY_SCHEMA | typeof MACOS_SESSION_CUSTODY;
   entries: readonly MacosSessionCustodyEntry[];
 }
 
@@ -320,6 +323,8 @@ registerSchemas(macosRepairRequestSchema, macosRepairInputsSchema, macosSessionC
 const checkMacosRepairRequest = schemaCheck(macosRepairRequestSchema.$id);
 const checkMacosRepairInputs = schemaCheck(macosRepairInputsSchema.$id);
 const checkMacosSessionCustody = schemaCheck(macosSessionCustodySchema.$id);
+registerSchemas(macosSessionCustodyRecordSchema);
+const checkMacosSessionCustodyRecord = schemaCheck(macosSessionCustodyRecordSchema.$id);
 const checkMacosSessionProfiles = schemaCheck(macosSessionProfilesSchemaDocument.$id);
 const checkPreparedWork13 = schemaCheck(preparedWork13Schema.$id);
 const checkRunResult13 = schemaCheck(runResult13Schema.$id);
@@ -421,7 +426,9 @@ function macosSessionCustodySemantics(document: Data): Diagnostic[] {
   return out;
 }
 
+/** The retiring 1.0.0 validator; a stored 0.1.0 record is read by its own schema. */
 export const validateMacosSessionCustody = (value: unknown): ValidationResult =>
+  value && typeof value === 'object' && (value as { schema?: unknown }).schema === MACOS_SESSION_CUSTODY ? validateMacosSessionCustodyRecord(value) :
   validateExactDocument(value, macosSessionCustodySchema.$id, checkMacosSessionCustody, macosSessionCustodySemantics, 1_048_576);
 
 const environmentKeyName = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -619,3 +626,6 @@ export const validateMacosSessionVerificationRequest = (value: unknown): Validat
   validateExactDocument(value, verificationRequestSchema.$id, checkVerificationRequest, () => [], 4096);
 export const validateMacosSessionVerificationResult = (value: unknown): ValidationResult =>
   validateExactDocument(value, verificationResultSchema.$id, checkVerificationResult, verificationResultSemantics, 1_048_576);
+/** The stored custody record, `urn:aihq:core:macos-session-custody:0.1.0`: the 1.0.0 shape under its 0.1.0 name. */
+export const validateMacosSessionCustodyRecord = (value: unknown): ValidationResult =>
+  validateExactDocument(value, macosSessionCustodyRecordSchema.$id, checkMacosSessionCustodyRecord, macosSessionCustodySemantics, 1_048_576);
