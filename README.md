@@ -2410,6 +2410,62 @@ Core applies an approval only where no choice was made yet:
 Only the approval file Core writes is read: an approval or denial the tool records
 elsewhere (for example in the user's own state) is not seen.
 
+## Install your own content through a plan request (0.1.0, in development)
+
+`urn:aihq:core:plan-request:0.1.0` carries a Catalog plan plus what Core needs to carry it out. Your own folder is a plan
+with `data: null`; it gets the same review, receipts and removal as published content. This slice carries out `write`
+and `fetch` steps; every other step kind is refused (`step-unknown`) before any effect, and a `render` step needs the
+Catalog that made the plan (`catalog-required`). The format is not marked ready.
+
+```js
+import { prepare, apply, list, prepareRemoval } from '@aihq/core';
+
+const request = { schema: 'urn:aihq:core:plan-request:0.1.0', scope: 'project', target: { project: '/work/app' },
+  plan,                 // what Catalog's planInstall returned
+  contents, profiles,   // the content and tool-profile documents the plan was made from
+  // One entry per { sourceId, sourcePath } a step names. `bytes` exists only in the Node API; a saved request has none.
+  files: [{ sourceId: 'local-my-skills', sourcePath: 'notes/SKILL.md', sha256: '…', bytes }] };
+const prepared = await prepare(request);          // ready | partial | blocked | refused | invalid | unsupported-version
+if (prepared.status === 'ready') {
+  const run = await apply(prepared.handle, { approved: true, origin: 'interactive', reviewDigest: prepared.review.reviewDigest });
+  // run.completion: complete | incomplete | cancelled | rejected (REVIEW_STALE with `changed`)
+}
+await list({ target: { project: '/work/app' }, scope: 'project' });   // urn:aihq:core:inventory:0.1.0
+const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 'project',
+  removals: [{ managementId: 'local-my-skills.skill.notes' }] });      // then apply(removal.handle, …)
+```
+
+- **Before any effect**, Prepare refuses a file a step names that has no entry or no bytes (`source-missing`), bytes
+  whose sha256 differs from the entry, the content document or the plan (`source-mismatch`), a CLI or profile id with
+  no registry tool (`tool-unknown`), a path leaving its root (`path-escape`), a target in Core's state (`state-path`), an
+  unresolved clash (`plan-unresolved`) and anything over a published limit (`limit-exceeded`, naming the limit). Two
+  entries for one source file are `invalid` (`duplicate-file`). An entry no step names is ignored and listed in the
+  review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
+- **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
+  origin (`chosen`), conflicts and `reviewDigest`. It never holds source bytes. One management id per item and scope.
+- **Conflicts.** A file Core didn't write makes Prepare `blocked`, with no handle; each conflict carries its
+  `observedSha256` and choices. Prepare again with `resolutions: [{ managementId, step, choice, observedSha256 }]`:
+  `replace` keeps your original in protected recovery and removal writes it back; `adopt` takes identical bytes; `skip`
+  leaves the member out and makes the review `partial` (Apply then needs `allowPartial: true`).
+- **Apply** binds the exact `reviewDigest`, consumes the handle, and re-checks the request (document and bytes), the
+  target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
+  receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
+- **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
+  Removal by CLI is refused (`client-attribution-missing`) until receipts record which CLI claims each member.
+
+`@aihq/core/contracts` publishes `schemas` (each 0.1.0 format with one valid and one invalid fixture), `validateFormat`,
+`refusalCodes` and `limits`.
+
+```sh
+aih install plan-request.json --project /work/app --source local-my-skills=/work/my-skills [--apply --yes] [--json]
+aih list --project /work/app --scope project --json
+aih remove local-my-skills.skill.notes --scope project --project /work/app [--apply --yes] [--json]
+```
+
+`--source` reads the folder with `readLocalSource` from the `@aihq/catalog` installed beside the CLI; without it the
+command is refused `catalog-required`. The CLI never takes the project from the working folder. Exit codes: 0 ready,
+complete or ok; 1 partial, blocked, incomplete, or no prepared removal; 2 refused, invalid or rejected; 130 cancelled.
+
 ## Managed lifecycle
 
 `managementId` remains stable when run-local selection/operation IDs or recipe bytes change. Core records custody separately for files, exact JSON/JSONC/TOML/INI/YAML/properties entries and marked blocks. Unrelated settings, comments and text outside those members survive updates and cleanup. Changed managed bytes require an exact reviewed replacement; matching unowned bytes remain satisfied and unowned until explicit reviewed adoption. A shared member cannot change while another owner retains it.
