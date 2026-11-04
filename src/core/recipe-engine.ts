@@ -32,6 +32,7 @@ import { USER_NOTES_FILE, extractBlockBody, personLinesInside, sharedBlockRole }
 import { hookConflictMessage, hookGuidanceText } from './internal/hook-guidance.js';
 import { RecipeEditError } from './internal/recipe-editors.js';
 import { resolveExecutable, resolveProgram, runApprovedProcess, type ResolvedExecutable } from './internal/approved-process.js';
+import { operationKey, type OperationKey } from './internal/operation-key.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
 /** A selection's own material, as reviewed. */
@@ -188,15 +189,15 @@ export interface EngineExtension {
    * receipt: a failure fails the operation (its write and dependants are not attempted); `facts` on success are recorded
    * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1).
    */
-  effects?: ReadonlyMap<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
+  effects?: ReadonlyMap<OperationKey, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
   // A `process.run` operation with an effect is carried out by that effect instead of its own executable (plan programs).
   /**
    * Plan requests (contract 8.1, D92): each operation's place in the plan, by `<selection>/<operation>`. Operations run in
    * that order across selections, and an operation waits only for the operations of required selections placed before it.
    */
-  order?: ReadonlyMap<string, number>;
+  order?: ReadonlyMap<OperationKey, number>;
   /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
-  merges?: ReadonlyMap<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
+  merges?: ReadonlyMap<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
   observe?: (facts: ObservedStep) => void;
 }
@@ -567,9 +568,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         if (outcome !== 'available') prerequisite = outcome;
       }
       for (const op of dependencyOrder(recipe.operations)) {
-        const id = `${selection.id}/${op.id}`; currentIds.push(id);
+        const id = operationKey(selection.id, op.id); currentIds.push(id);
         const place = extension?.order?.get(id);
-        const requires = [...(place === undefined ? priorSelections : priorSelections.filter(prior => (extension!.order!.get(prior) ?? -1) < place)),
+        // Every id a selection records for its operations is that operation's key.
+        const requires = [...(place === undefined ? priorSelections : priorSelections.filter(prior => (extension!.order!.get(prior as OperationKey) ?? -1) < place)),
           ...op.requires.map(required => `${selection.id}/${required}`)];
         const selectedChecks = op.checks.map(checkId => checkMap.get(checkId)!);
         const preparedChecks = selectedChecks.map(check => prepareCheck(check, bound, project!, selectionKey, material, privateValues, selection.id,
@@ -842,7 +844,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           }
           // A plan merge's TOML table that already holds a key the entry doesn't name is the person's entry: a conflict
           // that only a reviewed replace or a skip settles, never silently merged into, and never adoptable.
-          const planned = extension?.merges?.get(`${selection.id}/${op.id}`);
+          const planned = extension?.merges?.get(operationKey(selection.id, op.id));
           let foreign = false;
           if (planned?.format === 'toml' && op.kind === 'config.entries' && !editConflict) try {
             const authored = new Set(op.entries.map(entry => JSON.stringify(entry.path)));
@@ -1849,7 +1851,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertStep(step);
         if (receiptDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
-      const effect = step.review.effects === 'already-satisfied' ? undefined : state.effects?.get(step.review.id);
+      const effect = step.review.effects === 'already-satisfied' || !step.authored ? undefined :
+        state.effects?.get(operationKey(step.authored.selectionId, step.authored.operationId));
       if (effect && step.root && step.path) {
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');

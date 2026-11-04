@@ -1,6 +1,7 @@
 // Prepare for a plan request (contract 7, 8.1): admit the request, lower its steps into the one existing engine, and
 // present the engine's review as a frozen 0.1.0 review whose digest the person approves.
 import { reviewVersions } from '../inspect.js';
+import { operationKey, operationParts, type OperationKey } from '../internal/operation-key.js';
 import { knownCli } from './tools.js';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -155,7 +156,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   }
   const verifications: Verifications = new Map();
   const acquired = new Map<number, AcquireFacts>();
-  const effects = new Map<string, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>();
+  const effects = new Map<OperationKey, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>();
   // Acquisition progress goes to the Apply call's `onProgress` (C38), which Apply sets here.
   const sink: { onProgress?: (event: Json) => void } = {};
   const progress = (event: Json) => { try { sink.onProgress?.(event); } catch { /* a caller's progress handler never stops the run */ } };
@@ -254,8 +255,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const planClis = [...new Set(checked.profiles.map(profile => profile.id))].sort(codeUnitCompare);
   const supplied = new Map<string, NonNullable<EngineExtension['supplied']> extends ReadonlyMap<string, infer V> ? V : never>();
   const plans = new Map<string, PlanItemFacts>();
+  // Engine review operation ids (authored operation keys, and an update's lifecycle ids) -> their plan step.
   const operations = new Map<string, StepRef>();
-  const merges = new Map<string, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>();
+  const merges = new Map<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>();
   const selections: ExecutionPolicy['selections'] = [];
   // Secret values the plan writes into files: the engine holds them as its own private inputs, so its review details
   // and history redact them (C59); Apply re-checks the caller's private inputs by digest.
@@ -278,7 +280,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         return ops;
       }
       const id = `step-${step.index}`;
-      operations.set(`${group.selectionId}/${id}`, { step: step.index, managementId: group.managementId });
+      operations.set(operationKey(group.selectionId, id), { step: step.index, managementId: group.managementId });
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
       const prior = group.steps[at - 1];
       // A failed step makes the rest of its item's steps not attempted (C60).
@@ -295,17 +297,17 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         if (lowered.linkType !== 'copy') {
           // The link is placed just before its record is written; each claim's record lives in Core's private state (contract 5).
           const from = relinks.get(step.index);
-          effects.set(`${group.selectionId}/${id}`, { async run() { return placeLink(home, planned.facts, from); } });
+          effects.set(operationKey(group.selectionId, id), { async run() { return placeLink(home, planned.facts, from); } });
           return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires, 'userState')];
         }
-        operations.delete(`${group.selectionId}/${id}`);
+        operations.delete(operationKey(group.selectionId, id));
         return planned.files.map((file, k) => {
-          operations.set(`${group.selectionId}/step-${step.index}-${k}`, { step: step.index, managementId: group.managementId });
+          operations.set(operationKey(group.selectionId, `step-${step.index}-${k}`), { step: step.index, managementId: group.managementId });
           return write(file.path, file.bytes, file.executable, `step-${step.index}-${k}`, k ? [`step-${step.index}-${k - 1}`] : requires);
         });
       }
       if (lowered.kind === 'merge') {
-        merges.set(`${group.selectionId}/${id}`, { format: lowered.format, segments: lowered.segments });
+        merges.set(operationKey(group.selectionId, id), { format: lowered.format, segments: lowered.segments });
         if (lowered.format === 'markdown') return [{ ...base, kind: 'text.block' as const, blockId: lowered.key, ...markers(lowered.key),
           action: 'set' as const, content: { literal: lowered.entry } }];
         return [{ ...base, kind: 'config.entries' as const, format: lowered.format === 'json' ? 'jsonc' as const : 'toml' as const,
@@ -319,7 +321,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     });
     for (const step of group.steps) if (step.lowered.kind === 'write' && step.lowered.acquire) {
       const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress);
-      effects.set(`${group.selectionId}/step-${step.index}`, { async run(signal) {
+      effects.set(operationKey(group.selectionId, `step-${step.index}`), { async run(signal) {
         const outcome = await run.run(signal);
         if (outcome.status === 'passed' && outcome.facts) acquired.set(step.index, outcome.facts as unknown as AcquireFacts);
         return outcome;
@@ -329,9 +331,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       const lowered = step.lowered;
       if (lowered.kind !== 'program' || step.skipped) continue;
       const root = rootOf(lowered.root);
-      if (lowered.clone) effects.set(`${group.selectionId}/step-${step.index}`, cloneEffect(lowered.clone, root, git!));
+      if (lowered.clone) effects.set(operationKey(group.selectionId, `step-${step.index}`), cloneEffect(lowered.clone, root, git!));
       if (lowered.executable.from !== 'path' || lowered.op === 'upstream-setup')
-        effects.set(`${group.selectionId}/${lowered.clone ? `step-${step.index}-run` : `step-${step.index}`}`,
+        effects.set(operationKey(group.selectionId, lowered.clone ? `step-${step.index}-run` : `step-${step.index}`),
           commandEffect(lowered, root, pinnedPrograms.get(step.index), step.index, verifications));
     }
     const secretValues = [...new Set(group.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
@@ -374,8 +376,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       observedSha256: item.observedSha256 }] : [];
   });
   // The plan's order (D92, C17) across every item: an operation runs at its step's place in the plan.
-  const order = new Map([...operations.keys()].map(key => {
-    const parts = /\/step-(\d+)(?:-(run|\d+))?$/.exec(key);
+  // Before the engine runs, every key in `operations` is an authored operation's key.
+  const order = new Map([...operations.keys()].map(id => id as OperationKey).map(key => {
+    const parts = /^step-(\d+)(?:-(run|\d+))?$/.exec(operationParts(key).operationId);
     const index = Number(parts?.[1] ?? 0); const sub = parts?.[2];
     return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
   }));
@@ -390,7 +393,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     update ? { originReleases: [], plan: (rows: CleanupPlanRow[]) => { update.cleanupRows = rows; } } : undefined,
     update ? { plan: (rows: PlannedMember[]) => { update.rows = rows; } } : undefined,
     { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, ...(update ? { owners: lifecycleOwners } : {}),
-      observe: facts => { observed.set(`${facts.selectionId}/${facts.operationId}`, facts); } }, { commandShims: true });
+      observe: facts => { observed.set(operationKey(facts.selectionId, facts.operationId), facts); } }, { commandShims: true });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
     if (engine.diagnostics.some(item => item.reason === 'custody-record-limit'))
@@ -609,7 +612,7 @@ function programOperations(lowered: LoweredPlugin, index: number, group: { selec
     operations: Map<string, StepRef>): Recipe['operations'] {
   return lowered.commands.map((argv, at) => {
     const id = `step-${index}-${at}`;
-    operations.set(`${group.selectionId}/${id}`, { step: index, managementId: group.managementId, program: true });
+    operations.set(operationKey(group.selectionId, id), { step: index, managementId: group.managementId, program: true });
     return { id, purpose: `Runs \`${argv.join(' ')}\``, kind: 'process.run', scope: group.scope,
       executable: { name: argv[0]! }, args: argv.slice(1).map(literal => ({ literal })),
       cwd: { root: group.scope === 'project' ? 'project' : 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0],
@@ -627,11 +630,11 @@ function commandOperations(lowered: LoweredProgram, index: number, group: { sele
   const run = lowered.clone ? `step-${index}-run` : `step-${index}`;
   const ops: Recipe['operations'] = [];
   if (lowered.clone) {
-    operations.set(`${group.selectionId}/step-${index}`, { step: index, managementId: group.managementId, command: true });
+    operations.set(operationKey(group.selectionId, `step-${index}`), { step: index, managementId: group.managementId, command: true });
     ops.push({ id: `step-${index}`, purpose: `Clones ${lowered.clone.repository} at ${lowered.clone.commit}`, kind: 'file.write', scope: group.scope,
       target: { root, segments: [...lowered.clone.into.split('/'), SETUP_MARKER].map(literal => ({ literal })) }, material: '', requires, checks: [] });
   }
-  operations.set(`${group.selectionId}/${run}`, { step: index, managementId: group.managementId, command: true });
+  operations.set(operationKey(group.selectionId, run), { step: index, managementId: group.managementId, command: true });
   const program = lowered.executable.from === 'path' ? lowered.executable.name : lowered.executable.from === 'acquired' ?
     join(homedir(), ...lowered.executable.path.split('/')) : lowered.argv[0]!;
   ops.push({ id: run, purpose: `Runs \`${lowered.shown.join(' ')}\``, kind: 'process.run', scope: group.scope, executable: { name: program },

@@ -19,6 +19,7 @@ import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { prepareSwitchOff, switchOffClaims, switchOffId } from './switch-off.js';
 import { prepare as prepareEngine } from '../recipe-engine.js';
 import { resolveProgram } from '../internal/approved-process.js';
+import { operationKey } from '../internal/operation-key.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
 import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
@@ -449,7 +450,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     const selectionId = `p${index}`;
     const ops: Recipe['operations'] = plugin.undo.map((argv, at) => {
       const id = `remove-${at}`;
-      operations.set(`${selectionId}/${id}`, { step: index, managementId, program: true });
+      operations.set(operationKey(selectionId, id), { step: index, managementId, program: true });
       return { id, purpose: `Runs \`${argv.join(' ')}\``, kind: 'process.run', scope, executable: { name: argv[0]! },
         args: argv.slice(1).map(literal => ({ literal })), cwd, env: {}, acceptedExitCodes: [0],
         effects: [`The ${plugin.cli} CLI's own plugin removal; Core can't show its effects`], requires: at ? [`remove-${at - 1}`] : [], checks: [] };
@@ -465,7 +466,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     const index = offset + at;
     if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); return; }
     const selectionId = `c${index}`;
-    operations.set(`${selectionId}/reverse`, { step: index, managementId, command: true });
+    operations.set(operationKey(selectionId, 'reverse'), { step: index, managementId, command: true });
     // Its own engine management id: running the reverse must not rewrite the AI setup's claim before its release.
     selections.push({ id: selectionId, managementId: `aih-reverse-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-reverse', description: 'Reverses a tool command', inputs: {}, materials: [],
