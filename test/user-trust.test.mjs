@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aih-user-trust-')));
 const home = join(scratch, 'home');

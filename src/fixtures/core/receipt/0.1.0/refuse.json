@@ -1,0 +1,7 @@
+{
+  "schema": "urn:aihq:core:receipt:0.1.0",
+  "target": "/home/example/project",
+  "members": {
+    ".claude/skills/notes/reference.md": { "managementId": "local-my-skills.skill.notes", "sha256": "not-a-digest", "mode": 384 }
+  }
+}

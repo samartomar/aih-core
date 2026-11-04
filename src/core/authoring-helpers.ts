@@ -1,6 +1,6 @@
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import recipeSchema from './schemas/recipe/1.3.0.json' with { type: 'json' };
-import { validateRecipe, validatePolicy, validateOrganizationPolicy } from './contracts.js';
+import { validateRecipe, validatePolicy, validateOrganizationPolicy } from './engine-contracts.js';
 import { admitOrganizationSelections, evaluateOrganizationContent, evaluateOrganizationObligations, type AdmissionSelection, type AdmissionLifecycle,
   type OrganizationContentEntryResult } from './internal/organization-admission.js';
 import { inputAccepts, inputDefinitionSemantics, isNativeClient, isRepositoryIdentity } from './internal/policy-validation.js';

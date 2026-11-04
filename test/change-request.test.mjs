@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
+import { apply, list, prepare, prepareRemoval } from '../dist/core/engine-api.js';
 import { deriveChangeIdentity, refusalCodes, schemas, validateChange, validateFormat } from '../dist/core/contracts.js';
 import { approvalChange, changeRequest, codexApproval, commandChange, projectSetting, teamFile, teamFolder } from './fixtures/change-fixture.mjs';
 

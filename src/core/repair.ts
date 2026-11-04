@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { contractSupport as harnessSupport, repairIndex } from '../harness/contracts.mjs';
 import { assessRepairCandidate, assessRepairObservations, getRepairRecipe, prepareRepairDefinition, repairObservationRequests } from '../harness/runtime.mjs';
 import { distributionManifest, installedDistribution } from './internal/installed-distribution.js';
-import { validateRecipe } from './contracts.js';
+import { validateRecipe } from './engine-contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
 import { canonicalJson } from './internal/canonical.js';
 import { readRegularFile, readRegularFileWithStats } from './internal/fsxn.js';

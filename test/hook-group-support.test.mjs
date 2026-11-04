@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';
-import { apply, prepare } from '../dist/core/index.js';
+import { apply, prepare } from '../dist/core/engine-api.js';
 import { SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request, sandbox } from './hook-group-fixture.mjs';
 import { SELECTION_ID, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 import { compact, controls, guard, neighbor, only, prep, run } from './hook-group-harness.mjs';

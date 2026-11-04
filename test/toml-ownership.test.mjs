@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
+import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { sandbox, authorize } from './hook-group-fixture.mjs';
 
 const document = (id, path, value) => ({

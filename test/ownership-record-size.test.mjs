@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { apply, prepare, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { OWNERSHIP_RECORD_BYTES, admitOwnership, sealOwnership, validateOwnership } from '../dist/core/internal/state.js';
 import { expandOwnership, storedOwnership } from '../dist/core/internal/ownership-storage.js';
 import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';

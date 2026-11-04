@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { X509Certificate } from 'node:crypto';
-import { prepare, apply, prepareManagedRemoval, listManagedSelections } from '../dist/core/index.js';
-import { validatePreparedWork12, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
+import { prepare, apply, prepareManagedRemoval, listManagedSelections } from '../dist/core/engine-api.js';
+import { validatePreparedWork12, validateRunResult12, validateTrustCustody } from '../dist/core/engine-contracts.js';
 import { trustCapabilities,selectTrustCell } from '../dist/harness/contracts.mjs';
 import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 const platform=detectTrustPlatform();

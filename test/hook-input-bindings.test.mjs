@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRecipe, validatePolicy } from '../dist/core/contracts.js';
+import { validateRecipe, validatePolicy } from '../dist/core/engine-contracts.js';
 import { hookOp, hookSelection, policy11 } from './hook-group-fixture.mjs';
 
 export function boundPolicy(command = 'node "C:/Example Home/hooks/guard.mjs"') {
@@ -26,7 +26,7 @@ test('one immutable hook recipe accepts a deployment command as a declared input
   assert.equal(validateRecipe(old.selections[0].recipe.inline).valid, false);
 });
 
-import { prepare, apply, checkFileState } from '../dist/core/index.js';
+import { prepare, apply, checkFileState } from '../dist/core/engine-api.js';
 import { SETTINGS, sandbox, authorize, settingsText } from './hook-group-fixture.mjs';
 
 test('bound hook install, command update and removal preserve neighboring user hooks', async () => {

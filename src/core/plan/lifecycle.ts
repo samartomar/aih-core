@@ -3,6 +3,7 @@
 import { bindPrivateInputs, privateInputValue } from './inputs.js';
 import { memberPointer, publicKind } from '../internal/custody-items.js';
 import { codeUnitCompare } from '../internal/canonical.js';
+import { internalManagementId, publicManagementId } from '../../harness/public-ids.mjs';
 import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
@@ -107,7 +108,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   for (const row of listed.selections) {
     const plan = facts.get(`${row.scope}\0${row.managementId}`);
     const changeClaim = plan ? undefined : keyed.get(`${row.scope}\0${row.managementId}`);
-    const managementId = changeClaim?.managementId ?? managementIdOf(row.managementId, plan);
+    const managementId = changeClaim?.managementId ?? publicManagementId(managementIdOf(row.managementId, plan));
     let entry = byId.get(`${row.scope}\0${managementId}`);
     if (!entry) {
       entry = { managementId, scope: row.scope, items: plan ? [...plan.items] : [], origin: plan ? plan.origin : null,
@@ -236,7 +237,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     const chosen = clis ? recorded.filter(claim => clis.includes(claim.plan.cli!)) : recorded;
     if (recorded.length && !chosen.length) { absentEntries.set(index, { managementId: entry.managementId, disposition: 'absent', members: [] }); continue; }
     // A receipt without plan facts (a change, an older install) keeps its own management id.
-    selectors.push({ index, managementId: entry.managementId, engineIds: chosen.length ? chosen.map(claim => claim.engineId) : [entry.managementId] });
+    selectors.push({ index, managementId: entry.managementId, engineIds: chosen.length ? chosen.map(claim => claim.engineId) : [internalManagementId(entry.managementId)] });
   }
   // Removing a whole plugin also removes the switch-offs of its items: nothing is left to switch off (C45).
   if (scope === 'user') for (const selector of [...selectors])

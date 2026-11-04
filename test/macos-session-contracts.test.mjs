@@ -377,7 +377,7 @@ test('valid 1.3 prepared-work and run-result fixtures satisfy their strict schem
 });
 
 test('1.2 and 1.3 review/result formats refuse each other without downgrade', async () => {
-  const { validatePreparedWork12, validateRunResult12 } = await import('../dist/core/contracts.js');
+  const { validatePreparedWork12, validateRunResult12 } = await import('../dist/core/engine-contracts.js');
   const blocked12 = JSON.parse(readFileSync(new URL('./fixtures/trust-contracts/prepared-work-1.2-blocked.json', import.meta.url), 'utf8'));
   const stale12 = JSON.parse(readFileSync(new URL('./fixtures/trust-contracts/run-result-1.2-stale.json', import.meta.url), 'utf8'));
 

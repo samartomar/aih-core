@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepare, apply, verifyMacosSession, prepareManagedRemoval, listManagedSelections } from '../dist/core/index.js';
+import { prepare, apply, verifyMacosSession, prepareManagedRemoval, listManagedSelections } from '../dist/core/engine-api.js';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validatePreparedWork13, validateRunResult13, validateFormat,
-  validateMacosSessionVerificationResult } from '../dist/core/contracts.js';
+  validateMacosSessionVerificationResult } from '../dist/core/engine-contracts.js';
 
 const request = () => ({
   schema: 'urn:aihq:core:repair-request:1.1.0',

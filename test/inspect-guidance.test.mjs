@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import childProcess from 'node:child_process';
 import tls from 'node:tls';
-import { inspect } from '../dist/core/index.js';
+import { inspect } from '../dist/core/engine-api.js';
 import { getGuidance } from '@aihq/core/support';
 
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';

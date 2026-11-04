@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
+import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { removalClaims } from '../dist/core/contracts.js';
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';

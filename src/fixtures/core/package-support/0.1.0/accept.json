@@ -1,0 +1,22 @@
+{
+  "schema": "urn:aihq:core:package-support:0.1.0",
+  "package": { "name": "@aihq/core", "version": "0.1.0" },
+  "contracts": [
+    {
+      "id": "urn:aihq:core:plan-request:0.1.0",
+      "role": "accepts",
+      "schemaExport": "@aihq/core/contracts#schemas/urn:aihq:core:plan-request:0.1.0/schema",
+      "versions": ["0.1.0"],
+      "fixtures": [
+        { "export": "@aihq/core/contracts#schemas/urn:aihq:core:plan-request:0.1.0/fixtures/valid", "expect": "accept" },
+        { "export": "@aihq/core/contracts#schemas/urn:aihq:core:plan-request:0.1.0/fixtures/invalid", "expect": "refuse" }
+      ]
+    }
+  ],
+  "entries": [
+    { "export": "@aihq/core", "runtime": "node", "nodeRange": ">=26.12.1 <27" },
+    { "export": "@aihq/core/contracts", "runtime": "portable" },
+    { "export": "@aihq/core/harness", "runtime": "portable" },
+    { "export": "@aihq/core/harness/runtime", "runtime": "node", "nodeRange": ">=26.12.1 <27" }
+  ]
+}

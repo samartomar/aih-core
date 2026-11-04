@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getRepairRecipe, renderRepair, diagnose, persistedConfigurationMembers } from '@aihq/core/harness/runtime';
 import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply, inspect } from '../dist/core/index.js';
+import { prepare, apply, inspect } from '../dist/core/engine-api.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-persisted-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkFileState } from '../dist/core/index.js';
+import { checkFileState } from '../dist/core/engine-api.js';
 import { SETTINGS, sha, groupOf, hookOp, hookSelection, policy11, sandbox } from './hook-group-fixture.mjs';
 import { compact, guard, neighbor, run } from './hook-group-harness.mjs';
 

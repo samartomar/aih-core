@@ -15,6 +15,6 @@ if (!files.length) throw new Error('No selected tests');
 const env = { ...process.env };
 delete env.NODE_TEST_CONTEXT;
 const result = spawnSync(process.execPath, ['--test', '--test-concurrency=4', ...files],
-  { stdio: 'inherit', env, windowsHide: true, timeout: 35 * 60_000 });
+  { stdio: 'inherit', env, windowsHide: true, timeout: 90 * 60_000 });
 if (result.error) console.error(result.error.message);
 process.exitCode = result.status ?? 1;

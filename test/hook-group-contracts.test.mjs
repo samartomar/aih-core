@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/core/contracts.js';
+import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/core/engine-contracts.js';
 import { policy } from './fixture.mjs';
 import { guard, run, validPrepared, validResult } from './hook-group-harness.mjs';
 import { POLICY_11, RECIPE_11, PREPARED_11, RESULT_11, hookOp, hookSelection, policy11, groupOf, sandbox } from './hook-group-fixture.mjs';

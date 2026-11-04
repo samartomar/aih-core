@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validatePreparedWork12, validatePreparedWork14 } from '../dist/core/contracts.js';
+import { validatePreparedWork12, validatePreparedWork14 } from '../dist/core/engine-contracts.js';
 
 const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
 function fixture() {

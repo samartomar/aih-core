@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { prepare, apply } from '../dist/core/index.js';
-import { contractSupport, validateOrganizationTarget } from '../dist/core/contracts.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
+import { contractSupport, validateOrganizationTarget } from '../dist/core/engine-contracts.js';
 import { nativeClients } from '../dist/core/internal/native-clients.js';
 import targetSchema from '../dist/core/schemas/organization-target/1.0.0.json' with { type: 'json' };
 import prepared15Schema from '../dist/core/schemas/prepared-work/1.5.0.json' with { type: 'json' };

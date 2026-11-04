@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 const parent = realpathSync(tmpdir());
 const root = mkdtempSync(join(parent, 'aih-native-executable-'));

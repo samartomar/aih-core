@@ -91,6 +91,19 @@ import organizationInvalid from '../../fixtures/core/organization/0.1.0/refuse.j
 import signerRecordsSchema from '../schemas/signer-records/0.1.0.json' with { type: 'json' };
 import signerRecordsValid from '../../fixtures/core/signer-records/0.1.0/accept.json' with { type: 'json' };
 import signerRecordsInvalid from '../../fixtures/core/signer-records/0.1.0/refuse.json' with { type: 'json' };
+// The one-version cutover (samartomar/aih-core#181): receipts, repair definitions, trust capabilities and package support.
+import receiptSchema from '../schemas/receipt/0.1.0.json' with { type: 'json' };
+import receiptValid from '../../fixtures/core/receipt/0.1.0/accept.json' with { type: 'json' };
+import receiptInvalid from '../../fixtures/core/receipt/0.1.0/refuse.json' with { type: 'json' };
+import repairSchema from '../schemas/repair/0.1.0.json' with { type: 'json' };
+import repairValid from '../../fixtures/core/repair/0.1.0/accept.json' with { type: 'json' };
+import repairInvalid from '../../fixtures/core/repair/0.1.0/refuse.json' with { type: 'json' };
+import trustCapabilitiesSchema from '../schemas/trust-capabilities/0.1.0.json' with { type: 'json' };
+import trustCapabilitiesValid from '../../fixtures/core/trust-capabilities/0.1.0/accept.json' with { type: 'json' };
+import trustCapabilitiesInvalid from '../../fixtures/core/trust-capabilities/0.1.0/refuse.json' with { type: 'json' };
+import packageSupportSchema from '../schemas/package-support/0.1.0.json' with { type: 'json' };
+import packageSupportValid from '../../fixtures/core/package-support/0.1.0/accept.json' with { type: 'json' };
+import packageSupportInvalid from '../../fixtures/core/package-support/0.1.0/refuse.json' with { type: 'json' };
 import { registerSchemas, schemaCheck } from '../internal/contract-validation.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -133,6 +146,11 @@ const entries: FormatEntry[] = [
   { id: organizationSchema.$id, schema: organizationSchema, fixtures: { valid: organizationValid, invalid: organizationInvalid } },
   // Scan evidence (samartomar/aih-core#180).
   { id: signerRecordsSchema.$id, schema: signerRecordsSchema, fixtures: { valid: signerRecordsValid, invalid: signerRecordsInvalid } },
+  // One version per format (samartomar/aih-core#181).
+  { id: receiptSchema.$id, schema: receiptSchema, fixtures: { valid: receiptValid, invalid: receiptInvalid } },
+  { id: repairSchema.$id, schema: repairSchema, fixtures: { valid: repairValid, invalid: repairInvalid } },
+  { id: trustCapabilitiesSchema.$id, schema: trustCapabilitiesSchema, fixtures: { valid: trustCapabilitiesValid, invalid: trustCapabilitiesInvalid } },
+  { id: packageSupportSchema.$id, schema: packageSupportSchema, fixtures: { valid: packageSupportValid, invalid: packageSupportInvalid } },
 ];
 registerSchemas(...entries.map(entry => entry.schema));
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateOrganizationPolicy, parseOrganizationPolicy, previewOrganizationAdmission,
-  previewOrganizationObligations, previewOrganizationContent, contractSupport } from '../dist/core/contracts.js';
+  previewOrganizationObligations, previewOrganizationContent, contractSupport } from '../dist/core/engine-contracts.js';
 
 const SCHEMA12 = 'urn:aihq:core:organization-policy:1.2.0';
 const ID = `sha256:${'a'.repeat(64)}`;

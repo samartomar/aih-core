@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { prepare, apply, prepareManagedRemoval, checkFileState } from '../dist/core/index.js';
-import { validatePolicy, validateRecipe, validatePreparedWork14 } from '../dist/core/contracts.js';
+import { prepare, apply, prepareManagedRemoval, checkFileState } from '../dist/core/engine-api.js';
+import { validatePolicy, validateRecipe, validatePreparedWork14 } from '../dist/core/engine-contracts.js';
 import { sandbox, authorize } from './hook-group-fixture.mjs';
 
 const document = (id = 'one', value = '/team.pem', key = 'cert') => ({

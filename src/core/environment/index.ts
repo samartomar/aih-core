@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { readRegularFile } from '../internal/fsxn.js';
 import { repairIndex } from '../../harness/contracts.mjs';
+import { internalManagementId, publicManagementId } from '../../harness/public-ids.mjs';
 import { prepareRepair, applyRepair } from '../repair.js';
 import { prepareTrust, applyTrust, disposeTrustHandle } from '../trust.js';
 import { prepareMacosSession, applyMacosSession, disposeMacosSessionHandle, verifyMacosSession } from '../macos-session.js';
@@ -63,12 +64,13 @@ interface TrustOutputRow { selectionId: string; operationId: string; managementI
 const trustOutputs = (inputs: unknown): TrustOutputRow[] =>
   ((inputs as { trust?: { outputs?: TrustOutputRow[] } } | undefined)?.trust?.outputs ?? []);
 
-/** The management id of the job's selection: the retained output custody's, else the repair definition's. */
+/** The management id of the job's selection, as a caller sees it: a repair is named by its repair id (contract 5). */
 function managementIdOf(checked: Checked, result: PreparationResult): string {
   const outputs = trustOutputs(result.review?.inputs);
-  if (outputs[0]?.managementId) return outputs[0].managementId;
+  if (outputs[0]?.managementId) return publicManagementId(outputs[0].managementId);
   const repair = (checked.request as { repair?: string }).repair;
-  return repairIndex.find(definition => definition.id === repair)?.managementId ?? (checked.job === 'export' ? 'certificate-export' : String(repair));
+  const definition = repairIndex.find(item => item.id === repair);
+  return definition ? publicManagementId(definition.managementId) : checked.job === 'export' ? 'certificate-export' : String(repair);
 }
 
 /** The review steps and their retained origins: the engine's operations, or the planned outputs when none were prepared. */
@@ -86,10 +88,10 @@ function stepsOf(checked: Checked, result: PreparationResult): { steps: ReviewSt
   }
   if (!steps.length) for (const row of trustOutputs(result.review?.inputs)) {
     const path = homePath(row.path);
-    steps.push({ step: steps.length, op: 'file.write', managementId: row.managementId,
+    steps.push({ step: steps.length, op: 'file.write', managementId: publicManagementId(row.managementId),
       sentence: `Writes the reviewed ${row.format} certificate output`, cantPromise: null, effect: outputEffect(row.effect),
       root: 'user', ...(path === undefined ? {} : { path }) });
-    refs.push({ selectionId: row.selectionId, operationId: row.operationId, managementId: row.managementId });
+    refs.push({ selectionId: row.selectionId, operationId: row.operationId, managementId: publicManagementId(row.managementId) });
   }
   return { steps, refs };
 }
@@ -227,7 +229,7 @@ function runOf(result: RunResult, state: State): Run {
     return step < 0 ? [] : [{ step, managementId: state.refs[step]!.managementId, application: operation.application,
       verification: { status: operation.verification.status, reason: operation.verification.reason } }];
   });
-  const members: Run['members'] = (result.members ?? []).map(member => ({ managementId: member.managementId, scope: member.scope,
+  const members: Run['members'] = (result.members ?? []).map(member => ({ managementId: publicManagementId(member.managementId), scope: member.scope,
     kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
     ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check }));
   const history: Run['history'] = result.record.status === 'written' ? { status: 'recorded' } : result.record.status === 'disabled' ?
@@ -263,8 +265,13 @@ export const isSessionVerificationRequest = (value: unknown): boolean =>
   Object.getOwnPropertyDescriptor(value, 'schema')?.value === MACOS_SESSION_VERIFICATION_REQUEST;
 export async function verifyMacosSessionRequest(input: unknown, controls: Pick<HostControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult010> {
   // The retained check reads the same fields; its schema field names the retained version it validates.
-  const lowered = { ...(input as Record<string, unknown>), schema: 'urn:aihq:core:macos-session-verification-request:1.0.0' };
+  // A repair is named by its repair id; the retained check reads its custody id.
+  const named = (input as { managementId?: unknown }).managementId;
+  const lowered = { ...(input as Record<string, unknown>), schema: 'urn:aihq:core:macos-session-verification-request:1.0.0',
+    ...(typeof named === 'string' ? { managementId: internalManagementId(named) } : {}) };
   const result = await verifyMacosSession(lowered as unknown as Parameters<typeof verifyMacosSession>[0], controls);
-  return { ...result, schema: MACOS_SESSION_VERIFICATION_RESULT };
+  const shown = result as { managementId?: unknown };
+  return { ...result, ...(typeof shown.managementId === 'string' ? { managementId: publicManagementId(shown.managementId) } : {}),
+    schema: MACOS_SESSION_VERIFICATION_RESULT } as MacosSessionVerificationResult010;
 }
 export type MacosSessionVerificationResult010 = Omit<Awaited<ReturnType<typeof verifyMacosSession>>, 'schema'> & { schema: typeof MACOS_SESSION_VERIFICATION_RESULT };

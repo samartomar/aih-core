@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { COMMIT, COMMIT2, TOKEN, enterprisePolicy, failingRoutes, fakeFetch, orgDocument, orgRoutes, orgSource,
   recipeIdentity } from './fixtures/github-org.mjs';
 

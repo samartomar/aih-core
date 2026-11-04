@@ -14,7 +14,7 @@ import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-cu
 import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
 import { releaseIndexStatus, validIndex, type ManagedInventoryIndex } from './internal/release-index.js';
-import { validateOrganizationPolicy } from './contracts.js';
+import { validateOrganizationPolicy } from './engine-contracts.js';
 import { contentEntries, contentFactsOf, matchContent, SetMembership } from './internal/organization-content.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';

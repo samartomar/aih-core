@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
-import { validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody } from '../dist/core/contracts.js';
+import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
+import { validatePreparedWork12, validatePreparedWork14, validateRunResult12, validateTrustCustody } from '../dist/core/engine-contracts.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import legacyRunSchema from '@aihq/core/schemas/run-result/1.0.0.json' with { type: 'json' };
 

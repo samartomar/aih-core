@@ -5,7 +5,7 @@ import { basename, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
-import { contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './contracts.js';
+import { installedPackage as contractSupport, parseOrganizationPolicy, validateOrganizationTarget, validatePolicy, validateRecipe } from './engine-contracts.js';
 import { readGitHubPolicy, readLocalPolicy, type ReadGitHubPolicyResult, type ReadLocalPolicyResult, type GitHubPolicySource,
   type LocalPolicySource } from '../harness/runtime.mjs';
 import { localPolicySourceLabel } from '../harness/local-policy.mjs';
@@ -43,7 +43,6 @@ import { readRegularFile } from './internal/fsxn.js';
 import { readEvidence, readPolicyEvidence } from './internal/policy-evidence.js';
 import { selectionScan, type OwnMaterial, type ScanArtifact, type SelectionScan } from './internal/item-scan.js';
 import { releaseIndexStatus, validIndex, type ReleaseIndexStatus } from './internal/release-index.js';
-import { renderRecipelessSelections } from './internal/recipeless.js';
 import type { AssociationResult, EvidenceAssociation } from './evidence/types.js';
 import type { NativeClientId } from './internal/native-clients.js';
 import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, Json, Operation, OrganizationPolicy, OrganizationTargetDeclaration, OrganizationTargetFacts, ProcessInvocation, Recipe, RecipeCheck, Slot, TargetPath } from './types.js';
@@ -629,18 +628,6 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       if (!parsed.valid || !parsed.document) { result.diagnostics = parsed.diagnostics; return finish(); }
       organization = { read, document: parsed.document, membership: new SetMembership(setMembers) };
     }
-    // Execution policy 1.6.0: Core renders each recipe-less selection from its shipped binding and named Catalog release,
-    // only now that any authority has been read. Its reads count against the same budget; every later step sees the
-    // rendered recipe as it would an inline one.
-    const recipeless = policy.selections.filter(selection => selection.recipe === undefined);
-    const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, captureBudget, controls.signal);
-    if (rendering.diagnostics.length) { result.diagnostics = rendering.diagnostics; return finish(); }
-    for (const selection of recipeless) {
-      const recipe = (selection.recipe as { inline: Recipe }).inline;
-      captureBudget.declareInline(recipe.materials);
-      for (const name of Object.keys(privateInputs[selection.id] ?? {}))
-        if (!Object.hasOwn(recipe.inputs, name) || !recipe.inputs[name]?.sensitive) throw new Error('private-input-unknown');
-    }
     captureBudget.seal();
     const admissions: AdmissionSelection[] = [];
     let obligations: OrganizationObligationsReview | undefined;
@@ -655,7 +642,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
     const inputs: PreparedReview['effectiveOptions']['inputs'] = {};
     const conflicts: Diagnostic[] = []; const omissions: Diagnostic[] = []; const observations: PreparedReview['observations'] = [];
     const ownership = new Map<string, { value: Ownership; digest: string | null }>();
-    const captures: { recheck(): Promise<boolean> }[] = [...rendering.captures];
+    const captures: { recheck(): Promise<boolean> }[] = [];
     const selectionOps = new Map<string, string[]>();
     const unavailableSelections = new Set<string>();
     const usedResolutions = new Set<string>();

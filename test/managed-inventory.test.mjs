@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import inventorySchema from '../dist/core/schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
-import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare } from '../dist/core/engine-api.js';
 import { policy } from './fixture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-managed-inventory-'));

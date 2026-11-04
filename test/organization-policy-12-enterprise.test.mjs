@@ -7,7 +7,7 @@ import { symlinked } from './harness/symlink-fixture.mjs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { prepare, apply, prepareManagedRemoval, listManagedSelections } from '../dist/core/index.js';
+import { prepare, apply, prepareManagedRemoval, listManagedSelections } from '../dist/core/engine-api.js';
 import { enterprisePolicy, orgDocument, orgSource, recipeIdentity, SELECTION_ID } from './fixtures/github-org.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-org12-'));

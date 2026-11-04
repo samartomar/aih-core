@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { parsePolicy, parseOrganizationPolicy, validatePolicy, validateOrganizationPolicy, contractSupport } from '../dist/core/contracts.js';
+import { parsePolicy, parseOrganizationPolicy, validatePolicy, validateOrganizationPolicy, contractSupport } from '../dist/core/engine-contracts.js';
 import { admitOrganizationSelections } from '../dist/core/internal/organization-admission.js';
 import { canonicalJson } from '../dist/core/internal/canonical.js';
 import organizationSchema from '../dist/core/schemas/organization-policy/1.0.0.json' with { type: 'json' };

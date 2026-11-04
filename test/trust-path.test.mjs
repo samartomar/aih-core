@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync,mkdirSync,copyFileSync,rmSync,readFileSync,existsSync,renameSync,symlinkSync,linkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepare,apply } from '../dist/core/index.js';
+import { prepare,apply } from '../dist/core/engine-api.js';
 import { trustCapabilities,selectTrustCell } from '../dist/harness/contracts.mjs';
 import { detectCertificateExportPlatform as detectTrustPlatform } from '../dist/harness/trust-export-platform.mjs';
 const platform=detectTrustPlatform();const admitted=!!platform.release&&selectTrustCell({definitionId:'certificate-export',route:'export',target:null,platform,network:'declared',format:'pem'},trustCapabilities).status==='admitted';

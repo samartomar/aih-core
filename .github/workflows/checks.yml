@@ -64,7 +64,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
         with:

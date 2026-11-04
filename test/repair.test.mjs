@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { getRepairRecipe, renderRepair } from '@aihq/core/harness/runtime';
 import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-repair-'));
 const home = join(scratch, 'home');

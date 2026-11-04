@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of each format.
+
+- **Exactly four package entries.** `package.json` `exports` lists `@aihq/core`, `@aihq/core/contracts`,
+  `@aihq/core/harness` and `@aihq/core/harness/runtime`; bins are `aih` and `aih-linux-facility`. `/support` and
+  `/report` fold into `/contracts`; every `./schemas/*`, `./fixtures/*`, `./harness/schemas/*` and
+  `./harness/run-records/*` subpath is gone. Each entry exports only the names in contract section 3.
+- **One 0.1.0 schema per format**, each with one valid and one invalid fixture in `schemas`. New:
+  `urn:aihq:core:receipt:0.1.0` (receipts are now stored in it), `urn:aihq:core:repair:0.1.0`,
+  `urn:aihq:core:trust-capabilities:0.1.0` and `urn:aihq:core:package-support:0.1.0` (`contractSupport`). A receipt of
+  an earlier development version (`urn:aihq:core:ownership:*`) is not read: what a dev build installed is invisible.
+- **Repair identities.** `repairIndex` is published as `urn:aihq:core:repair:0.1.0` with each repair's id as its
+  management id, `trustCapabilities` as `urn:aihq:core:trust-capabilities:0.1.0`, and `macosSessionProfiles` as
+  `urn:aihq:core:macos-session-profiles:0.1.0`. Reviews, runs, `list`, removal and the macOS session check name a repair
+  by its repair id. The admitted trust definitions and their evidence-bound bytes are unchanged underneath.
+- **Removed, with no compatibility:** `prepare`/`apply` for execution policies, repair 1.x, certificate-export 1.0 and
+  macOS session 1.x requests; `checkFileState`, `listManagedSelections`, `prepareManagedRemoval`, the replacement form of
+  `prepareUpdate`, the retained `inspect` request and the 1.0.0 `verifyMacosSession` request; `verifyNativeClient` and
+  the 1.x native schemas and exports (`nativeClientIds`, `nativeVerificationDefinitions`); `authenticateEvidence`,
+  `associateEvidence`, `verificationKeys`, `verificationPublishers` and the `scan-report` trust; the TUF trust update
+  (`createTufTrustClient`, `getTrustSnapshot`, `getVerificationTrust`, `getCurrentTrustStatus`, `getCatalogIndexTrust`)
+  and the `tuf-js` dependency; `renderDelivery`, `renderSelectionDelivery`, `checkCompatibility`,
+  `deliveryMaterialRoot`, `toolBindings` and the binding selectors; recipe-less selections; every validator and parser
+  of execution policy, recipe, prepared work, run result, organization policy 1.x, organization target, file state,
+  managed inventory/removal/update, package support 1.x and the macOS/trust 1.x documents; `deriveRecipeIdentity`,
+  `recipeOperationKinds` and the organization 1.x previews; Harness `contractSupport`, `helperMetadata`,
+  `macosRepairIndex`, `selectRepairDefinition`, `selectTrustCell`, `trustRepairIndex` and the 1.x validators; and the
+  runtime's fixed repair helpers, macOS observations and admission-evidence verifier.
+- **The `aih` CLI** has the commands of contract section 22 only: `install`, `change`, `list`, `remove`, `update`,
+  `repair`, `export-ca`, `inspect`, `check-files`, `verify-client`, `report` (writes `report:0.1.0`) and `validate`
+  (`change`, `change-request`, `organization`, `plan-request`). `aih policy`, `aih managed`, `aih verify-macos-session`
+  and the retained inputs-file, inspect and check-files forms are gone.
+- The public-consumer gate takes `--core` (and optional `--catalog`, `--scan`) artifacts and records the producer checks
+  it could not exercise. The test runner's whole-suite cap is 90 minutes, and the CI package job's timeout follows it.
+
+## Earlier development builds
+
 Core 1.0.0-dev.57: an execution policy may hold up to 5 MiB.
 
 - Core refused any execution policy over 1,000,000 bytes, and an Enterprise pick of ECC

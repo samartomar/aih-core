@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { apply as applyWithGuard } from '../dist/core/recipe-engine.js';
 import { RECIPE_11, SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request, sandbox, sha } from './hook-group-fixture.mjs';
 import { compact, controls, groupsOf, guard, neighbor, only, opOf, ownershipRoots, prep, resolveOp, run } from './hook-group-harness.mjs';

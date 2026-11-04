@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as contracts from '../dist/core/contracts.js';
+import * as contracts from '../dist/core/engine-contracts.js';
 const bytes = new TextEncoder().encode('{}');
 const declaration = (name, role, fixtures = []) => ({schema:'urn:aihq:package-support:1.1.0',package:{name,version:'0.1.0'},entries:[],contracts:[{id:'example',role,versions:['1.0.0'],schemaExport:'example/schema',fixtures}]});
 test('contract checks run another package fixture through the supplied reader', async () => {

@@ -1167,4 +1167,3 @@ export async function diagnose(request, controls = {}) {
     limits: { budgetMs, elapsedMs: Math.ceil(performance.now() - started), maxActiveProbes: profile.maxActiveProbes } };
 }
 
-export { getTrustSnapshot, getVerificationTrust, createTufTrustClient, getCurrentTrustStatus, getCatalogIndexTrust } from './trust-update.mjs';

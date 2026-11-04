@@ -171,5 +171,4 @@ export type { MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
   MacosSessionControls, MacosGuiSessionObservation, MacosApplicationRequest, MacosApplicationObservation,
   MacosGuiKeyRequest, MacosGuiKeyRead } from './macos-session.mjs';
 
-export { getTrustSnapshot, getVerificationTrust, createTufTrustClient, getCurrentTrustStatus, getCatalogIndexTrust } from './trust-update.mjs';
-export type { TrustSnapshot, TufTrustClientOptions } from './trust-update.mjs';
+

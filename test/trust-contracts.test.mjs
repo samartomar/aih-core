@@ -10,7 +10,7 @@ import {
   validateRunResult12,
   validateTrustCustody,
   contractSupport
-} from '../dist/core/contracts.js';
+} from '../dist/core/engine-contracts.js';
 
 const fixture = name => JSON.parse(readFileSync(new URL(`./fixtures/trust-contracts/${name}`, import.meta.url), 'utf8'));
 const sha = character => character.repeat(64);

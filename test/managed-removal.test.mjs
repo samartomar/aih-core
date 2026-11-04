@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { prepare, apply, listManagedSelections, prepareManagedRemoval } from '../dist/core/index.js';
+import { prepare, apply, listManagedSelections, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import prepared11Schema from '../dist/core/schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';

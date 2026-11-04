@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { open } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
-import { importSnapshot, exportSnapshot } from '@aihq/core/report';
+import { importSnapshot, exportSnapshot } from '@aihq/core/contracts';
 
 export async function startSnapshotServer({snapshotPath, port = 0}) {
   if (typeof snapshotPath !== 'string' || !snapshotPath || !Number.isInteger(port) || port < 0 || port > 65535)
@@ -21,8 +21,11 @@ export async function startSnapshotServer({snapshotPath, port = 0}) {
     if (length > 1_000_000) throw new Error('Snapshot exceeds example limit');
     bytes = buffer.subarray(0,length);
   } finally { await handle.close(); }
-  const report = importSnapshot(bytes.toString('utf8'), {homePaths:[homedir()]});
-  const json = exportSnapshot(report);
+  const read = importSnapshot(bytes.toString('utf8'), {homePaths:[homedir()]});
+  if (read.status !== 'ok') throw new Error('The report did not read.');
+  const exported = exportSnapshot(read.snapshot);
+  if (exported.status !== 'ok') throw new Error('The report did not export.');
+  const json = exported.json;
   const server = createServer((request,response) => {
     response.setHeader('Cache-Control','no-store');
     response.setHeader('X-Content-Type-Options','nosniff');

@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { diagnose } from '@aihq/core/harness/runtime';
 import { CLAIMS_SCHEMA, projectClaims } from '@aihq/core/report';
-import { inspect, prepare, apply } from '../dist/core/index.js';
+import { inspect, prepare, apply } from '../dist/core/engine-api.js';
 import { createRegistryCertificates, startRegistry, redirectRegistry, fakeNpmPath } from './fixtures/tls-registry.mjs';
 
 const checkId = 'npm/tls/node/registry.npmjs.org';

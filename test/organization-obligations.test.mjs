@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { validateOrganizationPolicy, parseOrganizationPolicy, previewOrganizationAdmission,
-  previewOrganizationObligations, contractSupport } from '../dist/core/contracts.js';
+  previewOrganizationObligations, contractSupport } from '../dist/core/engine-contracts.js';
 import { admitOrganizationSelections } from '../dist/core/internal/organization-admission.js';
 import schema11 from '../dist/core/schemas/organization-policy/1.1.0.json' with { type: 'json' };
 

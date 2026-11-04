@@ -1,0 +1,73 @@
+{
+  "schema": "urn:aihq:core:receipt:0.1.0",
+  "target": "/home/example/project",
+  "members": {
+    ".claude/skills/notes/reference.md": {
+      "managementId": "claim-741ca966912c2cc8840ab1a1697727967cb63b4d998665fd75f601e6f68a79e9",
+      "recipeIdentity": "sha256:ead4e1b761f4b7c03ff311fe257e1018aa5678c7c0acc0c6df8b917c30334f0c",
+      "sha256": "365d0b84ae63c2afc293dedd2b00bdf0dc8d6ef70c9297d90f9e5682ab0d72ee",
+      "mode": 384,
+      "claims": [
+        {
+          "scope": "project"
+        }
+      ]
+    }
+  },
+  "directories": [
+    {
+      "path": ".claude",
+      "identity": "4f8b5feef688bf1ac5942ff2010734365adc7cd9b816378442df34a71ba03109"
+    },
+    {
+      "path": ".claude/skills",
+      "identity": "693b8edf0fae506d6b78246b0953b08be402b5da339806ece7511a829d03ddc5"
+    },
+    {
+      "path": ".claude/skills/notes",
+      "identity": "d7e023b3a6e66b8f252f0ddb773d27cb34aabb58081739873fa1ba76e8596990"
+    }
+  ],
+  "items": {
+    "project:867467bcb77869b97b845467b5f67bcef00bdf1da3fa1e79aaebd88a9f9421ee:claim-741ca966912c2cc8840ab1a1697727967cb63b4d998665fd75f601e6f68a79e9": {
+      "facts": 0,
+      "managementId": "claim-741ca966912c2cc8840ab1a1697727967cb63b4d998665fd75f601e6f68a79e9",
+      "scope": "project",
+      "tool": null,
+      "plan": {
+        "items": [
+          "local-my-skills.skill.notes"
+        ],
+        "managementId": "local-my-skills.skill.notes",
+        "cli": "claude-code",
+        "project": "/home/example/project",
+        "clis": [
+          "claude-code"
+        ],
+        "data": null,
+        "origin": "chosen",
+        "catalog": null,
+        "profiles": [
+          {
+            "id": "claude-code",
+            "version": 1
+          }
+        ],
+        "steps": [
+          0
+        ],
+        "kind": "skill",
+        "framework": "local-my-skills"
+      }
+    }
+  },
+  "facts": [
+    {
+      "name": null,
+      "kind": null,
+      "framework": null,
+      "item": null,
+      "origins": []
+    }
+  ]
+}

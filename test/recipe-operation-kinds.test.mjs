@@ -2,7 +2,7 @@
 // recipe format and whether a fresh Prepare can establish their effects.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prepare } from '../dist/core/index.js';
+import { prepare } from '../dist/core/engine-api.js';
 import { contractSupport, recipeOperationKinds, validateRecipe } from '@aihq/core/contracts';
 import { hookOp, policy11, request, sandbox } from './hook-group-fixture.mjs';
 

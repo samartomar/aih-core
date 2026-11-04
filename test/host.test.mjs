@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { pathPins, pinsMatch } from '../dist/core/internal/host-files.js';
 import { OWNERSHIP_RECORD_BYTES } from '../dist/core/internal/state.js';
 import { policy } from './fixture.mjs';

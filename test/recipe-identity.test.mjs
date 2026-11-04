@@ -11,8 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepare } from '../dist/core/index.js';
-import { deriveRecipeIdentity } from '../dist/core/contracts.js';
+import { prepare } from '../dist/core/engine-api.js';
+import { deriveRecipeIdentity } from '../dist/core/engine-contracts.js';
 import { orgSource, orgRoutes, fakeFetch } from './fixtures/github-org.mjs';
 
 const sha256hex = value => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -181,7 +181,7 @@ test('identity and admission outcomes are identical across runtime locales', () 
         ...process.env, LANG: lang, LC_ALL: lang,
         AIH_PROBE_LOCALE: icu,
         AIH_PROBE_HOME: join(scratch, `probe-${label}`),
-        AIH_PROBE_CORE: new URL('../dist/core/index.js', import.meta.url).href,
+        AIH_PROBE_CORE: new URL('../dist/core/engine-api.js', import.meta.url).href,
         AIH_PROBE_FIXTURES: new URL('./fixtures/github-org.mjs', import.meta.url).href,
         AIH_PROBE_RECIPE: RECIPE_MIXED_JSON,
         AIH_PROBE_MATERIALS: materialRoot,

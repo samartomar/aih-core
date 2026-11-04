@@ -1,4 +1,6 @@
 // Controlled Windows consumer only. OS/tool doubles are not native acceptance evidence.
+// Retained engine seam: the execution-policy engine is internal to the installed artifact (not a package export),
+// so this consumer imports its modules by path inside the installed package.
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import childProcess from 'node:child_process';
@@ -31,7 +33,7 @@ syncBuiltinESMExports();
 assert.ok(fileURLToPath(import.meta.resolve('@aihq/core')).toLowerCase().startsWith((packageRoot + '\\').toLowerCase()), 'the test must use its isolated installed consumer');
 const home = process.env.USERPROFILE;
 mkdirSync(home, { recursive: true });
-const { prepare, apply } = await import('@aihq/core');
+const { prepare, apply } = await import(new URL('./engine-api.js', import.meta.resolve('@aihq/core')).href);
 const input = join(home, 'fixture.pem'); writeFileSync(input, readFileSync(certificatePath));
 const preparation = await prepare({ schema: 'urn:aihq:core:certificate-export-request:1.0.0', useCase: 'certificate-export',
   format: 'pem', network: 'off', output: 'proof/controlled.pem', sources: { os: false, supplied: [{ id: 'fixture', file: input }] } }, { logging: 'off' });

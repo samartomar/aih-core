@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { readReceipt as storedRecord, recordOf, receiptText } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-interrupted-'));

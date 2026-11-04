@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare } from '../dist/core/engine-api.js';
 import { SETTINGS as HOOKS, groupOf, hookOp, hookSelection, policy11, request, sandbox, settingsText, sha } from './hook-group-fixture.mjs';
 import { compact, groupsOf, guard, neighbor, opOf, prep, run } from './hook-group-harness.mjs';
 import { policy } from './fixture.mjs';

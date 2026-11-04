@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parsePolicy, parseOrganizationPolicy, validateRecipe } from '../dist/core/contracts.js';
+import { parsePolicy, parseOrganizationPolicy, validateRecipe } from '../dist/core/engine-contracts.js';
 import { policy } from './fixture.mjs';
 import { orgDocument } from './fixtures/github-org.mjs';
 

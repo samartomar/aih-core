@@ -5,7 +5,7 @@ import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, prepare, prepareManagedRemoval, prepareUpdate, listManagedSelections } from '../dist/core/index.js';
+import { apply, prepare, prepareManagedRemoval, prepareUpdate, listManagedSelections } from '../dist/core/engine-api.js';
 import { sandbox, sha } from './hook-group-fixture.mjs';
 
 const SCRIPT = '.agents/skills/brainstorming/start.sh';

@@ -7,9 +7,9 @@ import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import runResultSchema from '../dist/core/schemas/run-result/1.4.0.json' with { type: 'json' };
 import inventorySchema from '../dist/core/schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
-import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare } from '../dist/core/engine-api.js';
 import { readReceipt } from './fixtures/ownership-receipt.mjs';
-import { deriveRecipeIdentity, runMemberClaims } from '../dist/core/contracts.js';
+import { deriveRecipeIdentity, runMemberClaims } from '../dist/core/engine-contracts.js';
 
 // Seam: the built package's public Prepare/Apply entry. Post-apply member checks
 // in run result 1.4.0, in a disposable home and project.

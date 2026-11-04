@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
-import { validatePolicy } from '../dist/core/contracts.js';
+import { validatePolicy } from '../dist/core/engine-contracts.js';
 
 // Execution policy 1.4.0 admits a referenced recipe from one exact GitHub commit: Catalog's exact git identity plus the
 // pinned archive of that commit. Moving or inexact references are named refusals; Core resolves nothing.
@@ -123,7 +123,7 @@ async function withTransport(bytes, body) {
 const PROVENANCE = { kind: 'git', repository: REPOSITORY, commit: COMMIT, identity: `example-org/skills@${COMMIT}` };
 
 test('content from owner/repo@commit installs through review and Apply with its exact bytes and provenance', async () => {
-  const { prepare, apply, listManagedSelections } = await import('../dist/core/index.js');
+  const { prepare, apply, listManagedSelections } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const s = sandbox('aih-git-source-');
   try {
@@ -143,7 +143,7 @@ test('content from owner/repo@commit installs through review and Apply with its 
 });
 
 test('archive and material mismatches, moving identities and bounds are refused before anything is written', async () => {
-  const { prepare } = await import('../dist/core/index.js');
+  const { prepare } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const s = sandbox('aih-git-refuse-');
   const outcome = async (served, reference) => withTransport(served, async urls => {
@@ -184,7 +184,7 @@ test('archive and material mismatches, moving identities and bounds are refused 
 });
 
 test('an executable the recipe does not name in a git archive is refused; acquired bytes are never run', async () => {
-  const { prepare } = await import('../dist/core/index.js');
+  const { prepare } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const s = sandbox('aih-git-exec-');
   try {
@@ -201,7 +201,7 @@ test('an executable the recipe does not name in a git archive is refused; acquir
 });
 
 test('recorded provenance follows the source of the latest Apply: another exact commit, then a local source', async () => {
-  const { prepare, apply, listManagedSelections } = await import('../dist/core/index.js');
+  const { prepare, apply, listManagedSelections } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -240,7 +240,7 @@ test('recorded provenance follows the source of the latest Apply: another exact 
 });
 
 test('the read-only file check never fetches a git source and reports it not admitted', async () => {
-  const { checkFileState } = await import('../dist/core/index.js');
+  const { checkFileState } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const s = sandbox('aih-git-check-');
   try {
@@ -254,7 +254,7 @@ test('the read-only file check never fetches a git source and reports it not adm
 });
 
 test('a git-sourced reference derives the same recipe identity as its bytes from any other source', async () => {
-  const { deriveRecipeIdentity } = await import('../dist/core/contracts.js');
+  const { deriveRecipeIdentity } = await import('../dist/core/engine-contracts.js');
   const bytes = pinnedArchive();
   const git = await deriveRecipeIdentity({ recipeBytes: pinnedRecipe, reference: pinnedReference(bytes) });
   const local = await deriveRecipeIdentity({ recipeBytes: pinnedRecipe, reference: { ...pinnedReference(bytes), source: { kind: 'local', input: 'checkout' } } });
@@ -266,7 +266,7 @@ test('a git-sourced reference derives the same recipe identity as its bytes from
 });
 
 test('releasing one inclusion keeps the recorded git provenance of the selection that stays', async () => {
-  const { prepare, apply, listManagedSelections, prepareManagedRemoval } = await import('../dist/core/index.js');
+  const { prepare, apply, listManagedSelections, prepareManagedRemoval } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const s = sandbox('aih-git-origin-');
   try {
@@ -289,7 +289,7 @@ test('releasing one inclusion keeps the recorded git provenance of the selection
 });
 
 test('a git-sourced run without a description keeps the recorded description and adds only its provenance', async () => {
-  const { prepare, apply, listManagedSelections } = await import('../dist/core/index.js');
+  const { prepare, apply, listManagedSelections } = await import('../dist/core/engine-api.js');
   const { sandbox } = await import('./hook-group-fixture.mjs');
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');

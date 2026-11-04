@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import childProcess from 'node:child_process';
 import tls from 'node:tls';
-import { inspect } from '../dist/core/index.js';
+import { inspect } from '../dist/core/engine-api.js';
 import { contractSupport } from '../dist/core/contracts.js';
 import { diagnose } from '@aihq/core/harness/runtime';
 

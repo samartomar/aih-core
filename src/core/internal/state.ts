@@ -32,18 +32,13 @@ export interface Owner { managementId: string; recipeIdentity: string; sha256: s
   sharedContent?: string;
   /** Plan claims a reviewed replace displaced (C61): the value they share, for the one level of restore. */
   displaced?: DisplacedValue }
-export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
-export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
-export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
-export const OWNERSHIP_13 = 'urn:aihq:core:ownership:1.3.0';
-export const OWNERSHIP_14 = 'urn:aihq:core:ownership:1.4.0';
-export const OWNERSHIP_15 = 'urn:aihq:core:ownership:1.5.0';
-export const OWNERSHIP_16 = 'urn:aihq:core:ownership:1.6.0';
+/** Receipts have one version (C15): every record is `urn:aihq:core:receipt:0.1.0`; an older dev record is not read. */
+export const RECEIPT = OWNERSHIP_17;
 export { OWNERSHIP_17, ownershipText };
-const OWNERSHIP_VERSIONS: string[] = [OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15, OWNERSHIP_16, OWNERSHIP_17];
-/** Each version admits every record of the versions before it. */
-const atLeast = (schema: unknown, minimum: string): boolean => OWNERSHIP_VERSIONS.indexOf(schema as string) >= OWNERSHIP_VERSIONS.indexOf(minimum);
-export interface Ownership { directories?: CreatedDirectory[]; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15 | typeof OWNERSHIP_16 | typeof OWNERSHIP_17; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
+const OWNERSHIP_VERSIONS: string[] = [RECEIPT];
+/** One version admits every recorded feature. */
+const atLeast = (schema: unknown, _minimum?: string): boolean => schema === RECEIPT;
+export interface Ownership { directories?: CreatedDirectory[]; schema: typeof RECEIPT; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 /** A TOML entry whose path has a non-bare (quoted) segment. */
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
@@ -52,13 +47,10 @@ const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?
 /** Array members, approvals and shared-block content are recorded from 1.6. */
 const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
   owner.createdFile !== undefined || owner.createdContainers !== undefined || owner.displaced !== undefined;
-/** Item custody, array members and approvals require 1.6, stored as 1.7 (see ownership-storage); directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
+/** Every receipt is stored in its one version, `urn:aihq:core:receipt:0.1.0` (see ownership-storage). */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
-  const schema = items || Object.values(value.members).some(needs16) ? OWNERSHIP_17 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
-    Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
-    Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
-    Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
+  const schema = RECEIPT;
   const { directories, items: _items, ...rest } = value;
   return { ...rest, ...(directories?.length ? { directories } : {}), ...(items ? { items } : {}), schema };
 }
@@ -279,17 +271,17 @@ export function admitOwnership(bytes: Uint8Array, target: string): Ownership {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   return admitParsed(parseStrictJsonObjectV1(text, 'ownership'), text, target);
 }
-/** Admit a strictly parsed receipt: its expanded record is valid, and a 1.7.0 receipt is that record's one stored form. */
+/** Admit a strictly parsed receipt: its expanded record is valid, and the receipt is that record's one stored form. */
 function admitParsed(parsed: Record<string, unknown>, text: string, target: string): Ownership {
   const value = expandOwnership(parsed);
   validateOwnership(value, target);
-  if (value.schema === OWNERSHIP_17 && ownershipText(value) !== text) throw new Error('ownership-invalid');
+  if (ownershipText(value) !== text) throw new Error('ownership-invalid');
   return value;
 }
 /** Read a stored receipt's bytes (`null` when absent). */
 const ownershipBytes = (path: string) => stateFiles(OWNERSHIP_RECORD_BYTES).read(path);
 export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
-  const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
+  const empty: Ownership = { schema: RECEIPT, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
     if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return { value: empty, digest: null, bytes: 0 };
     throw error;
@@ -310,7 +302,7 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
   if (unique.length === 0) return result;
   try { lstatSync(stateRoot()); } catch (error) {
     if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
-    for (const target of unique) result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+    for (const target of unique) result.set(target, { value: { schema: RECEIPT, target, members: {} }, digest: null, bytes: 0 });
     return result;
   }
   // Keep both process launch count and Windows environment size bounded.
@@ -319,7 +311,7 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
   for (const target of unique) {
     const bytes = ownershipBytes(ownershipPath(target));
     if (!bytes) {
-      result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+      result.set(target, { value: { schema: RECEIPT, target, members: {} }, digest: null, bytes: 0 });
       continue;
     }
     const value = admitOwnership(bytes, target);
@@ -377,7 +369,7 @@ export function validateOwnership(input: unknown, target: string): asserts input
   const value = input as Record<string, unknown>;
   if (!OWNERSHIP_VERSIONS.includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
   if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections', 'directories', 'items'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
-  if (value.directories !== undefined && (!atLeast(value.schema, OWNERSHIP_15) || !validCreatedDirectories(value.directories))) throw new Error('ownership-invalid');
+  if (value.directories !== undefined && (!atLeast(value.schema, RECEIPT) || !validCreatedDirectories(value.directories))) throw new Error('ownership-invalid');
   // Reuse the resolved home only within this synchronous validation call.
   let resolvedHome: string | undefined;
   const homeRoot = (): string => resolvedHome ??= userHomeRoot();
@@ -388,23 +380,23 @@ export function validateOwnership(input: unknown, target: string): asserts input
     if (m.displaced !== undefined && (!validDisplaced(m.displaced) || m.claims === undefined || !(m.descriptor?.kind === 'entry' || m.descriptor?.kind === 'block') ||
       m.displaced.claims.some(claim => m.claims!.some(live => live.scope === claim.scope && live.managementId === claim.managementId) ||
         claim.scope === 'user' && target !== homeRoot()))) throw new Error('ownership-invalid');
-    if (needs16(m) && !atLeast(value.schema, OWNERSHIP_16) ||
+    if (needs16(m) && !atLeast(value.schema, RECEIPT) ||
         m.approval !== undefined && (!m.approval || typeof m.approval !== 'object' || Object.keys(m.approval).length !== 1 || typeof m.approval.tool !== 'string' ||
           !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(m.approval.tool) || !(m.descriptor?.kind === 'member' || m.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(m.descriptor.format))) ||
         Object.hasOwn(m, 'createdContainer') && (m.createdContainer !== true || m.descriptor?.kind !== 'member') ||
         Object.hasOwn(m, 'createdFile') && m.createdFile !== true ||
         Object.hasOwn(m, 'createdContainers') && (!Array.isArray(m.createdContainers) || m.createdContainers.length === 0 || m.createdContainers.length > 32 ||
           !m.createdContainers.every(path => Array.isArray(path) && path.length > 0 && path.length <= 32 && path.every(part => typeof part === 'string' && part.length > 0 && part.length <= 256))) ||
-        Object.hasOwn(m, 'sharedContent') && (!atLeast(value.schema, OWNERSHIP_16) || m.descriptor?.kind !== 'block' ||
+        Object.hasOwn(m, 'sharedContent') && (!atLeast(value.schema, RECEIPT) || m.descriptor?.kind !== 'block' ||
           sharedBlockRole(m.descriptor.startMarker, m.descriptor.endMarker) === null ||
           typeof m.sharedContent !== 'string' || m.sharedContent.length > 65536)) throw new Error('ownership-invalid');
     // Hook custody exists only in a 1.1 or newer root, and always carries its canonical digest.
     if ((m.descriptor?.kind === 'hook') !== (m.canonicalSha256 !== undefined) ||
         m.canonicalSha256 !== undefined && (typeof m.canonicalSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(m.canonicalSha256)) ||
-        m.descriptor?.kind === 'hook' && !atLeast(value.schema, OWNERSHIP_11) ||
-        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && !atLeast(value.schema, OWNERSHIP_12) ||
-        quotedToml(m.descriptor) && !atLeast(value.schema, OWNERSHIP_13) ||
-        Object.hasOwn(m, 'tomlTable') && (!atLeast(value.schema, OWNERSHIP_14) || !tomlTableAllowed(m.descriptor) ||
+        m.descriptor?.kind === 'hook' && !atLeast(value.schema, RECEIPT) ||
+        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && !atLeast(value.schema, RECEIPT) ||
+        quotedToml(m.descriptor) && !atLeast(value.schema, RECEIPT) ||
+        Object.hasOwn(m, 'tomlTable') && (!atLeast(value.schema, RECEIPT) || !tomlTableAllowed(m.descriptor) ||
           !(tomlTableCustody as readonly unknown[]).includes(m.tomlTable))) throw new Error('ownership-invalid');
     if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
@@ -420,7 +412,7 @@ export function validateOwnership(input: unknown, target: string): asserts input
     }
   }
   // Items describe claims already held here; the target-keyed members above stay authoritative.
-  if (value.items !== undefined && (!atLeast(value.schema, OWNERSHIP_16) ||
+  if (value.items !== undefined && (!atLeast(value.schema, RECEIPT) ||
     !validItems(value as unknown as Ownership, (scope, managementId) => claimIdentity(scope, managementId, target)))) throw new Error('ownership-invalid');
   validatePending(value.items as Record<string, CustodyItem> | undefined, value.schema as Ownership['schema'], target);
 }
@@ -530,7 +522,7 @@ export function admitWrittenOwnership(previous: AdmittedImage | undefined, next:
     }
     for (const key of previous.selectionEntries.keys()) if (!Object.hasOwn(next.selections ?? {}, key)) affected.add(key);
     if (next.items !== undefined) {
-      if (!plainObject(next.items) || !atLeast(next.schema, OWNERSHIP_16)) return undefined;
+      if (!plainObject(next.items) || !atLeast(next.schema, RECEIPT)) return undefined;
       const count = Object.keys(next.items).length;
       if (count === 0 || count > 4096) return undefined;
       const items: Record<string, CustodyItem> = {};

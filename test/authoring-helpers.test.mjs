@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as contracts from '../dist/core/contracts.js';
+import * as contracts from '../dist/core/engine-contracts.js';
 import { policy } from './fixture.mjs';
 import { createHash } from 'node:crypto';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');

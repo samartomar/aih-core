@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { checkFileState, prepare } from '../dist/core/index.js';
+import { checkFileState, prepare } from '../dist/core/engine-api.js';
 import { contractSupport } from '../dist/core/contracts.js';
 import fileStateSchema from '../dist/core/schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';

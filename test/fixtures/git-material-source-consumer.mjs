@@ -1,4 +1,6 @@
-// Runs inside a disposable consumer with the packed @aihq/core installed; public entries only.
+// Runs inside a disposable consumer with the packed @aihq/core installed.
+// Retained engine seam: the execution-policy engine is internal to the installed artifact (not a package export),
+// so this consumer imports its modules by path inside the installed package.
 // Install from an exact git material source: a referenced recipe from owner/repo@<40-hex commit>, acquired only as that
 // commit's pinned archive through fixture-controlled transport, reviewed, applied, and recorded on the managed selection.
 import assert from 'node:assert/strict';
@@ -8,8 +10,9 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { contractSupport, validatePolicy } from '@aihq/core/contracts';
-import { apply, listManagedSelections, prepare, resolveStateLocation } from '@aihq/core';
+import { validatePolicy } from './node_modules/@aihq/core/dist/core/engine-contracts.js';
+import { apply, listManagedSelections, prepare, resolveStateLocation } from './node_modules/@aihq/core/dist/core/engine-api.js';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const sha256 = value => createHash('sha256').update(value).digest('hex');
@@ -115,14 +118,12 @@ const PROVENANCE = { kind: 'git', repository: REPOSITORY, commit: COMMIT, identi
 await check('execution policy 1.4.0 admits the exact git source in the form Catalog publishes', async () => {
   const result = validatePolicy(policy(pinnedSelection(archive)));
   assert.equal(result.valid, true, JSON.stringify(result.diagnostics));
-  // The published fixtures for that form replay through the public reader with their declared outcome.
-  const contract = contractSupport.contracts.find(item => item.id === 'urn:aihq:core:execution-policy:1.4.0');
-  const gitFixtures = contract.fixtures.filter(item => item.export.includes('/git-source-'));
-  assert.deepEqual(gitFixtures.map(item => item.expect), ['accept', 'refuse']);
-  for (const fixture of gitFixtures) {
-    const replay = validatePolicy(JSON.parse(readFileSync(require.resolve(fixture.export), 'utf8')));
-    assert.equal(replay.valid, fixture.expect === 'accept', fixture.export);
-    if (fixture.code) assert.deepEqual(replay.diagnostics.map(item => [item.code, item.reason]), [[fixture.code, 'git-commit-not-exact']]);
+  // The engine's fixtures for that form replay through its reader with their declared outcome.
+  for (const [name, expect] of [['git-source-accept', 'accept'], ['git-source-refuse', 'refuse']]) {
+    const fixture = fileURLToPath(new URL(`../fixtures/core/execution-policy/1.4.0/${name}.json`, import.meta.resolve('@aihq/core')));
+    const replay = validatePolicy(JSON.parse(readFileSync(fixture, 'utf8')));
+    assert.equal(replay.valid, expect === 'accept', name);
+    if (expect === 'refuse') assert.deepEqual(replay.diagnostics.map(item => [item.code, item.reason]), [['INPUT_INVALID', 'git-commit-not-exact']]);
   }
 });
 
@@ -208,7 +209,7 @@ await check('every output conforms to its published schema and no private value 
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   for (const id of ['prepared-work/1.0.0', 'prepared-work/1.1.0', 'prepared-work/1.4.0', 'prepared-work/1.5.0', 'prepared-work/1.6.0',
     'run-result/1.0.0', 'run-result/1.1.0', 'run-result/1.4.0', 'managed-inventory-result/1.0.0', 'managed-inventory-result/1.1.0'])
-    ajv.addSchema(JSON.parse(readFileSync(require.resolve(`@aihq/core/schemas/${id}.json`))));
+    ajv.addSchema(JSON.parse(readFileSync(fileURLToPath(new URL(`./schemas/${id}.json`, import.meta.resolve('@aihq/core'))))));
   let validated = 0;
   for (const document of outputs) {
     const schema = document?.review?.schema ?? document?.schema;
@@ -219,7 +220,6 @@ await check('every output conforms to its published schema and no private value 
     validated++;
   }
   assert.ok(validated >= 10, `validated ${validated}`);
-  assert.ok(contractSupport.contracts.some(item => item.id === 'urn:aihq:core:execution-policy:1.4.0' && item.role === 'accepts'));
   const runs = join(resolveStateLocation().root, 'runs');
   const history = existsSync(runs) ? readdirSync(runs).map(name => readFileSync(join(runs, name), 'utf8')) : [];
   assert.ok(history.length > 0);
