@@ -610,8 +610,9 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
 
 - **Before any effect**, Prepare refuses a file a step names that has no entry or no bytes (`source-missing`), bytes
   whose sha256 differs from the entry, the content document or the plan (`source-mismatch`), a CLI or profile id with
-  no registry tool (`tool-unknown`), a path leaving its root (`path-escape`), a target in Core's state (`state-path`), an
-  unresolved clash (`plan-unresolved`) and anything over a published limit (`limit-exceeded`, naming the limit). Two
+  no registry tool (`tool-unknown`), a path leaving its root or naming a Git folder or an 8.3 short name
+  (`path-escape`), a target in Core's state (`state-path`), an unresolved clash (`plan-unresolved`) and anything over a
+  published limit (`limit-exceeded`, naming the limit). Two
   entries for one source file are `invalid` (`duplicate-file`). An entry no step names is ignored and listed in the
   review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
 - **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
