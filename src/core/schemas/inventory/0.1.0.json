@@ -43,7 +43,7 @@
               "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
             "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] },
             "downloads": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "origin"],
-              "description": "Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source (never byte-qualified)",
+              "description": "Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source. `file` and `sha256` are always the qualification's identity for the file; a built wheel's installed bytes are `built.file` and `built.sha256`, never byte-qualified",
               "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
                 "origin": { "enum": ["supplied", "downloaded", "built"] }, "url": { "type": "string", "pattern": "^https://" },
                 "built": { "type": "object", "additionalProperties": false, "required": ["file", "sha256", "byteQualified", "source", "dependencies", "tools"],

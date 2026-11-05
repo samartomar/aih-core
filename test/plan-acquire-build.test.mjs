@@ -64,6 +64,8 @@ test('a wheel with no obtainable qualified bytes is built offline from its pinne
     source: { kind: 'url', url: server.url(`/build/${setup.build.sourceFile}`) } });
   assert.deepEqual(shown.build.dependencies.map(entry => [entry.name, entry.version, entry.source.kind]), [['backend', '1.0', 'index']]);
   assert.deepEqual(prepared.review.steps[0].interpreter.switchesOn, ['outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed']);
+  assert.match(prepared.review.steps[0].sentence, /\(one wheel may be built from pinned source\)$/);
+  assert.match(prepared.review.steps[0].cantPromise, /One closure wheel may be built here from pinned source .*; a built wheel is never byte-qualified\.$/);
 
   const run = conforms(await apply(prepared.handle, approve(prepared.review)));
   assert.equal(run.completion, 'complete', JSON.stringify(run));

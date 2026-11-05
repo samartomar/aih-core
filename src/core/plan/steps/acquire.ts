@@ -166,11 +166,14 @@ export const acquire: StepHandler = {
 
     const spec: AcquireSpec = { step: index, aiSetup: step.aiSetup, version: step.version, cell: step.cell, qualification: sha, into,
       kind: python ? 'pypi-wheel' : 'native-archive', artifact, members: listed, closure, interpreter };
-    const marker = Buffer.from(`Managed by AIH Core: ${step.aiSetup} ${step.version} ${step.cell}\nqualification sha256:${sha}\nartifact sha256:${artifact.sha256}\n`);
+    // A closure wheel with a recorded build may be built here from its pinned source (C78): the review says so.
+    const built = closure.filter(wheel => wheel.build).length;
+    const buildNote = !built ? '' : ` ${built === 1 ? 'One closure wheel' : `${built} closure wheels`} may be built here from pinned source when the qualified bytes are not obtainable or not installable; a built wheel is never byte-qualified.`;
+    const marker = Buffer.from(`Managed by AIH Core:${step.aiSetup} ${step.version} ${step.cell}\nqualification sha256:${sha}\nartifact sha256:${artifact.sha256}\n`);
     return { lowered: { kind: 'write', managementIds: [step.aiSetup], root: 'user', path: `${into}/${MANIFEST}`, bytes: marker, executable: false,
-      sentence: python ? `Downloads \`${artifact.file}\` into \`~/${into}/\` and installs it with its ${closure.length}-wheel closure in a dedicated environment` :
+      sentence: python ? `Downloads \`${artifact.file}\` into \`~/${into}/\` and installs it with its ${closure.length}-wheel closure in a dedicated environment${built ? ` (${built === 1 ? 'one wheel' : `${built} wheels`} may be built from pinned source)` : ''}` :
         `Downloads \`${artifact.file}\` and extracts its ${listed.length} qualified member${listed.length === 1 ? '' : 's'} into \`~/${into}/\``,
-      cantPromise: python ? 'An installed interpreter is checked only by its version range and the tool\'s readback, never byte-qualified.' : null,
+      cantPromise: python ? `An installed interpreter is checked only by its version range and the tool's readback, never byte-qualified.${buildNote}` : null,
       review: { item: step.aiSetup }, acquire: spec } };
   }
 };

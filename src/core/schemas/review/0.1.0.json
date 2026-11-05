@@ -72,6 +72,7 @@
     "download": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "source"],
       "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "source": { "$ref": "#/$defs/downloadSource" },
         "build": { "type": "object", "additionalProperties": false, "required": ["source", "dependencies", "tools"],
+          "description": "The wheel's recorded build (C78): when its qualified bytes are not obtainable or not installable here, Core builds it from this pinned source and these pinned dependencies. `file` and `sha256` stay the qualification's identity; the built wheel is never byte-qualified",
           "properties": { "source": { "$ref": "#/$defs/shownDownload" }, "dependencies": { "type": "array", "items": { "$ref": "#/$defs/shownDownload" } },
             "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "version", "sha256"],
               "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } } } },
