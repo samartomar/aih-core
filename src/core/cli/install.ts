@@ -1,4 +1,4 @@
-// aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>]
+// aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--artifacts <dir>] [--resolutions <file>]
 //             [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... [--no-log] [--json]      (contract 22)
 // Source bytes are read with `readLocalSource` from the Catalog installed beside this CLI; without it, `--source` is
 // refused `catalog-required`. Its `/reader` (`renderStep`, `planRecipe`) is passed as `controls.catalog` for render
@@ -8,11 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { readRegularFile } from '../internal/fsxn.js';
 import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
 import { prepare } from '../index.js';
-import { applyReviewed, emit, enterpriseOptions, ORGANIZATION_OPTIONS, ORGANIZATION_USAGE, parseCommand, PRIVATE_INPUT_OPTION, privateInputsOption, progressLine,
+import { ARTIFACTS_OPTION, ARTIFACTS_USAGE, artifactsControl, applyReviewed, emit, enterpriseOptions, ORGANIZATION_OPTIONS, ORGANIZATION_USAGE, parseCommand, PRIVATE_INPUT_OPTION, privateInputsOption, progressLine,
   readDocument, readResolutions, refusal, RESOLUTIONS_OPTION, RESOLUTIONS_UNREADABLE, usageRefusal } from './common.js';
 import type { CatalogControls, PlanControls, PlanRequest } from '../plan/types.js';
 
-const USAGE = `aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... ${ORGANIZATION_USAGE} [--no-log] [--json]\n`;
+const USAGE = `aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... ${ARTIFACTS_USAGE} [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--private-input <item>.<input>=<ENV>]... ${ORGANIZATION_USAGE} [--no-log] [--json]\n`;
 interface LocalSource { status: string; files?: { path: string; bytes?: Uint8Array }[] }
 
 export async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<LocalSource> | LocalSource } | undefined> {
@@ -50,7 +50,7 @@ export async function catalogReader(): Promise<CatalogControls | undefined> {
 
 export async function run(args: string[], signal: AbortSignal): Promise<void> {
   const parsed = parseCommand(args, 'install', USAGE, { project: { type: 'string' }, source: { type: 'string', multiple: true },
-    ...RESOLUTIONS_OPTION, ...PRIVATE_INPUT_OPTION, ...ORGANIZATION_OPTIONS });
+    ...RESOLUTIONS_OPTION, ...PRIVATE_INPUT_OPTION, ...ORGANIZATION_OPTIONS, ...ARTIFACTS_OPTION });
   if (!parsed) return;
   const { output, values, positionals } = parsed;
   const enterprise = enterpriseOptions(output, USAGE, values);
@@ -90,6 +90,6 @@ export async function run(args: string[], signal: AbortSignal): Promise<void> {
   const privateInputs = privateInputsOption(output, values['private-input']);
   if (!privateInputs) return;
   const controls: PlanControls = { signal, onProgress: progressLine, ...(values['no-log'] ? { logging: 'off' as const } : {}), ...(Object.keys(privateInputs).length ? { privateInputs } : {}), ...(catalog ? { catalog } : {}),
-    ...(enterprise.organization ? { organization: enterprise.organization } : {}), ...(enterprise.authentication ? { authentication: enterprise.authentication } : {}) };
+    ...artifactsControl(values.artifacts), ...(enterprise.organization ? { organization: enterprise.organization } : {}), ...(enterprise.authentication ? { authentication: enterprise.authentication } : {}) };
   await applyReviewed(output, await prepare(request, controls), values, signal, controls);
 }

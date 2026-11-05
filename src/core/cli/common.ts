@@ -1,6 +1,6 @@
 // Shared CLI plumbing for the 0.1.0 commands (contract 14.1, 22): one JSON result on stdout and its exit code.
 import { createInterface } from 'node:readline/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { stdin, stderr } from 'node:process';
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import { apply } from '../index.js';
@@ -17,6 +17,12 @@ export const COMMON_OPTIONS = { apply: { type: 'boolean' }, yes: { type: 'boolea
 export const PRIVATE_INPUT_OPTION = { 'private-input': { type: 'string', multiple: true } } as const;
 /** `--resolutions <file>`: the choices for a second preparation. */
 export const RESOLUTIONS_OPTION = { resolutions: { type: 'string' } } as const;
+/** `--artifacts <dir>`: a folder of exact files for `acquire` downloads (C78), read only. */
+export const ARTIFACTS_OPTION = { artifacts: { type: 'string' } } as const;
+export const ARTIFACTS_USAGE = '[--artifacts <dir>]';
+/** `--artifacts` as `controls.artifacts` (an absolute path), or nothing when not given. */
+export const artifactsControl = (folder: string | undefined): { artifacts?: string } =>
+  folder === undefined ? {} : { artifacts: isAbsolute(folder) ? folder : resolve(folder) };
 
 /** The usage line on stderr and a `usage` refusal (exit 2). */
 export function usageRefusal(output: Output, usage: string, reason: string): void {

@@ -60,6 +60,21 @@
     "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
   "$defs": {
+    "downloadSource": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["kind", "folder"], "properties": { "kind": { "const": "supplied" }, "folder": { "type": "string" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "url"], "properties": { "kind": { "const": "url" }, "url": { "type": "string", "pattern": "^https://" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "index", "name", "version"], "properties": { "kind": { "const": "index" }, "index": { "const": "pypi" }, "name": { "type": "string" }, "version": { "type": "string" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "index", "release"], "properties": { "kind": { "const": "index" }, "index": { "const": "python-build-standalone" }, "release": { "type": "string", "pattern": "^[0-9]{8}$" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "none" } } }] },
+    "shownDownload": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "source"],
+      "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "source": { "$ref": "#/$defs/downloadSource" },
+        "name": { "type": "string" }, "version": { "type": "string" } } },
+    "download": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "source"],
+      "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "source": { "$ref": "#/$defs/downloadSource" },
+        "build": { "type": "object", "additionalProperties": false, "required": ["source", "dependencies", "tools"],
+          "properties": { "source": { "$ref": "#/$defs/shownDownload" }, "dependencies": { "type": "array", "items": { "$ref": "#/$defs/shownDownload" } },
+            "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "version", "sha256"],
+              "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } } } },
     "environment": {
       "description": "Repair, certificate export and macOS session facts (contract 10): what was found, what is admitted, and why anything is unavailable",
       "type": "object", "additionalProperties": false,
@@ -102,14 +117,16 @@
         "requires": { "type": "array", "items": { "type": "string" } },
         "details": { "type": "object" },
         "acquire": { "type": "object", "additionalProperties": false,
-          "required": ["aiSetup", "version", "cell", "kind", "qualification", "artifact", "into", "members", "closure"],
+          "required": ["aiSetup", "version", "cell", "kind", "qualification", "artifact", "into", "members", "closure", "downloads"],
           "properties": {
             "aiSetup": { "type": "string" }, "version": { "type": "string" }, "cell": { "type": "string" },
             "kind": { "enum": ["pypi-wheel", "native-archive"] },
             "qualification": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
             "artifact": { "type": "object", "additionalProperties": false, "required": ["file", "sha256"],
               "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-            "into": { "type": "string" }, "members": { "type": "integer", "minimum": 0 }, "closure": { "type": "integer", "minimum": 0 }
+            "into": { "type": "string" }, "members": { "type": "integer", "minimum": 0 }, "closure": { "type": "integer", "minimum": 0 },
+            "downloads": { "type": "array", "description": "Each download and the one source Apply tries for it (C78); a wheel with a recorded build shows that possible build",
+              "items": { "$ref": "#/$defs/download" } }
           } },
         "interpreter": { "type": "object", "additionalProperties": false, "required": ["installed", "range", "fallback", "switchesOn"],
           "properties": {
@@ -118,7 +135,7 @@
             "range": { "type": "string" },
             "fallback": { "type": "object", "additionalProperties": false, "required": ["version", "file", "sha256"],
               "properties": { "version": { "type": "string" }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-            "switchesOn": { "type": "array", "items": { "enum": ["none-found", "outside-range", "wheel-install-failed", "readback-failed"] } }
+            "switchesOn": { "type": "array", "items": { "enum": ["none-found", "outside-range", "wheel-install-failed", "readback-failed", "build-failed"] } }
           } },
         "format": { "enum": ["json", "toml", "markdown"] },
         "key": { "type": "string" },

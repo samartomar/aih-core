@@ -63,6 +63,11 @@ export interface PlanControls {
   /** The caller's Catalog, the module that made the plan (C51). */
   catalog?: CatalogControls;
   onProgress?: (event: Json) => void;
+  /**
+   * A folder of exact files for `acquire` downloads (C78), matched by file name and checked by sha256: an absolute path to
+   * an existing folder. Core only reads it and copies what it uses.
+   */
+  artifacts?: string;
   /** Enterprise: the organization source, read fresh at Prepare and again at Apply (contract 11). */
   organization?: OrganizationSource;
   /** Enterprise: credentials for a private GitHub organization repository. */
@@ -121,7 +126,9 @@ export interface ReviewStep {
   previous?: 'interrupted';
   /** An `acquire` step: the AI setup, the qualified artifact it downloads and the folder it fills. */
   acquire?: { aiSetup: string; version: string; cell: string; kind: 'pypi-wheel' | 'native-archive'; qualification: string;
-    artifact: { file: string; sha256: string }; into: string; members: number; closure: number };
+    artifact: { file: string; sha256: string }; into: string; members: number; closure: number;
+    /** Each download and the one source Apply tries for it (C78); a wheel with a recorded build shows that possible build. */
+    downloads: ReviewDownload[] };
   /** A Python AI setup's two interpreter branches (C46): approval covers both. */
   interpreter?: { installed: { path: string; version: string; note: 'in range, not qualified' } | null; range: string;
     fallback: { version: string; file: string; sha256: string }; switchesOn: string[] };
@@ -131,6 +138,24 @@ export interface ReviewStep {
   inputs?: ReviewInput[];
   /** A program step (`tool-command`, `upstream-installer`, `upstream-setup`): the exact command and what Core can and can't check or undo. */
   program?: ReviewProgram;
+}
+/** Where Apply obtains one acquired file (C78): the supplied folder, the recorded URL, the index by exact identity, or nothing. */
+export type DownloadSource = { kind: 'supplied'; folder: string } | { kind: 'url'; url: string } |
+  { kind: 'index'; index: 'pypi'; name: string; version: string } | { kind: 'index'; index: 'python-build-standalone'; release: string } |
+  { kind: 'none' };
+export type DownloadRole = 'artifact' | 'closure' | 'interpreter' | 'build-source' | 'build-dependency';
+export interface ReviewDownload {
+  role: DownloadRole; file: string; sha256: string; source: DownloadSource;
+  /** A closure wheel's possible build from pinned source when its qualified bytes are unavailable or not installable. */
+  build?: { source: { role: DownloadRole; file: string; sha256: string; source: DownloadSource };
+    dependencies: { role: DownloadRole; name: string; version: string; file: string; sha256: string; source: DownloadSource }[];
+    tools: { name: string; version: string; sha256: string }[] };
+}
+/** Where one acquired file came from (receipt and `list`, C78). A built wheel is recorded as built, never byte-qualified. */
+export interface AcquiredFile {
+  role: DownloadRole; file: string; sha256: string; origin: 'supplied' | 'downloaded' | 'built'; url?: string;
+  built?: { file: string; sha256: string; byteQualified: false; source: string; dependencies: string[];
+    tools: { name: string; qualified: { version: string; sha256: string }; observed: { version: string; sha256: string } }[] };
 }
 /** The reviewed command of a program step (contract 8.1, 12, C30). Secret values read `[REDACTED]`. */
 export interface ReviewProgram {
@@ -308,7 +333,8 @@ export interface InventoryEntry {
   /** Program steps (tool commands, upstream installers and setups) with their undo facts. */
   programs?: ProgramFacts[];
   /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
-  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null;
+    downloads?: AcquiredFile[] };
   /** A local-plugin install (C68): the items it contains (`null` when the plan named none) and its files. */
   localPlugin?: { contains: string[] | null; files: string[] };
   /** A switch-off of one plugin item (C45, C69): removing this entry turns the item back on. */

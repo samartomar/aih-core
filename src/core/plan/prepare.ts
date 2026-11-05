@@ -22,7 +22,7 @@ import type { LinkFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
 import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
 import { SETUP_MARKER } from './steps/upstream-setup.js';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
@@ -42,6 +42,7 @@ import { acquisition } from './acquire/effect.js';
 import { probe } from './acquire/download.js';
 import { discoverInterpreter } from './acquire/interpreter.js';
 import { FALLBACK_REASONS, type AcquireFacts, type InstalledInterpreter } from './acquire/types.js';
+import { planSources, probeUrl, type ReviewDownload, type Sources } from './acquire/sources.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { Lowered, LoweredMerge } from './steps/types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
@@ -58,7 +59,12 @@ export function planControls(controls: unknown): PlanControls | undefined {
   if (controls === undefined) return {};
   if (!controls || typeof controls !== 'object' || Array.isArray(controls)) return undefined;
   const value = controls as PlanControls;
-  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'catalog', 'onProgress', 'organization', 'authentication'].includes(key))) return undefined;
+  if (Object.keys(value).some(key => !['signal', 'logging', 'privateInputs', 'catalog', 'onProgress', 'organization', 'authentication', 'artifacts'].includes(key))) return undefined;
+  // A supplied artifacts folder (C78): an existing folder named by an absolute path; it is only read.
+  if (value.artifacts !== undefined) {
+    if (typeof value.artifacts !== 'string' || value.artifacts.length > 4096 || !isAbsolute(value.artifacts)) return undefined;
+    try { if (!statSync(value.artifacts).isDirectory()) return undefined; } catch { return undefined; }
+  }
   if (!enterpriseControls(value as unknown as Record<string, unknown>)) return undefined;
   if (value.signal !== undefined && !(value.signal instanceof AbortSignal)) return undefined;
   if (value.logging !== undefined && !['on', 'off'].includes(value.logging)) return undefined;
@@ -120,12 +126,18 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   // installed interpreter inside its range is found now, so the review shows both branches.
   const installed = new Map<number, InstalledInterpreter | null>();
   const probed = new Map<string, 'ok' | 'tls-untrusted'>();
+  // Each download's one source (C78), fixed now and shown in the review; resolution itself happens at Apply.
+  const sourced = new Map<number, { sources: Sources; review: ReviewDownload[] }>();
   for (const step of checked.steps) {
     const spec = step.lowered.acquire;
     if (!spec || step.skipped) continue;
-    for (const item of [spec.artifact, ...spec.closure, ...(spec.interpreter ? [spec.interpreter.fallback] : [])]) {
-      const origin = new URL(item.url).origin;
-      if (!probed.has(origin)) probed.set(origin, await probe(item.url, controls.signal));
+    const planned = planSources(spec, controls.artifacts ?? null);
+    sourced.set(step.index, planned);
+    const remote = planned.review.flatMap(entry => [entry, ...(entry.build ? [entry.build.source, ...entry.build.dependencies] : [])])
+      .map(entry => probeUrl(entry, entry.source)).filter((url): url is string => url !== null);
+    for (const url of remote) {
+      const origin = new URL(url).origin;
+      if (!probed.has(origin)) probed.set(origin, await probe(url, controls.signal));
       if (controls.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
       if (probed.get(origin) === 'tls-untrusted') return { status: 'refused', code: 'tls-untrusted', step: step.index, repair: 'node-npm-ca',
         reason: `Step ${step.index} downloads from ${origin}, whose certificate this machine does not trust. Run the \`node-npm-ca\` repair, then Prepare again.` };
@@ -320,7 +332,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       return [{ ...base, kind: 'file.write' as const, material: material.id, ...(lowered.executable ? { mode: 0o755 } : {}) }];
     });
     for (const step of group.steps) if (step.lowered.kind === 'write' && step.lowered.acquire) {
-      const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress);
+      const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress, sourced.get(step.index)!.sources);
       effects.set(operationKey(group.selectionId, `step-${step.index}`), { async run(signal) {
         const outcome = await run.run(signal);
         if (outcome.status === 'passed' && outcome.facts) acquired.set(step.index, outcome.facts as unknown as AcquireFacts);
@@ -461,7 +473,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       `${lowered.sentence}, replacing your ${lowered.format === 'markdown' ? 'block' : 'entry'}; your original is kept for restore` :
       `${lowered.sentence}, replacing your file; your original is kept for restore`;
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence, cantPromise: lowered.cantPromise, effect,
-      root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed)),
+      root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed, sourced)),
       ...(replacing && displaces ? { displaces } : {}) });
     if (lowered.kind === 'merge' && lowered.guidance && !conflict && facts?.after)
       guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length, ...lowered.guidance });
@@ -540,7 +552,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   for (const step of checked.steps) if (step.skipped && step.lowered.kind !== 'plugin' && step.lowered.kind !== 'program') for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review,
-      ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed)) });
+      ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed, sourced)) });
   // Plan steps in plan order, then an update's cleanup steps in engine order.
   const rank = (step: ReviewStep) => typeof step.step === 'number' ? step.step : Number.MAX_SAFE_INTEGER;
   steps.sort((a, b) => rank(a) - rank(b) || (typeof a.step === 'string' && typeof b.step === 'string' ? 0 : codeUnitCompare(a.managementId, b.managementId)));
@@ -688,17 +700,20 @@ function localPluginFacts(steps: CheckedStep[]): { localPlugin?: { contains: str
   return { localPlugin: { contains: named.length ? [...new Set(named.flat())].sort(codeUnitCompare) : null } };
 }
 /** An AI setup's review facts (C46): what it downloads, and for a Python tool both interpreter branches. */
-function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>): Pick<ReviewStep, 'acquire' | 'interpreter'> {
+function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterpreter | null>,
+    sourced: Map<number, { review: ReviewDownload[] }>): Pick<ReviewStep, 'acquire' | 'interpreter'> {
   const spec = step.lowered.acquire;
   if (!spec) return {};
   const found = installed.get(step.index) ?? null;
+  const builds = spec.closure.some(wheel => wheel.build);
   return { acquire: { aiSetup: spec.aiSetup, version: spec.version, cell: spec.cell, kind: spec.kind, qualification: `sha256:${spec.qualification}`,
-    artifact: { file: spec.artifact.file, sha256: spec.artifact.sha256 }, into: `${spec.into}/`, members: spec.members.length, closure: spec.closure.length },
+    artifact: { file: spec.artifact.file, sha256: spec.artifact.sha256 }, into: `${spec.into}/`, members: spec.members.length, closure: spec.closure.length,
+    downloads: structuredClone(sourced.get(step.index)?.review ?? []) as NonNullable<ReviewStep['acquire']>['downloads'] },
   ...(spec.interpreter ? { interpreter: {
     installed: found ? { path: found.path, version: found.version, note: 'in range, not qualified' as const } : null,
     range: spec.interpreter.range,
     fallback: { version: spec.interpreter.fallback.version, file: spec.interpreter.fallback.file, sha256: spec.interpreter.fallback.sha256 },
-    switchesOn: found ? FALLBACK_REASONS.filter(reason => reason !== 'none-found') : ['none-found'] } } : {}) };
+    switchesOn: found ? FALLBACK_REASONS.filter(reason => reason !== 'none-found' && (builds || reason !== 'build-failed')) : ['none-found'] } } : {}) };
 }
 
 const REDACTED = '[REDACTED]';

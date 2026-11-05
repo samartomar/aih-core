@@ -1,7 +1,10 @@
 // A Core-side PROCESS FIXTURE standing in for a Python interpreter in acquisition tests. It is a copy of the Node
 // executable named `python(.exe)`, loaded with `NODE_OPTIONS=--require <this file>`; in any process whose executable is
 // not named like Python it does nothing. It answers Core's fixed helper commands (`probe`, `venv`, `install`, `readback`)
-// the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, badReadback? }`.
+// the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, badReadback?,
+// incompatible?, failBuild? }`. `compatible` calls a wheel installable unless its file name starts with an `incompatible`
+// prefix; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
+// after the sdist (`<name>-<version>.tar.gz`), unless `failBuild`.
 // It proves Core's branch logic only; it is not a real interpreter, pip or wheel install.
 'use strict';
 const { basename, dirname, join } = require('node:path');
@@ -28,6 +31,18 @@ if (/^python/i.test(basename(process.execPath))) {
     for (const wheel of args) { if (!fs.existsSync(wheel)) process.exit(1); const [name, version] = basename(wheel).split('-'); site[name] = version; }
     fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-site.json'), JSON.stringify(site));
     out({ ok: true });
+  } else if (command === 'compatible') {
+    out({ compatible: args.map(wheel => !(facts.incompatible ?? []).some(prefix => basename(wheel).startsWith(prefix))) });
+  } else if (command === 'buildenv') {
+    for (const wheel of args) if (!fs.existsSync(wheel)) process.exit(1);
+    fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-buildenv.json'), JSON.stringify(args.map(wheel => basename(wheel))));
+  } else if (command === 'build') {
+    if (facts.failBuild || !fs.existsSync(args[0])) { process.stderr.write('fixture: build failed\n'); process.exit(1); }
+    const [, name, version] = /^(.+)-([^-]+)\.tar\.gz$/.exec(basename(args[0]));
+    const file = `${name}-${version}-py3-none-any.whl`;
+    fs.mkdirSync(args[1], { recursive: true });
+    fs.writeFileSync(join(args[1], file), `fixture built wheel ${name} ${version} from ${basename(args[0])}\n`);
+    out({ wheels: [file] });
   } else if (command === 'readback') {
     const site = JSON.parse(fs.readFileSync(join(dirname(dirname(process.execPath)), 'fake-site.json'), 'utf8'));
     if (!site[args[0]]) process.exit(1);

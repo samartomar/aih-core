@@ -1,16 +1,23 @@
-// Apply's acquisition for one `acquire` step (contract 8.1, D54, D86, D105, C46, C60): run immediately before Core
-// writes the step's marker file, inside the engine's ordered, cancellable run. Every downloaded byte is checked against
-// the qualification; a mismatch fails the step and never switches branches. A Python tool tries the installed
-// interpreter Prepare found, and moves to the reviewed fallback only after a real failure. The folder is created by
-// this acquisition and marked while it is incomplete, so an interrupted or failed attempt is removed, never adopted.
-import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+// Apply's acquisition for one `acquire` step (contract 8.1, D54, D86, D105, C46, C60, C78): run immediately before Core
+// writes the step's marker file, inside the engine's ordered, cancellable run. Every acquired byte comes from the one
+// source the review named and is checked against the qualification; a mismatch fails the step and never switches
+// branches or sources. A Python tool tries the installed interpreter Prepare found, and moves to the reviewed fallback
+// only after a real failure. A closure wheel with a recorded build uses its qualified bytes when obtainable and
+// installable on the interpreter in use, and is otherwise built offline from its pinned source and dependency wheels
+// (recorded as built, never as byte-qualified). The folder is created by this acquisition and marked while it is
+// incomplete, so an interrupted or failed attempt is removed, never adopted; build and temporary folders live inside it.
+import { execFile } from 'node:child_process';
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import { resolveExecutable } from '../../internal/approved-process.js';
 import { readArchive } from './archive.js';
-import { AcquireError, downloadBytes } from './download.js';
+import { AcquireError } from './download.js';
 import { environmentPython, probeInterpreter, runHelper, standalonePython } from './interpreter.js';
 import { inRange } from './range.js';
-import { ACQUIRING, MANIFEST, type AcquireFacts, type AcquireSpec, type Download, type InstalledInterpreter } from './types.js';
+import { obtain, sourceKey, type Sources } from './sources.js';
+import { ACQUIRING, MANIFEST, type AcquireFacts, type AcquireSpec, type ClosureWheel, type Download, type DownloadRecord, type DownloadRole,
+  type InstalledInterpreter } from './types.js';
 import type { Json } from '../../types.js';
 
 export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }
@@ -18,6 +25,7 @@ export interface Acquisition { run(signal?: AbortSignal): Promise<EffectOutcome>
 const DOWNLOAD_DEADLINE = 30 * 60_000;
 const PROCESS_DEADLINE = 10 * 60_000;
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+const normal = (name: string): string => name.replace(/[-_.]+/g, '-').toLowerCase();
 
 /** The folder's ancestors under home are real directories: no link or junction is followed into or out of it. */
 function contained(home: string, into: string): boolean {
@@ -46,40 +54,150 @@ function writeEntries(root: string, entries: ReturnType<typeof readArchive>): vo
   }
 }
 
+/** A failed build on one interpreter: a real failure that switches the installed interpreter to the fallback. */
+class BuildFailure extends Error {}
+type ToolRecord = NonNullable<DownloadRecord['built']>['tools'][number];
+/**
+ * A host build tool's observed identity (C78): its executable's sha256 and the first line of `--version`, recorded next to
+ * the qualification's. A missing tool is a build failure; a different hash is recorded, not refused.
+ */
+async function observeTool(name: string, signal?: AbortSignal): Promise<ToolRecord['observed'] | undefined> {
+  const found = resolveExecutable(name);
+  if (!found) return undefined;
+  let digest: string;
+  try { digest = sha256(readFileSync(found.path)); } catch { return undefined; }
+  const version = await new Promise<string>(resolve => {
+    execFile(found.launchPath, ['--version'], { timeout: 15_000, windowsHide: true, maxBuffer: 1_048_576, ...(signal ? { signal } : {}) },
+      (_error, stdout) => resolve(String(stdout ?? '').split(/\r?\n/)[0]!.trim().slice(0, 512)));
+  });
+  return { version, sha256: digest };
+}
+
 export function acquisition(spec: AcquireSpec, home: string, installed: InstalledInterpreter | null,
-    progress: (event: Json) => void): Acquisition {
+    progress: (event: Json) => void, sources: Sources = new Map()): Acquisition {
   const folder = join(home, ...spec.into.split('/'));
   const report = (phase: string, extra: Record<string, Json> = {}) => progress({ step: spec.step, op: 'acquire', aiSetup: spec.aiSetup, phase, ...extra });
-  const fetchInto = async (item: Download, signal?: AbortSignal): Promise<Buffer> => {
-    const bytes = await downloadBytes(item, { ...(signal ? { signal } : {}), deadlineMs: DOWNLOAD_DEADLINE, onBytes: length => report('bytes', { file: item.file, bytes: length }) });
+  const records = new Map<string, DownloadRecord>();
+  /** One download from its reviewed source (C78), byte-checked, with where it came from recorded. */
+  const fetchInto = async (role: DownloadRole, item: Download, signal?: AbortSignal): Promise<Buffer> => {
+    const source = sources.get(sourceKey(role, item)) ?? (item.url ? { kind: 'url' as const, url: item.url } : { kind: 'none' as const });
+    const got = await obtain(item, source, { ...(signal ? { signal } : {}), deadlineMs: DOWNLOAD_DEADLINE,
+      onBytes: length => report('bytes', { file: item.file, bytes: length }) });
     if (signal?.aborted) throw new AcquireError('cancelled');
-    return bytes;
+    records.set(sourceKey(role, item), { role, file: item.file, sha256: item.sha256, origin: got.origin, ...(got.url ? { url: got.url } : {}) });
+    return got.bytes;
   };
+  // Build inputs are obtained once and reused when the fallback builds again.
+  const cached = new Map<string, Buffer>();
+  const fetchOnce = async (role: DownloadRole, item: Download, signal?: AbortSignal): Promise<Buffer> => {
+    const key = sourceKey(role, item);
+    if (!cached.has(key)) cached.set(key, await fetchInto(role, item, signal));
+    return cached.get(key)!;
+  };
+  const options = (signal?: AbortSignal, env?: Record<string, string>) =>
+    ({ ...(signal ? { signal } : {}), timeoutMs: PROCESS_DEADLINE, cwd: folder, ...(env ? { env } : {}) });
+  const step = (result: { ok: boolean; reason: string }): void => {
+    if (result.reason === 'cancelled') throw new AcquireError('cancelled');
+    if (!result.ok) throw new BuildFailure('build-failed');
+  };
+  let builds = 0;
+
+  /**
+   * Builds one closure wheel from its pinned source with one interpreter (C78): a dedicated build environment holding only
+   * the pinned dependency wheels, installed offline, then an offline build without build isolation, so no unpinned build
+   * dependency is ever fetched or run. The wheel must be the closure entry's distribution and version.
+   */
+  async function build(python: string, wheel: ClosureWheel, signal?: AbortSignal): Promise<{ path: string; record: DownloadRecord }> {
+    const recipe = wheel.build!;
+    const tools: ToolRecord[] = [];
+    for (const tool of recipe.tools) {
+      const observed = await observeTool(tool.name, signal);
+      if (signal?.aborted) throw new AcquireError('cancelled');
+      if (!observed) throw new BuildFailure('build-failed');
+      tools.push({ name: tool.name, qualified: { version: tool.version, sha256: tool.sha256 }, observed });
+    }
+    const work = join(folder, 'build', String(builds++));
+    const inputs = join(work, 'inputs'), out = join(work, 'out'), temp = join(work, 'tmp');
+    for (const dir of [inputs, out, temp]) mkdirSync(dir, { recursive: true });
+    const sourcePath = join(inputs, recipe.source.file);
+    writeFileSync(sourcePath, await fetchOnce('build-source', recipe.source, signal), { flag: 'wx', mode: 0o644 });
+    const dependencies: string[] = [];
+    for (const dependency of recipe.dependencies) {
+      const path = join(inputs, dependency.file);
+      writeFileSync(path, await fetchOnce('build-dependency', dependency, signal), { flag: 'wx', mode: 0o644 });
+      dependencies.push(path);
+    }
+    const env = { TMPDIR: temp, TEMP: temp, TMP: temp };
+    const environment = join(work, 'env');
+    step(await runHelper(python, ['venv', environment], options(signal, env)));
+    const buildPython = environmentPython(environment);
+    step(await runHelper(buildPython, ['buildenv', ...dependencies], options(signal, env)));
+    const made = await runHelper(buildPython, ['build', sourcePath, out], options(signal, env));
+    step(made);
+    const wheels = (made.output as { wheels?: unknown } | null)?.wheels;
+    if (!Array.isArray(wheels) || wheels.length !== 1 || typeof wheels[0] !== 'string' || !wheels[0].endsWith('.whl')) throw new BuildFailure('build-failed');
+    const file = wheels[0] as string;
+    const [name, version] = file.split('-');
+    if (!name || normal(name) !== normal(wheel.name) || version !== wheel.version) throw new BuildFailure('build-failed');
+    const path = join(out, file);
+    return { path, record: { role: 'closure', file: wheel.file, sha256: wheel.sha256, origin: 'built', built: { file, sha256: sha256(readFileSync(path)),
+      byteQualified: false, source: recipe.source.sha256, dependencies: recipe.dependencies.map(dependency => dependency.sha256), tools } } };
+  }
 
   /** Makes a dedicated environment from one interpreter, installs the wheels offline and reads the tool back. */
-  async function install(python: string, wheels: string[], environment: string, signal?: AbortSignal): Promise<'ok' | 'wheel-install-failed' | 'readback-failed' | 'cancelled'> {
-    const options = { ...(signal ? { signal } : {}), timeoutMs: PROCESS_DEADLINE, cwd: folder };
-    const made = await runHelper(python, ['venv', environment], options);
+  async function install(python: string, wheels: string[], qualified: Map<ClosureWheel, string | null>, environment: string, signal?: AbortSignal):
+      Promise<'ok' | 'wheel-install-failed' | 'readback-failed' | 'build-failed' | 'cancelled'> {
+    const made = await runHelper(python, ['venv', environment], options(signal));
     if (made.reason === 'cancelled') return 'cancelled';
     if (!made.ok) return 'wheel-install-failed';
     const envPython = environmentPython(environment);
-    const installedWheels = await runHelper(envPython, ['install', ...wheels], options);
+    // A wheel with a recorded build: its qualified bytes when obtained and installable here, else built from pinned source.
+    const present = [...qualified].filter((entry): entry is [ClosureWheel, string] => entry[1] !== null);
+    let fits: boolean[] = present.map(() => false);
+    if (present.length) {
+      const checked = await runHelper(envPython, ['compatible', ...present.map(([, path]) => path)], options(signal));
+      if (checked.reason === 'cancelled') return 'cancelled';
+      const answer = (checked.output as { compatible?: unknown } | null)?.compatible;
+      if (checked.ok && Array.isArray(answer) && answer.length === present.length) fits = answer.map(value => value === true);
+    }
+    const chosen: string[] = []; const built: DownloadRecord[] = [];
+    for (const [wheel, path] of qualified) {
+      const at = present.findIndex(([candidate]) => candidate === wheel);
+      if (path !== null && fits[at]) { chosen.push(path); continue; }
+      try { const result = await build(python, wheel, signal); chosen.push(result.path); built.push(result.record); }
+      catch (error) { if (error instanceof BuildFailure) return 'build-failed'; if (error instanceof AcquireError && error.reason === 'cancelled') return 'cancelled'; throw error; }
+    }
+    const installedWheels = await runHelper(envPython, ['install', ...wheels, ...chosen], options(signal));
     if (installedWheels.reason === 'cancelled') return 'cancelled';
     if (!installedWheels.ok) return 'wheel-install-failed';
     const name = spec.artifact.file.split('-')[0]!;
-    const read = await runHelper(envPython, ['readback', name], options);
+    const read = await runHelper(envPython, ['readback', name], options(signal));
     if (read.reason === 'cancelled') return 'cancelled';
-    return read.ok && (read.output as { version?: unknown } | null)?.version === spec.version ? 'ok' : 'readback-failed';
+    if (!(read.ok && (read.output as { version?: unknown } | null)?.version === spec.version)) return 'readback-failed';
+    for (const record of built) records.set(sourceKey('closure', record), record);
+    return 'ok';
   }
 
   async function python(signal?: AbortSignal): Promise<AcquireFacts> {
     const wheelDir = join(folder, 'wheels'); mkdirSync(wheelDir, { recursive: true });
     const wheels: string[] = [];
-    for (const item of [...spec.closure, spec.artifact]) {
-      const bytes = await fetchInto(item, signal);
-      const path = join(wheelDir, item.file); writeFileSync(path, bytes, { flag: 'wx', mode: 0o644 }); wheels.push(path);
+    const qualified = new Map<ClosureWheel, string | null>();
+    const items: [DownloadRole, Download, ClosureWheel | null][] = [...spec.closure.map(wheel => ['closure', wheel, wheel] as [DownloadRole, Download, ClosureWheel]),
+      ['artifact', spec.artifact, null]];
+    for (const [role, item, wheel] of items) {
+      let bytes: Buffer | null;
+      try { bytes = await fetchInto(role, item, signal); }
+      catch (error) {
+        // A wheel with a recorded build and no obtainable qualified bytes is built instead (C78); a mismatch never is.
+        if (!(wheel?.build && error instanceof AcquireError && error.reason === 'artifact-unavailable')) throw error;
+        bytes = null;
+      }
+      const path = bytes ? join(wheelDir, item.file) : null;
+      if (bytes && path) writeFileSync(path, bytes, { flag: 'wx', mode: 0o644 });
+      if (wheel?.build) qualified.set(wheel, path); else wheels.push(path!);
     }
     const environment = join(folder, 'env');
+    const done = (facts: AcquireFacts): AcquireFacts => { rmSync(join(folder, 'build'), { recursive: true, force: true, maxRetries: 3 }); return facts; };
     let reason: string;
     if (installed === null) reason = 'none-found';
     else {
@@ -87,29 +205,29 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       if (signal?.aborted) throw new AcquireError('cancelled');
       if (!now || !inRange(now.version, spec.interpreter!.range)) reason = 'outside-range';
       else {
-        const outcome = await install(now.path, wheels, environment, signal);
+        const outcome = await install(now.path, wheels, qualified, environment, signal);
         if (outcome === 'cancelled') throw new AcquireError('cancelled');
-        if (outcome === 'ok') return { branch: 'installed', interpreter: now, fallback: false, fallbackReason: null };
+        if (outcome === 'ok') return done({ branch: 'installed', interpreter: now, fallback: false, fallbackReason: null });
         reason = outcome;
       }
       rmSync(environment, { recursive: true, force: true });
     }
     // The reviewed fallback, byte-checked like every wheel (D86); its failure fails the step.
     report('fallback', { reason });
-    const archive = await fetchInto(spec.interpreter!.fallback, signal);
+    const archive = await fetchInto('interpreter', spec.interpreter!.fallback, signal);
     const root = join(folder, 'interpreter'); mkdirSync(root, { recursive: true });
     writeEntries(root, readArchive(archive, spec.interpreter!.fallback.file));
     const executable = standalonePython(root);
     if (!existsSync(executable)) throw new AcquireError('interpreter-unavailable');
     if (process.platform !== 'win32') chmodSync(executable, 0o755);
-    const outcome = await install(executable, wheels, environment, signal);
+    const outcome = await install(executable, wheels, qualified, environment, signal);
     if (outcome === 'cancelled') throw new AcquireError('cancelled');
     if (outcome !== 'ok') throw new AcquireError(outcome);
-    return { branch: 'fallback', interpreter: { path: executable, version: spec.interpreter!.fallback.version }, fallback: true, fallbackReason: reason };
+    return done({ branch: 'fallback', interpreter: { path: executable, version: spec.interpreter!.fallback.version }, fallback: true, fallbackReason: reason });
   }
 
   async function native(signal?: AbortSignal): Promise<AcquireFacts> {
-    const bytes = await fetchInto(spec.artifact, signal);
+    const bytes = await fetchInto('artifact', spec.artifact, signal);
     const entries = readArchive(bytes, spec.artifact.file);
     for (const member of spec.members) {
       const entry = entries.find(candidate => candidate.type === 'file' && candidate.path === member.path);
@@ -134,12 +252,12 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       mkdirSync(folder, { recursive: true, mode: 0o755 });
       writeFileSync(join(folder, ACQUIRING), `${spec.aiSetup} ${spec.version} ${spec.cell}\n`, { flag: 'wx', mode: 0o600 });
       try {
-        const facts = spec.kind === 'pypi-wheel' ? await python(signal) : await native(signal);
+        const facts: AcquireFacts = { ...(spec.kind === 'pypi-wheel' ? await python(signal) : await native(signal)), downloads: [...records.values()] };
         rmSync(join(folder, ACQUIRING), { force: true });
         report('finish', { status: 'passed' });
         return { status: 'passed', reason: 'acquired', effectsUncertain: false, facts: facts as unknown as Json };
       } catch (error) {
-        const reason = error instanceof AcquireError ? error.reason : 'acquisition-failed';
+        const reason = error instanceof AcquireError ? error.reason : error instanceof BuildFailure ? 'build-failed' : 'acquisition-failed';
         let cleared = false;
         try { rmSync(folder, { recursive: true, force: true, maxRetries: 3 }); cleared = !existsSync(folder); } catch { /* the marker stays for the next attempt */ }
         report('finish', { status: reason === 'cancelled' ? 'cancelled' : 'failed', reason });

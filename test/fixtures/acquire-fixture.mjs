@@ -100,7 +100,8 @@ export const wheelBytes = (name, version) => Buffer.from(`fixture wheel ${name} 
  * acquire step. `server` serves the wheel, the closure and the fallback interpreter archive.
  */
 export function pythonSetup(server, { name = 'review-graph', version = '2.3.9', range = '>=3.10', closure = [['networkx', '3.4.2']],
-    fallbackVersion = '3.14.5', fallbackBytes, cell = hostCell(), id = `crg.ai-setup.${name}` } = {}) {
+    fallbackVersion = '3.14.5', fallbackBytes, fallbackFile = `cpython-${fallbackVersion}-install_only.tar.gz`, cell = hostCell(),
+    id = `crg.ai-setup.${name}` } = {}) {
   const wheelFile = `${name.replaceAll('-', '_')}-${version}-py3-none-any.whl`;
   const wheel = wheelBytes(name.replaceAll('-', '_'), version);
   server.serve(`/${wheelFile}`, wheel);
@@ -108,8 +109,7 @@ export function pythonSetup(server, { name = 'review-graph', version = '2.3.9', 
     const file = `${dist}-${at}-py3-none-any.whl`; const bytes = wheelBytes(dist, at); server.serve(`/${file}`, bytes);
     return { name: dist, version: at, file, sha256: sha256(bytes), bytes: bytes.length, url: server.url(`/${file}`) };
   });
-  const fallbackFile = `cpython-${fallbackVersion}-install_only.tar.gz`;
-  server.serve(`/${fallbackFile}`, fallbackBytes);
+  server.serve(`/${encodeURIComponent(fallbackFile)}`, fallbackBytes);
   const interpreter = { version: fallbackVersion, file: fallbackFile, sha256: sha256(fallbackBytes), bytes: fallbackBytes.length };
   const qualification = { schema: QUALIFICATION, subject: { aiSetup: id, version, cell },
     observed: { artifact: { file: wheelFile, sha256: sha256(wheel), bytes: wheel.length }, members: [],
@@ -118,9 +118,10 @@ export function pythonSetup(server, { name = 'review-graph', version = '2.3.9', 
   const step = { op: 'acquire', aiSetup: id, version, cell,
     distribution: { kind: 'pypi-wheel', file: wheelFile, url: server.url(`/${wheelFile}`), sha256: sha256(wheel), bytes: wheel.length },
     qualification: `sha256:${documentSha(qualification)}`, scanned: false, into: `.aihq/ai-setup/${name}/${version}/${cell}/`,
-    closure: wheels, interpreter: { prefer: 'installed', range, fallback: { ...interpreter, url: server.url(`/${fallbackFile}`) } } };
+    closure: wheels, interpreter: { prefer: 'installed', range, fallback: { ...interpreter, url: server.url(`/${encodeURIComponent(fallbackFile)}`) } } };
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version, runtime: { python: range, closure: 'uv-lock' } } };
-  return { id, step, qualification, item, folder: `.aihq/ai-setup/${name}/${version}/${cell}` };
+  return { id, step, qualification, item, folder: `.aihq/ai-setup/${name}/${version}/${cell}`,
+    files: { [wheelFile]: wheel, ...Object.fromEntries(wheels.map(entry => [entry.file, wheelBytes(entry.name, entry.version)])), [fallbackFile]: fallbackBytes } };
 }
 
 /** A native-archive AI setup: a `.tar.gz` with `members` ({ path: text }), all qualified, the first executable. */
@@ -162,4 +163,41 @@ export function setupRequest(project, setups, skills = []) {
     contents: [{ schema: CONTENT, framework: { id: 'local-my-skills', name: 'Fixture' }, sources: [{ id: sourceId, kind: 'local', notices: [] }], items }],
     profiles: [{ schema: 'urn:aihq:catalog:tool-profile:0.1.0', id: 'claude-code', version: 1, checkedWith: 'fixture' }],
     files, qualifications: setups.map(setup => setup.qualification) };
+}
+
+/**
+ * The setup as Catalog plans it when no URL is recorded (decision C78): the step's closure entries and fallback
+ * interpreter carry no `url`, as the qualification records them; with `artifact`, the distribution has none either.
+ */
+export function withoutUrls(setup, { artifact = true } = {}) {
+  const step = structuredClone(setup.step);
+  if (artifact) delete step.distribution.url;
+  for (const wheel of step.closure ?? []) delete wheel.url;
+  if (step.interpreter?.fallback) delete step.interpreter.fallback.url;
+  return { ...setup, step };
+}
+/** A folder holding exact files `{ name: bytes }`, as a caller's `artifacts` folder. */
+export function suppliedFolder(dir, files) {
+  for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes);
+  return dir;
+}
+/**
+ * PyPI JSON API answers at `<index>/pypi/<name>/<version>/json` for a Python setup's artifact and closure wheels (and any
+ * `extra` `{ name, version, file, bytes }`). Each lists the file with its qualified sha256 and a download URL under
+ * `/files/`; `served` replaces the bytes served there, and files named in `omit` are left out of the answer.
+ */
+export function pypiIndex(server, index, setup, served = {}, omit = [], extra = []) {
+  const path = new URL(index).pathname;
+  const wheelFile = setup.step.distribution.file;
+  const entries = [{ name: wheelFile.split('-')[0], version: setup.step.version, file: wheelFile, bytes: setup.files[wheelFile] },
+    ...(setup.step.closure ?? []).map(wheel => ({ name: wheel.name, version: wheel.version, file: wheel.file, bytes: setup.files[wheel.file] })), ...extra];
+  const byRelease = new Map();
+  for (const entry of entries) {
+    server.serve(`/files/${entry.file}`, served[entry.file] ?? entry.bytes);
+    const key = `${path}/pypi/${entry.name}/${entry.version}/json`;
+    const answer = byRelease.get(key) ?? { info: { name: entry.name, version: entry.version }, urls: [] };
+    if (!omit.includes(entry.file)) answer.urls.push({ filename: entry.file, url: server.url(`/files/${entry.file}`), digests: { sha256: sha256(entry.bytes) } });
+    byRelease.set(key, answer);
+  }
+  for (const [key, answer] of byRelease) server.serve(key, Buffer.from(JSON.stringify(answer)));
 }

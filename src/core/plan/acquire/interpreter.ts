@@ -3,7 +3,7 @@
 // An installed interpreter is never byte-qualified: its version range and the tool's readback are the only checks.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveExecutable } from '../../internal/approved-process.js';
 import { inRange } from './range.js';
@@ -19,9 +19,34 @@ elif command == 'venv':
     venv.EnvBuilder(with_pip=True, symlinks=(os.name != 'nt')).create(sys.argv[2])
     print(json.dumps({'ok': True}))
 elif command == 'install':
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
                              '--disable-pip-version-check', '--no-input', *sys.argv[2:]], stdout=sys.stderr)
     sys.exit(result.returncode)
+elif command == 'compatible':
+    from pip._vendor.packaging.tags import sys_tags
+    from pip._vendor.packaging.utils import parse_wheel_filename
+    supported = set(sys_tags())
+    print(json.dumps({'compatible': [bool(set(parse_wheel_filename(os.path.basename(path))[3]) & supported) for path in sys.argv[2:]]}))
+elif command == 'buildenv':
+    import importlib.metadata, re
+    normal = lambda name: re.sub(r'[-_.]+', '-', name).lower()
+    pinned = {normal(os.path.basename(path).split('-')[0]) for path in sys.argv[2:]}
+    extra = sorted({dist.metadata['Name'] for dist in importlib.metadata.distributions() if normal(dist.metadata['Name']) not in pinned | {'pip'}})
+    if extra:
+        result = subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '--isolated', '-y', *extra], stdout=sys.stderr)
+        if result.returncode:
+            sys.exit(result.returncode)
+    if len(sys.argv) > 2:
+        result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
+                                 '--disable-pip-version-check', '--no-input', *sys.argv[2:]], stdout=sys.stderr)
+        sys.exit(result.returncode)
+elif command == 'build':
+    out = sys.argv[3]
+    result = subprocess.run([sys.executable, '-m', 'pip', 'wheel', '--isolated', '--no-index', '--no-deps', '--no-build-isolation', '--no-cache-dir',
+                             '--disable-pip-version-check', '--no-input', '--wheel-dir', out, sys.argv[2]], stdout=sys.stderr)
+    if result.returncode:
+        sys.exit(result.returncode)
+    print(json.dumps({'wheels': sorted(os.listdir(out))}))
 elif command == 'readback':
     import importlib.metadata
     print(json.dumps({'version': importlib.metadata.version(sys.argv[2])}))
@@ -31,7 +56,7 @@ else:
 export interface PythonResult { ok: boolean; output: unknown; reason: string }
 
 /** Runs the helper with one interpreter; output is bounded, and a deadline or the caller's signal stops it. */
-export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string }): Promise<PythonResult> {
+export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string> }): Promise<PythonResult> {
   const resolved = resolveExecutable(executable);
   if (!resolved) return { ok: false, output: null, reason: 'interpreter-unavailable' };
   const dir = mkdtempSync(join(tmpdir(), 'aih-python-'));
@@ -40,6 +65,10 @@ export async function runHelper(executable: string, args: string[], options: { s
   const env: Record<string, string | undefined> = { ...process.env, PYTHONNOUSERSITE: '1', PIP_NO_INPUT: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1',
     PYTHONUTF8: '1' };
   delete env.PYTHONPATH; delete env.PYTHONHOME; delete env.PYTHONSTARTUP; delete env.VIRTUAL_ENV;
+  // pip's configuration, user site and index variables never reach an install or build (C78): only the files Core names.
+  for (const key of Object.keys(env)) if (/^PIP_/i.test(key) && !['PIP_NO_INPUT', 'PIP_DISABLE_PIP_VERSION_CHECK'].includes(key)) delete env[key];
+  env.PIP_CONFIG_FILE = devNull; env.PIP_NO_INDEX = '1';
+  Object.assign(env, options.env ?? {});
   try {
     return await new Promise<PythonResult>(resolve => {
       let child: ReturnType<typeof spawn>;

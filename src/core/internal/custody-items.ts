@@ -60,7 +60,8 @@ export interface PlanItemFacts {
   /** The plan step indexes grouped under this management id, ascending. */
   steps: number[];
   /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
-  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null };
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null;
+    downloads?: import('../plan/acquire/types.js').DownloadRecord[] };
   /**
    * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
@@ -268,8 +269,27 @@ function validOrigin(value: unknown): boolean {
 const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
 /** Plan-request receipt facts, bounded like the rest of an item record. */
+const ROLES = ['artifact', 'closure', 'interpreter', 'build-source', 'build-dependency'];
+const identityText = (value: unknown, bound: number): boolean => typeof value === 'string' && value.length <= bound;
+function validToolRecord(value: unknown): boolean {
+  return exact(value, ['name', 'qualified', 'observed']) && text(value.name, 128) &&
+    [value.qualified, value.observed].every(side => exact(side, ['version', 'sha256']) && identityText(side.version, 512) && hex(side.sha256));
+}
+/** Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source. */
+function validDownloadRecord(value: unknown): boolean {
+  if (!exact(value, ['role', 'file', 'sha256', 'origin'], ['url', 'built'])) return false;
+  if (!ROLES.includes(value.role as string) || !text(value.file, 256) || !hex(value.sha256)) return false;
+  if (value.origin === 'supplied') return value.url === undefined && value.built === undefined;
+  if (value.origin === 'downloaded') return text(value.url, 4096) && (value.url as string).startsWith('https://') && value.built === undefined;
+  if (value.origin !== 'built' || value.url !== undefined || value.role !== 'closure') return false;
+  const built = value.built;
+  return exact(built, ['file', 'sha256', 'byteQualified', 'source', 'dependencies', 'tools']) && text(built.file, 256) && hex(built.sha256) &&
+    built.byteQualified === false && hex(built.source) && Array.isArray(built.dependencies) && built.dependencies.length <= 4096 &&
+    built.dependencies.every(hex) && Array.isArray(built.tools) && built.tools.length <= 64 && built.tools.every(validToolRecord);
+}
 function validAiSetupFacts(value: unknown): boolean {
-  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'])) return false;
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'], ['downloads'])) return false;
+  if (value.downloads !== undefined && !(Array.isArray(value.downloads) && value.downloads.length <= 8192 && value.downloads.every(validDownloadRecord))) return false;
   const interpreter = value.interpreter;
   return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
     (value.fallbackReason === null || text(value.fallbackReason, 64)) &&

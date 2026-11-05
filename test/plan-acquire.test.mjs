@@ -65,9 +65,9 @@ test('a missing or disagreeing qualification refuses Prepare before any effect',
   const other = await refused(native, value => { value.step.cell = 'linux-riscv64'; value.step.into = value.step.into.replace(/[^/]+\/$/, 'linux-riscv64/');
     value.qualification.subject.cell = 'linux-riscv64'; resign(value); }, 'cell-mismatch');
   assert.match(other.reason, /linux-riscv64/);
-  // A distribution Core cannot download from is invalid, never guessed.
-  const fileOnly = structuredClone(native.step); delete fileOnly.distribution.url;
-  const invalid = await prepare(setupRequest(target, [{ ...native, step: fileOnly }]));
+  // A distribution with neither a file name nor a URL names nothing to acquire: invalid, never guessed.
+  const nameless = structuredClone(native.step); delete nameless.distribution.url; delete nameless.distribution.file;
+  const invalid = await prepare(setupRequest(target, [{ ...native, step: nameless }]));
   assert.equal(invalid.status, 'invalid', JSON.stringify(invalid));
 });
 
@@ -98,7 +98,8 @@ test('a native archive installs its qualified members, lists, and is removed wit
   const listed = await list({ target: { project: target }, scope: 'both' });
   const entry = listed.entries.find(row => row.managementId === native.id);
   assert.ok(entry, JSON.stringify(listed));
-  assert.deepEqual([entry.scope, entry.items, entry.aiSetup], ['user', [native.id], { branch: null, interpreter: null, fallback: false, fallbackReason: null }]);
+  assert.deepEqual([entry.scope, entry.items, entry.aiSetup], ['user', [native.id], { branch: null, interpreter: null, fallback: false, fallbackReason: null,
+    downloads: [{ role: 'artifact', file: native.step.distribution.file, sha256: native.step.distribution.sha256, origin: 'downloaded', url: native.step.distribution.url }] }]);
 
   const again = await prepare(setupRequest(target, [native]));
   assert.equal(again.review.steps[0].effect, 'already-satisfied', 'an installed setup is already in place');

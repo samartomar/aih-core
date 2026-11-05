@@ -6,7 +6,7 @@
 import { canonicalJson } from '../../internal/canonical.js';
 import { limitValue } from '../limits.js';
 import { parseRange } from '../acquire/range.js';
-import { MANIFEST, type AcquireSpec, type ArchiveMember, type ClosureWheel, type Download } from '../acquire/types.js';
+import { MANIFEST, type AcquireSpec, type ArchiveMember, type ClosureWheel, type Download, type WheelBuild } from '../acquire/types.js';
 import { problem, refusal } from './common.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
@@ -27,18 +27,46 @@ export const hexOf = (value: unknown): string | undefined => {
 export const hostCell = (): string => `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`;
 const sameJson = (left: unknown, right: unknown): boolean => canonicalJson(left as Json) === canonicalJson(right as Json);
 
+/** A download as the step records it: `sha256`, a plain `file` name and, when recorded, an https `url` (C78). */
 function download(value: unknown): Download | string {
   if (!object(value)) return 'shape';
   const sha256 = hexOf(value.sha256);
   if (!sha256) return 'sha256';
-  if (typeof value.url !== 'string') return 'url';
-  let url: URL;
-  try { url = new URL(value.url); } catch { return 'url'; }
-  if (url.protocol !== 'https:' || url.username || url.password) return 'url';
-  const file = typeof value.file === 'string' ? value.file : decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
+  let url: URL | null = null;
+  if (value.url !== undefined) {
+    if (typeof value.url !== 'string') return 'url';
+    try { url = new URL(value.url); } catch { return 'url'; }
+    if (url.protocol !== 'https:' || url.username || url.password) return 'url';
+  }
+  const file = typeof value.file === 'string' ? value.file : url ? decodeURIComponent(url.pathname.split('/').at(-1) ?? '') : '';
   if (!SEGMENT.test(file)) return 'file';
   if (value.bytes !== undefined && !(Number.isSafeInteger(value.bytes) && (value.bytes as number) >= 0)) return 'bytes';
-  return { url: url.href, file, sha256, bytes: value.bytes === undefined ? null : value.bytes as number };
+  return { url: url ? url.href : null, file, sha256, bytes: value.bytes === undefined ? null : value.bytes as number };
+}
+const named = (value: unknown): (Download & { name: string; version: string }) | undefined => {
+  const item = download(value);
+  return typeof item !== 'string' && object(value) && typeof value.name === 'string' && value.name.length <= 128 &&
+    typeof value.version === 'string' && value.version.length <= 64 ? { ...item, name: value.name, version: value.version } : undefined;
+};
+/** A closure wheel's recorded source build (Catalog `build`): pinned source, exact dependency wheels, host tools. */
+function wheelBuild(value: unknown): WheelBuild | null | undefined {
+  if (value === undefined) return null;
+  if (!object(value) || value.isolated !== true || !Array.isArray(value.dependencies) || !Array.isArray(value.tools) ||
+      value.dependencies.length > limitValue('closure-wheels') || value.tools.length > 64) return undefined;
+  const source = download(value.source);
+  if (typeof source === 'string') return undefined;
+  const dependencies: WheelBuild['dependencies'] = [];
+  for (const entry of value.dependencies) {
+    const wheel = named(entry);
+    if (!wheel || !wheel.file.endsWith('.whl')) return undefined;
+    dependencies.push(wheel);
+  }
+  const tools: WheelBuild['tools'] = [];
+  for (const tool of value.tools) {
+    if (!object(tool) || typeof tool.name !== 'string' || !ID.test(tool.name) || typeof tool.version !== 'string' || tool.version.length > 512 || !hexOf(tool.sha256)) return undefined;
+    tools.push({ name: tool.name, version: tool.version, sha256: hexOf(tool.sha256)! });
+  }
+  return { source, dependencies, tools };
 }
 function members(value: unknown): ArchiveMember[] | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > limitValue('artifact-members')) return undefined;
@@ -76,7 +104,7 @@ export const acquire: StepHandler = {
       return refusal('step-unknown', `Step ${index} acquires a \`${distribution.kind}\` distribution, which this Core does not carry out yet.`, index, { op: 'acquire' });
     const artifact = download(distribution);
     if (typeof artifact === 'string') return shape(`distribution/${artifact}`,
-      'A distribution Core downloads names an https `url`, its `sha256` and a plain file name; a `file` alone names no place to download from.');
+      'A distribution Core acquires names its `sha256`, a plain `file` name and, when recorded, an https `url`.');
     const python = distribution.kind === 'pypi-wheel';
     // A Python tool's closure and interpreter choice (D105).
     let closure: ClosureWheel[] = []; let interpreter: AcquireSpec['interpreter'] = null;
@@ -86,19 +114,21 @@ export const acquire: StepHandler = {
         return shape('interpreter', 'A Python tool names `interpreter: { prefer: "installed", range, fallback }` with a readable range.');
       const fallback = download(choice.fallback);
       if (typeof fallback === 'string' || !object(choice.fallback) || typeof choice.fallback.version !== 'string')
-        return shape('interpreter/fallback', 'The fallback interpreter names its `version`, https `url` and `sha256`.');
+        return shape('interpreter/fallback', 'The fallback interpreter names its `version`, `file` and `sha256`.');
       interpreter = { range: choice.range, fallback: { ...fallback, version: choice.fallback.version } };
       if (!Array.isArray(step.closure) || step.closure.length > limitValue('closure-wheels')) return shape('closure', 'A Python tool names its wheel `closure`.');
       for (const entry of step.closure) {
-        const wheel = download(entry);
-        if (typeof wheel === 'string' || !object(entry) || typeof entry.name !== 'string' || typeof entry.version !== 'string' || !wheel.file.endsWith('.whl'))
-          return shape('closure', 'Each closure wheel names `name`, `version`, an https `url` to a `.whl` and its `sha256`.');
-        closure.push({ ...wheel, name: entry.name, version: entry.version });
+        const wheel = named(entry);
+        const build = object(entry) ? wheelBuild(entry.build) : undefined;
+        if (!wheel || !wheel.file.endsWith('.whl') || build === undefined)
+          return shape('closure', 'Each closure wheel names `name`, `version`, its `.whl` `file` and `sha256`, and any `build` it records.');
+        closure.push({ ...wheel, build });
       }
       if (!artifact.file.endsWith('.whl')) return shape('distribution/file', 'A `pypi-wheel` artifact is a `.whl` file.');
     }
     const bound = limitValue('artifact-bytes');
-    for (const item of [artifact, ...closure, ...(interpreter ? [interpreter.fallback] : [])])
+    for (const item of [artifact, ...closure, ...closure.flatMap(wheel => wheel.build ? [wheel.build.source, ...wheel.build.dependencies] : []),
+      ...(interpreter ? [interpreter.fallback] : [])])
       if (item.bytes !== null && item.bytes > bound) return refusal('limit-exceeded', `Step ${index} names \`${item.file}\`, larger than one acquired artifact may be.`,
         index, { limit: 'artifact-bytes', value: bound });
 
@@ -125,7 +155,8 @@ export const acquire: StepHandler = {
       const qualified = observed.closure;
       if (!Array.isArray(qualified) || qualified.length !== closure.length ||
           !closure.every((wheel, at) => object(qualified[at]) && (qualified[at] as Fields).name === wheel.name &&
-            (qualified[at] as Fields).version === wheel.version && agrees(qualified[at], wheel, ['file', 'bytes']))) return mismatch('closure');
+            (qualified[at] as Fields).version === wheel.version && agrees(qualified[at], wheel, ['file', 'bytes']) &&
+            sameJson((qualified[at] as Fields).build ?? null, (step.closure as Fields[])[at]!.build ?? null))) return mismatch('closure');
       const fallback = observed.interpreter;
       if (!object(fallback) || fallback.version !== interpreter!.fallback.version || !agrees(fallback, interpreter!.fallback, ['file', 'bytes']))
         return mismatch('fallback interpreter');
