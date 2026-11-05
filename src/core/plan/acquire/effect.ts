@@ -75,6 +75,22 @@ function writeEntries(root: string, entries: ReturnType<typeof readArchive>): vo
   }
 }
 
+/** What a failed install is attributed to: one wheel, or the closure when the log names none of its files. */
+type Attributed = { name: string; version: string } | 'closure';
+/**
+ * The wheel a failed install's log names (pip reports a refused wheel by its file name on an `ERROR` line): the latest
+ * error line naming one of `files`, else `closure`. A wheel the log does not name is never blamed.
+ */
+export function reportedWheel(log: string | undefined, files: readonly [string, Attributed][]): Attributed {
+  const lines = (log ?? '').split(/\r?\n/).filter(line => /\berror\b/i.test(line));
+  for (const line of lines.reverse()) {
+    // The longest file name first, so a name that is a prefix of another never wins.
+    const found = [...files].sort((a, b) => b[0].length - a[0].length).find(([file]) => line.includes(file));
+    if (found) return found[1];
+  }
+  return 'closure';
+}
+
 /** A failed build on one interpreter: a real failure that switches the installed interpreter to the fallback. */
 class BuildFailure extends Error {
   constructor(readonly phase: BuildPhase, readonly log: string | undefined) { super('build-failed'); }
@@ -148,8 +164,9 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
   };
   let builds = 0;
   const failures: BuildFailureRecord[] = [];
-  const failed = (wheel: ClosureWheel, phase: BuildPhase, branch: 'installed' | 'fallback', reason: string, log: string | undefined): void => {
-    const record: BuildFailureRecord = { wheel: { name: wheel.name, version: wheel.version }, phase, branch, reason, log: redactedLog(log, secrets) };
+  const failed = (wheel: Attributed, phase: BuildPhase, branch: 'installed' | 'fallback', reason: string, log: string | undefined): void => {
+    const record: BuildFailureRecord = { wheel: wheel === 'closure' ? 'closure' : { name: wheel.name, version: wheel.version }, phase, branch, reason,
+      log: redactedLog(log, secrets) };
     failures.push(record);
     report('build-failed', record as unknown as Record<string, Json>);
   };
@@ -241,8 +258,14 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     const installedWheels = await runHelper(envPython, ['install', ...wheels, ...chosen], options(signal));
     if (installedWheels.reason === 'cancelled') return 'cancelled';
     if (!installedWheels.ok) {
-      // A built wheel that will not install: the install is part of that build's outcome.
-      if (builtWheels.length) failed(builtWheels[0]!, 'install', branch, 'wheel-install-failed', installedWheels.log);
+      // After a build the install is part of that build's outcome: it is the wheel pip reports that failed, never just the
+      // first one built; when pip names none of the files, the closure's.
+      if (builtWheels.length) {
+        const files: [string, Attributed][] = [...spec.closure.map(wheel => [wheel.file, wheel] as [string, Attributed]),
+          [spec.artifact.file, { name: spec.artifact.file.split('-')[0]!, version: spec.version }],
+          ...built.map((record, at) => [record.built!.file, builtWheels[at]!] as [string, Attributed])];
+        failed(reportedWheel(installedWheels.log, files), 'install', branch, 'wheel-install-failed', installedWheels.log);
+      }
       return 'wheel-install-failed';
     }
     const name = spec.artifact.file.split('-')[0]!;

@@ -268,3 +268,24 @@ test('a failed build names the wheel, the phase, the branch and the end of its r
     assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'neither the folder nor its build/ is left');
   } finally { if (saved === undefined) delete process.env.AIH_FIXTURE_TOKEN; else process.env.AIH_FIXTURE_TOKEN = saved; }
 });
+
+test('an install that fails after a build names the wheel pip reports, or the closure when pip names none', async () => {
+  // pip refuses the (not built) closure wheel `networkx`, as Serena's `cffi` on a 3.12 host; the built `yamlish` is not to blame.
+  installedPython({ version: '3.13.1', failWheels: ['networkx'] });
+  const setup = buildSetup('b-blamed');
+  const prepared = await prepare(setupRequest(project(), [setup]));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  const step = byId(run, setup.id);
+  assert.deepEqual([run.completion, step.interpreter.branch, step.interpreter.fallbackReason], ['complete', 'fallback', 'wheel-install-failed']);
+  assert.deepEqual(step.buildFailures.map(failure => [failure.wheel, failure.phase, failure.branch, failure.reason]),
+    [[{ name: 'networkx', version: '3.4.2' }, 'install', 'installed', 'wheel-install-failed']]);
+  assert.ok(step.buildFailures[0].log.some(line => line.includes('networkx-3.4.2-py3-none-any.whl is not a supported wheel')), JSON.stringify(step.buildFailures));
+
+  // pip's error names no wheel: the failure is the closure's, with the log.
+  installedPython({ version: '3.13.1', failInstall: true });
+  const unnamed = buildSetup('b-unnamed');
+  const second = await prepare(setupRequest(project(), [unnamed]));
+  const other = byId(conforms(await apply(second.handle, approve(second.review))), unnamed.id);
+  assert.deepEqual(other.buildFailures.map(failure => [failure.wheel, failure.phase, failure.branch]), [['closure', 'install', 'installed']]);
+  assert.ok(other.buildFailures[0].log.length > 0);
+});

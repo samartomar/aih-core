@@ -305,9 +305,10 @@ export interface RunStep {
 export type BuildPhase = 'obtain-source' | 'build-deps' | 'build' | 'install';
 /**
  * One failed source build (C78): the closure wheel, the phase, the interpreter branch it ran on, the reason and the last
- * lines (at most 40) of its log, with secret values read `[REDACTED]`.
+ * lines (at most 40) of its log, with secret values read `[REDACTED]`. An install after a build names the wheel pip
+ * reported, or `closure` when pip named none of the closure's files.
  */
-export interface BuildFailureRecord { wheel: { name: string; version: string }; phase: BuildPhase; branch: 'installed' | 'fallback'; reason: string; log: string[] }
+export interface BuildFailureRecord { wheel: { name: string; version: string } | 'closure'; phase: BuildPhase; branch: 'installed' | 'fallback'; reason: string; log: string[] }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
   intent: 'write' | 'remove' | 'keep'; outcome: 'written' | 'claim-removed' | 'restored' | 'kept';

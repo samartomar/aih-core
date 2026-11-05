@@ -893,7 +893,8 @@ qualification documents the plan's acquire steps name in `qualifications`.
   `build-failed`; the observed version and executable sha256 are recorded next to the qualification's, without being
   compared. A build failure on the installed interpreter switches to the fallback, which tries qualified bytes and then
   builds again. `build/` is removed once the install finishes. Each failed build is reported in the run step's
-  `buildFailures` (and an `onProgress` `build-failed` event): the closure wheel's name and version, the phase
+  `buildFailures` (and an `onProgress` `build-failed` event): the closure wheel's name and version (for an install that
+  fails after a build, the wheel pip's error names, or `"closure"` when it names none of the closure's files), the phase
   (`obtain-source`, `build-deps`, `build`, `install`), the interpreter branch, the reason and the last 40 lines of its
   output, with the plan's secret values and every host variable named like a secret (`TOKEN`, `SECRET`, `PASSWORD`,
   `API_KEY`, ...) reading `[REDACTED]`. The log is kept only there: a failed acquisition's folder, `build/` with it,

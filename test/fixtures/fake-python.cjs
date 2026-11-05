@@ -1,7 +1,7 @@
 // A Core-side PROCESS FIXTURE standing in for a Python interpreter in acquisition tests. It is a copy of the Node
 // executable named `python(.exe)`, loaded with `NODE_OPTIONS=--require <this file>`; in any process whose executable is
 // not named like Python it does nothing. It answers Core's fixed helper commands (`probe`, `venv`, `install`, `readback`)
-// the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, badReadback?,
+// the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, failInstall?, badReadback?,
 // incompatible?, failBuild? }`. `compatible` calls a wheel installable unless its file name starts with an `incompatible`
 // prefix; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
 // after the sdist (`<name>-<version>.tar.gz`), unless `failBuild` (then a 60-line log on stderr, echoing `AIH_FIXTURE_TOKEN`).
@@ -26,7 +26,10 @@ if (/^python/i.test(basename(process.execPath))) {
     fs.writeFileSync(join(args[0], 'pyvenv.cfg'), `home = ${dirname(process.execPath)}\nversion = ${facts.version}\n`);
     out({ ok: true });
   } else if (command === 'install') {
-    if (args.some(wheel => (facts.failWheels ?? []).some(name => basename(wheel).startsWith(name)))) { process.stderr.write('fixture: wheel will not install\n'); process.exit(1); }
+    // pip's own wording: the refused wheel by file name, or (`failInstall`) an error that names none.
+    const refused = args.find(wheel => (facts.failWheels ?? []).some(name => basename(wheel).startsWith(name)));
+    if (refused) { process.stderr.write(`Processing ./wheels/other\nERROR: ${basename(refused)} is not a supported wheel on this platform.\n`); process.exit(1); }
+    if (facts.failInstall) { process.stderr.write('ERROR: Could not install packages due to an OSError: [Errno 28] No space left on device\n'); process.exit(1); }
     const site = {};
     for (const wheel of args) { if (!fs.existsSync(wheel)) process.exit(1); const [name, version] = basename(wheel).split('-'); site[name] = version; }
     fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-site.json'), JSON.stringify(site));

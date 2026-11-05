@@ -30,8 +30,9 @@
             "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] } } },
         "buildFailures": { "type": "array", "minItems": 1, "description": "An AI setup step: each source build that failed (C78), in order, whether or not the step then failed",
           "items": { "type": "object", "additionalProperties": false, "required": ["wheel", "phase", "branch", "reason", "log"],
-            "properties": { "wheel": { "type": "object", "additionalProperties": false, "required": ["name", "version"],
-                "properties": { "name": { "type": "string" }, "version": { "type": "string" } } },
+            "properties": { "wheel": { "description": "The wheel that failed; for an install after a build, the one pip reported, or closure when it named none",
+                "oneOf": [{ "type": "object", "additionalProperties": false, "required": ["name", "version"],
+                "properties": { "name": { "type": "string" }, "version": { "type": "string" } } }, { "const": "closure" }] },
               "phase": { "enum": ["obtain-source", "build-deps", "build", "install"] }, "branch": { "enum": ["installed", "fallback"] },
               "reason": { "type": "string" },
               "log": { "type": "array", "maxItems": 40, "description": "The last lines of the build's output, secret values read [REDACTED]", "items": { "type": "string", "maxLength": 1000 } } } } }
