@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import * as reader from './fixtures/catalog-node-fixture/reader.mjs';
@@ -161,4 +162,19 @@ test('a recipe origin is recorded only when Core reproduces the plan byte for by
   ]) assert.equal((await outcome(change)).prepared.status, 'invalid', name);
   const required = (await outcome(() => {}, { catalog: { version: reader.FIXTURE_VERSION, renderStep: reader.renderStep } })).prepared;
   assert.deepEqual([required.status, required.code], ['refused', 'catalog-required']);
+});
+
+test('a rendered write whose `from` names no item reads a source notice by its source id, as a plain write does', async () => {
+  const target = project();
+  const request = renderRequest(reader, target, SKILLS, ['claude-code']);
+  const notice = Buffer.from('---\nname: notice\n---\nA notice.\n');
+  const source = request.contents[0].sources[0];
+  source.notices.push({ sourcePath: 'NOTICE.md', sha256: createHash('sha256').update(notice).digest('hex') });
+  request.files.push({ sourceId: source.id, sourcePath: 'NOTICE.md', sha256: source.notices[0].sha256, bytes: notice });
+  const step = request.plan.plan.find(entry => entry.render?.name === 'skill-user-only');
+  step.from = { sourceId: source.id, sourcePath: 'NOTICE.md', sha256: source.notices[0].sha256 };
+  const prepared = await prepare(request, catalog());
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review), catalog())).completion, 'complete');
+  assert.equal(readFileSync(join(target, step.path), 'utf8'), '---\ndisable-model-invocation: true\nname: notice\n---\nA notice.\n');
 });
