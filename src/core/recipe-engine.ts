@@ -196,6 +196,11 @@ export interface EngineExtension {
    * that order across selections, and an operation waits only for the operations of required selections placed before it.
    */
   order?: ReadonlyMap<OperationKey, number>;
+  /**
+   * Plan steps that name several `items` (a notice, a runtime bundle file, the bundle-root rule; C48), by
+   * `<selectionId>/<operationId>`: identical bytes another plan claim holds are one member each such claim shares.
+   */
+  shared?: ReadonlySet<OperationKey>;
   /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
   merges?: ReadonlyMap<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
@@ -927,11 +932,14 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
           // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
           // file or value, another item's, or a tool's approval entry is never acquired.
+          // A plan step several items share (C48) shares the member with any other plan claim of the same bytes.
+          const sharedStep = !!myPlan && !!extension?.shared?.has(operationKey(selection.id, op.id));
+          const sharer = (claim: Claim) => sameItem(claim) || sharedStep && !!claimPlan(claim);
           const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval || op.kind === 'text.block' && !!myPlan) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
               // An entry a tool's approval owns is the person's decision there, never a shared copy.
-              return !!prior?.claims?.length && prior.claims.every(sameItem) && bytes !== null && prior.sha256 === sha256(bytes) && !prior.approval;
+              return !!prior?.claims?.length && prior.claims.every(sharer) && bytes !== null && prior.sha256 === sha256(bytes) && !prior.approval;
             });
           if (sharedCopy) ownerState = 'managed';
           const adoptable = same && before !== null && !managed && !sharedCopy && !foreign;

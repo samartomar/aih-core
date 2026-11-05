@@ -3,7 +3,7 @@
 // the placeholders the item declares for that file, after any render (`../inputs.ts`).
 import { clis, owners, problem, refusal, target } from './common.js';
 import { renderWrite } from './render.js';
-import { bindText, parseBindings, type BoundInputs } from '../inputs.js';
+import { bindText, parseBindings, unfilledPlaceholder, type BoundInputs } from '../inputs.js';
 import type { Json } from '../../types.js';
 import type { PlanStep } from '../types.js';
 import type { StepContext, StepHandler, StepOutcome } from './types.js';
@@ -34,6 +34,7 @@ export const write: StepHandler = {
       const done = await renderWrite(step, context, placed.path, owner.ids);
       if (!('rendered' in done)) return done;
       const bytes = filled(step, context, placed.path, served.clis, done.rendered.bytes); if (!('bytes' in bytes)) return bytes;
+      const unfilled = unfilledPlaceholder(step, index, bytes.bytes.toString('utf8'), owner.ids, context.inputs(served.clis)); if (unfilled) return unfilled;
       return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: bytes.bytes,
         executable: done.rendered.executable, sentence: `Writes \`${placed.path}\`, rendered by your Catalog (\`${done.rendered.name}\`)`,
         cantPromise: null, review: { ...owner.review, clis: served.clis, ...(bytes.bound ? { inputs: bytes.bound.review } : {}) },
@@ -52,13 +53,19 @@ export const write: StepHandler = {
         executable: facts.executable, sentence: `Writes \`${placed.path}\`, part of the \`${owner.review.framework}\` local plugin`, cantPromise: null,
         review: { ...owner.review, clis: served.clis } } };
     }
+    // Catalog's `from` is `{ item?, sourceId, sourcePath, sha256 }`: an item's (or edition's) file, or, without `item`, a
+    // file shared by the step's `items`: a source notice, or a file of the runtime `bundle` the step names.
     if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' ||
-        (typeof from.item === 'string') === (typeof from.source === 'string'))
-      return problem(index, 'from', 'from', 'A write step names `from` as an item file or a source notice.');
-    const facts = typeof from.item === 'string' ? context.itemFile(from.item, from.sourcePath) : context.notice(from.source as string, from.sourcePath);
+        typeof from.item !== 'string' && typeof from.sourceId !== 'string' || step.bundle !== undefined && typeof step.bundle !== 'string')
+      return problem(index, 'from', 'from', 'A write step names `from` as an item file, or by `sourceId` a source notice or bundle file.');
+    const facts = typeof from.item === 'string' ? context.itemFile(from.item, from.sourcePath) :
+      context.sourceFile(from.sourceId as string, from.sourcePath, step.bundle as string | undefined);
     if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
+    if (from.sourceId !== undefined && from.sourceId !== facts.sourceId || from.sha256 !== undefined && from.sha256 !== facts.sha256)
+      return refusal('source-mismatch', `Step ${index}'s source facts for \`${from.sourcePath}\` differ from the content document's.`, index);
     const supplied = context.bytesFor(facts); if ('refusal' in supplied) return supplied;
     const bytes = filled(step, context, placed.path, served.clis, supplied.bytes); if (!('bytes' in bytes)) return bytes;
+    const unfilled = unfilledPlaceholder(step, index, bytes.bytes.toString('utf8'), owner.ids, context.inputs(served.clis)); if (unfilled) return unfilled;
     return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: bytes.bytes,
       executable: facts.executable, sentence: `Writes \`${placed.path}\``, cantPromise: null,
       review: { ...owner.review, clis: served.clis, ...(bytes.bound ? { inputs: bytes.bound.review } : {}) },

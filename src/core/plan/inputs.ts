@@ -358,6 +358,25 @@ export function bindProcess(argv: string[], bindings: Binding[], context: InputC
   return { argv: out, env, bound };
 }
 
+/**
+ * A declared placeholder still in a file a step places from that source file, with no binding of the step filling it:
+ * the plan marks no place for the input there, so the step is refused `input-binding-missing` (C63), never written with
+ * the marker in it and never guessed.
+ */
+export function unfilledPlaceholder(step: { [field: string]: unknown }, index: number, text: string, items: string[],
+    context: InputContext): { refusal: Refusal } | undefined {
+  const from = plain(step.from as Json) && typeof (step.from as { sourcePath?: unknown }).sourcePath === 'string' ?
+    (step.from as { sourcePath: string }).sourcePath : undefined;
+  if (from === undefined) return undefined;
+  const bindings = Array.isArray(step.inputs) ? step.inputs as { item?: unknown; input?: unknown }[] : [];
+  for (const item of items) for (const [input, spec] of context.declared.get(item) ?? []) {
+    if (spec.placeholder?.sourcePath !== from || bindings.some(binding => binding?.item === item && binding?.input === input)) continue;
+    if (text.includes(spec.placeholder.marker)) return { refusal: { status: 'refused', code: 'input-binding-missing', step: index, item, input,
+      reason: `Step ${index} places \`${from}\` with the \`${input}\` placeholder of \`${item}\` but marks no binding for it; replan with a Catalog that marks input places.` } };
+  }
+  return undefined;
+}
+
 /** The item inputs no step of the plan binds: the first is refused `input-binding-missing` (C63). */
 export function unboundInput(declared: Map<string, Map<string, InputDeclaration>>, items: Set<string>, bound: Set<string>): { item: string; input: string } | undefined {
   for (const item of [...items].sort()) for (const input of [...declared.get(item)?.keys() ?? []].sort())

@@ -24,3 +24,5 @@ examples/reporting/claims/*.json text eol=lf
 # Vendored Catalog contents and published material bytes are checked against their recorded SHA-256: every file is
 # kept byte for byte, with no line-ending conversion on any checkout.
 test/fixtures/catalog-1.7.0/** -text
+# Real Catalog output recorded for Core tests (render bytes and sha256 are compared exactly).
+test/fixtures/catalog-6d9c544/** -text

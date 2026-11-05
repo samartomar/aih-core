@@ -106,21 +106,34 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
   if (document.plan.plan.length > limitValue('plan-steps')) return limit('plan-steps', 'The plan has more steps than one plan may have.');
   for (const profile of document.profiles)
     if (!knownCli(profile.id as string)) return refused('tool-unknown', `Profile \`${profile.id}\` has no registry tool.`, { tool: profile.id as string });
-  if (document.plan.clashes.length || document.plan.status === 'incomplete' && document.plan.references.length)
+  // A path reference blocks (the item would read a file nothing places); a plugin-namespaced `name` reference is a warning.
+  const pathReference = (document.plan.references as unknown[]).some(reference =>
+    !!reference && typeof reference === 'object' && (reference as { kind?: unknown }).kind !== 'name');
+  if (document.plan.clashes.length || document.plan.status === 'incomplete' && pathReference)
     return refused('plan-unresolved', 'The plan has a clash or path reference only replanning can fix.',
       { fixes: ['names', 'overrides', 'bundle'] });
 
   const itemFiles = new Map<string, SourceFacts>(); const notices = new Map<string, SourceFacts>();
   const itemInputs = new Map<string, { isSecret: boolean }>();
-  const pluginFiles = new Map<string, SourceFacts>();
+  const pluginFiles = new Map<string, SourceFacts>(); const bundleFiles = new Map<string, SourceFacts>();
   for (const content of document.contents as unknown as { sources: { id: string; notices?: { sourcePath: string; sha256: string }[] }[];
       items: { id: string; files: SourceFacts[]; requirements?: { inputs?: Record<string, { isSecret?: unknown }> } }[] }[]) {
     for (const source of content.sources) for (const notice of source.notices ?? [])
       notices.set(key(source.id, notice.sourcePath), { sourceId: source.id, sourcePath: notice.sourcePath, sha256: notice.sha256, executable: false });
     for (const item of content.items) for (const [name, spec] of Object.entries(item.requirements?.inputs ?? {}))
       itemInputs.set(key(item.id, name), { isSecret: !!spec && typeof spec === 'object' && spec.isSecret === true });
-    for (const item of content.items) for (const file of item.files)
-      itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
+    // An item's own files and its editions' (the upstream's own version for one client, Catalog content `editions`).
+    for (const item of content.items as { id: string; files: SourceFacts[]; editions?: Record<string, { files?: SourceFacts[] }> }[])
+      for (const file of [...item.files, ...Object.values(item.editions ?? {}).flatMap(edition => edition?.files ?? [])])
+        if (!itemFiles.has(key(item.id, file.sourcePath)))
+          itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
+    // Runtime bundles' root files, shared by the items that read them (Catalog content `bundles`).
+    for (const bundle of ((content as { bundles?: unknown }).bundles ?? []) as { id?: unknown; sourceId?: unknown; files?: unknown }[])
+      if (bundle && typeof bundle.id === 'string' && typeof bundle.sourceId === 'string' && Array.isArray(bundle.files))
+        for (const file of bundle.files as { sourcePath?: unknown; sha256?: unknown; executable?: unknown }[])
+          if (file && typeof file.sourcePath === 'string' && typeof file.sha256 === 'string')
+            bundleFiles.set(key(bundle.id, key(bundle.sourceId, file.sourcePath)), { sourceId: bundle.sourceId, sourcePath: file.sourcePath,
+              sha256: file.sha256, executable: file.executable === true });
     // A framework's recorded plugin folders: the files a local-plugin route copies as one unit (Catalog D120).
     const framework = (content as { framework?: { id?: unknown } }).framework?.id;
     const folders = (content as { plugins?: unknown }).plugins;
@@ -150,7 +163,8 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     const context: StepContext = {
       request: document, controls, index,
       itemFile: (item, sourcePath) => itemFiles.get(key(item, sourcePath)),
-      notice: (sourceId, sourcePath) => notices.get(key(sourceId, sourcePath)),
+      sourceFile: (sourceId, sourcePath, bundle) => bundle === undefined ? notices.get(key(sourceId, sourcePath)) :
+        bundleFiles.get(key(bundle, key(sourceId, sourcePath))),
       qualification: sha => qualifications.get(sha),
       itemInput: (item, input) => itemInputs.get(key(item, input)),
       inputs: clis => ({ index, request: document, privateInputs: controls.privateInputs, declared, clis }),

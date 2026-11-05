@@ -1,4 +1,4 @@
-// A `write` step with `render` (contract 8.1, C23, C51, D106): Core never renders itself. It checks the profile
+// A `write` step, or a Markdown `merge` block, with `render` (contract 8.1, C23, C51, D106): Core never renders itself. It checks the profile
 // versions the render records against the supplied profiles (`profile-mismatch`) and the source bytes against their
 // sha256 (`source-mismatch`), then calls the caller's `controls.catalog.renderStep` on the checked bytes only.
 // The render shape is Catalog's: `{ name, profile, version, … }`, or `{ name, profiles: [{ id, version }], … }` for a
@@ -20,8 +20,12 @@ const object = (value: unknown): value is Record<string, Json> => !!value && typ
 /** A Catalog result's reason, bounded and on one line, for Core's own reason text. */
 const quoted = (value: unknown): string => typeof value === 'string' ? value.replace(/\s+/g, ' ').slice(0, 256) : 'no reason given';
 
-/** The profiles a render records: one `{ profile, version }`, or a combined render's `profiles`. */
+/**
+ * The profiles a render records: one `{ profile, version }`, or a combined render's `profiles`, or none for a render
+ * Catalog makes from the plan alone (`bundle-root` in a shared Markdown file, `duplicates-report`).
+ */
 function recordedProfiles(render: Record<string, Json>): { id: string; version: Version }[] | undefined {
+  if (!Object.hasOwn(render, 'profiles') && !Object.hasOwn(render, 'profile')) return Object.hasOwn(render, 'version') ? undefined : [];
   if (Object.hasOwn(render, 'profiles')) {
     const list = render.profiles;
     if (Object.hasOwn(render, 'profile') || !Array.isArray(list) || list.length === 0 || list.length > 64) return undefined;
@@ -65,9 +69,8 @@ export async function renderWrite(step: PlanStep & Record<string, Json>, context
     if (!object(from) || typeof from.sourcePath !== 'string' || from.sha256 !== undefined && (typeof from.sha256 !== 'string' || !SHA.test(from.sha256)))
       return problem(index, 'from', 'from', 'A rendered write names `from` as an item file or a source notice.');
     const item = typeof from.item === 'string' ? from.item : owners.length === 1 ? owners[0]! : undefined;
-    const sourceId = typeof from.source === 'string' ? from.source : undefined;
-    facts = item !== undefined && sourceId === undefined ? context.itemFile(item, from.sourcePath) :
-      sourceId !== undefined ? context.notice(sourceId, from.sourcePath) : undefined;
+    facts = item !== undefined ? context.itemFile(item, from.sourcePath) : typeof from.sourceId === 'string' ?
+      context.sourceFile(from.sourceId, from.sourcePath, typeof step.bundle === 'string' ? step.bundle : undefined) : undefined;
     if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
     if (typeof from.sourceId === 'string' && from.sourceId !== facts.sourceId || typeof from.sha256 === 'string' && from.sha256 !== facts.sha256)
       return refusal('source-mismatch', `Step ${index}'s source facts for \`${from.sourcePath}\` differ from the content document's.`, index);
