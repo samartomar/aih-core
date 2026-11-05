@@ -1298,6 +1298,12 @@ A repair run lists each member it touched in `members`, checked on disk after Ap
 (`passed` `member-checked`). A configuration file the repair created, such as a `pip.conf` that did not exist before,
 is removed with its last entry; a file you already had keeps your own settings, byte for byte.
 
+The `user-tools-ca` file route writes a CA file setting, so it needs the selected Git or Cargo to use a TLS backend
+that reads one: OpenSSL, Schannel (Windows) or GnuTLS. Git's backend is its `http.sslBackend` setting, or GnuTLS when
+`git version --build-options` names libcurl with GnuTLS; Cargo's is the `ssl:` line of `cargo -Vv`, or the TLS library
+its `libcurl:` line names (`ssl:GnuTLS/…` on Ubuntu). Any other backend is `backend-unconfirmed`
+(`cargo-effective-backend-unconfirmed`), and the review names the target that blocked it.
+
 ## What each result status lets you claim
 
 Check install and removal wording against this table. Each status establishes only what its row says; the fields are independent, so read them together. Operation `application` and `verification` are per operation in a run result; `completion` is the whole run; `disposition` is the `prepareRemoval` (`aih remove`) entry before any Apply.

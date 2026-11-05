@@ -39,7 +39,10 @@ function effectiveRepairGate(variant, executablePaths) {
   if (trusted.length) return { status: 'blocked', diagnostics: trusted.map(row => ({
     code: 'REPAIR_NOT_NEEDED', reason: trusted.length === requests.length ? 'effective-trust' : 'select-only-needed-targets', message: row.message })) };
   const unresolved = named(undefined, 'resolve this process\'s trust or TLS backend before preparing a CA fallback.');
-  if (unresolved.length) return { status: 'blocked', diagnostics: unresolved.map(row => ({ code: 'PREREQUISITE_UNAVAILABLE', reason: row.reason, message: row.message })) };
+  // Git names no backend unless asked: the person can state the one it was built with.
+  const hint = row => row.target === 'git' && row.reason === 'backend-unconfirmed' ?
+    ' Set `http.sslBackend` to the TLS backend this Git was built with (openssl, schannel or gnutls).' : '';
+  if (unresolved.length) return { status: 'blocked', diagnostics: unresolved.map(row => ({ code: 'PREREQUISITE_UNAVAILABLE', reason: row.reason, message: row.message + hint(row) })) };
 }
 
 // Process observations are separate from native admission. No store, account or configuration writes.
@@ -83,7 +86,7 @@ except urllib.error.URLError as e:
 const condaIdentity = `import json,sys,ssl,conda
 from conda.base.context import context,reset_context
 reset_context()
-print(json.dumps(dict(version=conda.__version__,python='.'.join(map(str,sys.version_info[:3])),executable=sys.executable,prefix=context.target_prefix,rootPrefix=context.root_prefix,sslVerify=context.ssl_verify,configSources=list(context.collect_all().keys()),openssl=ssl.OPENSSL_VERSION)))`;
+print(json.dumps(dict(version=conda.__version__,python='.'.join(map(str,sys.version_info[:3])),executable=sys.executable,prefix=context.target_prefix,rootPrefix=context.root_prefix,sslVerify=context.ssl_verify,configSources=[str(k) for k in context.collect_all().keys()],openssl=ssl.OPENSSL_VERSION)))`;
 const observedCondaTls = `import json,sys
 from conda.base.context import reset_context
 reset_context()
@@ -137,6 +140,8 @@ function processOutput(executable, args, cwd, deadline, signal) {
     });
   });
 }
+/** `git version --build-options` naming libcurl (or its TLS library) with GnuTLS. */
+const gnutlsBuild = text => text.split(/\r?\n/).some(line => /^(?:libcurl|curl|ssl|tls)\b[^:]*:.*\bgnutls\b/i.test(line));
 const json = result => { try { return result.code === 0 ? JSON.parse(result.stdout) : undefined; } catch { return undefined; } };
 
 function cargoConfiguration(project) {
@@ -281,9 +286,15 @@ export async function inspectUserToolTrust(request, controls = {}) {
       if (key === 'http.sslbackend') backend = value.toLowerCase();
       else if (key !== 'http.sslverify') return fail('explicit-trust-or-endpoint-override');
     }
+    // A successful command without sslBackend does not identify libcurl's build-time backend; build options that name
+    // libcurl with GnuTLS do (Ubuntu's stock Git links only libcurl-gnutls). GnuTLS reads the http.sslCAInfo file.
+    if (backend === undefined) {
+      const built = await run(['version', '--build-options']);
+      if (built.reason) return fail(built.reason);
+      if (built.code === 0 && gnutlsBuild(built.stdout ?? '')) backend = 'gnutls';
+    }
     observation.backend = backend ?? 'unconfirmed';
-    // A successful command without sslBackend does not identify libcurl's build-time backend.
-    if (!['openssl', 'schannel'].includes(backend)) return fail('backend-unconfirmed');
+    if (!['openssl', 'schannel', 'gnutls'].includes(backend)) return fail('backend-unconfirmed');
     if (backend === 'schannel' && process.platform !== 'win32') return fail('backend-platform-unqualified');
   } else {
     result = await run(['-Vv']);
@@ -301,7 +312,10 @@ export async function inspectUserToolTrust(request, controls = {}) {
     if(!rustHost || rustHost!==cargoHost)return fail('toolchain-host-ambiguous');
     observation.host=cargoHost;
     const ssl=result.stdout.match(/^ssl: (.+)$/m)?.[1] ?? '';
-    observation.backend=/^OpenSSL\b/.test(ssl)?'openssl':/^Schannel\b/i.test(ssl)?'schannel':'unconfirmed';
+    // Without its own `ssl:` line, Cargo's libcurl line names the TLS library it uses (`ssl:GnuTLS/3.8.3` on Ubuntu).
+    const curlTls=result.stdout.match(/^libcurl: .*\bssl:([^\s)]+)/m)?.[1] ?? '';
+    observation.backend=/^OpenSSL\b/.test(ssl)?'openssl':/^Schannel\b/i.test(ssl)?'schannel':
+      !ssl && /^GnuTLS\//.test(curlTls)?'gnutls':'unconfirmed';
     if(observation.backend==='unconfirmed')return fail('cargo-effective-backend-unconfirmed');
     if(observation.backend==='schannel' && process.platform!=='win32')return fail('backend-platform-unqualified');
     if(Object.keys(env).some(key=>/^(?:CARGO_HTTP_|CARGO_REGISTRIES_|CARGO_REGISTRY_|CARGO_SOURCE_|CARGO_NET_|RUSTUP_TOOLCHAIN|RUSTC$)/.test(key)))
@@ -322,8 +336,9 @@ export async function inspectUserToolTrust(request, controls = {}) {
   if (target === 'git') result = await run(['ls-remote', endpoint, 'HEAD']);
   if (target === 'cargo') result = await run(['search', 'serde', '--limit', '1']);
   if (result.reason) return fail(result.reason);
+  // OpenSSL and Schannel builds say "SSL certificate problem: …"; GnuTLS says "server certificate verification failed".
   const certificateFailure = target === 'git' || target === 'cargo' ?
-    /SSL certificate problem: (?:unable to get local issuer certificate|self-signed certificate|certificate verify failed)/i.test(result.stderr ?? '') :
+    /SSL certificate problem: (?:unable to get local issuer certificate|self-signed certificate|certificate verify failed)|server certificate verification failed/i.test(result.stderr ?? '') :
     // pip 26.1 `index versions` reports the certificate failure on stdout ("Could not fetch URL ..."), not stderr.
     target === 'pip' && /CERTIFICATE_VERIFY_FAILED/.test(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   const tls = ['python', 'conda'].includes(target) ? json(result)?.tls : result.code === 0 ? 'passed' : certificateFailure ? 'certificate-chain' : 'unconfirmed';

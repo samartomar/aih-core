@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import * as runtime from '@aihq/core/harness/runtime';
 
 const fixture = (root, output) => {
@@ -179,5 +180,85 @@ test('selected Python effective trust suppresses persistent repair in the public
     assert.equal(rendered.status, 'blocked');
     assert.equal(rendered.diagnostics[0].code, 'REPAIR_NOT_NEEDED');
     assert.equal(rendered.bindings, undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Ubuntu's stock Git and Cargo link only libcurl-gnutls. GnuTLS honours the CA file the repair writes (`http.sslCAInfo`,
+// Cargo `http.cainfo`), so a confirmed GnuTLS backend admits the file repair; GnuTLS words its certificate failure as
+// "server certificate verification failed".
+const GNUTLS_FAILURE = "fatal: unable to access 'https://github.com/git/git.git/': server certificate verification failed. CAfile: none CRLfile: none";
+test('Git on a confirmed GnuTLS backend is offered the CA file repair', { skip: process.platform === 'win32' }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-effective-'));
+  const saved = Object.fromEntries(['GIT_CONFIG_COUNT','GIT_CONFIG_PARAMETERS','GIT_SSL_NO_VERIFY','GIT_SSL_CAINFO','GIT_SSL_CAPATH','GIT_CONFIG_GLOBAL','GIT_CONFIG_SYSTEM'].map(key => [key, process.env[key]]));
+  try {
+    for (const key of Object.keys(saved)) delete process.env[key];
+    const request = { target: 'git', executable: join(root, 'tool'), project: root, network: 'declared' };
+    const remote = `else if(a[0]==='ls-remote'){console.error(${JSON.stringify(GNUTLS_FAILURE)});process.exit(128);}`;
+    // An explicit http.sslBackend of gnutls.
+    fixture(root, `if(a[0]==='--version')console.log('git version 2.43.0');else if(a[0]==='config')console.log('global\tfile:/fixture/.gitconfig\thttp.sslbackend gnutls');${remote}else process.exit(0);`);
+    const configured = await runtime.inspectUserToolTrust(request);
+    assert.equal(configured.decision, 'bundle-fallback', JSON.stringify(configured));
+    assert.equal(configured.reason, 'certificate-chain');
+    assert.equal(configured.observation.backend, 'gnutls');
+    // No sslBackend setting, but the build options name libcurl with GnuTLS.
+    fixture(root, `if(a[0]==='--version')console.log('git version 2.50.0');else if(a[0]==='config')process.exit(1);else if(a[0]==='version'&&a[1]==='--build-options')console.log('git version 2.50.0\ncpu: x86_64\nlibcurl: 8.5.0 (GnuTLS/3.8.3)\nzlib: 1.3');${remote}else process.exit(0);`);
+    const built = await runtime.inspectUserToolTrust(request);
+    assert.equal(built.decision, 'bundle-fallback', JSON.stringify(built));
+    assert.equal(built.observation.backend, 'gnutls');
+    // Build options that name no TLS backend still leave it unconfirmed.
+    fixture(root, `if(a[0]==='--version')console.log('git version 2.43.0');else if(a[0]==='config')process.exit(1);else if(a[0]==='version')console.log('git version 2.43.0\ncpu: x86_64');${remote}else process.exit(0);`);
+    assert.equal((await runtime.inspectUserToolTrust(request)).reason, 'backend-unconfirmed');
+  } finally {
+    for (const [key,value] of Object.entries(saved)) { if(value===undefined)delete process.env[key];else process.env[key]=value; }
+    rmSync(root, { recursive:true, force:true });
+  }
+});
+
+test('Cargo on libcurl with GnuTLS is offered the CA file repair', {skip:process.platform==='win32'}, async()=>{
+  const root=mkdtempSync(join(tmpdir(),'aih-effective-'));
+  const previous=process.env.CARGO_HOME;
+  try {
+    process.env.CARGO_HOME=join(root,'cargo-home');
+    // Ubuntu 24.04's cargo 1.75: no separate `ssl:` line; libcurl names its TLS library.
+    const executable=fixture(root, `if(a[0]==='-Vv')console.log('cargo 1.75.0\nrelease: 1.75.0\nhost: x86_64-unknown-linux-gnu\nlibgit2: 1.7.2 (sys:0.18.1 system)\nlibcurl: 8.5.0 (sys:0.4.68+curl-8.4.0 system ssl:GnuTLS/3.8.3)\nos: Ubuntu 24.04 (noble) [64-bit]');else if(a[0]==='search'){console.error('error: failed to retrieve search results\n\nCaused by:\n  [60] SSL peer certificate or SSH remote key was not OK (server certificate verification failed. CAfile: none CRLfile: none)');process.exit(101);}else process.exit(0);`);
+    const rustc=join(root,'rustc');
+    writeFileSync(rustc,`#!${process.execPath}\nconsole.log('rustc 1.75.0\nrelease: 1.75.0\nhost: x86_64-unknown-linux-gnu');`,{mode:0o755});
+    const result=await runtime.inspectUserToolTrust({target:'cargo',executable,rustcExecutable:rustc,project:root,network:'declared'});
+    assert.equal(result.decision,'bundle-fallback',JSON.stringify(result));
+    assert.equal(result.observation.backend,'gnutls');
+    // A libcurl line naming no TLS library stays unconfirmed.
+    fixture(root, `if(a[0]==='-Vv')console.log('cargo 1.75.0\nrelease: 1.75.0\nhost: x86_64-unknown-linux-gnu\nlibcurl: 8.5.0 (sys:0.4.68+curl-8.4.0 system)');else process.exit(0);`);
+    assert.equal((await runtime.inspectUserToolTrust({target:'cargo',executable,rustcExecutable:rustc,project:root,network:'off'})).reason,'cargo-effective-backend-unconfirmed');
+  } finally {
+    if(previous===undefined)delete process.env.CARGO_HOME;else process.env.CARGO_HOME=previous;
+    rmSync(root,{recursive:true,force:true});
+  }
+});
+
+// conda 26.9 with any .condarc keys its configuration sources by path objects. The fake conda runs the probe in a real
+// Python against a stand-in `conda` package whose `collect_all` keys are `pathlib` paths, as conda's are.
+const python3 = (() => { try { return execFileSync('python3', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).trim(); } catch { return undefined; } })();
+test('the conda identity probe reads configuration sources keyed by path objects', { skip: process.platform === 'win32' || !python3 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-effective-conda-'));
+  try {
+    const lib = join(root, 'lib'); mkdirSync(join(lib, 'conda', 'base'), { recursive: true });
+    writeFileSync(join(lib, 'conda', '__init__.py'), "__version__ = '26.9.4'\n");
+    writeFileSync(join(lib, 'conda', 'base', '__init__.py'), '');
+    writeFileSync(join(lib, 'conda', 'base', 'context.py'), [
+      'from pathlib import Path',
+      'class _Context:',
+      "    target_prefix = '/fixture/conda'",
+      "    root_prefix = '/fixture/conda'",
+      '    ssl_verify = True',
+      "    def collect_all(self): return {Path('/fixture/conda/.condarc'): {}, 'envvars': {}}",
+      'context = _Context()',
+      'def reset_context(): pass', ''].join('\n'));
+    // `conda run --no-capture-output -n base python -c <script> [args]` runs the script in that Python.
+    const executable = join(root, 'conda');
+    writeFileSync(executable, `#!/bin/sh\nshift 5\nPYTHONPATH=${JSON.stringify(lib)} exec ${JSON.stringify(python3)} "$@"\n`, { mode: 0o755 });
+    const result = await runtime.inspectUserToolTrust({ target: 'conda', executable, project: root, network: 'off' });
+    assert.equal(result.reason, 'network-off', JSON.stringify(result));
+    assert.deepEqual(result.observation.configSources, ['/fixture/conda/.condarc', 'envvars']);
+    assert.equal(result.observation.backend, 'conda-certifi');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
