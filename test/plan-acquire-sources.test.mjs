@@ -168,6 +168,11 @@ test('the receipt records each acquired file origin in the published receipt for
   assert.equal(variant(downloads => { downloads[4].built.byteQualified = true; }), 'invalid', 'a built wheel is never byte-qualified');
   assert.equal(variant(downloads => { downloads[4].role = 'artifact'; }), 'invalid', 'only a closure wheel is built');
   assert.equal(variant(downloads => { downloads[2].origin = 'guessed'; }), 'invalid');
+  assert.equal(variant(downloads => { delete downloads[3].sha256; }), 'invalid', 'every acquired file names its sha256');
+  // The published invalid example holds each of those faults; each alone makes a valid receipt invalid.
+  const refused = Object.values(schemas[id].fixtures.invalid.items).find(item => item.plan?.aiSetup).plan.aiSetup.downloads;
+  assert.equal(refused.length, 3);
+  for (const fault of refused) assert.equal(variant(downloads => { downloads.splice(0, downloads.length, fault); }), 'invalid', JSON.stringify(fault));
 
   // Every receipt Core stored in this file's runs is in that format.
   const ownership = join(home, '.aih', 'core', 'ownership');
