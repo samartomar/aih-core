@@ -227,6 +227,10 @@ export function observeRepair(id: string, targets: string[], variantRef: string)
   });
 }
 
+/** A required repair input the request leaves out: named, with what it takes, so the caller can supply it. */
+class RepairInputMissing extends Error {
+  constructor(readonly repair: string, readonly input: string, readonly description: string | undefined) { super('repair-input-missing'); }
+}
 function validateRequest(request: RepairRequest) {
   dataObject(request, ['useCase', 'repairs', 'network', 'resolutions']);
   if (request.useCase !== 'repair' || !Array.isArray(request.repairs) || request.repairs.length !== 1 ||
@@ -249,9 +253,9 @@ function validateRequest(request: RepairRequest) {
       definition.candidateDiagnostic && variants.some(item => !item.candidate))
     throw new Error(variants.length ? 'repair-variant-ambiguous' : 'repair-variant-unavailable');
   dataObject(repair.inputs, Object.keys(definition.inputs));
-  if (Object.keys(repair.inputs).some(key => !Object.hasOwn(definition.inputs, key)) ||
-      Object.entries(definition.inputs).some(([key, declaration]) => declaration.required && !Object.hasOwn(repair.inputs, key)))
-    throw new Error('repair-request');
+  if (Object.keys(repair.inputs).some(key => !Object.hasOwn(definition.inputs, key))) throw new Error('repair-request');
+  const missing = Object.entries(definition.inputs).find(([key, declaration]) => declaration.required && !Object.hasOwn(repair.inputs, key));
+  if (missing) throw new RepairInputMissing(definition.id, missing[0], missing[1].description);
   for (const [key, declaration] of Object.entries(definition.inputs)) {
     const value = repair.inputs[key];
     if (value === undefined && !declaration.required) continue;
@@ -413,6 +417,10 @@ export async function prepareRepair(request: RepairRequest, controls: HostContro
         raw: item.raw, expectedRaw: item.expectedRaw })), managedPath, ordinaryInputs });
     return recordPreparation({ ...prepared, runId, review, prepared: handle }, controls);
   } catch (error) {
+    if (error instanceof RepairInputMissing)
+      return recordPreparation({ status: 'invalid', runId, diagnostics: [{ ...diagnostic('INPUT_INVALID', 'repair-input-missing',
+        `The \`${error.repair}\` repair needs the input \`${error.input}\`${error.description ? ` (${error.description})` : ''}. ` +
+        `Add it to the request's \`inputs\` and prepare again.`), path: `/inputs/${error.input}` }], record: disabled }, safeControls);
     if (error instanceof ConfigurationPrerequisiteUnavailable)
       return recordPreparation({ status: 'blocked', runId, diagnostics: [diagnostic('PREREQUISITE_UNAVAILABLE',
         error.prerequisite.reason, `${error.prerequisite.purpose}: ${error.prerequisite.path}. Resolve this before preparing again.`)],

@@ -276,3 +276,14 @@ test('a pip config you already had keeps its own settings, byte for byte, throug
     assert.equal(readFileSync(config, 'utf8'), original);
   })();
 });
+
+test('a repair without a required input names that input and the values it takes', async () => {
+  setup();
+  const missing = await prepare({ schema: REPAIR, repair: 'node-os-trust', targets: ['node'] }, { logging: 'off' });
+  assert.equal(missing.status, 'invalid', JSON.stringify(missing));
+  const [problem] = missing.problems;
+  assert.equal(problem.reason, 'repair-input-missing');
+  assert.equal(problem.path, '/inputs/originId');
+  assert.match(problem.message, /`originId`/);
+  assert.match(problem.message, /npm-registry/);
+});
