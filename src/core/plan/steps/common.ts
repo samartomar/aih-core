@@ -56,7 +56,9 @@ export function target(step: PlanStep, index: number, field = 'path'): { root: '
   if (typeof path !== 'string' || path.length === 0 || path.length > 4096) return problem(index, field, 'path', 'A step names a relative path.');
   const segments = path.split('/');
   if (path.startsWith('/') || /^[A-Za-z]:/.test(path) || path.includes('\\') || path.includes('\0') ||
-      segments.some(segment => segment === '' || segment === '.' || segment === '..' || segment.includes(':')))
+      // Catalog's portable-path rule too: no Git folder at any depth or case, no 8.3 short name that can alias another.
+      segments.some(segment => segment === '' || segment === '.' || segment === '..' || segment.includes(':') ||
+        segment.toLowerCase() === '.git' || /~[0-9]/.test(segment)))
     return refusal('path-escape', `Step ${index} names a path that leaves its root.`, index);
   const state = stateLocation.root.segments;
   const fold = (value: string) => process.platform === 'win32' || process.platform === 'darwin' ? value.toLowerCase() : value;

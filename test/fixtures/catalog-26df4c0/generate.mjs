@@ -1,7 +1,7 @@
 // Records REAL @aihq/catalog output for Core's tests: the producer, planners and renders of the Catalog package built
-// from samartomar/aih-catalog commit 767cd4edc4faf40058766438991baccd2bd6465c (unreleased candidate, 0.0.0-dev.1).
+// from samartomar/aih-catalog commit 26df4c0f56e63b2d18b7f413bc12751f7210b0a4 (unreleased candidate, 0.0.0-dev.1).
 //
-//   node test/fixtures/catalog-767cd4e/generate.mjs --consumer <folder with that @aihq/catalog installed> \
+//   node test/fixtures/catalog-26df4c0/generate.mjs --consumer <folder with that @aihq/catalog installed> \
 //     --tarball-sha256 <sha256 of the packed tarball> --catalog <aih-catalog checkout at that commit> \
 //     --superpowers <Git checkout of obra/superpowers holding its pinned commit> \n//     --notices <folder holding <sourceId>/<sourcePath> for the cbm, crg and serena licence notices at their pinned commits>
 //
@@ -35,7 +35,7 @@ const arg = name => { const at = process.argv.indexOf(name); assert.ok(at > 0 &&
 const consumer = resolve(arg('--consumer')), catalogDir = resolve(arg('--catalog')), tarballSha256 = arg('--tarball-sha256');
 const data = join(catalogDir, 'data');
 const superpowersGit = resolve(arg('--superpowers')), notices = resolve(arg('--notices'));
-const COMMIT = '767cd4edc4faf40058766438991baccd2bd6465c';
+const COMMIT = '26df4c0f56e63b2d18b7f413bc12751f7210b0a4';
 const packageDir = join(consumer, 'node_modules', '@aihq', 'catalog');
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'));
 const entry = name => import(pathToFileURL(join(packageDir, manifest.exports[name].import)).href);

@@ -1,5 +1,5 @@
 // Plan requests made from REAL @aihq/catalog output recorded in `recorded.json` (samartomar/aih-catalog commit
-// 767cd4e, unreleased candidate 0.0.0-dev.1; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
+// 26df4c0, unreleased candidate 0.0.0-dev.1; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
 // own; only `renderStep` and `planRecipe` here replay the recorded results, so Core's tests need no Catalog install.
 // Nothing here shows a client loading the result, a released Catalog, or a qualified AI setup.
 import { readFileSync } from 'node:fs';

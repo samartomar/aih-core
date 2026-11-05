@@ -14,6 +14,22 @@ import type { StepHandler } from './types.js';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SKILL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
+// Catalog's one address grammar for repositories and marketplaces: an https URL on a named host (no credentials, query,
+// fragment or whitespace; a repository path of plain segments), or a marketplace's `owner/repo` short form. Nothing an
+// installer could read as an option, a local path, a remote helper or credentials.
+const HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?::\d{1,5})?$/;
+const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+const isRepository = (value: string): boolean => {
+  const match = value.length <= 2048 ? /^https:\/\/([^/]+)\/(.+)$/.exec(value) : null;
+  if (!match || !HOST.test(match[1]!)) return false;
+  const segments = match[2]!.split('/');
+  return segments.length <= 16 && segments.every(part => SEGMENT.test(part));
+};
+const isMarketplace = (value: string): boolean => {
+  if (value.length <= 256 && value.split('/').length === 2 && value.split('/').every(part => SEGMENT.test(part))) return true;
+  const match = value.length <= 2048 && !/\s/.test(value) ? /^https:\/\/([^/?#@]+)(\/[^?#@]*)?$/.exec(value) : null;
+  return !!match && HOST.test(match[1]!);
+};
 const PLACEHOLDER = /<([a-z-]+)>/g;
 type Argv = string[];
 const isArgv = (value: unknown): value is Argv => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
@@ -29,7 +45,7 @@ export const plugin: StepHandler = {
     const { cli, framework, plugin: name, repository, commit, scanKey } = step;
     if (typeof framework !== 'string' || !ID.test(framework) || typeof cli !== 'string' || !ID.test(cli) ||
         typeof name !== 'string' || name.length === 0 || name.length > 256 || /[<>\s]/.test(name) ||
-        typeof repository !== 'string' || repository.length === 0 || repository.length > 512 ||
+        typeof repository !== 'string' || repository.length > 512 || !isRepository(repository) ||
         typeof commit !== 'string' || !COMMIT.test(commit) || typeof scanKey !== 'string' || scanKey.length === 0 ||
         step.marketplaceName !== undefined && (typeof step.marketplaceName !== 'string' || !ID.test(step.marketplaceName)))
       return problem(index, '', 'plugin', 'A plugin step names its `cli`, `framework`, `plugin`, `repository`, exact `commit` and `scanKey`.');
@@ -38,15 +54,17 @@ export const plugin: StepHandler = {
       return problem(index, 'pin', 'pin', 'A plugin step\'s `pin` is absent or `"unverified"`.');
     const unverifiedPin = step.pin === 'unverified';
     if (!knownCli(cli)) return refusal('tool-unknown', `Step ${index} names CLI \`${cli}\`, which has no registry tool.`, index, { tool: cli });
-    // The marketplace is a URL or repository, or a marketplace the plan writes itself, resolved to its absolute folder.
+    // The marketplace is an https URL or `owner/repo`, or a marketplace the plan writes itself, resolved to its absolute folder.
     let marketplace: string | undefined;
-    if (typeof step.marketplace === 'string' && step.marketplace.length > 0 && step.marketplace.length <= 2048) marketplace = step.marketplace;
-    else if (plain(step.marketplace)) {
+    if (typeof step.marketplace === 'string') {
+      if (!isMarketplace(step.marketplace)) return problem(index, 'marketplace', 'marketplace', 'A marketplace is an https URL, `owner/repo` or `{ root, path }`.');
+      marketplace = step.marketplace;
+    } else if (plain(step.marketplace)) {
       const placed = target(step.marketplace as never, index); if (!('root' in placed)) return placed;
       const base = placed.root === 'user' ? homedir() : request.target.project;
       if (typeof base !== 'string') return problem(index, 'marketplace', 'project', 'A project marketplace needs the request to name its project.');
       marketplace = join(base, ...placed.path.split('/'));
-    } else if (step.marketplace !== undefined) return problem(index, 'marketplace', 'marketplace', 'A marketplace is a URL or `{ root, path }`.');
+    } else if (step.marketplace !== undefined) return problem(index, 'marketplace', 'marketplace', 'A marketplace is an https URL, `owner/repo` or `{ root, path }`.');
 
     const profile = request.profiles.find(entry => entry.id === cli);
     if (!profile) return refusal('profile-mismatch', `Step ${index} installs a plugin for \`${cli}\`, but no \`${cli}\` profile was supplied.`, index, { tool: cli });

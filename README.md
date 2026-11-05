@@ -610,8 +610,9 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
 
 - **Before any effect**, Prepare refuses a file a step names that has no entry or no bytes (`source-missing`), bytes
   whose sha256 differs from the entry, the content document or the plan (`source-mismatch`), a CLI or profile id with
-  no registry tool (`tool-unknown`), a path leaving its root (`path-escape`), a target in Core's state (`state-path`), an
-  unresolved clash (`plan-unresolved`) and anything over a published limit (`limit-exceeded`, naming the limit). Two
+  no registry tool (`tool-unknown`), a path leaving its root or naming a Git folder or an 8.3 short name
+  (`path-escape`), a target in Core's state (`state-path`), an unresolved clash (`plan-unresolved`) and anything over a
+  published limit (`limit-exceeded`, naming the limit). Two
   entries for one source file are `invalid` (`duplicate-file`). An entry no step names is ignored and listed in the
   review. An `incomplete` plan whose only reasons are `missing` and `unavailable` is carried out after approval.
 - **The review** (`urn:aihq:core:review:0.1.0`) is frozen plain JSON: one sentence per step, the plan's reports, the
@@ -771,9 +772,11 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
   (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
   `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
-- **Marketplace.** `marketplace` is a URL or repository, or `{ root, path }`: a marketplace folder the plan writes itself
-  (Claude Code and Copilot pin a plugin through a `.aihq/marketplaces/...` folder and the plan's `write` step of its
-  marketplace file), filled in as that folder's absolute path. The plan's `write` steps run before its plugin steps.
+- **Marketplace.** `marketplace` is an https URL or `owner/repo`, or `{ root, path }`: a marketplace folder the plan
+  writes itself (Claude Code and Copilot pin a plugin through a `.aihq/marketplaces/...` folder and the plan's `write`
+  step of its marketplace file), filled in as that folder's absolute path. The plan's `write` steps run before its plugin
+  steps. `repository` is an https URL of plain path segments. Either with credentials, a query, a fragment, another
+  scheme or anything a command could read as an option is invalid, as in Catalog's own address grammar.
 - **Pin.** A step Catalog marks `pin: "unverified"` (its install names no commit and the plan writes no marketplace)
   shows `pin: unverified` in the review and a "can't promise" line saying the CLI may install another commit; any other
   `pin` value is invalid.

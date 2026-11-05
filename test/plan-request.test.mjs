@@ -97,6 +97,9 @@ test('a request is refused or invalid before any target effect, naming the cause
     ['an unknown step kind', request => { request.plan.plan.push({ op: 'teleport' }); }, { status: 'refused', code: 'step-unknown', op: 'teleport' }],
     ['a path leaving its root', request => { request.plan.plan[0].path = '../outside/SKILL.md'; }, { status: 'refused', code: 'path-escape', step: 0 }],
     ['an absolute path', request => { request.plan.plan[0].path = '/etc/SKILL.md'; }, { status: 'refused', code: 'path-escape' }],
+    // Catalog's portable-path rule: no Git folder at any depth or case, and no Windows 8.3 short name (Git's protectNTFS).
+    ['a path into a Git folder', request => { request.plan.plan[0].path = 'vendor/.Git/hooks/SKILL.md'; }, { status: 'refused', code: 'path-escape', step: 0 }],
+    ['a path through an 8.3 short name', request => { request.plan.plan[0].path = 'GIT~1/hooks/SKILL.md'; }, { status: 'refused', code: 'path-escape', step: 0 }],
     ['a target in Core state', request => { request.plan.plan[0].root = 'user'; request.plan.plan[0].path = '.aih/core/ownership/x.json'; }, { status: 'refused', code: 'state-path' }],
     ['an unresolved clash', request => { request.plan.clashes.push({ item: ID, reason: 'provides' }); }, { status: 'refused', code: 'plan-unresolved' }],
     ['a render without the Catalog', request => { request.plan.plan[0].render = 'skill-user-only'; }, { status: 'refused', code: 'catalog-required', step: 0 }],

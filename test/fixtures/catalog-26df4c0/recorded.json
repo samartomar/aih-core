@@ -3,20 +3,20 @@
   "package": "@aihq/catalog",
   "version": "0.0.0-dev.1",
   "repository": "https://github.com/samartomar/aih-catalog",
-  "commit": "767cd4edc4faf40058766438991baccd2bd6465c",
-  "tarballSha256": "c1454f0cf949c59674c80187a276056121dd3ed0eb51b86d01ff4ae1fad803fb",
+  "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4",
+  "tarballSha256": "3a2b335cffcee980aa62317ad9a92ffe24ede5b5e3e331be9828b886e1a0a6bf",
   "note": "Real output of this unreleased Catalog candidate, recorded for Core tests; no client or qualification evidence."
  },
  "profiles": {
-  "antigravity": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"agy\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.4.12\"\n    },\n    {\n      \"app\": \"antigravity-app\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.28.2\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"hookEvents\": {\n    \"post-tool-use\": \"PostToolUse\",\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-start\": \"SessionStart\",\n    \"stop\": \"Stop\"\n  },\n  \"id\": \"antigravity\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"not-documented\"\n  },\n  \"localPlugins\": {\n    \"project\": {\n      \"folder\": \".agents/plugins/<plugin>/\",\n      \"manifests\": [\n        \".antigravity-plugin/plugin.json\",\n        \"plugin.json\"\n      ]\n    },\n    \"user\": {\n      \"folder\": \".gemini/config/plugins/<plugin>/\",\n      \"manifests\": [\n        \".antigravity-plugin/plugin.json\",\n        \"plugin.json\"\n      ]\n    }\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"serverUrl\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Antigravity\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".agents/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".agents/mcp_config.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".agents/rules/<name>.md\",\n        \"by-description\": \".agents/rules/<name>.md\",\n        \"on-request\": \".agents/rules/<name>.md\",\n        \"paths\": \".agents/rules/<name>.md\"\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".gemini/config/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"none\",\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"browser\",\n      \"default\",\n      \"research\",\n      \"self\"\n    ],\n    \"command\": [\n      \"add-dir\",\n      \"agents\",\n      \"artifact\",\n      \"branch\",\n      \"browser\",\n      \"btw\",\n      \"changelog\",\n      \"clear\",\n      \"codesearch\",\n      \"compact\",\n      \"config\",\n      \"context\",\n      \"copy\",\n      \"credits\",\n      \"cs\",\n      \"diff\",\n      \"effort\",\n      \"exit\",\n      \"feedback\",\n      \"fork\",\n      \"goal\",\n      \"grill-me\",\n      \"help\",\n      \"hooks\",\n      \"keybindings\",\n      \"learn\",\n      \"logout\",\n      \"mcp\",\n      \"model\",\n      \"new\",\n      \"open\",\n      \"permissions\",\n      \"plan\",\n      \"plugin\",\n      \"quit\",\n      \"quota\",\n      \"record\",\n      \"remote-control\",\n      \"rename\",\n      \"resume\",\n      \"rewind\",\n      \"schedule\",\n      \"settings\",\n      \"skills\",\n      \"statusline\",\n      \"switch\",\n      \"tasks\",\n      \"title\",\n      \"undo\",\n      \"usage\",\n      \"voice\"\n    ],\n    \"skill\": [\n      \"agy-customizations\",\n      \"antigravity-guide\",\n      \"automation\",\n      \"migrate-workflows\",\n      \"run-workflow\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"trigger\": \"always_on\"\n      }\n    },\n    \"by-description\": {\n      \"describe\": [\n        \"description\"\n      ],\n      \"frontmatter\": {\n        \"trigger\": \"model_decision\"\n      }\n    },\n    \"on-request\": {\n      \"frontmatter\": {\n        \"trigger\": \"manual\"\n      }\n    },\n    \"paths\": {\n      \"form\": \"single-or-list\",\n      \"frontmatter\": {\n        \"trigger\": \"glob\"\n      },\n      \"globs\": \"globs\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 4\n}\n",
+  "antigravity": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"agy\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.4.12\"\n    },\n    {\n      \"app\": \"antigravity-app\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.28.2\"\n    }\n  ],\n  \"configFiles\": {\n    \"project\": [\n      \".agents/hooks.json\",\n      \".agents/plugins/\"\n    ],\n    \"user\": [\n      \".gemini/antigravity-cli/keybindings.json\",\n      \".gemini/antigravity-cli/settings.json\",\n      \".gemini/config/hooks.json\",\n      \".gemini/config/mcp_config.json\",\n      \".gemini/config/plugins/\"\n    ]\n  },\n  \"disableBuiltIn\": \"not-documented\",\n  \"hookEvents\": {\n    \"post-tool-use\": \"PostToolUse\",\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-start\": \"SessionStart\",\n    \"stop\": \"Stop\"\n  },\n  \"id\": \"antigravity\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"not-documented\"\n  },\n  \"localPlugins\": {\n    \"project\": {\n      \"folder\": \".agents/plugins/<plugin>/\",\n      \"manifests\": [\n        \".antigravity-plugin/plugin.json\",\n        \"plugin.json\"\n      ]\n    },\n    \"user\": {\n      \"folder\": \".gemini/config/plugins/<plugin>/\",\n      \"manifests\": [\n        \".antigravity-plugin/plugin.json\",\n        \"plugin.json\"\n      ]\n    }\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"serverUrl\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Antigravity\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".agents/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".agents/mcp_config.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".agents/rules/<name>.md\",\n        \"by-description\": \".agents/rules/<name>.md\",\n        \"on-request\": \".agents/rules/<name>.md\",\n        \"paths\": \".agents/rules/<name>.md\"\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".gemini/config/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"none\",\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"browser\",\n      \"default\",\n      \"research\",\n      \"self\"\n    ],\n    \"command\": [\n      \"add-dir\",\n      \"agents\",\n      \"artifact\",\n      \"branch\",\n      \"browser\",\n      \"btw\",\n      \"changelog\",\n      \"clear\",\n      \"codesearch\",\n      \"compact\",\n      \"config\",\n      \"context\",\n      \"copy\",\n      \"credits\",\n      \"cs\",\n      \"diff\",\n      \"effort\",\n      \"exit\",\n      \"feedback\",\n      \"fork\",\n      \"goal\",\n      \"grill-me\",\n      \"help\",\n      \"hooks\",\n      \"keybindings\",\n      \"learn\",\n      \"logout\",\n      \"mcp\",\n      \"model\",\n      \"new\",\n      \"open\",\n      \"permissions\",\n      \"plan\",\n      \"plugin\",\n      \"quit\",\n      \"quota\",\n      \"record\",\n      \"remote-control\",\n      \"rename\",\n      \"resume\",\n      \"rewind\",\n      \"schedule\",\n      \"settings\",\n      \"skills\",\n      \"statusline\",\n      \"switch\",\n      \"tasks\",\n      \"title\",\n      \"undo\",\n      \"usage\",\n      \"voice\"\n    ],\n    \"skill\": [\n      \"agy-customizations\",\n      \"antigravity-guide\",\n      \"automation\",\n      \"migrate-workflows\",\n      \"run-workflow\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"trigger\": \"always_on\"\n      }\n    },\n    \"by-description\": {\n      \"describe\": [\n        \"description\"\n      ],\n      \"frontmatter\": {\n        \"trigger\": \"model_decision\"\n      }\n    },\n    \"on-request\": {\n      \"frontmatter\": {\n        \"trigger\": \"manual\"\n      }\n    },\n    \"paths\": {\n      \"form\": \"single-or-list\",\n      \"frontmatter\": {\n        \"trigger\": \"glob\"\n      },\n      \"globs\": \"globs\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 6\n}\n",
   "claude-code": "{\n  \"agentFile\": {\n    \"format\": \"claude-md\",\n    \"model\": \"keep\",\n    \"tools\": \"keep\"\n  },\n  \"arguments\": \"substituted\",\n  \"checkedWith\": [\n    {\n      \"app\": \"claude-code\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.1.316\"\n    }\n  ],\n  \"disableBuiltIn\": {\n    \"sameName\": \"replaces\",\n    \"setting\": {\n      \"entry\": \"off\",\n      \"file\": \".claude/settings.json\",\n      \"format\": \"json\",\n      \"key\": \"/skillOverrides/<name>\",\n      \"root\": \"user\"\n    },\n    \"warnings\": [\n      \"claude-alias-lost\"\n    ]\n  },\n  \"hookEvents\": {\n    \"post-tool-use\": \"PostToolUse\",\n    \"pre-compact\": \"PreCompact\",\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-end\": \"SessionEnd\",\n    \"session-start\": \"SessionStart\",\n    \"stop\": \"Stop\",\n    \"subagent-start\": \"SubagentStart\",\n    \"subagent-stop\": \"SubagentStop\",\n    \"user-prompt-submit\": \"UserPromptSubmit\"\n  },\n  \"id\": \"claude-code\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": {\n      \"syntax\": \"${<name>}\"\n    },\n    \"mcp-env\": {\n      \"syntax\": \"${<name>}\"\n    },\n    \"mcp-header\": {\n      \"syntax\": \"${<name>}\"\n    }\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"localPlugins\": {\n    \"project\": {\n      \"folder\": \".aihq/plugins/<framework>/\",\n      \"manifests\": [\n        \".claude-plugin/marketplace.json\"\n      ],\n      \"register\": [\n        {\n          \"entry\": {\n            \"source\": {\n              \"path\": \"./<folder>\",\n              \"source\": \"directory\"\n            }\n          },\n          \"file\": \".claude/settings.json\",\n          \"format\": \"json\",\n          \"key\": \"/extraKnownMarketplaces/<marketplace>\"\n        },\n        {\n          \"entry\": true,\n          \"file\": \".claude/settings.json\",\n          \"format\": \"json\",\n          \"key\": \"/enabledPlugins/<plugin>@<marketplace>\"\n        }\n      ],\n      \"warnings\": [\n        \"claude-known-marketplaces\",\n        \"claude-start-at-root\"\n      ]\n    }\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"sse\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"sse\"\n        },\n        \"url\": \"url\"\n      },\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"http\"\n        },\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\",\n      \"set\": {\n        \"type\": \"stdio\"\n      }\n    }\n  },\n  \"name\": \"Claude Code\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".claude/agents/<name>.md\",\n      \"user\": \".claude/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      },\n      \"user\": {\n        \"file\": \".claude.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".claude/rules/<name>.md\",\n        \"paths\": \".claude/rules/<name>.md\"\n      },\n      \"user\": {\n        \"always\": {\n          \"file\": \".claude/CLAUDE.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": \".claude/skills/<name>/\",\n      \"user\": \".claude/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"claude\",\n        \"plugin\",\n        \"marketplace\",\n        \"add\",\n        \"<marketplace>\",\n        \"--scope\",\n        \"<scope>\"\n      ],\n      [\n        \"claude\",\n        \"plugin\",\n        \"install\",\n        \"<plugin>@<marketplace-name>\",\n        \"--scope\",\n        \"<scope>\"\n      ]\n    ],\n    \"marketplaceFolder\": \".aihq/marketplaces/claude-code/<framework>/\",\n    \"pin\": \"holds\",\n    \"pinForm\": \"local-marketplace\",\n    \"remove\": [\n      [\n        \"claude\",\n        \"plugin\",\n        \"uninstall\",\n        \"<plugin>\"\n      ]\n    ],\n    \"scopes\": [\n      \"project\",\n      \"user\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"Explore\",\n      \"Plan\",\n      \"claude\",\n      \"general-purpose\",\n      \"statusline-setup\",\n      \"web-fetch\"\n    ],\n    \"command\": [\n      \"add-dir\",\n      \"advisor\",\n      \"artifacts\",\n      \"auto-mode-setup\",\n      \"autocompact\",\n      \"autofix-pr\",\n      \"background\",\n      \"branch\",\n      \"btw\",\n      \"bug\",\n      \"cd\",\n      \"chrome\",\n      \"clear\",\n      \"color\",\n      \"compact\",\n      \"config\",\n      \"context\",\n      \"copy\",\n      \"design-login\",\n      \"diff\",\n      \"effort\",\n      \"exit\",\n      \"export\",\n      \"fast\",\n      \"feedback\",\n      \"focus\",\n      \"fork\",\n      \"goal\",\n      \"help\",\n      \"hooks\",\n      \"ide\",\n      \"import\",\n      \"install-github-app\",\n      \"install-slack-app\",\n      \"keybindings\",\n      \"list-agents\",\n      \"login\",\n      \"logout\",\n      \"mcp\",\n      \"memory\",\n      \"mobile\",\n      \"model\",\n      \"output-style\",\n      \"passes\",\n      \"permissions\",\n      \"plan\",\n      \"plugin\",\n      \"powerup\",\n      \"privacy-settings\",\n      \"radio\",\n      \"rate-limit-options\",\n      \"recap\",\n      \"release-notes\",\n      \"reload-plugins\",\n      \"reload-skills\",\n      \"remote-control\",\n      \"remote-env\",\n      \"rename\",\n      \"restart\",\n      \"resume\",\n      \"rewind\",\n      \"sandbox\",\n      \"skill-doctor\",\n      \"skills\",\n      \"status\",\n      \"stickers\",\n      \"subtask\",\n      \"tasks\",\n      \"teleport\",\n      \"terminal-setup\",\n      \"theme\",\n      \"tui\",\n      \"ultrareview\",\n      \"upgrade\",\n      \"usage\",\n      \"usage-credits\",\n      \"voice\",\n      \"web-setup\",\n      \"workflows\"\n    ],\n    \"skill\": [\n      \"artifact-capabilities\",\n      \"artifact-diagramming\",\n      \"batch\",\n      \"claude-api\",\n      \"claude-in-chrome\",\n      \"code-review\",\n      \"dataviz\",\n      \"debug\",\n      \"deep-research\",\n      \"design\",\n      \"design-sync\",\n      \"doctor\",\n      \"fewer-permission-prompts\",\n      \"init\",\n      \"insights\",\n      \"loop\",\n      \"pdf\",\n      \"plugin-authoring\",\n      \"review\",\n      \"run\",\n      \"run-skill-generator\",\n      \"schedule\",\n      \"security-review\",\n      \"simplify\",\n      \"statusline\",\n      \"team-onboarding\",\n      \"update-config\",\n      \"verify\",\n      \"workflow-authoring\",\n      \"xlsx\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    },\n    \"paths\": {\n      \"form\": \"list\",\n      \"frontmatter\": {},\n      \"globs\": \"paths\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 5\n}\n",
   "codex": "{\n  \"agentFile\": {\n    \"format\": \"toml\",\n    \"model\": \"drop\",\n    \"tools\": \"none\"\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"codex\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"0.166.0\"\n    }\n  ],\n  \"disableBuiltIn\": {\n    \"manual\": \"[[skills.config]] with enabled = false, keyed by the SKILL.md path or the qualified plugin:skill name; a bare name is ignored\"\n  },\n  \"hookEvents\": {\n    \"interrupt\": \"Interrupt\",\n    \"permission-request\": \"PermissionRequest\",\n    \"post-compact\": \"PostCompact\",\n    \"post-tool-use\": \"PostToolUse\",\n    \"pre-compact\": \"PreCompact\",\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-end\": \"SessionEnd\",\n    \"session-start\": \"SessionStart\",\n    \"stop\": \"Stop\",\n    \"subagent-start\": \"SubagentStart\",\n    \"subagent-stop\": \"SubagentStop\",\n    \"user-prompt-submit\": \"UserPromptSubmit\"\n  },\n  \"id\": \"codex\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"http_headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    },\n    \"tools\": {\n      \"disabled\": \"disabled_tools\",\n      \"enabled\": \"enabled_tools\"\n    }\n  },\n  \"name\": \"Codex\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".codex/agents/<name>.toml\",\n      \"user\": \".codex/agents/<name>.toml\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".codex/config.toml\",\n        \"format\": \"toml\",\n        \"key\": \"mcp_servers.<name>\"\n      },\n      \"user\": {\n        \"file\": \".codex/config.toml\",\n        \"format\": \"toml\",\n        \"key\": \"mcp_servers.<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"limitBytes\": 32768,\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".agents/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"codex\",\n        \"plugin\",\n        \"marketplace\",\n        \"add\",\n        \"<marketplace>\",\n        \"--ref\",\n        \"<commit>\"\n      ],\n      [\n        \"codex\",\n        \"plugin\",\n        \"add\",\n        \"<plugin>@<marketplace-name>\"\n      ]\n    ],\n    \"pin\": \"holds\",\n    \"pinForm\": \"marketplace\",\n    \"remove\": [\n      [\n        \"codex\",\n        \"plugin\",\n        \"remove\",\n        \"<plugin>@<marketplace-name>\"\n      ]\n    ],\n    \"scopes\": [\n      \"user\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"skill\": [\n      \"imagegen\",\n      \"openai-docs\",\n      \"plugin-creator\",\n      \"review-agent\",\n      \"skill-creator\",\n      \"skill-installer\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"file\": {\n      \"path\": \"agents/openai.yaml\",\n      \"yaml\": {\n        \"policy\": {\n          \"allow_implicit_invocation\": false\n        }\n      }\n    }\n  },\n  \"version\": 5\n}\n",
-  "copilot": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"copilot-cli\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.0.105\"\n    },\n    {\n      \"app\": \"vscode\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.144.0\"\n    },\n    {\n      \"app\": \"copilot-chat\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"0.72.0\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"editionPlaces\": {\n    \"hook\": {\n      \"project\": \".github/hooks/\",\n      \"user\": \".copilot/hooks/\"\n    }\n  },\n  \"hookEvents\": {\n    \"post-tool-use\": \"postToolUse\",\n    \"pre-compact\": \"preCompact\",\n    \"pre-tool-use\": \"preToolUse\",\n    \"session-end\": \"sessionEnd\",\n    \"session-start\": \"sessionStart\",\n    \"stop\": \"agentStop\",\n    \"subagent-stop\": \"subagentStop\",\n    \"user-prompt-submit\": \"userPromptSubmitted\"\n  },\n  \"id\": \"copilot\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"sse\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"sse\"\n        },\n        \"url\": \"url\"\n      },\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"http\"\n        },\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\",\n      \"set\": {\n        \"type\": \"stdio\"\n      }\n    },\n    \"tools\": {\n      \"enabled\": \"tools\"\n    }\n  },\n  \"name\": \"GitHub Copilot (CLI and VS Code)\",\n  \"places\": {\n    \"agent\": {\n      \"project\": {\n        \"otherwise\": \".github/agents/<name>.agent.md\",\n        \"reuse\": [\n          \".claude/agents/<name>.md\"\n        ]\n      },\n      \"user\": \".copilot/agents/<name>.agent.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".github/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      },\n      \"user\": {\n        \"file\": \".copilot/mcp-config.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".github/instructions/<name>.instructions.md\",\n        \"paths\": \".github/instructions/<name>.instructions.md\"\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".github/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".copilot/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"copilot\",\n        \"plugin\",\n        \"marketplace\",\n        \"add\",\n        \"<marketplace>\"\n      ],\n      [\n        \"copilot\",\n        \"plugin\",\n        \"install\",\n        \"<plugin>@<marketplace-name>\"\n      ]\n    ],\n    \"marketplaceFolder\": \".aihq/marketplaces/<framework>/\",\n    \"pin\": \"holds\",\n    \"pinForm\": \"local-marketplace\",\n    \"remove\": [\n      [\n        \"copilot\",\n        \"plugin\",\n        \"uninstall\",\n        \"<plugin>\"\n      ]\n    ],\n    \"scopes\": [\n      \"user\"\n    ],\n    \"verify\": \"none\",\n    \"warnings\": [\n      \"cli-only-plugin\"\n    ]\n  },\n  \"provides\": {\n    \"agent\": [\n      \"Agent\",\n      \"Ask\",\n      \"Plan\",\n      \"code-review\",\n      \"explore\",\n      \"general-purpose\",\n      \"research\",\n      \"rubber-duck\",\n      \"security-review\",\n      \"task\"\n    ],\n    \"command\": [\n      \"add-dir\",\n      \"agent\",\n      \"ahp\",\n      \"allow-all\",\n      \"app\",\n      \"ask\",\n      \"autopilot\",\n      \"changelog\",\n      \"chronicle\",\n      \"clear\",\n      \"collect-debug-logs\",\n      \"compact\",\n      \"computer\",\n      \"context\",\n      \"copy\",\n      \"create-skill\",\n      \"cwd\",\n      \"delegate\",\n      \"diagnose\",\n      \"diff\",\n      \"env\",\n      \"environments\",\n      \"exit\",\n      \"experimental\",\n      \"feedback\",\n      \"fleet\",\n      \"fork\",\n      \"help\",\n      \"ide\",\n      \"init\",\n      \"instructions\",\n      \"keep-alive\",\n      \"limits\",\n      \"list-dirs\",\n      \"login\",\n      \"logout\",\n      \"lsp\",\n      \"mcp\",\n      \"memory\",\n      \"model\",\n      \"move\",\n      \"new\",\n      \"permissions\",\n      \"plan\",\n      \"plugin\",\n      \"pr\",\n      \"refine\",\n      \"remote\",\n      \"rename\",\n      \"research\",\n      \"reset-allowed-tools\",\n      \"restart\",\n      \"resume\",\n      \"review\",\n      \"sandbox\",\n      \"search\",\n      \"security-review\",\n      \"session\",\n      \"settings\",\n      \"share\",\n      \"skills\",\n      \"statusline\",\n      \"subagents\",\n      \"tasks\",\n      \"terminal-setup\",\n      \"theme\",\n      \"undo\",\n      \"update\",\n      \"usage\",\n      \"user\",\n      \"version\",\n      \"vim\",\n      \"voice\",\n      \"worktree\"\n    ],\n    \"skill\": [\n      \"customize-cloud-agent\",\n      \"github-pr-media\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"applyTo\": \"**\"\n      }\n    },\n    \"paths\": {\n      \"form\": \"comma\",\n      \"frontmatter\": {},\n      \"globs\": \"applyTo\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"skillFolderOverlap\": {\n    \"folders\": [\n      \".agents/skills/\",\n      \".claude/skills/\"\n    ],\n    \"merge\": {\n      \"entry\": false,\n      \"file\": \".vscode/settings.json\",\n      \"format\": \"json\",\n      \"key\": \"/chat.agentSkillsLocations/.claude~1skills\"\n    },\n    \"warnings\": [\n      \"vscode-hides-claude-skills\",\n      \"copilot-ide-duplicate\"\n    ]\n  },\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 4\n}\n",
-  "cursor": "{\n  \"agentFile\": {\n    \"format\": \"claude-md\",\n    \"model\": \"keep\",\n    \"tools\": \"keep\"\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"cursor-agent\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2026.10.22\"\n    },\n    {\n      \"app\": \"cursor\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"3.27.12\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"hookEvents\": {\n    \"pre-tool-use\": \"preToolUse\",\n    \"session-start\": \"sessionStart\"\n  },\n  \"id\": \"cursor\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"not-documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Cursor (CLI and IDE)\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".claude/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".cursor/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".cursor/rules/<name>.mdc\",\n        \"paths\": \".cursor/rules/<name>.mdc\"\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".agents/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".cursor/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"none\",\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"browser\",\n      \"explore\"\n    ],\n    \"command\": [\n      \"about\",\n      \"add-dir\",\n      \"apply-worktree\",\n      \"ask\",\n      \"auto-review\",\n      \"bedrock\",\n      \"best-of-n\",\n      \"btw\",\n      \"changes\",\n      \"clear\",\n      \"command\",\n      \"commit\",\n      \"config\",\n      \"context\",\n      \"copy\",\n      \"copy-conversation-id\",\n      \"copy-request-id\",\n      \"cursor\",\n      \"debug\",\n      \"delete-worktree\",\n      \"exit\",\n      \"fast\",\n      \"feedback\",\n      \"fork\",\n      \"full-conversation\",\n      \"goal\",\n      \"help\",\n      \"jobs\",\n      \"line-numbers\",\n      \"load-workspace\",\n      \"logout\",\n      \"logs\",\n      \"max-mode\",\n      \"mcp\",\n      \"model\",\n      \"multi-model-review\",\n      \"open\",\n      \"plan\",\n      \"plugin\",\n      \"quit\",\n      \"rename\",\n      \"resume\",\n      \"rewind\",\n      \"rule\",\n      \"run-everything\",\n      \"sandbox\",\n      \"save-workspace\",\n      \"setup-terminal\",\n      \"shell\",\n      \"show-thinking\",\n      \"simplify\",\n      \"skills\",\n      \"status-indicators\",\n      \"summarize\",\n      \"sync-theme\",\n      \"team\",\n      \"update\",\n      \"usage\",\n      \"vim\",\n      \"worktree\"\n    ],\n    \"skill\": [\n      \"autopilot\",\n      \"canvas\",\n      \"create-hook\",\n      \"create-rule\",\n      \"create-skill\",\n      \"create-subagent\",\n      \"goal\",\n      \"loop\",\n      \"migrate-to-skills\",\n      \"new-repo\",\n      \"origin\",\n      \"rename-chat\",\n      \"review\",\n      \"review-bugbot\",\n      \"review-security\",\n      \"sdk\",\n      \"share\",\n      \"shell\",\n      \"split-to-prs\",\n      \"statusline\",\n      \"update-cli-config\",\n      \"update-cursor-settings\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"alwaysApply\": true\n      }\n    },\n    \"paths\": {\n      \"form\": \"comma\",\n      \"frontmatter\": {\n        \"alwaysApply\": false\n      },\n      \"globs\": \"globs\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 3\n}\n",
+  "copilot": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"copilot-cli\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.0.105\"\n    },\n    {\n      \"app\": \"vscode\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.144.0\"\n    },\n    {\n      \"app\": \"copilot-chat\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"0.72.0\"\n    }\n  ],\n  \"configFiles\": {\n    \"user\": [\n      \".copilot/config.json\",\n      \".copilot/copilot-instructions.md\",\n      \".copilot/extensions/\",\n      \".copilot/installed-plugins/\",\n      \".copilot/instructions/\",\n      \".copilot/lsp-config.json\",\n      \".copilot/permissions-config.json\",\n      \".copilot/providers.json\",\n      \".copilot/settings.json\"\n    ]\n  },\n  \"disableBuiltIn\": \"not-documented\",\n  \"editionPlaces\": {\n    \"hook\": {\n      \"project\": \".github/hooks/\",\n      \"user\": \".copilot/hooks/\"\n    }\n  },\n  \"hookEvents\": {\n    \"post-tool-use\": \"postToolUse\",\n    \"pre-compact\": \"preCompact\",\n    \"pre-tool-use\": \"preToolUse\",\n    \"session-end\": \"sessionEnd\",\n    \"session-start\": \"sessionStart\",\n    \"stop\": \"agentStop\",\n    \"subagent-stop\": \"subagentStop\",\n    \"user-prompt-submit\": \"userPromptSubmitted\"\n  },\n  \"id\": \"copilot\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"sse\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"sse\"\n        },\n        \"url\": \"url\"\n      },\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"http\"\n        },\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\",\n      \"set\": {\n        \"type\": \"stdio\"\n      }\n    },\n    \"tools\": {\n      \"enabled\": \"tools\"\n    }\n  },\n  \"name\": \"GitHub Copilot (CLI and VS Code)\",\n  \"places\": {\n    \"agent\": {\n      \"project\": {\n        \"otherwise\": \".github/agents/<name>.agent.md\",\n        \"reuse\": [\n          \".claude/agents/<name>.md\"\n        ]\n      },\n      \"user\": \".copilot/agents/<name>.agent.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".github/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      },\n      \"user\": {\n        \"file\": \".copilot/mcp-config.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".github/instructions/<name>.instructions.md\",\n        \"paths\": \".github/instructions/<name>.instructions.md\"\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".github/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".copilot/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"copilot\",\n        \"plugin\",\n        \"marketplace\",\n        \"add\",\n        \"<marketplace>\"\n      ],\n      [\n        \"copilot\",\n        \"plugin\",\n        \"install\",\n        \"<plugin>@<marketplace-name>\"\n      ]\n    ],\n    \"marketplaceFolder\": \".aihq/marketplaces/<framework>/\",\n    \"pin\": \"holds\",\n    \"pinForm\": \"local-marketplace\",\n    \"remove\": [\n      [\n        \"copilot\",\n        \"plugin\",\n        \"uninstall\",\n        \"<plugin>\"\n      ]\n    ],\n    \"scopes\": [\n      \"user\"\n    ],\n    \"verify\": \"none\",\n    \"warnings\": [\n      \"cli-only-plugin\"\n    ]\n  },\n  \"provides\": {\n    \"agent\": [\n      \"Agent\",\n      \"Ask\",\n      \"Plan\",\n      \"code-review\",\n      \"explore\",\n      \"general-purpose\",\n      \"research\",\n      \"rubber-duck\",\n      \"security-review\",\n      \"task\"\n    ],\n    \"command\": [\n      \"add-dir\",\n      \"agent\",\n      \"ahp\",\n      \"allow-all\",\n      \"app\",\n      \"ask\",\n      \"autopilot\",\n      \"changelog\",\n      \"chronicle\",\n      \"clear\",\n      \"collect-debug-logs\",\n      \"compact\",\n      \"computer\",\n      \"context\",\n      \"copy\",\n      \"create-skill\",\n      \"cwd\",\n      \"delegate\",\n      \"diagnose\",\n      \"diff\",\n      \"env\",\n      \"environments\",\n      \"exit\",\n      \"experimental\",\n      \"feedback\",\n      \"fleet\",\n      \"fork\",\n      \"help\",\n      \"ide\",\n      \"init\",\n      \"instructions\",\n      \"keep-alive\",\n      \"limits\",\n      \"list-dirs\",\n      \"login\",\n      \"logout\",\n      \"lsp\",\n      \"mcp\",\n      \"memory\",\n      \"model\",\n      \"move\",\n      \"new\",\n      \"permissions\",\n      \"plan\",\n      \"plugin\",\n      \"pr\",\n      \"refine\",\n      \"remote\",\n      \"rename\",\n      \"research\",\n      \"reset-allowed-tools\",\n      \"restart\",\n      \"resume\",\n      \"review\",\n      \"sandbox\",\n      \"search\",\n      \"security-review\",\n      \"session\",\n      \"settings\",\n      \"share\",\n      \"skills\",\n      \"statusline\",\n      \"subagents\",\n      \"tasks\",\n      \"terminal-setup\",\n      \"theme\",\n      \"undo\",\n      \"update\",\n      \"usage\",\n      \"user\",\n      \"version\",\n      \"vim\",\n      \"voice\",\n      \"worktree\"\n    ],\n    \"skill\": [\n      \"customize-cloud-agent\",\n      \"github-pr-media\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"applyTo\": \"**\"\n      }\n    },\n    \"paths\": {\n      \"form\": \"comma\",\n      \"frontmatter\": {},\n      \"globs\": \"applyTo\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"skillFolderOverlap\": {\n    \"folders\": [\n      \".agents/skills/\",\n      \".claude/skills/\"\n    ],\n    \"merge\": {\n      \"entry\": false,\n      \"file\": \".vscode/settings.json\",\n      \"format\": \"json\",\n      \"key\": \"/chat.agentSkillsLocations/.claude~1skills\"\n    },\n    \"warnings\": [\n      \"vscode-hides-claude-skills\",\n      \"copilot-ide-duplicate\"\n    ]\n  },\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 6\n}\n",
+  "cursor": "{\n  \"agentFile\": {\n    \"format\": \"claude-md\",\n    \"model\": \"keep\",\n    \"tools\": \"keep\"\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"cursor-agent\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2026.10.22\"\n    },\n    {\n      \"app\": \"cursor\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"3.27.12\"\n    }\n  ],\n  \"configFiles\": {\n    \"project\": [\n      \".cursor/cli.json\",\n      \".cursor/hooks.json\"\n    ],\n    \"user\": [\n      \".cursor/cli-config.json\",\n      \".cursor/hooks.json\",\n      \".cursor/mcp.json\"\n    ]\n  },\n  \"disableBuiltIn\": \"not-documented\",\n  \"hookEvents\": {\n    \"pre-tool-use\": \"preToolUse\",\n    \"session-start\": \"sessionStart\"\n  },\n  \"id\": \"cursor\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": {\n      \"syntax\": \"${env:<name>}\"\n    },\n    \"mcp-env\": {\n      \"syntax\": \"${env:<name>}\"\n    },\n    \"mcp-header\": {\n      \"syntax\": \"${env:<name>}\"\n    }\n  },\n  \"links\": {\n    \"skill\": \"not-documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Cursor (CLI and IDE)\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".claude/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".cursor/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".cursor/rules/<name>.mdc\",\n        \"paths\": \".cursor/rules/<name>.mdc\"\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".agents/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".cursor/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"none\",\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"browser\",\n      \"explore\"\n    ],\n    \"command\": [\n      \"about\",\n      \"add-dir\",\n      \"apply-worktree\",\n      \"ask\",\n      \"auto-review\",\n      \"bedrock\",\n      \"best-of-n\",\n      \"btw\",\n      \"changes\",\n      \"clear\",\n      \"command\",\n      \"commit\",\n      \"config\",\n      \"context\",\n      \"copy\",\n      \"copy-conversation-id\",\n      \"copy-request-id\",\n      \"cursor\",\n      \"debug\",\n      \"delete-worktree\",\n      \"exit\",\n      \"fast\",\n      \"feedback\",\n      \"fork\",\n      \"full-conversation\",\n      \"goal\",\n      \"help\",\n      \"jobs\",\n      \"line-numbers\",\n      \"load-workspace\",\n      \"logout\",\n      \"logs\",\n      \"max-mode\",\n      \"mcp\",\n      \"model\",\n      \"multi-model-review\",\n      \"open\",\n      \"plan\",\n      \"plugin\",\n      \"quit\",\n      \"rename\",\n      \"resume\",\n      \"rewind\",\n      \"rule\",\n      \"run-everything\",\n      \"sandbox\",\n      \"save-workspace\",\n      \"setup-terminal\",\n      \"shell\",\n      \"show-thinking\",\n      \"simplify\",\n      \"skills\",\n      \"status-indicators\",\n      \"summarize\",\n      \"sync-theme\",\n      \"team\",\n      \"update\",\n      \"usage\",\n      \"vim\",\n      \"worktree\"\n    ],\n    \"skill\": [\n      \"autopilot\",\n      \"canvas\",\n      \"create-hook\",\n      \"create-rule\",\n      \"create-skill\",\n      \"create-subagent\",\n      \"goal\",\n      \"loop\",\n      \"migrate-to-skills\",\n      \"new-repo\",\n      \"origin\",\n      \"rename-chat\",\n      \"review\",\n      \"review-bugbot\",\n      \"review-security\",\n      \"sdk\",\n      \"share\",\n      \"shell\",\n      \"split-to-prs\",\n      \"statusline\",\n      \"update-cli-config\",\n      \"update-cursor-settings\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"alwaysApply\": true\n      }\n    },\n    \"paths\": {\n      \"form\": \"comma\",\n      \"frontmatter\": {\n        \"alwaysApply\": false\n      },\n      \"globs\": \"globs\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 5\n}\n",
   "dsh": "{\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"dsh\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"0.2.1-rc.5\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"id\": \"dsh\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"not-documented\"\n  },\n  \"name\": \"DeepSeek Harness\",\n  \"places\": {\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".agents/skills/<name>/\"\n    }\n  },\n  \"provides\": {\n    \"agent\": [\n      \"cordis\",\n      \"minimal\",\n      \"ptc\",\n      \"standard\"\n    ],\n    \"command\": [\n      \"compact\",\n      \"feedback\",\n      \"goal\",\n      \"plan\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"unsupported\": {\n    \"agent\": \"dsh agents are presets inside a dsh profile, not files\",\n    \"hook\": \"dsh hooks are Cordis plugins, not files\",\n    \"mcp\": \"dsh MCP servers are entries inside a dsh profile, not a configuration file\"\n  },\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disable-model-invocation\": true\n    }\n  },\n  \"version\": 2\n}\n",
-  "kimi": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"substituted\",\n  \"bundleWarnings\": [\n    \"kimi-lists-bundle-agents\"\n  ],\n  \"checkedWith\": [\n    {\n      \"app\": \"kimi\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.4.1\"\n    }\n  ],\n  \"disableBuiltIn\": {\n    \"manual\": \"builtin_product_skills = false switches every bundled skill off; an agent replaces a built-in agent with override: true\"\n  },\n  \"hookEvents\": {\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-start\": \"SessionStart\"\n  },\n  \"id\": \"kimi\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Kimi Code\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".agents/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".kimi-code/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      },\n      \"user\": {\n        \"always\": {\n          \"file\": \".agents/AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".kimi-code/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"drops-on-update\",\n    \"scopes\": [\n      \"user\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"agent\",\n      \"coder\",\n      \"explore\",\n      \"plan\"\n    ],\n    \"skill\": [\n      \"check-kimi-code-docs\",\n      \"custom-theme\",\n      \"import-from-cc-codex\",\n      \"mcp-config\",\n      \"sub-skill\",\n      \"sub-skill.consolidate\",\n      \"sub-skill.review\",\n      \"update-config\",\n      \"write-goal\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disableModelInvocation\": true\n    }\n  },\n  \"version\": 4\n}\n",
+  "kimi": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"name\",\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"substituted\",\n  \"bundleWarnings\": [\n    \"kimi-lists-bundle-agents\"\n  ],\n  \"checkedWith\": [\n    {\n      \"app\": \"kimi\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.4.1\"\n    }\n  ],\n  \"configFiles\": {\n    \"project\": [\n      \".kimi-code/local.toml\"\n    ],\n    \"user\": [\n      \".kimi-code/config.toml\",\n      \".kimi-code/mcp.json\",\n      \".kimi-code/tui.toml\"\n    ]\n  },\n  \"disableBuiltIn\": {\n    \"manual\": \"builtin_product_skills = false switches every bundled skill off; an agent replaces a built-in agent with override: true\"\n  },\n  \"hookEvents\": {\n    \"pre-tool-use\": \"PreToolUse\",\n    \"session-start\": \"SessionStart\"\n  },\n  \"id\": \"kimi\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    }\n  },\n  \"name\": \"Kimi Code\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".agents/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".kimi-code/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      },\n      \"user\": {\n        \"always\": {\n          \"file\": \".agents/AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": \".agents/skills/<name>/\",\n      \"user\": \".kimi-code/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"pin\": \"drops-on-update\",\n    \"scopes\": [\n      \"user\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"agent\",\n      \"coder\",\n      \"explore\",\n      \"plan\"\n    ],\n    \"skill\": [\n      \"check-kimi-code-docs\",\n      \"custom-theme\",\n      \"import-from-cc-codex\",\n      \"mcp-config\",\n      \"sub-skill\",\n      \"sub-skill.consolidate\",\n      \"sub-skill.review\",\n      \"update-config\",\n      \"write-goal\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": {\n    \"frontmatter\": {\n      \"disableModelInvocation\": true\n    }\n  },\n  \"version\": 6\n}\n",
   "kiro": "{\n  \"agentFile\": {\n    \"format\": \"json\",\n    \"model\": \"drop\",\n    \"tools\": {}\n  },\n  \"arguments\": \"substituted\",\n  \"bundleRoot\": {\n    \"project\": \".kiro/aih/<framework>/\",\n    \"user\": \".kiro/aih/<framework>/\"\n  },\n  \"checkedWith\": [\n    {\n      \"app\": \"kiro-cli\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"2.37.1\"\n    },\n    {\n      \"app\": \"kiro-ide\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.4.86\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"editionPlaces\": {\n    \"agent\": {\n      \"project\": \".kiro/agents/\",\n      \"user\": \".kiro/agents/\"\n    },\n    \"hook\": {\n      \"project\": \".kiro/hooks/\",\n      \"user\": \".kiro/hooks/\"\n    },\n    \"rule\": {\n      \"project\": \".kiro/steering/\",\n      \"user\": \".kiro/steering/\"\n    }\n  },\n  \"foldDescription\": true,\n  \"id\": \"kiro\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"args\": \"args\",\n      \"command\": \"command\",\n      \"env\": \"env\"\n    },\n    \"tools\": {\n      \"disabled\": \"disabledTools\"\n    }\n  },\n  \"name\": \"Kiro (CLI and IDE)\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".kiro/agents/<name>.json\",\n      \"user\": \".kiro/agents/<name>.json\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \".kiro/settings/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      },\n      \"user\": {\n        \"file\": \".kiro/settings/mcp.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcpServers/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": \".kiro/steering/<name>.md\",\n        \"by-description\": \".kiro/steering/<name>.md\",\n        \"on-request\": \".kiro/steering/<name>.md\",\n        \"paths\": \".kiro/steering/<name>.md\"\n      },\n      \"user\": {\n        \"always\": \".kiro/steering/<name>.md\",\n        \"by-description\": \".kiro/steering/<name>.md\",\n        \"on-request\": \".kiro/steering/<name>.md\",\n        \"paths\": \".kiro/steering/<name>.md\"\n      }\n    },\n    \"skill\": {\n      \"project\": \".kiro/skills/<name>/\",\n      \"user\": \".kiro/skills/<name>/\"\n    }\n  },\n  \"provides\": {\n    \"agent\": [\n      \"Bug Fix\",\n      \"Default\",\n      \"Guide\",\n      \"Help\",\n      \"Plan\",\n      \"Quick Spec\",\n      \"Spec\",\n      \"kiro_default\",\n      \"kiro_help\",\n      \"kiro_planner\"\n    ],\n    \"command\": [\n      \"agent\",\n      \"changelog\",\n      \"chat\",\n      \"checkpoint\",\n      \"clear\",\n      \"code\",\n      \"compact\",\n      \"context\",\n      \"copy\",\n      \"editor\",\n      \"effort\",\n      \"exit\",\n      \"feedback\",\n      \"fullscreen\",\n      \"goal\",\n      \"guide\",\n      \"help\",\n      \"hooks\",\n      \"knowledge\",\n      \"mcp\",\n      \"model\",\n      \"paste\",\n      \"plan\",\n      \"prompts\",\n      \"quit\",\n      \"reply\",\n      \"rewind\",\n      \"session-id\",\n      \"settings\",\n      \"spawn\",\n      \"spec\",\n      \"switch\",\n      \"theme\",\n      \"title\",\n      \"tools\",\n      \"transcript\",\n      \"usage\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {\n        \"inclusion\": \"always\"\n      }\n    },\n    \"by-description\": {\n      \"describe\": [\n        \"name\",\n        \"description\"\n      ],\n      \"frontmatter\": {\n        \"inclusion\": \"auto\"\n      }\n    },\n    \"on-request\": {\n      \"frontmatter\": {\n        \"inclusion\": \"manual\"\n      }\n    },\n    \"paths\": {\n      \"form\": \"single-or-list\",\n      \"frontmatter\": {\n        \"inclusion\": \"fileMatch\"\n      },\n      \"globs\": \"fileMatchPattern\"\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": \"none\",\n  \"userOnlyFallback\": {\n    \"project\": [\n      {\n        \"arguments\": \"kept\",\n        \"id\": \"prompt\",\n        \"path\": \".kiro/prompts/<name>.md\"\n      },\n      {\n        \"arguments\": \"reworded\",\n        \"frontmatter\": {\n          \"inclusion\": \"manual\"\n        },\n        \"id\": \"steering\",\n        \"path\": \".kiro/steering/<name>.md\"\n      }\n    ],\n    \"user\": [\n      {\n        \"arguments\": \"kept\",\n        \"id\": \"prompt\",\n        \"path\": \".kiro/prompts/<name>.md\"\n      },\n      {\n        \"arguments\": \"reworded\",\n        \"frontmatter\": {\n          \"inclusion\": \"manual\"\n        },\n        \"id\": \"steering\",\n        \"path\": \".kiro/steering/<name>.md\"\n      }\n    ]\n  },\n  \"version\": 7\n}\n",
-  "opencode": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": \"none\"\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"opencode\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.19.5\"\n    }\n  ],\n  \"disableBuiltIn\": \"not-documented\",\n  \"id\": \"opencode\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": \"unknown\",\n    \"mcp-env\": \"unknown\",\n    \"mcp-header\": \"unknown\"\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"remote\"\n        },\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"argv\": \"command\",\n      \"env\": \"environment\",\n      \"set\": {\n        \"type\": \"local\"\n      }\n    }\n  },\n  \"name\": \"OpenCode\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".opencode/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \"opencode.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcp/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".agents/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".config/opencode/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"opencode\",\n        \"plugin\",\n        \"<plugin>@git+<repository>.git#<commit>\"\n      ]\n    ],\n    \"pin\": \"holds\",\n    \"pinForm\": \"spec\",\n    \"scopes\": [\n      \"project\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"build\",\n      \"compaction\",\n      \"explore\",\n      \"general\",\n      \"plan\",\n      \"summary\",\n      \"title\"\n    ],\n    \"command\": [\n      \"agents\",\n      \"compact\",\n      \"connect\",\n      \"debug\",\n      \"diff\",\n      \"editor\",\n      \"exit\",\n      \"help\",\n      \"init\",\n      \"mcps\",\n      \"models\",\n      \"move\",\n      \"new\",\n      \"review\",\n      \"sessions\",\n      \"skills\",\n      \"status\",\n      \"themes\",\n      \"undo\",\n      \"update\",\n      \"variants\"\n    ],\n    \"skill\": [\n      \"customize-opencode\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": \"none\",\n  \"userOnlyFallback\": {\n    \"project\": [\n      {\n        \"arguments\": \"kept\",\n        \"id\": \"command\",\n        \"path\": \".opencode/commands/<name>.md\"\n      }\n    ]\n  },\n  \"version\": 3\n}\n"
+  "opencode": "{\n  \"agentFile\": {\n    \"fields\": [\n      \"description\"\n    ],\n    \"format\": \"md\",\n    \"model\": \"drop\",\n    \"tools\": \"none\"\n  },\n  \"arguments\": \"chat-text\",\n  \"checkedWith\": [\n    {\n      \"app\": \"opencode\",\n      \"date\": \"2026-11-02\",\n      \"version\": \"1.19.5\"\n    }\n  ],\n  \"configFiles\": {\n    \"project\": [\n      \".opencode/opencode.json\",\n      \".opencode/opencode.jsonc\",\n      \".opencode/plugin/\",\n      \".opencode/plugins/\",\n      \".opencode/tool/\",\n      \".opencode/tools/\",\n      \".opencode/tui.json\",\n      \".opencode/tui.jsonc\",\n      \"opencode.jsonc\",\n      \"tui.json\",\n      \"tui.jsonc\"\n    ],\n    \"user\": [\n      \".config/opencode/opencode.json\",\n      \".config/opencode/opencode.jsonc\",\n      \".config/opencode/package.json\",\n      \".config/opencode/plugin/\",\n      \".config/opencode/plugins/\",\n      \".config/opencode/tool/\",\n      \".config/opencode/tools/\",\n      \".config/opencode/tui.json\",\n      \".config/opencode/tui.jsonc\"\n    ]\n  },\n  \"disableBuiltIn\": \"not-documented\",\n  \"id\": \"opencode\",\n  \"inputReferences\": {\n    \"file\": \"unknown\",\n    \"mcp-argv\": {\n      \"syntax\": \"{env:<name>}\"\n    },\n    \"mcp-env\": {\n      \"syntax\": \"{env:<name>}\"\n    },\n    \"mcp-header\": {\n      \"syntax\": \"{env:<name>}\"\n    }\n  },\n  \"links\": {\n    \"skill\": \"documented\"\n  },\n  \"mcpFile\": {\n    \"remote\": {\n      \"streamable-http\": {\n        \"headers\": \"headers\",\n        \"set\": {\n          \"type\": \"remote\"\n        },\n        \"url\": \"url\"\n      }\n    },\n    \"stdio\": {\n      \"argv\": \"command\",\n      \"env\": \"environment\",\n      \"set\": {\n        \"type\": \"local\"\n      }\n    }\n  },\n  \"name\": \"OpenCode\",\n  \"places\": {\n    \"agent\": {\n      \"project\": \".opencode/agents/<name>.md\"\n    },\n    \"mcp\": {\n      \"project\": {\n        \"file\": \"opencode.json\",\n        \"format\": \"json\",\n        \"key\": \"/mcp/<name>\"\n      }\n    },\n    \"rule\": {\n      \"project\": {\n        \"always\": {\n          \"file\": \"AGENTS.md\",\n          \"merge\": \"markdown\"\n        }\n      }\n    },\n    \"skill\": {\n      \"project\": {\n        \"otherwise\": \".agents/skills/<name>/\",\n        \"reuse\": [\n          \".agents/skills/<name>/\",\n          \".claude/skills/<name>/\"\n        ]\n      },\n      \"user\": \".config/opencode/skills/<name>/\"\n    }\n  },\n  \"plugins\": {\n    \"install\": [\n      [\n        \"opencode\",\n        \"plugin\",\n        \"<plugin>@git+<repository>.git#<commit>\"\n      ]\n    ],\n    \"pin\": \"holds\",\n    \"pinForm\": \"spec\",\n    \"scopes\": [\n      \"project\"\n    ],\n    \"verify\": \"none\"\n  },\n  \"provides\": {\n    \"agent\": [\n      \"build\",\n      \"compaction\",\n      \"explore\",\n      \"general\",\n      \"plan\",\n      \"summary\",\n      \"title\"\n    ],\n    \"command\": [\n      \"agents\",\n      \"compact\",\n      \"connect\",\n      \"debug\",\n      \"diff\",\n      \"editor\",\n      \"exit\",\n      \"help\",\n      \"init\",\n      \"mcps\",\n      \"models\",\n      \"move\",\n      \"new\",\n      \"review\",\n      \"sessions\",\n      \"skills\",\n      \"status\",\n      \"themes\",\n      \"undo\",\n      \"update\",\n      \"variants\"\n    ],\n    \"skill\": [\n      \"customize-opencode\"\n    ]\n  },\n  \"ruleScopes\": {\n    \"always\": {\n      \"frontmatter\": {}\n    }\n  },\n  \"schema\": \"urn:aihq:catalog:tool-profile:0.1.0\",\n  \"userOnly\": \"none\",\n  \"userOnlyFallback\": {\n    \"project\": [\n      {\n        \"arguments\": \"kept\",\n        \"id\": \"command\",\n        \"path\": \".opencode/commands/<name>.md\"\n      }\n    ]\n  },\n  \"version\": 5\n}\n"
  },
  "byo": {
   "content": {
@@ -390,7 +390,7 @@
     "profiles": [
      {
       "id": "antigravity",
-      "version": 4
+      "version": 6
      },
      {
       "id": "claude-code",
@@ -402,11 +402,11 @@
      },
      {
       "id": "copilot",
-      "version": 4
+      "version": 6
      },
      {
       "id": "cursor",
-      "version": 3
+      "version": 5
      },
      {
       "id": "dsh",
@@ -414,7 +414,7 @@
      },
      {
       "id": "kimi",
-      "version": 4
+      "version": 6
      },
      {
       "id": "kiro",
@@ -422,7 +422,7 @@
      },
      {
       "id": "opencode",
-      "version": 3
+      "version": 5
      }
     ],
     "plan": [
@@ -666,7 +666,7 @@
      {
       "op": "write",
       "root": "user",
-      "path": ".aihq/shared/my-skills/skill/ship/03300d2711db/SKILL.md",
+      "path": ".aihq/shared/my-skills/skill/ship/1f04cdd84e36/SKILL.md",
       "from": {
        "item": "my-skills.skill.ship",
        "sourceId": "my-skills",
@@ -677,7 +677,7 @@
       "render": {
        "name": "skill",
        "profile": "copilot",
-       "version": 4,
+       "version": 6,
        "installName": "ship"
       },
       "scanned": false,
@@ -712,7 +712,7 @@
      {
       "op": "write",
       "root": "user",
-      "path": ".aihq/shared/my-skills/skill/ship/d1b45377af87/SKILL.md",
+      "path": ".aihq/shared/my-skills/skill/ship/97f877a68eda/SKILL.md",
       "from": {
        "item": "my-skills.skill.ship",
        "sourceId": "my-skills",
@@ -723,7 +723,7 @@
       "render": {
        "name": "skill",
        "profile": "kimi",
-       "version": 4,
+       "version": 6,
        "installName": "ship"
       },
       "scanned": false,
@@ -853,7 +853,7 @@
       "render": {
        "name": "agent",
        "profile": "copilot",
-       "version": 4,
+       "version": 6,
        "installName": "reviewer"
       },
       "scanned": false,
@@ -960,7 +960,7 @@
       "render": {
        "name": "skill",
        "profile": "cursor",
-       "version": 3,
+       "version": 5,
        "installName": "ship"
       },
       "scanned": false,
@@ -1049,7 +1049,7 @@
       "render": {
        "name": "skill",
        "profile": "antigravity",
-       "version": 4,
+       "version": 6,
        "installName": "ship"
       },
       "scanned": false,
@@ -1304,7 +1304,7 @@
       "op": "link",
       "root": "user",
       "path": ".copilot/skills/ship",
-      "to": ".aihq/shared/my-skills/skill/ship/03300d2711db",
+      "to": ".aihq/shared/my-skills/skill/ship/1f04cdd84e36",
       "item": "my-skills.skill.ship",
       "clis": [
        "copilot"
@@ -1324,7 +1324,7 @@
       "op": "link",
       "root": "user",
       "path": ".kimi-code/skills/ship",
-      "to": ".aihq/shared/my-skills/skill/ship/d1b45377af87",
+      "to": ".aihq/shared/my-skills/skill/ship/97f877a68eda",
       "item": "my-skills.skill.ship",
       "clis": [
        "kimi"
@@ -1378,7 +1378,7 @@
       "render": {
        "name": "rule-block",
        "profile": "kimi",
-       "version": 4,
+       "version": 6,
        "installName": "style"
       },
       "scanned": false,
@@ -1863,7 +1863,7 @@
     "profiles": [
      {
       "id": "antigravity",
-      "version": 4
+      "version": 6
      },
      {
       "id": "claude-code",
@@ -1875,11 +1875,11 @@
      },
      {
       "id": "copilot",
-      "version": 4
+      "version": 6
      },
      {
       "id": "cursor",
-      "version": 3
+      "version": 5
      },
      {
       "id": "dsh",
@@ -1887,7 +1887,7 @@
      },
      {
       "id": "kimi",
-      "version": 4
+      "version": 6
      },
      {
       "id": "kiro",
@@ -1895,7 +1895,7 @@
      },
      {
       "id": "opencode",
-      "version": 3
+      "version": 5
      }
     ],
     "plan": [
@@ -1913,7 +1913,7 @@
       "render": {
        "name": "agent",
        "profile": "antigravity",
-       "version": 4,
+       "version": 6,
        "installName": "reviewer"
       },
       "scanned": false,
@@ -1955,7 +1955,7 @@
       "render": {
        "name": "bundle-root",
        "profile": "antigravity",
-       "version": 4,
+       "version": 6,
        "bundles": [
         {
          "bundle": "my-skills.runtime",
@@ -1985,7 +1985,7 @@
       "render": {
        "name": "rule",
        "profile": "antigravity",
-       "version": 4,
+       "version": 6,
        "installName": "style"
       },
       "scanned": false,
@@ -2245,7 +2245,7 @@
       "render": {
        "name": "bundle-root",
        "profile": "cursor",
-       "version": 3,
+       "version": 5,
        "bundles": [
         {
          "bundle": "my-skills.runtime",
@@ -2275,7 +2275,7 @@
       "render": {
        "name": "rule",
        "profile": "cursor",
-       "version": 3,
+       "version": 5,
        "installName": "style"
       },
       "scanned": false,
@@ -2292,7 +2292,7 @@
       "render": {
        "name": "bundle-root",
        "profile": "copilot",
-       "version": 4,
+       "version": 6,
        "bundles": [
         {
          "bundle": "my-skills.runtime",
@@ -2322,7 +2322,7 @@
       "render": {
        "name": "rule",
        "profile": "copilot",
-       "version": 4,
+       "version": 6,
        "installName": "style"
       },
       "scanned": false,
@@ -2488,7 +2488,7 @@
       "render": {
        "name": "agent",
        "profile": "opencode",
-       "version": 3,
+       "version": 5,
        "installName": "reviewer"
       },
       "scanned": false,
@@ -3757,12 +3757,12 @@
     "status": "incomplete",
     "data": {
      "repository": "https://github.com/samartomar/aih-catalog",
-     "commit": "767cd4edc4faf40058766438991baccd2bd6465c"
+     "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4"
     },
     "profiles": [
      {
       "id": "antigravity",
-      "version": 4
+      "version": 6
      },
      {
       "id": "claude-code",
@@ -3774,11 +3774,11 @@
      },
      {
       "id": "copilot",
-      "version": 4
+      "version": 6
      },
      {
       "id": "cursor",
-      "version": 3
+      "version": 5
      },
      {
       "id": "dsh",
@@ -3786,7 +3786,7 @@
      },
      {
       "id": "kimi",
-      "version": 4
+      "version": 6
      },
      {
       "id": "kiro",
@@ -3794,7 +3794,7 @@
      },
      {
       "id": "opencode",
-      "version": 3
+      "version": 5
      }
     ],
     "plan": [],
@@ -3871,12 +3871,12 @@
     "status": "incomplete",
     "data": {
      "repository": "https://github.com/samartomar/aih-catalog",
-     "commit": "767cd4edc4faf40058766438991baccd2bd6465c"
+     "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4"
     },
     "profiles": [
      {
       "id": "antigravity",
-      "version": 4
+      "version": 6
      },
      {
       "id": "claude-code",
@@ -3888,11 +3888,11 @@
      },
      {
       "id": "copilot",
-      "version": 4
+      "version": 6
      },
      {
       "id": "cursor",
-      "version": 3
+      "version": 5
      },
      {
       "id": "dsh",
@@ -3900,7 +3900,7 @@
      },
      {
       "id": "kimi",
-      "version": 4
+      "version": 6
      },
      {
       "id": "kiro",
@@ -3908,7 +3908,7 @@
      },
      {
       "id": "opencode",
-      "version": 3
+      "version": 5
      }
     ],
     "plan": [
@@ -6824,7 +6824,7 @@
     }
    ],
    "pluginJson": "{\n  \"name\": \"superpowers-plugins\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Superpowers as native plugins (Core test fixture)\",\n  \"author\": {\n    \"name\": \"AIH Core tests\"\n  },\n  \"license\": \"MIT\",\n  \"keywords\": [\n    \"fixture\"\n  ]\n}\n",
-   "recipeJson": "{\n  \"clis\": {\n    \"kiro\": [\n      \"skill\"\n    ]\n  },\n  \"content\": {\n    \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n    \"repository\": \"https://github.com/obra/superpowers\"\n  },\n  \"data\": {\n    \"commit\": \"767cd4edc4faf40058766438991baccd2bd6465c\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"superpowers\",\n  \"id\": \"superpowers-plugins\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"superpowers.skill.brainstorming\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"claude-code\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    },\n    \"codex\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"marketplace\": \"https://github.com/obra/superpowers\",\n      \"marketplaceName\": \"superpowers-dev\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    }\n  },\n  \"routes\": {\n    \"claude-code\": \"plugin\",\n    \"codex\": \"plugin\",\n    \"kiro\": \"items\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
+   "recipeJson": "{\n  \"clis\": {\n    \"kiro\": [\n      \"skill\"\n    ]\n  },\n  \"content\": {\n    \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n    \"repository\": \"https://github.com/obra/superpowers\"\n  },\n  \"data\": {\n    \"commit\": \"26df4c0f56e63b2d18b7f413bc12751f7210b0a4\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"superpowers\",\n  \"id\": \"superpowers-plugins\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"superpowers.skill.brainstorming\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"claude-code\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    },\n    \"codex\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"marketplace\": \"https://github.com/obra/superpowers\",\n      \"marketplaceName\": \"superpowers-dev\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    }\n  },\n  \"routes\": {\n    \"claude-code\": \"plugin\",\n    \"codex\": \"plugin\",\n    \"kiro\": \"items\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
    "choices": {},
    "options": {
     "scope": "user",
@@ -6842,13 +6842,13 @@
     "status": "ok",
     "recipe": {
      "id": "superpowers-plugins",
-     "sha256": "b0c36fff7bdecb0e40303bde89365d06f33266a9a6a46264fcb35f440cf87f02",
+     "sha256": "0136761e76b8084f4d81ab4b2967acc63fd0a88f0af3cb7bc0e541775d212b69",
      "repository": "https://github.com/example/aih-core-fixture-recipes",
      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "data": {
      "repository": "https://github.com/samartomar/aih-catalog",
-     "commit": "767cd4edc4faf40058766438991baccd2bd6465c"
+     "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4"
     },
     "profiles": [
      {
@@ -8361,7 +8361,7 @@
     }
    ],
    "pluginJson": "{\n  \"name\": \"egm-base\",\n  \"version\": \"0.1.0\",\n  \"description\": \"EGM, as Catalog drafts it (Core test fixture)\",\n  \"author\": {\n    \"name\": \"AIH Core tests\"\n  },\n  \"license\": \"MIT\",\n  \"keywords\": [\n    \"fixture\"\n  ]\n}\n",
-   "recipeJson": "{\n  \"content\": {\n    \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n    \"repository\": \"https://github.com/google/elephant-goldfish-model\"\n  },\n  \"data\": {\n    \"commit\": \"767cd4edc4faf40058766438991baccd2bd6465c\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"egm\",\n  \"id\": \"egm-base\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"egm.agent.bootstrap_orchestrator\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.codebase_details\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.comprehension\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.design_critic\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.implementation_readiness\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.structural\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.style\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.synthesizer\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.zoom_out\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-bootstrap\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-brainstorm\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-draft\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-drift-report\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-resolve\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-review\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-review-loop\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"antigravity\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    },\n    \"claude-code\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"marketplace\": \"egm\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    },\n    \"codex\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"marketplace\": \"https://github.com/google/elephant-goldfish-model\",\n      \"marketplaceName\": \"egm\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    }\n  },\n  \"routes\": {\n    \"antigravity\": \"local-plugin\",\n    \"claude-code\": \"local-plugin\",\n    \"codex\": \"plugin\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
+   "recipeJson": "{\n  \"content\": {\n    \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n    \"repository\": \"https://github.com/google/elephant-goldfish-model\"\n  },\n  \"data\": {\n    \"commit\": \"26df4c0f56e63b2d18b7f413bc12751f7210b0a4\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"egm\",\n  \"id\": \"egm-base\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"egm.agent.bootstrap_orchestrator\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.codebase_details\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.comprehension\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.design_critic\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.implementation_readiness\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.structural\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.style\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.synthesizer\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.agent.zoom_out\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-bootstrap\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-brainstorm\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-draft\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-drift-report\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-resolve\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-review\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"egm.skill.egm-review-loop\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"antigravity\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    },\n    \"claude-code\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"marketplace\": \"egm\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    },\n    \"codex\": {\n      \"commit\": \"403d8881d62022490637d740657b33f01e321ea8\",\n      \"marketplace\": \"https://github.com/google/elephant-goldfish-model\",\n      \"marketplaceName\": \"egm\",\n      \"path\": \"/\",\n      \"plugin\": \"egm\",\n      \"source\": \"egm\"\n    }\n  },\n  \"routes\": {\n    \"antigravity\": \"local-plugin\",\n    \"claude-code\": \"local-plugin\",\n    \"codex\": \"plugin\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
    "choices": {},
    "options": {
     "scope": "project",
@@ -8379,18 +8379,18 @@
     "status": "ok",
     "recipe": {
      "id": "egm-base",
-     "sha256": "68725d580d5e39ffe1ee859fbf9cd7e41b7f3c6b1c57467915e3fd533ffd8614",
+     "sha256": "9f7e435a635ea1fd8a22266c393c8cc9e936d4cbf63051cb72144fe8cca2f46e",
      "repository": "https://github.com/example/aih-core-fixture-recipes",
      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "data": {
      "repository": "https://github.com/samartomar/aih-catalog",
-     "commit": "767cd4edc4faf40058766438991baccd2bd6465c"
+     "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4"
     },
     "profiles": [
      {
       "id": "antigravity",
-      "version": 4
+      "version": 6
      },
      {
       "id": "claude-code",
@@ -9260,7 +9260,7 @@
       "render": {
        "name": "bundle-root",
        "profile": "antigravity",
-       "version": 4,
+       "version": 6,
        "bundles": [
         {
          "bundle": "egm.runtime",
@@ -9307,7 +9307,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9339,7 +9339,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9423,7 +9423,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9455,7 +9455,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9505,7 +9505,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9537,7 +9537,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9604,7 +9604,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9636,7 +9636,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9686,7 +9686,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9718,7 +9718,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9768,7 +9768,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9800,7 +9800,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9850,7 +9850,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -9882,7 +9882,7 @@
        "profiles": [
         {
          "id": "antigravity",
-         "version": 4
+         "version": 6
         },
         {
          "id": "codex",
@@ -12482,7 +12482,7 @@
     }
    ],
    "pluginJson": "{\n  \"name\": \"code-intelligence-trio\",\n  \"version\": \"0.1.0\",\n  \"description\": \"The code-intelligence trio (Core test fixture)\",\n  \"author\": {\n    \"name\": \"AIH Core tests\"\n  },\n  \"license\": \"MIT\",\n  \"keywords\": [\n    \"fixture\"\n  ]\n}\n",
-   "recipeJson": "{\n  \"aiSetup\": {\n    \"cbm.ai-setup.codebase-memory-mcp\": {\n      \"disabledTools\": [\n        \"compare_graphs\",\n        \"delete_project\",\n        \"detect_changes\",\n        \"get_file_outline\",\n        \"ingest_traces\",\n        \"search_code\"\n      ],\n      \"enabledTools\": [\n        \"check_index_coverage\",\n        \"get_architecture\",\n        \"get_code_snippet\",\n        \"get_graph_schema\",\n        \"index_repository\",\n        \"index_status\",\n        \"list_projects\",\n        \"manage_adr\",\n        \"query_graph\",\n        \"search_graph\",\n        \"trace_path\"\n      ]\n    },\n    \"crg.ai-setup.code-review-graph\": {\n      \"enabledTools\": [\n        \"build_or_update_graph_tool\",\n        \"detect_changes_tool\",\n        \"get_impact_radius_tool\",\n        \"get_minimal_context_tool\",\n        \"get_review_context_tool\",\n        \"query_graph_tool\"\n      ]\n    },\n    \"serena.ai-setup.serena\": {\n      \"enabledTools\": [\n        \"activate_project\",\n        \"find_declaration\",\n        \"find_implementations\",\n        \"find_referencing_symbols\",\n        \"find_symbol\",\n        \"get_diagnostics_for_file\",\n        \"get_symbols_overview\",\n        \"initial_instructions\",\n        \"insert_after_symbol\",\n        \"insert_before_symbol\",\n        \"rename_symbol\",\n        \"replace_symbol_body\",\n        \"restart_language_server\",\n        \"safe_delete_symbol\"\n      ]\n    }\n  },\n  \"content\": {\n    \"cbm\": {\n      \"commit\": \"a7158ac2f48ca646b4527341b76f930f2aeff87e\",\n      \"repository\": \"https://github.com/DeusData/codebase-memory-mcp\"\n    },\n    \"crg\": {\n      \"commit\": \"343ab7cea29d47a3e805381e09f8243a43d43d88\",\n      \"repository\": \"https://github.com/tirth8205/code-review-graph\"\n    },\n    \"serena\": {\n      \"commit\": \"5e4f5cd173c7ff3eed37ee3f1de6c266b937c5dc\",\n      \"repository\": \"https://github.com/oraios/serena\"\n    }\n  },\n  \"data\": {\n    \"commit\": \"767cd4edc4faf40058766438991baccd2bd6465c\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"frameworks\": [\n    \"cbm\",\n    \"crg\",\n    \"serena\"\n  ],\n  \"id\": \"code-intelligence-trio\",\n  \"kind\": \"combination\",\n  \"members\": [\n    {\n      \"item\": \"cbm.ai-setup.codebase-memory-mcp\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"crg.ai-setup.code-review-graph\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"serena.ai-setup.serena\",\n      \"preTicked\": true\n    }\n  ],\n  \"qualifications\": {\n    \"linux-x64\": \"52f0477c225926305df078526d332b23d0c5fa01438c31834cc3ff2a8ffbe9ed\"\n  },\n  \"routes\": {},\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
+   "recipeJson": "{\n  \"aiSetup\": {\n    \"cbm.ai-setup.codebase-memory-mcp\": {\n      \"disabledTools\": [\n        \"compare_graphs\",\n        \"delete_project\",\n        \"detect_changes\",\n        \"get_file_outline\",\n        \"ingest_traces\",\n        \"search_code\"\n      ],\n      \"enabledTools\": [\n        \"check_index_coverage\",\n        \"get_architecture\",\n        \"get_code_snippet\",\n        \"get_graph_schema\",\n        \"index_repository\",\n        \"index_status\",\n        \"list_projects\",\n        \"manage_adr\",\n        \"query_graph\",\n        \"search_graph\",\n        \"trace_path\"\n      ]\n    },\n    \"crg.ai-setup.code-review-graph\": {\n      \"enabledTools\": [\n        \"build_or_update_graph_tool\",\n        \"detect_changes_tool\",\n        \"get_impact_radius_tool\",\n        \"get_minimal_context_tool\",\n        \"get_review_context_tool\",\n        \"query_graph_tool\"\n      ]\n    },\n    \"serena.ai-setup.serena\": {\n      \"enabledTools\": [\n        \"activate_project\",\n        \"find_declaration\",\n        \"find_implementations\",\n        \"find_referencing_symbols\",\n        \"find_symbol\",\n        \"get_diagnostics_for_file\",\n        \"get_symbols_overview\",\n        \"initial_instructions\",\n        \"insert_after_symbol\",\n        \"insert_before_symbol\",\n        \"rename_symbol\",\n        \"replace_symbol_body\",\n        \"restart_language_server\",\n        \"safe_delete_symbol\"\n      ]\n    }\n  },\n  \"content\": {\n    \"cbm\": {\n      \"commit\": \"a7158ac2f48ca646b4527341b76f930f2aeff87e\",\n      \"repository\": \"https://github.com/DeusData/codebase-memory-mcp\"\n    },\n    \"crg\": {\n      \"commit\": \"343ab7cea29d47a3e805381e09f8243a43d43d88\",\n      \"repository\": \"https://github.com/tirth8205/code-review-graph\"\n    },\n    \"serena\": {\n      \"commit\": \"5e4f5cd173c7ff3eed37ee3f1de6c266b937c5dc\",\n      \"repository\": \"https://github.com/oraios/serena\"\n    }\n  },\n  \"data\": {\n    \"commit\": \"26df4c0f56e63b2d18b7f413bc12751f7210b0a4\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"frameworks\": [\n    \"cbm\",\n    \"crg\",\n    \"serena\"\n  ],\n  \"id\": \"code-intelligence-trio\",\n  \"kind\": \"combination\",\n  \"members\": [\n    {\n      \"item\": \"cbm.ai-setup.codebase-memory-mcp\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"crg.ai-setup.code-review-graph\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"serena.ai-setup.serena\",\n      \"preTicked\": true\n    }\n  ],\n  \"qualifications\": {\n    \"linux-x64\": \"52f0477c225926305df078526d332b23d0c5fa01438c31834cc3ff2a8ffbe9ed\"\n  },\n  \"routes\": {},\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
    "choices": {},
    "options": {
     "scope": "project",
@@ -13706,13 +13706,13 @@
     "status": "ok",
     "recipe": {
      "id": "code-intelligence-trio",
-     "sha256": "89a410af0c468553a195317c980d91b8f2466f36103528fb09286109bd17c326",
+     "sha256": "fe6145bacd4d12cc460ecd1f90f45fe9a322405436e9046bb6c9b19ef5174ce6",
      "repository": "https://github.com/example/aih-core-fixture-recipes",
      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "data": {
      "repository": "https://github.com/samartomar/aih-catalog",
-     "commit": "767cd4edc4faf40058766438991baccd2bd6465c"
+     "commit": "26df4c0f56e63b2d18b7f413bc12751f7210b0a4"
     },
     "profiles": [
      {
@@ -15424,7 +15424,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".aihq/shared/my-skills/skill/ship/03300d2711db/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"copilot\",\"version\":4},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".aihq/shared/my-skills/skill/ship/1f04cdd84e36/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"copilot\",\"version\":6},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "57e40722ea1ed1bcbebd4593822079e577ee7c5d233194c020394737d4c2c9c3",
@@ -15440,7 +15440,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"kimi\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".aihq/shared/my-skills/skill/ship/d1b45377af87/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"kimi\",\"version\":4},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"kimi\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".aihq/shared/my-skills/skill/ship/97f877a68eda/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"kimi\",\"version\":6},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "7be308c9fc1b12405870647a8212f136150250f808b427c226c7a88b28405eae",
@@ -15456,7 +15456,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".copilot/agents/reviewer.agent.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"copilot\",\"version\":4},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".copilot/agents/reviewer.agent.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"copilot\",\"version\":6},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "a177375b591c06e9cdd8c31051cf83027d2c2f88924369363251dcb9f5e3b58d",
@@ -15464,7 +15464,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".cursor/skills/ship/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"cursor\",\"version\":3},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".cursor/skills/ship/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"cursor\",\"version\":5},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "57e40722ea1ed1bcbebd4593822079e577ee7c5d233194c020394737d4c2c9c3",
@@ -15472,7 +15472,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".gemini/config/skills/ship/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"antigravity\",\"version\":4},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"from\":{\"item\":\"my-skills.skill.ship\",\"sha256\":\"f7446d32d8e5ecccb9cb147de6077e82bcf5df6cf8639ee869be6f1ba892cdef\",\"sourceId\":\"my-skills\",\"sourcePath\":\"skills/ship/SKILL.md\"},\"item\":\"my-skills.skill.ship\",\"op\":\"write\",\"path\":\".gemini/config/skills/ship/SKILL.md\",\"render\":{\"installName\":\"ship\",\"name\":\"skill\",\"profile\":\"antigravity\",\"version\":6},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "57e40722ea1ed1bcbebd4593822079e577ee7c5d233194c020394737d4c2c9c3",
@@ -15528,7 +15528,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"kimi\"],\"file\":\".agents/AGENTS.md\",\"format\":\"markdown\",\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"key\":\"my-skills.rule.style\",\"op\":\"merge\",\"render\":{\"installName\":\"style\",\"name\":\"rule-block\",\"profile\":\"kimi\",\"version\":4},\"root\":\"user\",\"scanned\":false}",
+   "step": "{\"clis\":[\"kimi\"],\"file\":\".agents/AGENTS.md\",\"format\":\"markdown\",\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"key\":\"my-skills.rule.style\",\"op\":\"merge\",\"render\":{\"installName\":\"style\",\"name\":\"rule-block\",\"profile\":\"kimi\",\"version\":6},\"root\":\"user\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b",
@@ -15552,7 +15552,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"kimi\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".agents/agents/reviewer.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"antigravity\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"kimi\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".agents/agents/reviewer.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"antigravity\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "a177375b591c06e9cdd8c31051cf83027d2c2f88924369363251dcb9f5e3b58d",
@@ -15560,7 +15560,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".agents/rules/aih-bundle-root.md\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"antigravity\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".agents/rules/aih-bundle-root.md\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"antigravity\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "1d50ac2ac9800040ad2980542259c7ce338800850f08dd9630fdef56415a7d40",
@@ -15568,7 +15568,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".agents/rules/style.md\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"antigravity\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".agents/rules/style.md\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"antigravity\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "f48152496508b14210c23ecdc48e14ab10daf58ef6fc20ec923c927708014eac",
@@ -15592,7 +15592,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".cursor/rules/aih-bundle-root.mdc\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"cursor\",\"version\":3},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".cursor/rules/aih-bundle-root.mdc\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"cursor\",\"version\":5},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "f9f6e6fa06cc0dce9441698643ea95e4d679f3806622ebcf990ce078bfa23036",
@@ -15600,7 +15600,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".cursor/rules/style.mdc\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"cursor\",\"version\":3},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"cursor\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".cursor/rules/style.mdc\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"cursor\",\"version\":5},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "07fb5badcb8bc62e832735d077e68ab090b46844b7bdc45527fe3c3b60582401",
@@ -15608,7 +15608,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".github/instructions/aih-bundle-root.instructions.md\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"copilot\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"items\":[\"my-skills.skill.steps\"],\"op\":\"write\",\"path\":\".github/instructions/aih-bundle-root.instructions.md\",\"render\":{\"bundles\":[{\"bundle\":\"my-skills.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"copilot\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "8dd3f981db9fb556f4cf5b8b805a985c1ff5f759e6cca345628846448cb2f402",
@@ -15616,7 +15616,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".github/instructions/style.instructions.md\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"copilot\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"copilot\"],\"executable\":false,\"from\":{\"item\":\"my-skills.rule.style\",\"sha256\":\"85907812b31327fa0031a906a2610c4b6628bd7d427db9254f7dc24f0da0d13b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"rules/style.md\"},\"item\":\"my-skills.rule.style\",\"op\":\"write\",\"path\":\".github/instructions/style.instructions.md\",\"render\":{\"installName\":\"style\",\"name\":\"rule\",\"profile\":\"copilot\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "20e5fc7b419c627bf8779dd8b0bc97e2d8612d0eba3820723ef5816fd3b02129",
@@ -15656,7 +15656,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"opencode\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".opencode/agents/reviewer.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"opencode\",\"version\":3},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"opencode\"],\"executable\":false,\"from\":{\"item\":\"my-skills.agent.reviewer\",\"sha256\":\"95e983e8eee00df2a0265a840b712b66820b0c9bf5fe418a03ccf6f08127144b\",\"sourceId\":\"my-skills\",\"sourcePath\":\"agents/reviewer.md\"},\"item\":\"my-skills.agent.reviewer\",\"op\":\"write\",\"path\":\".opencode/agents/reviewer.md\",\"render\":{\"installName\":\"reviewer\",\"name\":\"agent\",\"profile\":\"opencode\",\"version\":5},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "0bb6674b615ad28135fdf89ffd6065e7ecde89327570214378aebc0b3869a3b8",
@@ -15704,7 +15704,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"items\":[\"egm.agent.bootstrap_orchestrator\",\"egm.agent.codebase_details\",\"egm.agent.comprehension\",\"egm.agent.design_critic\",\"egm.agent.implementation_readiness\",\"egm.agent.structural\",\"egm.agent.style\",\"egm.agent.synthesizer\",\"egm.agent.zoom_out\",\"egm.skill.egm-bootstrap\",\"egm.skill.egm-brainstorm\",\"egm.skill.egm-draft\",\"egm.skill.egm-drift-report\",\"egm.skill.egm-resolve\",\"egm.skill.egm-review\",\"egm.skill.egm-review-loop\"],\"op\":\"write\",\"path\":\".agents/rules/aih-bundle-root.md\",\"render\":{\"bundles\":[{\"bundle\":\"egm.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"antigravity\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\"],\"executable\":false,\"items\":[\"egm.agent.bootstrap_orchestrator\",\"egm.agent.codebase_details\",\"egm.agent.comprehension\",\"egm.agent.design_critic\",\"egm.agent.implementation_readiness\",\"egm.agent.structural\",\"egm.agent.style\",\"egm.agent.synthesizer\",\"egm.agent.zoom_out\",\"egm.skill.egm-bootstrap\",\"egm.skill.egm-brainstorm\",\"egm.skill.egm-draft\",\"egm.skill.egm-drift-report\",\"egm.skill.egm-resolve\",\"egm.skill.egm-review\",\"egm.skill.egm-review-loop\"],\"op\":\"write\",\"path\":\".agents/rules/aih-bundle-root.md\",\"render\":{\"bundles\":[{\"bundle\":\"egm.runtime\",\"root\":\".agents/\"}],\"name\":\"bundle-root\",\"profile\":\"antigravity\",\"version\":6},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "74e68f3939d260b21e03af021b4083a1a0818a4d7cb2add8f268ddace1816389",
@@ -15712,7 +15712,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-bootstrap\",\"sha256\":\"ac86aae69c782b67ebb96d1dae5bcef675745e3f57cca99196038bb5e350fc4c\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-bootstrap/SKILL.md\"},\"item\":\"egm.skill.egm-bootstrap\",\"op\":\"write\",\"path\":\".agents/skills/egm-bootstrap/SKILL.md\",\"render\":{\"installName\":\"egm-bootstrap\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-bootstrap\",\"sha256\":\"ac86aae69c782b67ebb96d1dae5bcef675745e3f57cca99196038bb5e350fc4c\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-bootstrap/SKILL.md\"},\"item\":\"egm.skill.egm-bootstrap\",\"op\":\"write\",\"path\":\".agents/skills/egm-bootstrap/SKILL.md\",\"render\":{\"installName\":\"egm-bootstrap\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "ac86aae69c782b67ebb96d1dae5bcef675745e3f57cca99196038bb5e350fc4c",
@@ -15720,7 +15720,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-bootstrap\",\"sha256\":\"e5f83ece63fce8c73329efedd990f912ab395e1e8339f89f83f9e6efef00fb27\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-bootstrap/agents/openai.yaml\"},\"item\":\"egm.skill.egm-bootstrap\",\"op\":\"write\",\"path\":\".agents/skills/egm-bootstrap/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-bootstrap\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-bootstrap\",\"sha256\":\"e5f83ece63fce8c73329efedd990f912ab395e1e8339f89f83f9e6efef00fb27\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-bootstrap/agents/openai.yaml\"},\"item\":\"egm.skill.egm-bootstrap\",\"op\":\"write\",\"path\":\".agents/skills/egm-bootstrap/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-bootstrap\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "e0b61dcd0f3aea6b45180032b93648e05dd96fb0b864e9f5242b50f3ae464869",
@@ -15728,7 +15728,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-brainstorm\",\"sha256\":\"fb594315b47dca4bbea878fc77cec42a1a3ef8c75a8b903b1812260391a13ed9\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-brainstorm/SKILL.md\"},\"item\":\"egm.skill.egm-brainstorm\",\"op\":\"write\",\"path\":\".agents/skills/egm-brainstorm/SKILL.md\",\"render\":{\"installName\":\"egm-brainstorm\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-brainstorm\",\"sha256\":\"fb594315b47dca4bbea878fc77cec42a1a3ef8c75a8b903b1812260391a13ed9\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-brainstorm/SKILL.md\"},\"item\":\"egm.skill.egm-brainstorm\",\"op\":\"write\",\"path\":\".agents/skills/egm-brainstorm/SKILL.md\",\"render\":{\"installName\":\"egm-brainstorm\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "fb594315b47dca4bbea878fc77cec42a1a3ef8c75a8b903b1812260391a13ed9",
@@ -15736,7 +15736,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-brainstorm\",\"sha256\":\"2b858c20f9d3b54cc1e02410a4fd6f7989b36d6d5d152cc87cd0d1082ce3bfc9\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-brainstorm/agents/openai.yaml\"},\"item\":\"egm.skill.egm-brainstorm\",\"op\":\"write\",\"path\":\".agents/skills/egm-brainstorm/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-brainstorm\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-brainstorm\",\"sha256\":\"2b858c20f9d3b54cc1e02410a4fd6f7989b36d6d5d152cc87cd0d1082ce3bfc9\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-brainstorm/agents/openai.yaml\"},\"item\":\"egm.skill.egm-brainstorm\",\"op\":\"write\",\"path\":\".agents/skills/egm-brainstorm/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-brainstorm\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "ece79db5cf9b2bf2a45f0e3765d8dd13add73c2b4bb3e0368960e7247e3d6569",
@@ -15744,7 +15744,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-draft\",\"sha256\":\"7908cb6d6b9ab82fef416211988ab9abd6681d4c783b2c31b1a8c40f97009ab0\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-draft/SKILL.md\"},\"item\":\"egm.skill.egm-draft\",\"op\":\"write\",\"path\":\".agents/skills/egm-draft/SKILL.md\",\"render\":{\"installName\":\"egm-draft\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-draft\",\"sha256\":\"7908cb6d6b9ab82fef416211988ab9abd6681d4c783b2c31b1a8c40f97009ab0\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-draft/SKILL.md\"},\"item\":\"egm.skill.egm-draft\",\"op\":\"write\",\"path\":\".agents/skills/egm-draft/SKILL.md\",\"render\":{\"installName\":\"egm-draft\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "7908cb6d6b9ab82fef416211988ab9abd6681d4c783b2c31b1a8c40f97009ab0",
@@ -15752,7 +15752,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-draft\",\"sha256\":\"eafc643897b5a4ea7a849bd4211acaf8f3bc31a079f199ef5d04d08b410705b7\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-draft/agents/openai.yaml\"},\"item\":\"egm.skill.egm-draft\",\"op\":\"write\",\"path\":\".agents/skills/egm-draft/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-draft\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-draft\",\"sha256\":\"eafc643897b5a4ea7a849bd4211acaf8f3bc31a079f199ef5d04d08b410705b7\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-draft/agents/openai.yaml\"},\"item\":\"egm.skill.egm-draft\",\"op\":\"write\",\"path\":\".agents/skills/egm-draft/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-draft\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "7b04fbe0246b15ef29913f7d1829b0cd1cf3194279b67c6c8b50f796b2f8fe6c",
@@ -15760,7 +15760,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-drift-report\",\"sha256\":\"c000ffe2e77a9fe74ee6915b314e1547337c95c79a19014c44fd976dc6511476\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-drift-report/SKILL.md\"},\"item\":\"egm.skill.egm-drift-report\",\"op\":\"write\",\"path\":\".agents/skills/egm-drift-report/SKILL.md\",\"render\":{\"installName\":\"egm-drift-report\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-drift-report\",\"sha256\":\"c000ffe2e77a9fe74ee6915b314e1547337c95c79a19014c44fd976dc6511476\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-drift-report/SKILL.md\"},\"item\":\"egm.skill.egm-drift-report\",\"op\":\"write\",\"path\":\".agents/skills/egm-drift-report/SKILL.md\",\"render\":{\"installName\":\"egm-drift-report\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "c000ffe2e77a9fe74ee6915b314e1547337c95c79a19014c44fd976dc6511476",
@@ -15768,7 +15768,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-drift-report\",\"sha256\":\"b54c32c1badc9a73e507f097377324dc31f2839cfef9c426d4dba1c622d5673c\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-drift-report/agents/openai.yaml\"},\"item\":\"egm.skill.egm-drift-report\",\"op\":\"write\",\"path\":\".agents/skills/egm-drift-report/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-drift-report\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-drift-report\",\"sha256\":\"b54c32c1badc9a73e507f097377324dc31f2839cfef9c426d4dba1c622d5673c\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-drift-report/agents/openai.yaml\"},\"item\":\"egm.skill.egm-drift-report\",\"op\":\"write\",\"path\":\".agents/skills/egm-drift-report/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-drift-report\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "3214a41977dac00c71c5b73a85eece4e571d97ab38d6c21b40c0ca71e0d4d3ab",
@@ -15776,7 +15776,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-resolve\",\"sha256\":\"6bb1909b42b815e074bd486c6244b56eef8d61669abb3302c764a16be05af472\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-resolve/SKILL.md\"},\"item\":\"egm.skill.egm-resolve\",\"op\":\"write\",\"path\":\".agents/skills/egm-resolve/SKILL.md\",\"render\":{\"installName\":\"egm-resolve\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-resolve\",\"sha256\":\"6bb1909b42b815e074bd486c6244b56eef8d61669abb3302c764a16be05af472\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-resolve/SKILL.md\"},\"item\":\"egm.skill.egm-resolve\",\"op\":\"write\",\"path\":\".agents/skills/egm-resolve/SKILL.md\",\"render\":{\"installName\":\"egm-resolve\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "6bb1909b42b815e074bd486c6244b56eef8d61669abb3302c764a16be05af472",
@@ -15784,7 +15784,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-resolve\",\"sha256\":\"7ad63dc69777e6e8b2e3d33cf4105149043038ffb489e750b3f483be7836cf30\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-resolve/agents/openai.yaml\"},\"item\":\"egm.skill.egm-resolve\",\"op\":\"write\",\"path\":\".agents/skills/egm-resolve/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-resolve\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-resolve\",\"sha256\":\"7ad63dc69777e6e8b2e3d33cf4105149043038ffb489e750b3f483be7836cf30\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-resolve/agents/openai.yaml\"},\"item\":\"egm.skill.egm-resolve\",\"op\":\"write\",\"path\":\".agents/skills/egm-resolve/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-resolve\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "de979c16e6c492a5ea898796b8ac6c65e88db3ee71ec2b3a1bced2edfa41d050",
@@ -15792,7 +15792,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review-loop\",\"sha256\":\"d99803ad5bf99900e9548491f6ad1ab58a9488bbf7af79f67ead033bb48b7023\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review-loop/SKILL.md\"},\"item\":\"egm.skill.egm-review-loop\",\"op\":\"write\",\"path\":\".agents/skills/egm-review-loop/SKILL.md\",\"render\":{\"installName\":\"egm-review-loop\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review-loop\",\"sha256\":\"d99803ad5bf99900e9548491f6ad1ab58a9488bbf7af79f67ead033bb48b7023\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review-loop/SKILL.md\"},\"item\":\"egm.skill.egm-review-loop\",\"op\":\"write\",\"path\":\".agents/skills/egm-review-loop/SKILL.md\",\"render\":{\"installName\":\"egm-review-loop\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "d99803ad5bf99900e9548491f6ad1ab58a9488bbf7af79f67ead033bb48b7023",
@@ -15800,7 +15800,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review-loop\",\"sha256\":\"2073f27ed2c084c8db710f72dac367d26cb8cbc16aa2195546feb732b47a23ce\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review-loop/agents/openai.yaml\"},\"item\":\"egm.skill.egm-review-loop\",\"op\":\"write\",\"path\":\".agents/skills/egm-review-loop/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-review-loop\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review-loop\",\"sha256\":\"2073f27ed2c084c8db710f72dac367d26cb8cbc16aa2195546feb732b47a23ce\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review-loop/agents/openai.yaml\"},\"item\":\"egm.skill.egm-review-loop\",\"op\":\"write\",\"path\":\".agents/skills/egm-review-loop/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-review-loop\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "002c280b130e2820eea1bda7b01a64b0d9caf359a9bc1c2e65540cab77b94a3c",
@@ -15808,7 +15808,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review\",\"sha256\":\"5e96e3b586a086c7c87b4f0185303a49adc9486028134d258827e9bbfb89e986\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review/SKILL.md\"},\"item\":\"egm.skill.egm-review\",\"op\":\"write\",\"path\":\".agents/skills/egm-review/SKILL.md\",\"render\":{\"installName\":\"egm-review\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review\",\"sha256\":\"5e96e3b586a086c7c87b4f0185303a49adc9486028134d258827e9bbfb89e986\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review/SKILL.md\"},\"item\":\"egm.skill.egm-review\",\"op\":\"write\",\"path\":\".agents/skills/egm-review/SKILL.md\",\"render\":{\"installName\":\"egm-review\",\"name\":\"shared-skill\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "5e96e3b586a086c7c87b4f0185303a49adc9486028134d258827e9bbfb89e986",
@@ -15816,7 +15816,7 @@
    }
   },
   {
-   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review\",\"sha256\":\"780d8877443f704ee27d504c13d08f304f0bca4c4418f5703f61ae40416fca74\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review/agents/openai.yaml\"},\"item\":\"egm.skill.egm-review\",\"op\":\"write\",\"path\":\".agents/skills/egm-review/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-review\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":4},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"antigravity\",\"codex\"],\"executable\":false,\"from\":{\"item\":\"egm.skill.egm-review\",\"sha256\":\"780d8877443f704ee27d504c13d08f304f0bca4c4418f5703f61ae40416fca74\",\"sourceId\":\"egm\",\"sourcePath\":\"skills/egm-review/agents/openai.yaml\"},\"item\":\"egm.skill.egm-review\",\"op\":\"write\",\"path\":\".agents/skills/egm-review/agents/openai.yaml\",\"render\":{\"entry\":\"agents/openai.yaml\",\"installName\":\"egm-review\",\"name\":\"shared-user-only-file\",\"profiles\":[{\"id\":\"antigravity\",\"version\":6},{\"id\":\"codex\",\"version\":5}]},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "5514fef974dbaa56c3bca7c484af23b45de2aeefb89c7be4e4998b47f4ec7f55",
