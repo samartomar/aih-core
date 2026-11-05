@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
-import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recorded, rulesRequest } from './fixtures/catalog-6d9c544/replay.mjs';
+import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-6d9c544/replay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-6d9c544-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, PATH: process.env.PATH };
@@ -125,6 +125,26 @@ test('an MCP entry naming an executable in a folder Core acquired gets its absol
   const toml = readFileSync(join(target, '.codex', 'config.toml'), 'utf8');
   assert.ok(toml.includes(JSON.stringify(join(home, ...rootPath.path.split('/')))), toml);
   rmSync(join(home, '.aihq'), { recursive: true, force: true });
+});
+
+test('a real local-plugin recipe plan over the Superpowers data is reproduced: its origin is proven, installed, listed and removed', async () => {
+  const target = project();
+  const request = recipeRequest(target);
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  const origin = { recipe: { ...request.plan.recipe }, data: { ...request.plan.data } };
+  assert.deepEqual([prepared.review.origin, prepared.review.originNote], [origin, null]);
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.ok(existsSync(join(target, '.aihq', 'plugins', 'superpowers', '.claude-plugin', 'plugin.json')));
+  const listed = conforms(await list({ target: { project: target }, scope: 'project' }));
+  assert.ok(listed.entries.length > 0 && listed.entries.every(entry => JSON.stringify(entry.origin) === JSON.stringify(origin)), JSON.stringify(listed.entries.map(entry => entry.origin)));
+  // A plan that differs from what Catalog reproduces records `chosen`, never blocking.
+  const changed = recipeRequest(project());
+  changed.recipeProof.choices = { extra: [] };
+  const unproven = await prepare(changed, { catalog });
+  assert.deepEqual([unproven.status, unproven.review?.origin, unproven.review?.originNote], ['ready', 'chosen', 'origin not proven']);
+  await removeAll(target, 'project');
+  assert.equal(existsSync(join(target, '.aihq', 'plugins', 'superpowers')), false);
 });
 
 test('a plan-namespaced name reference is a warning; only a path reference is plan-unresolved', async () => {
