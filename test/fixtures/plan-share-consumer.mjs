@@ -85,7 +85,8 @@ await check('two projects claim one user-scope [mcp_servers.github]: removing on
   await remove(one, [{ managementId: merge.item }]);
   assert.match(readFileSync(config, 'utf8'), /\[mcp_servers\.github\]/);
   await remove(two, [{ managementId: merge.item }]);
-  assert.doesNotMatch(readFileSync(config, 'utf8'), /mcp_servers/);
+  // The config file the first install created goes with its last entry: absent before, absent after.
+  assert.equal(existsSync(config), false);
   assert.equal(readdirSync(home).includes('.aihq'), false);
 });
 

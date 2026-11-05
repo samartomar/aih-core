@@ -237,15 +237,16 @@ test('a failed AI setup holds back only its own MCP entries: the other tools\' e
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers).sort(), setups.map(setup => setup.item.name).sort());
   assert.match(readFileSync(join(target, '.codex', 'config.toml'), 'utf8'), /\[mcp_servers\.q-graph\]/);
 
-  // Removing everything takes every entry and acquired folder away (the emptied config files stay, as retained).
+  // Removing everything takes every entry and acquired folder away, and each config file the run created goes with its
+  // last entry: absent before, absent after.
   for (const scope of ['project', 'user']) {
     const removal = await prepareRemoval({ target: { project: target }, scope,
       removals: setups.map(setup => ({ managementId: scope === 'user' ? setup.id : mcpOf(setup) })) });
     assert.equal(removal.status, 'ok', JSON.stringify(removal));
     assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
   }
-  assert.deepEqual(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers, {});
-  assert.doesNotMatch(readFileSync(join(target, '.codex', 'config.toml'), 'utf8'), /mcp_servers/);
+  assert.equal(existsSync(join(target, '.mcp.json')), false);
+  assert.equal(existsSync(join(target, '.codex', 'config.toml')), false);
   for (const setup of setups) assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, setup.id);
 });
 
