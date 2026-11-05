@@ -179,7 +179,8 @@ Being listed does not mean a tool is installed, configured or verified.
 `cancelled`), with the retained tools, observations, checks and repair choices. `target` names inspection targets or
 registry tools (ids or aliases). `profiles` are Catalog tool profile documents; Core reads only `id`, `version` and
 `checkedWith`. For each inspected CLI, `versions` compares the version its own version command printed with the
-`checkedWith` entry for that command; an older CLI gives a `cli-older-than-profile` warning and is never blocked or
+`checkedWith` entry for that command (matched by the binary that answered first, then the tool's binaries, then its
+id, aliases and `<binary>-cli`, so Cursor's `cursor-agent` entry is the CLI's, not the IDE's); an older CLI gives a `cli-older-than-profile` warning and is never blocked or
 refused. A CLI without a profile says "Version not compared" (`reason: no-profile`). A malformed profile, or one naming
 an alias or an unknown tool, is `invalid` with exact problems. A request with the retained fields (`targets`,
 `network`, `probeConfiguredMcp`, `configuration`) keeps the retained result until it retires.
@@ -699,7 +700,8 @@ input), else the `default`; secrets come only from `controls.privateInputs` (sam
 request. A required input with no value is refused `input-missing` (naming `item` and `input`); an optional one is
 left out (an absent slot stays absent, a slot that is only the marker is dropped, other marker text becomes empty).
 Undeclared names, a secret passed as an ordinary value or the reverse are `invalid`. An input of a planned item that no
-step marks is refused `input-binding-missing`, never guessed. **References.** A secret is written as the client's own
+step marks is refused `input-binding-missing`, never guessed; so is a `write` or Markdown merge whose copied or rendered
+source file still holds an input's declared placeholder that the step itself does not bind (the step is named). **References.** A secret is written as the client's own
 environment reference when every profile the step serves declares one for that surface under `inputReferences`
 (`mcp-env`, `mcp-header`, `mcp-argv` for merge entries, by the `mcpFile` field the slot sits in; `file` for
 placeholders), for example `{ "syntax": "${<name>}" }` → `${GITHUB_TOKEN}`; then no value is needed. Otherwise its
@@ -716,7 +718,7 @@ dot inside either may be written `%2E`), reading the secret from that set enviro
 
 Core never renders Catalog content itself and never bundles a Catalog. Pass the Catalog that made the plan as
 `controls.catalog: { version, renderStep, planRecipe }` (its `@aihq/catalog/reader` functions); Core uses it only for
-`write` steps with a `render` and for recipe proofs.
+`write` steps and Markdown `merge` blocks with a `render` and for recipe proofs.
 
 ```js
 import { renderStep, planRecipe } from '@aihq/catalog/reader';
@@ -725,11 +727,22 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
 ```
 
 - **A render step** records the profile id and version it was planned with (`render: { name, profile, version, … }`,
-  or a combined render's `profiles`). Before calling `renderStep`, Prepare checks each recorded version against the
+  or a combined render's `profiles`); a render Catalog makes from the plan alone (`bundle-root` in a shared Markdown
+  file, `duplicates-report`) records none. Before calling `renderStep`, Prepare checks each recorded version against the
   supplied profile documents (`profile-mismatch`) and every source byte against its sha256 (`source-mismatch`); it
   passes the Catalog only the checked bytes, and reports the Catalog's own `source-mismatch` or `profile-mismatch`
   refusal as that code. Bytes that don't match the sha256 the Catalog returned, or a failed render, are `invalid`
   (`render-failed`). Without `controls.catalog.renderStep` the step is refused `catalog-required`, naming the step.
+- **Source files.** A step's `from` (`{ item?, sourceId, sourcePath, sha256 }`) names an item's file or one of its
+  `editions`' files, or, without `item`, a file the step's `items` share: a source notice, or a file of the runtime
+  `bundle` the step names. A Markdown `merge` without `entry` takes its block from its `render` or, without one, the
+  copied `from` file. Such a shared step is one member each of its items claims. Catalog's own authored items (source
+  `aih`, such as the duplicate resolver a plan mixing frameworks adds) are supplied like any content: pass
+  `aihContent.content` from `@aihq/catalog/reader` in `contents` and its files in `files`.
+- **Root paths.** A merge entry's `rootPaths` (`[{ pointer, root: 'user', path }]`, an acquired executable) are
+  written as absolute paths under your home; the entry must hold exactly that path at each pointer.
+- **Path references.** A plan with a `path` reference is refused `plan-unresolved`; a plugin-namespaced `name`
+  reference is a warning and installs.
 - **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
   `list` shows them as `catalog` and `profiles`.
 - **Recipe origin.** A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and

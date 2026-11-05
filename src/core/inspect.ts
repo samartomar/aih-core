@@ -129,8 +129,11 @@ function compare(tool: string, installed: { version: string | null; binary: stri
     state === 'absent' || state === 'config-only' ? 'no runnable command was found.' : 'its version command did not succeed.', profile);
   if (version === null) return notCompared(tool, null, 'version-unknown', 'its version command printed no version.', profile);
   const entry = registryEntry(tool);
-  const names = new Set([tool, installed.binary, ...entry.binaries, ...entry.aliases, ...entry.binaries.map(binary => `${binary}-cli`)]);
-  const matching = profile.checkedWith.filter(item => names.has(item.app));
+  // The app the command that ran is, most specific name first: the binary that answered, the tool's binaries, then its
+  // id, aliases and `<binary>-cli`. A profile may list a CLI and its IDE (Cursor: `cursor-agent` and `cursor`).
+  const tiers = [[installed.binary], entry.binaries, [tool, ...entry.aliases, ...entry.binaries.map(binary => `${binary}-cli`)]];
+  let matching: CheckedWith[] = [];
+  for (const names of tiers) { matching = profile.checkedWith.filter(item => names.includes(item.app)); if (matching.length) break; }
   const checked = matching.length === 1 ? matching[0] : matching.length === 0 && profile.checkedWith.length === 1 ? profile.checkedWith[0] : undefined;
   if (!checked) return notCompared(tool, version, 'checked-app-unmatched', 'the profile does not say which of its apps is this command.', profile);
   const a = parse(version), b = parse(checked.version);

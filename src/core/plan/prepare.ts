@@ -270,6 +270,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   // Engine review operation ids (authored operation keys, and an update's lifecycle ids) -> their plan step.
   const operations = new Map<string, StepRef>();
   const merges = new Map<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>();
+  // Steps several items share (C48): each item's claim shares the one member.
+  const shared = new Set<OperationKey>();
   const selections: ExecutionPolicy['selections'] = [];
   // Secret values the plan writes into files: the engine holds them as its own private inputs, so its review details
   // and history redact them (C59); Apply re-checks the caller's private inputs by digest.
@@ -293,6 +295,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       }
       const id = `step-${step.index}`;
       operations.set(operationKey(group.selectionId, id), { step: step.index, managementId: group.managementId });
+      if (lowered.managementIds.length > 1) shared.add(operationKey(group.selectionId, id));
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
       const prior = group.steps[at - 1];
       // A failed step makes the rest of its item's steps not attempted (C60).
@@ -395,6 +398,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
   }));
   const observed = new Map<string, ObservedStep>();
+  // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop. The installed CLIs'
+  // version commands run before the engine reads the targets: a CLI may create its own folders when it starts, and the
+  // review must bind the disk as it is after that, or Apply would find the targets changed.
+  const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
+  const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   // An update releases the replaced claims the new plan no longer makes, and keeps every member you edited (C39, C58).
   const removals = (selected?.removals ?? []).map(removal => ({ managementId: removal.key, scope: removal.scope }));
   const lifecycleOwners = new Map<string, string[]>();
@@ -404,7 +412,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     undefined, undefined, undefined,
     update ? { originReleases: [], plan: (rows: CleanupPlanRow[]) => { update.cleanupRows = rows; } } : undefined,
     update ? { plan: (rows: PlannedMember[]) => { update.rows = rows; } } : undefined,
-    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, ...(update ? { owners: lifecycleOwners } : {}),
+    { supplied, plans, order, ...(effects.size ? { effects } : {}), merges, ...(shared.size ? { shared } : {}), ...(update ? { owners: lifecycleOwners } : {}),
       observe: facts => { observed.set(operationKey(facts.selectionId, facts.operationId), facts); } }, { commandShims: true });
   if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   if (!engine.review) {
@@ -557,9 +565,6 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const rank = (step: ReviewStep) => typeof step.step === 'number' ? step.step : Number.MAX_SAFE_INTEGER;
   steps.sort((a, b) => rank(a) - rank(b) || (typeof a.step === 'string' && typeof b.step === 'string' ? 0 : codeUnitCompare(a.managementId, b.managementId)));
   const { plan: _steps, ...reports } = request.plan;
-  // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop.
-  const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
-  const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
     ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...heldWarnings, ...(compared?.warnings ?? [])],

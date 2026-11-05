@@ -12,10 +12,13 @@ export interface StepContext {
   request: PlanRequest;
   controls: PlanControls;
   index: number;
-  /** A content item's file by item id and source path. */
+  /** A content item's file, or a file of one of its `editions`, by item id and source path. */
   itemFile(item: string, sourcePath: string): SourceFacts | undefined;
-  /** A source notice by source id and source path. */
-  notice(sourceId: string, sourcePath: string): SourceFacts | undefined;
+  /**
+   * A file the plan copies that belongs to no one item, by source id and source path: a source notice, or, with
+   * `bundle`, a file of that runtime bundle (Catalog content `bundles[].files`).
+   */
+  sourceFile(sourceId: string, sourcePath: string, bundle?: string): SourceFacts | undefined;
   /** The supplied bytes for one `{ sourceId, sourcePath }`, after checking them; marks the entry as named by a step. */
   bytesFor(facts: SourceFacts): { bytes: Buffer } | { refusal: Refusal };
   /** A supplied qualification document by its sha256 (hex, over its canonical JSON). */

@@ -6,10 +6,15 @@
 // Secret-bound slots are presented redacted in a conflict.
 import { guidanceLimit } from '../../../harness/cli-facts.mjs';
 import { basename } from 'node:path/posix';
-import { clis, owners, problem, target } from './common.js';
-import { bindEntry, bindText, parseBindings, type BoundInputs, type SlotTemplate } from '../inputs.js';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { projectRoot } from '../../internal/host-files.js';
+import { clis, owners, problem, refusal, target } from './common.js';
+import { renderWrite } from './render.js';
+import { bindEntry, bindText, parseBindings, unfilledPlaceholder, type BoundInputs, type SlotTemplate } from '../inputs.js';
 import type { Json } from '../../types.js';
-import type { StepHandler } from './types.js';
+import type { PlanStep } from '../types.js';
+import type { StepContext, StepHandler, StepOutcome } from './types.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const TOML_KEY = /^[A-Za-z0-9_-]{1,128}$/;
@@ -39,9 +44,63 @@ function leaves(entry: { [key: string]: Json }, prefix: string[] = []): { path: 
   return out;
 }
 
+/**
+ * Catalog `rootPaths`: entry values that name a path under a plan root (an acquired executable). The entry holds the path
+ * from that root; Core writes it as the absolute path under the real root, which only Core knows. Each value at its
+ * pointer must be exactly the recorded path.
+ */
+function rootPathsFilled(step: PlanStep & Record<string, Json>, index: number, entry: Json): { entry: Json } | Exclude<StepOutcome, { lowered: unknown }> {
+  const list = step.rootPaths;
+  if (list === undefined) return { entry };
+  if (!Array.isArray(list) || list.length > 64) return problem(index, 'rootPaths', 'rootPaths', 'A merge step\'s `rootPaths` is a list of `{ pointer, root, path }`.');
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return refusal('home-unavailable', 'The home folder is not usable.', index); }
+  const filled = structuredClone(entry);
+  for (const [at, rootPath] of list.entries()) {
+    const bad = problem(index, `rootPaths/${at}`, 'rootPaths', 'A root path names a JSON Pointer into the entry, the `user` root and the path the entry holds there.');
+    if (!plain(rootPath) || typeof rootPath.pointer !== 'string' || rootPath.root !== 'user') return bad;
+    const placed = target(rootPath as PlanStep, index); if (!('root' in placed)) return placed;
+    const segments = pointerSegments(rootPath.pointer); if (!segments) return bad;
+    let parent: Json = filled;
+    for (const segment of segments.slice(0, -1)) parent = plain(parent) ? parent[segment] as Json : Array.isArray(parent) ? parent[Number(segment)] as Json : null;
+    const last = segments[segments.length - 1]!;
+    const holder = plain(parent) ? parent : Array.isArray(parent) && /^(0|[1-9][0-9]*)$/.test(last) ? parent : undefined;
+    const current = holder === undefined ? undefined : Array.isArray(holder) ? holder[Number(last)] : holder[last];
+    if (current !== placed.path) return bad;
+    const absolute = join(home, ...placed.path.split('/'));
+    if (Array.isArray(holder)) holder[Number(last)] = absolute; else (holder as { [key: string]: Json })[last] = absolute;
+  }
+  return { entry: filled };
+}
+
+/** A Markdown block's text from its `render` (through the caller's Catalog) or its copied `from` file, UTF-8 only. */
+async function blockText(step: PlanStep & Record<string, Json>, context: StepContext, path: string, owners: string[]):
+    Promise<{ text: string } | Exclude<StepOutcome, { lowered: unknown }>> {
+  const { index } = context;
+  let bytes: Buffer;
+  if (step.render !== undefined) {
+    const done = await renderWrite(step, context, path, owners);
+    if (!('rendered' in done)) return done;
+    bytes = done.rendered.bytes;
+  } else {
+    const from = step.from;
+    const item = from && typeof from === 'object' && !Array.isArray(from) && typeof from.item === 'string' ? from.item : owners.length === 1 ? owners[0] : undefined;
+    if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' || item === undefined)
+      return problem(index, 'from', 'from', 'A Markdown merge names `from` as the file of the item whose block it is.');
+    const facts = context.itemFile(item, from.sourcePath);
+    if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
+    if (from.sourceId !== undefined && from.sourceId !== facts.sourceId || from.sha256 !== undefined && from.sha256 !== facts.sha256)
+      return refusal('source-mismatch', `Step ${index}'s source facts for \`${from.sourcePath}\` differ from the content document's.`, index);
+    const supplied = context.bytesFor(facts); if ('refusal' in supplied) return supplied;
+    bytes = supplied.bytes;
+  }
+  try { return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) }; }
+  catch { return problem(index, 'from', 'entry', `The block for \`${path}\` is not UTF-8 text.`); }
+}
+
 export const merge: StepHandler = {
   op: 'merge',
-  prepare(step, context) {
+  async prepare(step, context) {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index, 'file'); if (!('root' in placed)) return placed;
@@ -70,26 +129,40 @@ export const merge: StepHandler = {
       segments = pointerSegments(key);
       if (!segments) return problem(index, 'key', 'key', 'A JSON merge `key` is a JSON Pointer below the document root.');
       if (entry === undefined) return problem(index, 'entry', 'entry', 'A merge step names its `entry`.');
+      const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
+      entry = rooted.entry;
       const failed = fill(); if (failed) return failed;
     } else if (format === 'toml') {
       segments = key.split('.');
       if (segments.length > 16 || !segments.every(segment => TOML_KEY.test(segment)))
         return problem(index, 'key', 'key', 'A TOML merge `key` is one table of bare keys, such as `mcp_servers.github`.');
       if (!plain(entry)) return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
+      const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
+      entry = rooted.entry;
       const failed = fill(); if (failed) return failed;
       tableLeaves = plain(entry) ? leaves(entry) : undefined;
       if (!tableLeaves || !tableLeaves.length)
         return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
     } else {
       if (!ID.test(key)) return problem(index, 'key', 'key', 'A Markdown merge `key` is the item id that names its block.');
+      if (step.rootPaths !== undefined) return problem(index, 'rootPaths', 'rootPaths', 'Only a JSON or TOML entry names `rootPaths`.');
+      // Catalog gives a block's text by its source file (`from`), rendered by the caller's Catalog when it has a `render`
+      // (a rule as `rule-block`, the generated `bundle-root` rule); an explicit `entry` is the text itself.
+      if (entry === undefined && (step.render !== undefined || step.from !== undefined)) {
+        const block = await blockText(step, context, placed.path, owner.ids);
+        if (!('text' in block)) return block;
+        entry = block.text;
+      }
       if (typeof entry !== 'string' || entry.length > 1_048_576)
         return problem(index, 'entry', 'entry', "A Markdown merge `entry` is the block's text.");
       segments = [key];
       if (parsed.bindings.length) {
-        const done = bindText(entry, placed.path, parsed.bindings, inputs);
+        const from = plain(step.from) && typeof step.from.sourcePath === 'string' ? step.from.sourcePath : undefined;
+        const done = bindText(entry, placed.path, parsed.bindings, inputs, from);
         if (!('text' in done)) return done;
         entry = done.text; bound = done.bound;
       }
+      const unfilled = unfilledPlaceholder(step, index, entry, owner.ids, inputs); if (unfilled) return unfilled;
     }
     const name = basename(placed.path);
     // A guidance file a served CLI reads only up to a size (C72); a step naming no CLIs serves every profile's.
