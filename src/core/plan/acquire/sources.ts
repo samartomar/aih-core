@@ -14,6 +14,7 @@ import { readRegularFile } from '../../internal/fsxn.js';
 import { limitValue } from '../limits.js';
 import { AcquireError, checkBytes, downloadBytes, fetchJson } from './download.js';
 import type { AcquireSpec, Download, DownloadRole, Source } from './types.js';
+import type { ReviewDownload } from '../types.js';
 
 /**
  * The index bases resolution uses. Internal: not part of any public entry or option; Core's own tests point them at a
@@ -116,8 +117,4 @@ export function planSources(spec: AcquireSpec, artifacts: string | null): { sour
   if (spec.interpreter) review.push(shown('interpreter', spec.interpreter.fallback));
   return { sources, review };
 }
-type Shown = { role: DownloadRole; file: string; sha256: string; source: Source };
-/** One download as the review shows it (C78); a wheel with a recorded build shows the possible build too. */
-export interface ReviewDownload extends Shown {
-  build?: { source: Shown; dependencies: (Shown & { name: string; version: string })[]; tools: { name: string; version: string; sha256: string }[] };
-}
+export type { ReviewDownload };

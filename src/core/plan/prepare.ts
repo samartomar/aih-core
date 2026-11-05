@@ -725,7 +725,7 @@ function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterp
   const builds = spec.closure.some(wheel => wheel.build);
   return { acquire: { aiSetup: spec.aiSetup, version: spec.version, cell: spec.cell, kind: spec.kind, qualification: `sha256:${spec.qualification}`,
     artifact: { file: spec.artifact.file, sha256: spec.artifact.sha256 }, into: `${spec.into}/`, members: spec.members.length, closure: spec.closure.length,
-    downloads: structuredClone(sourced.get(step.index)?.review ?? []) as NonNullable<ReviewStep['acquire']>['downloads'] },
+    downloads: structuredClone(sourced.get(step.index)?.review ?? []) },
   ...(spec.interpreter ? { interpreter: {
     installed: found ? { path: found.path, version: found.version, note: 'in range, not qualified' as const } : null,
     range: spec.interpreter.range,

@@ -1,4 +1,5 @@
 // What an admitted `acquire` step carries from Prepare to Apply (contract 8.1, D54, D86, D105, C46).
+import type { AcquiredFile, DownloadRole, DownloadSource } from '../types.js';
 
 /**
  * One byte-checked download (C78): obtained from a supplied folder, the recorded https `url` (`null` when none is recorded)
@@ -11,18 +12,12 @@ export interface BuildTool { name: string; version: string; sha256: string }
 /** How a closure wheel was built when its prebuilt bytes were unavailable (Catalog `build`): pinned inputs only. */
 export interface WheelBuild { source: Download; dependencies: (Download & { name: string; version: string })[]; tools: BuildTool[] }
 export interface ClosureWheel extends Download { name: string; version: string; build: WheelBuild | null }
-/** What a download is for. */
-export type DownloadRole = 'artifact' | 'closure' | 'interpreter' | 'build-source' | 'build-dependency';
+// The published shapes (review `downloads`, receipt and `list` `aiSetup.downloads`) are defined once, in `../types.ts`.
+export type { DownloadRole };
 /** The one source Apply tries for a download, fixed at Prepare and shown in the review (C78). */
-export type Source = { kind: 'supplied'; folder: string } | { kind: 'url'; url: string } |
-  { kind: 'index'; index: 'pypi'; name: string; version: string } | { kind: 'index'; index: 'python-build-standalone'; release: string } |
-  { kind: 'none' };
+export type Source = DownloadSource;
 /** Where one acquired file actually came from (receipt and `list`). A built wheel is never byte-qualified. */
-export interface DownloadRecord {
-  role: DownloadRole; file: string; sha256: string; origin: 'supplied' | 'downloaded' | 'built'; url?: string;
-  built?: { file: string; sha256: string; byteQualified: false; source: string; dependencies: string[];
-    tools: { name: string; qualified: { version: string; sha256: string }; observed: { version: string; sha256: string } }[] };
-}
+export type DownloadRecord = AcquiredFile;
 export interface AcquireSpec {
   step: number;
   aiSetup: string;
