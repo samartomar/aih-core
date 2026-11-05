@@ -19,8 +19,29 @@ import { obtain, sourceKey, type Sources } from './sources.js';
 import { ACQUIRING, MANIFEST, type AcquireFacts, type AcquireSpec, type ClosureWheel, type Download, type DownloadRecord, type DownloadRole,
   type InstalledInterpreter } from './types.js';
 import type { Json } from '../../types.js';
+import type { BuildFailureRecord, BuildPhase } from '../types.js';
+export type { BuildFailureRecord } from '../types.js';
 
-export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }
+export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json;
+  /** Each failed source build of this acquisition, in order (a build that failed on the installed branch, then the fallback's). */
+  buildFailures?: BuildFailureRecord[] }
+const LOG_LINES = 40;
+const LOG_LINE_CHARS = 1000;
+/** Host variables whose values a build log never shows, by name. */
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|AUTH/i;
+/**
+ * The last lines of a build log as Core records it: every bound secret value of the plan and the value of every host
+ * variable named like a secret read `[REDACTED]`; control characters read `?`; each line is bounded.
+ */
+export function redactedLog(text: string | undefined, secrets: readonly string[]): string[] {
+  if (!text) return [];
+  let result = text;
+  const values = [...secrets, ...Object.entries(process.env).filter(([name, value]) => SECRET_NAME.test(name) && value && value.length >= 6).map(([, value]) => value!)];
+  for (const value of [...new Set(values)].sort((a, b) => b.length - a.length)) if (value) result = result.split(value).join('[REDACTED]');
+  const lines = result.split(/\r?\n/);
+  while (lines.length && lines.at(-1)!.trim() === '') lines.pop();
+  return lines.slice(-LOG_LINES).map(line => line.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '?').slice(0, LOG_LINE_CHARS));
+}
 export interface Acquisition { run(signal?: AbortSignal): Promise<EffectOutcome> }
 const DOWNLOAD_DEADLINE = 30 * 60_000;
 const PROCESS_DEADLINE = 10 * 60_000;
@@ -55,7 +76,9 @@ function writeEntries(root: string, entries: ReturnType<typeof readArchive>): vo
 }
 
 /** A failed build on one interpreter: a real failure that switches the installed interpreter to the fallback. */
-class BuildFailure extends Error {}
+class BuildFailure extends Error {
+  constructor(readonly phase: BuildPhase, readonly log: string | undefined) { super('build-failed'); }
+}
 type ToolRecord = NonNullable<DownloadRecord['built']>['tools'][number];
 /**
  * A host build tool's observed identity (C78): its executable's sha256 and the first line of `--version`, recorded next to
@@ -97,7 +120,7 @@ export function compilerEnvironment(tools: readonly string[]): Record<string, st
 }
 
 export function acquisition(spec: AcquireSpec, home: string, installed: InstalledInterpreter | null,
-    progress: (event: Json) => void, sources: Sources = new Map()): Acquisition {
+    progress: (event: Json) => void, sources: Sources = new Map(), secrets: readonly string[] = []): Acquisition {
   const folder = join(home, ...spec.into.split('/'));
   const report = (phase: string, extra: Record<string, Json> = {}) => progress({ step: spec.step, op: 'acquire', aiSetup: spec.aiSetup, phase, ...extra });
   const records = new Map<string, DownloadRecord>();
@@ -119,11 +142,17 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
   };
   const options = (signal?: AbortSignal, env?: Record<string, string>) =>
     ({ ...(signal ? { signal } : {}), timeoutMs: PROCESS_DEADLINE, cwd: folder, ...(env ? { env, build: true } : {}) });
-  const step = (result: { ok: boolean; reason: string }): void => {
+  const step = (phase: BuildPhase, result: { ok: boolean; reason: string; log?: string }): void => {
     if (result.reason === 'cancelled') throw new AcquireError('cancelled');
-    if (!result.ok) throw new BuildFailure('build-failed');
+    if (!result.ok) throw new BuildFailure(phase, result.log ?? `the helper ended with ${result.reason}`);
   };
   let builds = 0;
+  const failures: BuildFailureRecord[] = [];
+  const failed = (wheel: ClosureWheel, phase: BuildPhase, branch: 'installed' | 'fallback', reason: string, log: string | undefined): void => {
+    const record: BuildFailureRecord = { wheel: { name: wheel.name, version: wheel.version }, phase, branch, reason, log: redactedLog(log, secrets) };
+    failures.push(record);
+    report('build-failed', record as unknown as Record<string, Json>);
+  };
 
   /**
    * Builds one closure wheel from its pinned source with one interpreter (C78): a dedicated build environment holding only
@@ -136,35 +165,43 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     for (const tool of recipe.tools) {
       const observed = await observeTool(tool.name, signal);
       if (signal?.aborted) throw new AcquireError('cancelled');
-      if (!observed) throw new BuildFailure('build-failed');
+      if (!observed) throw new BuildFailure('build-deps', `build tool ${tool.name} was not found on PATH`);
       tools.push({ name: tool.name, qualified: { version: tool.version, sha256: tool.sha256 }, observed });
     }
     const work = join(folder, 'build', String(builds++));
     const inputs = join(work, 'inputs'), out = join(work, 'out'), temp = join(work, 'tmp');
     for (const dir of [inputs, out, temp]) mkdirSync(dir, { recursive: true });
     const sourcePath = join(inputs, recipe.source.file);
-    writeFileSync(sourcePath, await fetchOnce('build-source', recipe.source, signal), { flag: 'wx', mode: 0o644 });
     const dependencies: string[] = [];
-    for (const dependency of recipe.dependencies) {
-      const path = join(inputs, dependency.file);
-      writeFileSync(path, await fetchOnce('build-dependency', dependency, signal), { flag: 'wx', mode: 0o644 });
-      dependencies.push(path);
+    // A source or dependency that can't be obtained keeps its own reason (a mismatch never becomes a build failure).
+    try {
+      writeFileSync(sourcePath, await fetchOnce('build-source', recipe.source, signal), { flag: 'wx', mode: 0o644 });
+      for (const dependency of recipe.dependencies) {
+        const path = join(inputs, dependency.file);
+        writeFileSync(path, await fetchOnce('build-dependency', dependency, signal), { flag: 'wx', mode: 0o644 });
+        dependencies.push(path);
+      }
+    } catch (error) {
+      if (error instanceof AcquireError && error.reason !== 'cancelled') throw Object.assign(error, { phase: 'obtain-source' as const });
+      throw error;
     }
     // The build's home, user data and temporary files are its own folder: no host configuration or cache is read (C78).
     const compiler = compilerEnvironment(recipe.tools.map(tool => tool.name));
     const env: Record<string, string> = { TMPDIR: temp, TEMP: temp, TMP: temp, HOME: temp, USERPROFILE: temp,
       ...(process.platform === 'win32' ? { APPDATA: temp } : {}), ...compiler };
     const environment = join(work, 'env');
-    step(await runHelper(python, ['venv', environment], options(signal, env)));
+    step('build-deps', await runHelper(python, ['venv', environment], options(signal, env)));
     const buildPython = environmentPython(environment);
-    step(await runHelper(buildPython, ['buildenv', ...dependencies], options(signal, env)));
+    step('build-deps', await runHelper(buildPython, ['buildenv', ...dependencies], options(signal, env)));
     const made = await runHelper(buildPython, ['build', sourcePath, out], options(signal, env));
-    step(made);
+    step('build', made);
     const wheels = (made.output as { wheels?: unknown } | null)?.wheels;
-    if (!Array.isArray(wheels) || wheels.length !== 1 || typeof wheels[0] !== 'string' || !wheels[0].endsWith('.whl')) throw new BuildFailure('build-failed');
+    if (!Array.isArray(wheels) || wheels.length !== 1 || typeof wheels[0] !== 'string' || !wheels[0].endsWith('.whl'))
+      throw new BuildFailure('build', `the build made ${JSON.stringify(wheels ?? null).slice(0, 512)}, not one wheel`);
     const file = wheels[0] as string;
     const [name, version] = file.split('-');
-    if (!name || normal(name) !== normal(wheel.name) || version !== wheel.version) throw new BuildFailure('build-failed');
+    if (!name || normal(name) !== normal(wheel.name) || version !== wheel.version)
+      throw new BuildFailure('build', `the build made ${file.slice(0, 256)}, not ${wheel.name} ${wheel.version}`);
     const path = join(out, file);
     return { path, record: { role: 'closure', file: wheel.file, sha256: wheel.sha256, origin: 'built', built: { file, sha256: sha256(readFileSync(path)),
       byteQualified: false, source: recipe.source.sha256, dependencies: recipe.dependencies.map(dependency => dependency.sha256), tools,
@@ -172,7 +209,8 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
   }
 
   /** Makes a dedicated environment from one interpreter, installs the wheels offline and reads the tool back. */
-  async function install(python: string, wheels: string[], qualified: Map<ClosureWheel, string | null>, environment: string, signal?: AbortSignal):
+  async function install(python: string, branch: 'installed' | 'fallback', wheels: string[], qualified: Map<ClosureWheel, string | null>, environment: string,
+      signal?: AbortSignal):
       Promise<'ok' | 'wheel-install-failed' | 'readback-failed' | 'build-failed' | 'cancelled'> {
     const made = await runHelper(python, ['venv', environment], options(signal));
     if (made.reason === 'cancelled') return 'cancelled';
@@ -187,16 +225,26 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       const answer = (checked.output as { compatible?: unknown } | null)?.compatible;
       if (checked.ok && Array.isArray(answer) && answer.length === present.length) fits = answer.map(value => value === true);
     }
-    const chosen: string[] = []; const built: DownloadRecord[] = [];
+    const chosen: string[] = []; const built: DownloadRecord[] = []; const builtWheels: ClosureWheel[] = [];
     for (const [wheel, path] of qualified) {
       const at = present.findIndex(([candidate]) => candidate === wheel);
       if (path !== null && fits[at]) { chosen.push(path); continue; }
-      try { const result = await build(python, wheel, signal); chosen.push(result.path); built.push(result.record); }
-      catch (error) { if (error instanceof BuildFailure) return 'build-failed'; if (error instanceof AcquireError && error.reason === 'cancelled') return 'cancelled'; throw error; }
+      try { const result = await build(python, wheel, signal); chosen.push(result.path); built.push(result.record); builtWheels.push(wheel); }
+      catch (error) {
+        if (error instanceof BuildFailure) { failed(wheel, error.phase, branch, 'build-failed', error.log); return 'build-failed'; }
+        if (error instanceof AcquireError && error.reason === 'cancelled') return 'cancelled';
+        if (error instanceof AcquireError && (error as { phase?: unknown }).phase === 'obtain-source')
+          failed(wheel, 'obtain-source', branch, error.reason, `the pinned build input could not be used: ${error.reason}`);
+        throw error;
+      }
     }
     const installedWheels = await runHelper(envPython, ['install', ...wheels, ...chosen], options(signal));
     if (installedWheels.reason === 'cancelled') return 'cancelled';
-    if (!installedWheels.ok) return 'wheel-install-failed';
+    if (!installedWheels.ok) {
+      // A built wheel that will not install: the install is part of that build's outcome.
+      if (builtWheels.length) failed(builtWheels[0]!, 'install', branch, 'wheel-install-failed', installedWheels.log);
+      return 'wheel-install-failed';
+    }
     const name = spec.artifact.file.split('-')[0]!;
     const read = await runHelper(envPython, ['readback', name], options(signal));
     if (read.reason === 'cancelled') return 'cancelled';
@@ -232,7 +280,7 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       if (signal?.aborted) throw new AcquireError('cancelled');
       if (!now || !inRange(now.version, spec.interpreter!.range)) reason = 'outside-range';
       else {
-        const outcome = await install(now.path, wheels, qualified, environment, signal);
+        const outcome = await install(now.path, 'installed', wheels, qualified, environment, signal);
         if (outcome === 'cancelled') throw new AcquireError('cancelled');
         if (outcome === 'ok') return done({ branch: 'installed', interpreter: now, fallback: false, fallbackReason: null });
         reason = outcome;
@@ -247,7 +295,7 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     const executable = standalonePython(root);
     if (!existsSync(executable)) throw new AcquireError('interpreter-unavailable');
     if (process.platform !== 'win32') chmodSync(executable, 0o755);
-    const outcome = await install(executable, wheels, qualified, environment, signal);
+    const outcome = await install(executable, 'fallback', wheels, qualified, environment, signal);
     if (outcome === 'cancelled') throw new AcquireError('cancelled');
     if (outcome !== 'ok') throw new AcquireError(outcome);
     return done({ branch: 'fallback', interpreter: { path: executable, version: spec.interpreter!.fallback.version }, fallback: true, fallbackReason: reason });
@@ -282,13 +330,14 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
         const facts: AcquireFacts = { ...(spec.kind === 'pypi-wheel' ? await python(signal) : await native(signal)), downloads: [...records.values()] };
         rmSync(join(folder, ACQUIRING), { force: true });
         report('finish', { status: 'passed' });
-        return { status: 'passed', reason: 'acquired', effectsUncertain: false, facts: facts as unknown as Json };
+        return { status: 'passed', reason: 'acquired', effectsUncertain: false, facts: facts as unknown as Json, ...(failures.length ? { buildFailures: failures } : {}) };
       } catch (error) {
         const reason = error instanceof AcquireError ? error.reason : error instanceof BuildFailure ? 'build-failed' : 'acquisition-failed';
         let cleared = false;
         try { rmSync(folder, { recursive: true, force: true, maxRetries: 3 }); cleared = !existsSync(folder); } catch { /* the marker stays for the next attempt */ }
         report('finish', { status: reason === 'cancelled' ? 'cancelled' : 'failed', reason });
-        return { status: reason === 'cancelled' || signal?.aborted ? 'cancelled' : 'failed', reason, effectsUncertain: !cleared };
+        return { status: reason === 'cancelled' || signal?.aborted ? 'cancelled' : 'failed', reason, effectsUncertain: !cleared,
+          ...(failures.length ? { buildFailures: failures } : {}) };
       }
     }
   };

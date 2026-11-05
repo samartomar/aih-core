@@ -53,7 +53,9 @@ elif command == 'readback':
 else:
     sys.exit(2)
 `;
-export interface PythonResult { ok: boolean; output: unknown; reason: string }
+/** `log`: the end of the helper's standard error (pip's own output goes there), at most `LOG_TAIL_BYTES`, raw. */
+export interface PythonResult { ok: boolean; output: unknown; reason: string; log?: string }
+const LOG_TAIL_BYTES = 65_536;
 
 /** Runs the helper with one interpreter; output is bounded, and a deadline or the caller's signal stops it. */
 /** Host variables a source build never receives. */
@@ -77,14 +79,18 @@ export async function runHelper(executable: string, args: string[], options: { s
     return await new Promise<PythonResult>(resolve => {
       let child: ReturnType<typeof spawn>;
       const out: Buffer[] = []; let size = 0; let settled = false;
-      const done = (result: PythonResult) => { if (!settled) { settled = true; clearTimeout(timer); options.signal?.removeEventListener('abort', stop); resolve(result); } };
+      let tail = Buffer.alloc(0);
+      const done = (result: PythonResult) => { if (!settled) { settled = true; if (tail.length) result.log = tail.toString('utf8'); clearTimeout(timer); options.signal?.removeEventListener('abort', stop); resolve(result); } };
       const stop = () => { try { child.kill(); } catch { /* close settles */ } };
       const timer = setTimeout(stop, options.timeoutMs); timer.unref?.();
       try { child = spawn(resolved.launchPath, [helper, ...args], { shell: false, windowsHide: true, cwd: options.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }); }
       catch { done({ ok: false, output: null, reason: 'interpreter-unavailable' }); return; }
       options.signal?.addEventListener('abort', stop, { once: true });
       child.stdout?.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 1_048_576) stop(); else out.push(chunk); });
-      child.stderr?.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 16 * 1_048_576) stop(); });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        size += chunk.length; if (size > 16 * 1_048_576) stop();
+        tail = Buffer.concat([tail, chunk]); if (tail.length > LOG_TAIL_BYTES) tail = tail.subarray(tail.length - LOG_TAIL_BYTES);
+      });
       child.once('error', () => done({ ok: false, output: null, reason: 'interpreter-unavailable' }));
       child.once('close', code => {
         if (options.signal?.aborted) { done({ ok: false, output: null, reason: 'cancelled' }); return; }

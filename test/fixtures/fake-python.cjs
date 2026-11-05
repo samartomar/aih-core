@@ -4,7 +4,7 @@
 // the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, badReadback?,
 // incompatible?, failBuild? }`. `compatible` calls a wheel installable unless its file name starts with an `incompatible`
 // prefix; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
-// after the sdist (`<name>-<version>.tar.gz`), unless `failBuild`.
+// after the sdist (`<name>-<version>.tar.gz`), unless `failBuild` (then a 60-line log on stderr, echoing `AIH_FIXTURE_TOKEN`).
 // It proves Core's branch logic only; it is not a real interpreter, pip or wheel install.
 'use strict';
 const { basename, dirname, join } = require('node:path');
@@ -37,7 +37,12 @@ if (/^python/i.test(basename(process.execPath))) {
     for (const wheel of args) if (!fs.existsSync(wheel)) process.exit(1);
     fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-buildenv.json'), JSON.stringify(args.map(wheel => basename(wheel))));
   } else if (command === 'build') {
-    if (facts.failBuild || !fs.existsSync(args[0])) { process.stderr.write('fixture: build failed\n'); process.exit(1); }
+    if (facts.failBuild || !fs.existsSync(args[0])) {
+      // A long build log; a secret-named host variable's value appears in it, as a real build might print it.
+      for (let line = 0; line < 60; line++) process.stderr.write(`fixture: compiling unit ${line}\n`);
+      if (process.env.AIH_FIXTURE_TOKEN) process.stderr.write(`fixture: token ${process.env.AIH_FIXTURE_TOKEN}\n`);
+      process.stderr.write('fixture: build failed\n'); process.exit(1);
+    }
     // The environment a build ran with, for tests that check what reaches it (`AIH_FAKE_BUILD_RECORD` names the file).
     if (process.env.AIH_FAKE_BUILD_RECORD) fs.writeFileSync(process.env.AIH_FAKE_BUILD_RECORD, JSON.stringify(Object.fromEntries(
       Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i.test(key)))));

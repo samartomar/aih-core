@@ -205,7 +205,8 @@ export function runOf(result: RunResult, state: HandleState): Run {
         verification: { status: operation.verification.status, reason: operation.verification.reason },
         ...(operation.application === 'failed' && operation.reason ? { reason: operation.reason } : {}),
         ...(facts?.branch && facts.interpreter ? { interpreter: { branch: facts.branch, path: facts.interpreter.path, version: facts.interpreter.version,
-          fallback: facts.fallback, fallbackReason: facts.fallbackReason } } : {}) }, applications: [] };
+          fallback: facts.fallback, fallbackReason: facts.fallbackReason } } : {}),
+        ...(state.buildFailures?.get(ref.step as number)?.length ? { buildFailures: state.buildFailures.get(ref.step as number)! } : {}) }, applications: [] };
       byStep.set(key, entry); steps.push(entry.step);
       if (ref.program) programSteps.add(entry.step);
       if (ref.command) commandSteps.add(entry.step);

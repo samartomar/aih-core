@@ -4,6 +4,7 @@ import type { PreparedHandle } from '../host-types.js';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PlanHandle } from './types.js';
 import type { AcquireFacts } from './acquire/types.js';
+import type { BuildFailureRecord } from './acquire/effect.js';
 import type { PrivateInputBinding } from './inputs.js';
 
 export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true;
@@ -40,6 +41,8 @@ export interface HandleState {
   verifications?: Map<number, { status: string; reason: string }>;
   /** Plan step index -> what its AI setup acquisition did, filled during Apply. */
   acquired?: Map<number, AcquireFacts>;
+  /** Plan step index -> the source builds its acquisition saw fail (C78), filled during Apply whether or not the step failed. */
+  buildFailures?: Map<number, BuildFailureRecord[]>;
   /** Where an acquisition reports progress: the Apply call's `onProgress`. */
   progress?: { onProgress?: (event: import('../types.js').Json) => void };
   /** A one-item switch-off (C69): the block Apply reads back and checks after writing it. */

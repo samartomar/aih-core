@@ -239,3 +239,28 @@ test('a C compiler named in the build record is the one the build uses: CC, CXX 
     for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   }
 });
+
+test('a failed build names the wheel, the phase, the branch and the end of its redacted log; no build folder is left', async () => {
+  installedPython({ version: '3.13.1', failBuild: true });
+  const saved = process.env.AIH_FIXTURE_TOKEN;
+  process.env.AIH_FIXTURE_TOKEN = 'fixture-secret-value-0123456789';
+  const events = [];
+  try {
+    const setup = buildSetup('b-diagnosed', { setup: { fallbackBytes: fallbackArchive(base, { version: '3.14.5', failBuild: true }),
+      fallbackFile: 'cpython-3.14.5+diagnosed-install_only.tar.gz' } });
+    const prepared = await prepare(setupRequest(project(), [setup]), { onProgress: event => events.push(event) });
+    const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+    const step = byId(run, setup.id);
+    assert.deepEqual([step.application, step.reason], ['failed', 'build-failed']);
+    assert.deepEqual(step.buildFailures.map(failure => [failure.wheel.name, failure.wheel.version, failure.phase, failure.branch]),
+      [['yamlish', '6.0.3', 'build', 'installed'], ['yamlish', '6.0.3', 'build', 'fallback']]);
+    for (const failure of step.buildFailures) {
+      assert.equal(failure.log.length, 40, JSON.stringify(failure.log));
+      assert.equal(failure.log.at(-1), 'fixture: build failed');
+      assert.ok(failure.log.some(line => line === 'fixture: token [REDACTED]'), JSON.stringify(failure.log));
+      assert.ok(!JSON.stringify(failure).includes('fixture-secret-value'));
+    }
+    assert.ok(!JSON.stringify(events).includes('fixture-secret-value'));
+    assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'neither the folder nor its build/ is left');
+  } finally { if (saved === undefined) delete process.env.AIH_FIXTURE_TOKEN; else process.env.AIH_FIXTURE_TOKEN = saved; }
+});

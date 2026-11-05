@@ -38,7 +38,7 @@ import type { CleanupPlanRow } from '../internal/removal-plan.js';
 import { isAbsolute, relative, sep } from 'node:path';
 import { bindPrivateInputs } from './inputs.js';
 import { limitValue } from './limits.js';
-import { acquisition } from './acquire/effect.js';
+import { acquisition, type BuildFailureRecord } from './acquire/effect.js';
 import { probe } from './acquire/download.js';
 import { discoverInterpreter } from './acquire/interpreter.js';
 import { FALLBACK_REASONS, type AcquireFacts, type InstalledInterpreter } from './acquire/types.js';
@@ -178,6 +178,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   }
   const verifications: Verifications = new Map();
   const acquired = new Map<number, AcquireFacts>();
+  const buildFailures = new Map<number, BuildFailureRecord[]>();
   const effects = new Map<OperationKey, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>();
   // Acquisition progress goes to the Apply call's `onProgress` (C38), which Apply sets here.
   const sink: { onProgress?: (event: Json) => void } = {};
@@ -373,10 +374,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       return [{ ...base, kind: 'file.write' as const, material: material.id, ...(lowered.executable ? { mode: 0o755 } : {}) }];
     });
     for (const step of group.steps) if (step.lowered.kind === 'write' && step.lowered.acquire) {
-      const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress, sourced.get(step.index)!.sources);
+      const run = acquisition(step.lowered.acquire, home, installed.get(step.index) ?? null, progress, sourced.get(step.index)!.sources, planSecrets);
       effects.set(operationKey(group.selectionId, `step-${step.index}`), { async run(signal) {
         const outcome = await run.run(signal);
         if (outcome.status === 'passed' && outcome.facts) acquired.set(step.index, outcome.facts as unknown as AcquireFacts);
+        if (outcome.buildFailures?.length) buildFailures.set(step.index, outcome.buildFailures);
         return outcome;
       } });
     }
@@ -614,7 +616,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   if (!engine.prepared) return { status: 'blocked', review };
   const partial = engine.status === 'partial' || checked.steps.some(step => step.skipped);
   const handle = register({ engine: engine.prepared, engineDigest: engine.review.reviewDigest, enginePartial: engine.status === 'partial',
-    reviewDigest, partial, operations, claims, acquired, progress: sink, ...(programs.size ? { programs } : {}), verifications,
+    reviewDigest, partial, operations, claims, acquired, buildFailures, progress: sink, ...(programs.size ? { programs } : {}), verifications,
     privateInputs: bindPrivateInputs(controls.privateInputs),
     request: { value: input, documentDigest: checked.documentDigest, bytesDigest: checked.bytesDigest },
     ...(enterprise ? { enterprise: { ...enterprise.state, root: request.scope === 'project' ? project! : home, project } } : {}),

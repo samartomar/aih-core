@@ -73,7 +73,7 @@ export { resolveStateLocation } from './resolve-state-location.js';
 
 // Explicit type exports: each name appears in a request, control or result of an operation exported here.
 export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFile, PlanResolution, Preparation, Refusal, Invalid,
-  UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember, StaleChange, PlanHandle,
+  UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember, BuildFailureRecord, BuildPhase, StaleChange, PlanHandle,
   Inventory, InventoryEntry, InventoryMember, ListResult, RemovalSelector, RemovalMember, RemovalEntry, RemovalPreparation, RemovalResult,
   EnvironmentReview, EnvironmentRun, EnvironmentProblem, UpdateResult, UpdatePreparation, UpdateEntry, UpdateMember, UpdateSelector } from './plan/types.js';
 export type { ChangeRequest, ChangeControls } from './change/prepare.js';

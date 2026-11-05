@@ -298,7 +298,16 @@ export interface RunStep {
   reason?: string;
   /** An AI setup step: the interpreter branch that actually ran (C46). */
   interpreter?: { branch: 'installed' | 'fallback'; path: string; version: string; fallback: boolean; fallbackReason: string | null };
+  /** An AI setup step: each source build that failed (C78), in order, whether or not the step then failed. */
+  buildFailures?: BuildFailureRecord[];
 }
+/** The phase of a source build that failed: getting its pinned inputs, its build environment, the build, or installing the result. */
+export type BuildPhase = 'obtain-source' | 'build-deps' | 'build' | 'install';
+/**
+ * One failed source build (C78): the closure wheel, the phase, the interpreter branch it ran on, the reason and the last
+ * lines (at most 40) of its log, with secret values read `[REDACTED]`.
+ */
+export interface BuildFailureRecord { wheel: { name: string; version: string }; phase: BuildPhase; branch: 'installed' | 'fallback'; reason: string; log: string[] }
 export interface RunMember {
   managementId: string; scope: 'project' | 'user'; kind: string; path: string; pointer?: string; blockId?: string;
   intent: 'write' | 'remove' | 'keep'; outcome: 'written' | 'claim-removed' | 'restored' | 'kept';
