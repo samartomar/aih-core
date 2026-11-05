@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, rmdirSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, rmdirSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { nodeRuntimeSupported } from './internal/node-runtime.js';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
@@ -1876,6 +1876,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         if (outcome.status !== 'passed') {
           operation.application = 'failed'; operation.reason = outcome.reason; operation.effectsUncertain = outcome.effectsUncertain;
           if (outcome.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
+          settleFailedEffect(step, state.steps.slice(index + 1));
         } else {
           // The effect made the target's parent folders: pin them as they now are for the reviewed write.
           step.pins = pathPins(join(step.root, ...step.path.split('/')));
@@ -2169,6 +2170,37 @@ function planOrder(steps: PreparedStep[], order: ReadonlyMap<string, number>): P
   }
   return out.length === steps.length ? out : steps;
 }
+
+/**
+ * After a step's effect failed (C60): the parent folders of its target that were absent when it was reviewed and that the
+ * effect left empty are removed, deepest first, so the failure leaves no folder Core made. Any such folder still present
+ * (not empty) was made by this run's effect: later steps that pinned it absent are re-pinned as it now is, exactly as after
+ * a successful effect, so a failure inside one item's folder never stales an unrelated step.
+ */
+function settleFailedEffect(step: PreparedStep, remaining: readonly PreparedStep[]): void {
+  if (!step.root || !step.path) return;
+  const target = join(step.root, ...step.path.split('/'));
+  // Pins stop at the first absent folder: it and every folder below it on the way to the target were made since review.
+  const absent = (step.pins ?? []).filter(pin => pin.identity === 'absent' && pin.path !== target && isAncestor(pin.path, target));
+  for (const pin of absent) {
+    for (let current = dirname(target); current === pin.path || isAncestor(pin.path, current); current = dirname(current)) {
+      try { rmdirSync(current); } catch { if (existsSync(current)) break; /* Not empty: it and its parents stay. */ }
+    }
+  }
+  let present: PathPin[];
+  try { present = pathPins(target).slice(0, -1).filter(pin => pin.identity !== 'absent' &&
+    absent.some(made => made.path === pin.path || isAncestor(made.path, pin.path))); }
+  catch { return; }
+  if (!present.length) return;
+  for (const other of remaining) {
+    if (other.root && other.path && other.pins?.some(pin => pin.identity === 'absent' && present.some(made => made.path === pin.path)))
+      other.pins = pathPins(join(other.root, ...other.path.split('/')));
+    for (const invocation of [other.process, ...other.checks.map(check => check.process)].filter((item): item is PreparedProcess => !!item))
+      if (invocation.cwdPins.some(pin => pin.identity === 'absent' && present.some(made => made.path === pin.path)))
+        invocation.cwdPins = pathPins(invocation.cwd);
+  }
+}
+const isAncestor = (parent: string, child: string): boolean => { const between = relative(parent, child); return !!between && !between.startsWith('..') && !isAbsolute(between); };
 
 async function executeProcess(invocation: PreparedProcess, runId: string, signal?: AbortSignal) {
   if (!pinsMatch(invocation.cwdPins)) return { status: 'unavailable' as const, reason: 'cwd-changed', effectsUncertain: false, terminationUnconfirmed: false };

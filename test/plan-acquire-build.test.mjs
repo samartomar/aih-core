@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { apply, list, prepare } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { indexBases } from '../dist/core/plan/acquire/sources.js';
-import { artifactServer, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, pypiIndex, pythonSetup, setupRequest, suppliedFolder,
+import { artifactServer, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, nativeSetup, pypiIndex, pythonSetup, setupRequest, suppliedFolder,
   withBuild, withoutUrls } from './fixtures/acquire-fixture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-acquire-build-'));
@@ -182,4 +182,30 @@ test('a changed source or dependency hash fails closed; a missing host build too
   assert.match(tool.observed.version, /^v\d+\./);
   assert.match(tool.observed.sha256, /^[a-f0-9]{64}$/);
   assert.notEqual(tool.observed.sha256, 'b'.repeat(64));
+});
+
+test('a first acquisition whose build fails on both branches leaves no folders behind; the two unrelated acquisitions install', async () => {
+  // A fresh home: no `.aihq` exists yet, so the failed acquisition is the one that would create it.
+  const fresh = join(scratch, `home-fresh-${counter++}`); mkdirSync(fresh);
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = fresh; process.env.USERPROFILE = fresh;
+  try {
+    installedPython({ version: '3.13.1', failBuild: true });
+    const failing = buildSetup('t-graph', { setup: { fallbackBytes: fallbackArchive(base, { version: '3.14.5', failBuild: true }),
+      fallbackFile: 'cpython-3.14.5+broken-install_only.tar.gz' } });
+    const native = nativeSetup(server, { name: 't-memory' });
+    const plain = pythonSetup(server, { name: 't-serena', fallbackBytes, id: 'serena.ai-setup.t-serena' });
+    const target = project();
+    const prepared = await prepare(setupRequest(target, [failing, native, plain]));
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+    const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+    assert.equal(run.completion, 'incomplete', JSON.stringify(run));
+    assert.equal(run.code, undefined, JSON.stringify(run));
+    assert.deepEqual([byId(run, failing.id).application, byId(run, failing.id).reason], ['failed', 'build-failed']);
+    assert.equal(byId(run, native.id).application, 'applied', JSON.stringify(run));
+    assert.equal(byId(run, plain.id).application, 'applied', JSON.stringify(run));
+    assert.equal(existsSync(join(fresh, '.aihq', 'ai-setup', 't-graph')), false, 'the failed acquisition leaves no empty parent folders');
+    assert.ok(existsSync(join(fresh, ...native.folder.split('/'), 'memory-mcp')));
+    assert.ok(existsSync(join(fresh, ...plain.folder.split('/'), 'env')));
+  } finally { Object.assign(process.env, saved); }
 });
