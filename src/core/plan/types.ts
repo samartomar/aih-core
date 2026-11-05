@@ -419,6 +419,8 @@ export type UpdateResult = UpdatePreparation | Refusal | Invalid | UnsupportedVe
 export interface ProgramFacts {
   step: number; op: 'tool-command' | 'upstream-installer' | 'upstream-setup'; argv: string[]; executable: string | null; managed: boolean;
   undo: { argv: string[]; readback: { argv: string[]; expected: string } } | null;
+  /** A restore's prior value: read before the command (`undo` restores it) or `withheld` (it held a secret; `undo` is null). */
+  prior?: 'read' | 'withheld';
   clone?: { repository: string; commit: string; into: string };
 }
 /** One native plugin install's receipt facts; argv lists are filled, never templates. */

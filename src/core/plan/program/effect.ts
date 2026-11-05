@@ -6,17 +6,19 @@
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
-import { resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
+import { argumentsRunnable, resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
 import { SETUP_MARKER } from '../steps/upstream-setup.js';
 import { PRIOR } from '../steps/tool-command.js';
 import type { LoweredProgram, Readback } from '../steps/types.js';
 
 export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean }
+/** What a `tool-command` with a restore records once its prior value is read: the undo, and whether the value was kept. */
+export interface ProgramRecord { undo: { argv: string[]; readback: Readback } | null; prior: 'read' | 'withheld' }
 /**
- * `recordUndo`: the engine keeps a command's undo in the receipt (a `tool-command` restore with its prior value, or `null`
- * when the prior value can't be kept), called before the command starts.
+ * `recordProgram`: the engine merges these facts into the receipt's program entry for the plan step, called before the
+ * command starts.
  */
-export interface Effect { run(signal?: AbortSignal, hooks?: { recordUndo(step: number, undo: { argv: string[]; readback: Readback } | null): void }): Promise<EffectOutcome> }
+export interface Effect { run(signal?: AbortSignal, hooks?: { recordProgram(step: number, facts: ProgramRecord): void }): Promise<EffectOutcome> }
 /** What one program step's check found, by plan step: its readback (tool-command) or that its effects can't be checked. */
 export type Verifications = Map<number, { status: string; reason: string }>;
 const COMMAND_DEADLINE = 30 * 60_000;
@@ -83,7 +85,7 @@ export function cloneEffect(clone: NonNullable<LoweredProgram['clone']>, root: s
  * program. A `tool-command` then runs its readback, which must show the expected value (D57).
  */
 export function commandEffect(lowered: LoweredProgram, root: string, pinned: ResolvedExecutable | undefined, step: number,
-    verifications: Verifications): Effect {
+    verifications: Verifications, secrets: readonly string[] = []): Effect {
   const cwd = lowered.cwd ? join(root, ...lowered.cwd.split('/')) : root;
   const run = (executable: ResolvedExecutable, args: string[], capture: boolean, signal?: AbortSignal) => runApprovedProcess({ executable, args, cwd,
     env: lowered.env, timeoutMs: COMMAND_DEADLINE, maxOutputBytes: OUTPUT_BYTES, acceptedExitCodes: [0], capture, ...(signal ? { signal } : {}) });
@@ -100,18 +102,26 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
       if (!executable) return { status: 'failed', reason: 'program-unavailable', effectsUncertain: false };
       // A restore needs the value before the command: the readback runs first and its output is kept in the receipt
       // before the command starts. Nothing runs when no prior value can be read.
-      // An earlier install's prior value, kept at Prepare (`undo`), is never read again.
-      if (lowered.restore && lowered.readback && !lowered.undo) {
+      // An earlier install's record of it, kept at Prepare (`kept`), is never read again.
+      if (lowered.restore && lowered.readback && !lowered.kept) {
         const prior = await priorValue(executable, lowered.readback.argv, cwd, lowered.env, signal);
         if (prior.status === 'cancelled') return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false };
         if (prior.status !== 'passed') {
           verifications.set(step, { status: 'failed', reason: prior.reason });
           return { status: 'failed', reason: prior.reason, effectsUncertain: false };
         }
-        // A prior value holding a supplied secret is never recorded; then removal can't restore it, and says so.
-        const secret = (lowered.bound?.secretValues ?? []).some(value => value !== '' && prior.value.includes(value));
-        hooks?.recordUndo(step, secret ? null : { argv: lowered.restore.argv.map(arg => arg === PRIOR ? prior.value : arg),
-          readback: { argv: [...lowered.readback.argv], expected: prior.value } });
+        const filled = lowered.restore.argv.map(arg => arg === PRIOR ? prior.value : arg);
+        // A restore the program could never be given (a command shim refuses `"`, `%`): nothing runs, so nothing is
+        // left that removal can't undo.
+        if (!argumentsRunnable(executable, filled)) {
+          verifications.set(step, { status: 'failed', reason: 'prior-unrestorable' });
+          return { status: 'failed', reason: 'prior-unrestorable', effectsUncertain: false };
+        }
+        // A prior value holding a secret value bound anywhere in the plan is never recorded (`withheld`); then removal
+        // can't restore it, and says so.
+        const secret = secrets.some(value => value !== '' && prior.value.includes(value));
+        hooks?.recordProgram(step, secret ? { undo: null, prior: 'withheld' } :
+          { undo: { argv: filled, readback: { argv: [...lowered.readback.argv], expected: prior.value } }, prior: 'read' });
       }
       // A tool-command's argv follows its executable; the other kinds name the program first.
       const program = lowered.op === 'tool-command' ? lowered.argv : lowered.argv.slice(1);
@@ -138,7 +148,8 @@ async function priorValue(executable: ResolvedExecutable, argv: string[], cwd: s
     acceptedExitCodes: [0], capture: true, ...(signal ? { signal } : {}) });
   if (outcome.status === 'cancelled') return { status: 'cancelled', reason: 'cancelled' };
   const value = outcome.status === 'passed' ? outcome.stdout?.toString('utf8').trim() : undefined;
-  if (value === undefined || /[\r\n]/.test(value) || value.length > 4096) return { status: 'failed', reason: 'prior-unreadable' };
+  // Any control character (a line break, NUL, an escape sequence) is no value Core can record or pass back.
+  if (value === undefined || /[\u0000-\u001f\u007f]/.test(value) || value.length > 4096) return { status: 'failed', reason: 'prior-unreadable' };
   return { status: 'passed', value };
 }
 

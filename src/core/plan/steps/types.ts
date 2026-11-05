@@ -128,6 +128,8 @@ export interface LoweredProgram {
   undo?: { argv: string[]; readback: Readback } | null;
   /** A `tool-command`'s `restore` argv as planned, with `<prior>` standing once for the value read before the command. */
   restore?: { argv: string[] };
+  /** Set at Prepare when an earlier install's record of this restore is kept (its `undo` above): the prior value is not read again. */
+  kept?: 'read' | 'withheld';
   /** An `upstream-setup`'s clone: the repository at the exact commit, into a folder marked by `marker`. */
   clone?: { repository: string; commit: string; into: string; marker: Buffer };
   needs?: string[];

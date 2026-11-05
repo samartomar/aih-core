@@ -79,9 +79,9 @@ try {
   const ids = content.items.map(item => item.id);
   const plans = {
     user: reader.planInstall(ids, [content], profiles, { scope: 'user', data: null }),
-    // `ship` is left out at project scope: the user-only skill's renders still differ in the one `.agents/skills` folder
-    // six clients share, which Catalog reports as a clash (recorded below as `shipClashes`; Core refuses it
-    // `plan-unresolved`).
+    // `ship` is left out at project scope: it uses `$ARGUMENTS`, which Kimi's profile substitutes and the other five
+    // clients sharing the one `.agents/skills` folder reword, so Catalog truthfully reports the renders as a clash
+    // (recorded below as `shipClashes`; Core refuses it `plan-unresolved`).
     project: reader.planInstall(ids.filter(id => id !== `${FRAMEWORK}.skill.ship`), [content], profiles, { scope: 'project', data: null }),
   };
   for (const [scope, plan] of Object.entries(plans)) assert.ok(plan.plan && !plan.clashes.length, `${scope}: ${JSON.stringify(plan.clashes)}`);

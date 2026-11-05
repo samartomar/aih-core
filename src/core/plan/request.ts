@@ -189,8 +189,10 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
   const valueProblems = checkValues(declared, document.inputs, controls.privateInputs);
   if (valueProblems.length) return invalid(valueProblems);
   const qualifications = new Map<string, { [field: string]: Json }>();
+  // A qualification is named by the sha256 of its canonical document bytes, as Catalog writes and names it: sorted keys,
+  // two-space indentation, one final line feed.
   for (const entry of document.qualifications ?? []) if (entry && typeof entry === 'object' && !Array.isArray(entry))
-    qualifications.set(sha256(Buffer.from(canonicalJson(entry))), entry as { [field: string]: Json });
+    qualifications.set(sha256(Buffer.from(`${JSON.stringify(JSON.parse(canonicalJson(entry)), null, 2)}\n`)), entry as { [field: string]: Json });
   const named = new Set<string>();
   let captured = 0;
   const skips = new Set((document.resolutions ?? []).filter(item => item.choice === 'skip').map(item => item.step));

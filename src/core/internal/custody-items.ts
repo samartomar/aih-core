@@ -400,7 +400,8 @@ function validPluginFacts(value: unknown): boolean {
 }
 
 function validProgramFacts(value: unknown): boolean {
-  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone'])) return false;
+  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone', 'prior'])) return false;
+  if (value.prior !== undefined && !(value.op === 'tool-command' && (value.prior === 'read' ? value.undo !== null : value.prior === 'withheld' && value.undo === null))) return false;
   const readback = (entry: unknown): boolean => exact(entry, ['argv', 'expected']) && argv(entry.argv) && typeof entry.expected === 'string' && entry.expected.length <= 4096;
   return Number.isSafeInteger(value.step) && (value.step as number) >= 0 && ['tool-command', 'upstream-installer', 'upstream-setup'].includes(value.op as string) &&
     argv(value.argv) && (value.executable === null || text(value.executable, 4096)) && typeof value.managed === 'boolean' &&

@@ -187,11 +187,11 @@ export interface EngineExtension {
   /**
    * Per operation id (`<selection>/<operation>`), work Apply runs immediately before writing that file, after the pending
    * receipt: a failure fails the operation (its write and dependants are not attempted); `facts` on success are recorded
-   * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1). A process effect may call `recordUndo(step, undo)`
-   * before its command starts: that becomes the `undo` of the item's `plan.programs` entry for that plan step, written to
-   * the pending receipt at once.
+   * as the item's `plan.aiSetup` (an AI setup acquisition, contract 8.1). A process effect may call `recordProgram(step, facts)`
+   * before its command starts: those facts (a restore's `undo` and `prior`) are merged into the item's `plan.programs`
+   * entry for that plan step and written to the pending receipt at once.
    */
-  effects?: ReadonlyMap<OperationKey, { run(signal?: AbortSignal, hooks?: { recordUndo(step: number, undo: Json): void }):
+  effects?: ReadonlyMap<OperationKey, { run(signal?: AbortSignal, hooks?: { recordProgram(step: number, facts: Record<string, Json>): void }):
     Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
   // A `process.run` operation with an effect is carried out by that effect instead of its own executable (plan programs).
   /**
@@ -1895,13 +1895,13 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         // A command's undo known only at Apply (a restore of the value read just before it): the effect records it here
         // before the command starts, in the pending receipt at once (so an interrupted install keeps it) and in the record
         // its completion publishes.
-        const recordUndo = (index: number, undo: Json): void => {
+        const recordProgram = (index: number, facts: Record<string, Json>): void => {
           if (!step.item || !step.root) return;
           const id = step.item.id, update = metadataState.itemUpdates.get(step.root)?.[id]?.item;
           // Every step of the item holds its own copy of the item's facts: each one, and the update, gets the undo.
           for (const holder of [...metadataState.steps.filter(other => other.root === step.root && other.item?.id === id).map(other => other.item!), update]) {
             const plan = holder?.facts.plan as { programs?: { step: number }[] } | undefined;
-            if (plan?.programs) holder!.facts.plan = { ...holder!.facts.plan!, programs: plan.programs.map(entry => entry.step === index ? { ...entry, undo } : entry) } as never;
+            if (plan?.programs) holder!.facts.plan = { ...holder!.facts.plan!, programs: plan.programs.map(entry => entry.step === index ? { ...entry, ...facts } : entry) } as never;
           }
           const tracked = metadataState.ownership.get(step.root)!;
           const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
@@ -1909,7 +1909,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           if (receiptDigest(step.root) !== tracked.digest) throw stale('ownership');
           try { persist(step.root, next); } catch { throw new Error('state-unwritable'); }
         };
-        const processResult = effect ? { ...await effect.run(controls.signal, { recordUndo }), terminationUnconfirmed: false } :
+        const processResult = effect ? { ...await effect.run(controls.signal, { recordProgram }), terminationUnconfirmed: false } :
           await executeProcess(step.process, runId, controls.signal);
         operation.application = processResult.status === 'passed' ? 'applied' : 'failed';
         try { observe?.(step.review.id, 'finish', operation.application); } catch { /* An observer never changes the run. */ }

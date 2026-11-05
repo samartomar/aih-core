@@ -137,6 +137,11 @@ function shimCommandLine(path: string, args: string[]): string | undefined {
   return parts.every(part => part !== undefined) ? `"${parts.join(' ')}"` : undefined;
 }
 
+/** Whether `args` can be run with `executable`: always, unless it is a command shim that could not pass them back. */
+export function argumentsRunnable(executable: Pick<ResolvedExecutable, 'launchPath'>, args: string[]): boolean {
+  return !isCommandShim(executable.launchPath) || shimCommandLine(executable.launchPath, args) !== undefined;
+}
+
 export async function runApprovedProcess(request: {
   executable: ResolvedExecutable; args: string[]; cwd: string; env: Record<string, string>;
   stdin?: string; timeoutMs: number; maxOutputBytes: number; acceptedExitCodes: number[];

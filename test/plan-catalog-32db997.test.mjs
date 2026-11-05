@@ -113,8 +113,9 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   assert.equal(existsSync(join(home, '.config', 'opencode')), true, 'removal keeps the folder the CLI made for itself');
 });
 
-test('a user-only single-file skill six clients share in one project folder is still a Catalog clash, which Core refuses unresolved', async () => {
-  // Catalog 32db997 drops only a client with no user-only flag from a shared folder; these six all flag the skill.
+test('a skill whose `$ARGUMENTS` the six clients sharing one project folder render differently is a truthful Catalog clash, which Core refuses unresolved', async () => {
+  // Expected Catalog behaviour, not a gap: Kimi's profile substitutes `$ARGUMENTS` and the other five reword it, so the
+  // renders for `.agents/skills/ship` disagree and Catalog reports the clash instead of picking one form.
   assert.deepEqual(recorded.byo.shipClashes.map(clash => [clash.path, clash.reason, clash.items, clash.clis]),
     [['.agents/skills/ship', 'different-content', ['my-skills.skill.ship'], ['antigravity', 'codex', 'copilot', 'cursor', 'dsh', 'kimi']]]);
   const request = byoRequest('project', project());
@@ -146,6 +147,20 @@ test('the qualified linux-x64 cbm plan carries settings commands with a restore 
     assert.equal(step.executable.path, acquire.executable);
   }
   for (const merge of steps.filter(step => step.rootPaths)) for (const rootPath of merge.rootPaths) assert.ok(rootPath.path.startsWith(acquire.into));
+});
+
+test('Core lowers the real linux-x64 settings commands: the review shows the readback run first and the restore it plans', async () => {
+  // Core-side change of the real plan: only its three tool-commands are kept (the acquire is not run on this host); on
+  // Windows the executable path gains `.exe`, as Core runs only an `.exe`, `.com`, `.cmd` or `.bat` there.
+  const request = cbmRequest(project(), 'linux-x64');
+  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(step => process.platform === 'win32' ?
+    { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  assert.deepEqual(prepared.review.steps.map(step => [step.op, step.program.prior, step.program.restore, step.program.undo]),
+    request.plan.plan.map(step => ['tool-command', { argv: step.readback.argv }, { argv: step.restore.argv }, null]));
+  assert.deepEqual(prepared.review.steps[0].program.restore.argv, ['config', 'set', 'watcher_enabled', '<prior>']);
 });
 
 test('an MCP entry naming an executable no acquire step places and Core never acquired is a plan problem (the P2-3 guard)', async () => {

@@ -22,7 +22,6 @@ import type { LinkFacts, SharedStepFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
 import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
 import { SETUP_MARKER } from './steps/upstream-setup.js';
-import { PRIOR } from './steps/tool-command.js';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
@@ -187,24 +186,28 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const recorded = new Map<string, NonNullable<PlanItemFacts['aiSetup']>>();
   if (checked.steps.some(step => step.lowered.acquire)) for (const item of Object.values(readOwnership(home).value.items ?? {}))
     if (item.scope === 'user' && item.plan?.aiSetup) recorded.set(item.plan.managementId ?? item.managementId, item.plan.aiSetup);
-  // A restore's prior value an earlier install of the same command recorded (complete or interrupted) is kept: reading it
-  // again would read the value that install set, so removal could never put the first one back.
+  // A prior value an earlier install of the same command (same management id and argv) read, complete or interrupted, is
+  // kept as recorded, its undo `null` too when the value was withheld: it is never read again, since that would read the
+  // value the install set and removal could never put the first one back. A record whose prior value was never read (the
+  // install stopped before the command) is no prior value; it is read now.
   if (checked.steps.some(step => step.lowered.kind === 'program' && step.lowered.restore)) {
     const stored = Object.values(readOwnership(home).value.items ?? {}).filter(item => item.scope === 'user');
     for (const step of checked.steps) {
       const lowered = step.lowered;
       if (lowered.kind !== 'program' || !lowered.restore || !lowered.readback) continue;
       const earlier = stored.filter(item => (item.plan?.managementId ?? item.managementId) === lowered.managementIds[0])
-        .flatMap(item => item.plan?.programs ?? []).find(program => program.op === 'tool-command' && program.undo &&
-          canonicalJson(program.argv) === canonicalJson(lowered.shown) && canonicalJson(program.undo.readback.argv) === canonicalJson(lowered.readback!.argv) &&
-          program.undo.argv.length === lowered.restore!.argv.length &&
-          lowered.restore!.argv.every((arg, at) => arg === PRIOR ? program.undo!.argv[at] === program.undo!.readback.expected : arg === program.undo!.argv[at]));
-      if (!earlier?.undo) continue;
-      lowered.undo = structuredClone(earlier.undo);
-      lowered.sentence = lowered.sentence.replace(/^Runs `[^`]*` and keeps what it shows as the prior value, then runs/,
-        `Keeps the prior value \`${earlier.undo.readback.expected}\` an earlier install read, then runs`);
+        .flatMap(item => item.plan?.programs ?? []).find(program => program.op === 'tool-command' && program.prior !== undefined &&
+          canonicalJson(program.argv) === canonicalJson(lowered.shown));
+      if (!earlier?.prior) continue;
+      lowered.undo = earlier.undo ? structuredClone(earlier.undo) : null;
+      lowered.kept = earlier.prior;
+      lowered.sentence = lowered.sentence.replace(/^Runs `[^`]*` and keeps what it shows as the prior value, then runs/, earlier.undo ?
+        `Keeps the prior value \`${earlier.undo.readback.expected}\` an earlier install read, then runs` :
+        'Keeps the earlier install\'s record (its prior value held a secret and was withheld), then runs');
     }
   }
+  // Every secret value the plan binds: a prior value holding one is never recorded (README, tool-command).
+  const planSecrets = [...new Set(checked.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
   // Items that depend on another planned item (Catalog `dependencies`, or the MCP item that starts an AI setup's
   // executable) are not attempted when it fails (C60).
   const dependencies = new Map<string, Set<string>>();
@@ -384,7 +387,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       if (lowered.clone) effects.set(operationKey(group.selectionId, `step-${step.index}`), cloneEffect(lowered.clone, root, git!));
       if (lowered.executable.from !== 'path' || lowered.op === 'upstream-setup')
         effects.set(operationKey(group.selectionId, lowered.clone ? `step-${step.index}-run` : `step-${step.index}`),
-          commandEffect(lowered, root, pinnedPrograms.get(step.index), step.index, verifications));
+          commandEffect(lowered, root, pinnedPrograms.get(step.index), step.index, verifications, planSecrets));
     }
     const secretValues = [...new Set(group.steps.flatMap(step => step.lowered.bound?.secretValues ?? []))];
     const secretInputs: Recipe['inputs'] = Object.fromEntries(secretValues.map((_value, at) => [`secret-${at}`,
@@ -703,7 +706,7 @@ function programReview(lowered: LoweredProgram, root: string, pinned: { executab
     env: Object.keys(lowered.shownEnv).sort(codeUnitCompare).map(name => ({ name, value: lowered.shownEnv[name]! })), managed: lowered.managed,
     readback: lowered.readback ?? null, undo: lowered.undo ?? null,
     // The readback run before the command, unless an earlier install's prior value is kept (then `undo` shows it).
-    ...(lowered.restore && lowered.readback && !lowered.undo ? { prior: { argv: [...lowered.readback.argv] } } : {}),
+    ...(lowered.restore && lowered.readback && !lowered.kept ? { prior: { argv: [...lowered.readback.argv] } } : {}),
     ...(lowered.restore ? { restore: { argv: [...lowered.restore.argv] } } : {}),
     cantRemove: lowered.cantRemove,
     ...(lowered.clone ? { clone: { repository: lowered.clone.repository, commit: lowered.clone.commit, into: lowered.clone.into,
@@ -714,6 +717,7 @@ function programFacts(steps: CheckedStep[]): { programs?: ProgramFacts[] } {
   const programs = steps.flatMap(step => step.lowered.kind === 'program' && !step.skipped ? [{ step: step.index, op: step.lowered.op,
     argv: step.lowered.shown, executable: step.lowered.executable.from === 'acquired' ? step.lowered.executable.path : null,
     managed: step.lowered.managed, undo: step.lowered.undo ? structuredClone(step.lowered.undo) : null,
+    ...(step.lowered.kept ? { prior: step.lowered.kept } : {}),
     ...(step.lowered.clone ? { clone: { repository: step.lowered.clone.repository, commit: step.lowered.clone.commit, into: step.lowered.clone.into } } : {}) }] : []);
   return programs.length ? { programs } : {};
 }

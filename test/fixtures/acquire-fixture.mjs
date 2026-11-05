@@ -17,8 +17,8 @@ export const hostCell = () => `${process.platform === 'win32' ? 'windows' : proc
 /** Canonical JSON: sorted keys, no whitespace (Catalog 5.6 hashing). */
 export const canonicalize = value => Array.isArray(value) ? `[${value.map(canonicalize).join(',')}]` :
   value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}` : JSON.stringify(value);
-/** A qualification's sha256: over its canonical JSON (Catalog 5.7). */
-export const documentSha = document => sha256(canonicalize(document));
+/** A qualification's sha256: over its canonical document bytes (sorted keys, two-space indent, final LF), as Catalog names it. */
+export const documentSha = document => sha256(`${JSON.stringify(JSON.parse(canonicalize(document)), null, 2)}\n`);
 
 /** A ustar `.tar.gz` of `[{ path, bytes, mode }]` (`bytes` absent for a folder). */
 export function tarGz(entries, level = 6) {

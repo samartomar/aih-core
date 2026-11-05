@@ -915,12 +915,16 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   `controls.privateInputs` (`--private-input`), runs as its value, and is redacted from the review, history and receipt.
   The step is grouped under its `aiSetup` id, after that setup's `acquire`. A step with `restore: { argv }` (Catalog's
   settings commands; `<prior>` exactly once, as a whole argument) puts the earlier value back at removal. Apply runs the
-  readback first and keeps its output (trimmed, one line of at most 4096 characters) as the prior value; the receipt's
-  undo, kept before the command starts, is the restore with `<prior>` replaced by that value and the readback expecting
-  it. A readback that fails or shows more than one line fails the step before the command runs (`prior-unreadable`).
-  A prior value holding a supplied secret value is never recorded, and removal then says Core can't undo the command.
-  Installing the same command again (after an interrupted or complete install) keeps the first prior value rather than
-  reading the value Core set. The install review shows `program.prior` (the readback run first) and `program.restore`
+  readback first and keeps its output (trimmed, at most 4096 characters, no control characters) as the prior value; the
+  receipt's undo, kept before the command starts, is the restore with `<prior>` replaced by that value and the readback
+  expecting it. A readback that fails, or shows a line break or any other control character, fails the step before the
+  command runs (`prior-unreadable`); so does, on Windows, a prior value a `.cmd`/`.bat` command shim could not be given
+  back (`"`, `%`: `prior-unrestorable`), so no change is made that removal can't undo. A prior value holding any secret
+  value the plan binds (on any step) is never recorded: the receipt says `prior: "withheld"` with undo `null`, the command
+  still runs, and removal says Core can't undo it. This is the recorded choice; Core does not ask again for the value.
+  Installing the same command again (same management id and argv, after an interrupted or complete install) keeps the
+  first install's record, withheld included, and never reads the value Core set; a record whose prior value was never
+  read (the install stopped before the command) is read again. `list` shows `prior` (`read` or `withheld`). The install review shows `program.prior` (the readback run first) and `program.restore`
   (the planned argv with `<prior>`); the removal review shows the filled restore command and its readback. Removal runs
   it before the AI setup folder goes; a failed restore or a readback that doesn't show the prior value fails that step and
   keeps the receipt. Without `restore`, the review and the removal say Core can't undo the command.

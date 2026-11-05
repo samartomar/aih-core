@@ -69,11 +69,13 @@ export function fakeState(state, name) {
  * to the command's environment.
  */
 export function toolSetup(server, { name = 'code-graph', version = '1.4.0', settings = [['auto_index', 'false']], restore = true, token = false,
-    archive } = {}) {
+    archive, shim = false } = {}) {
   const id = `fixture.ai-setup.${name}`;
   const cell = hostCell();
-  const program = `bin/${exe('fake-tool')}`;
-  const bytes = fakeProgramBytes('fake-tool');
+  // `shim` (Windows only): the executable member is a `.cmd` command shim that runs the fake with this Node.
+  const program = shim ? 'bin/fake-tool.cmd' : `bin/${exe('fake-tool')}`;
+  const bytes = shim ? Buffer.from(`@echo off\r\nset FAKE_TOOL_NAME=fake-tool\r\nset NODE_OPTIONS=\r\n"${process.execPath}" "${FAKE_TOOL}" %*\r\n`) :
+    fakeProgramBytes('fake-tool');
   const tar = archive ?? tarGz([{ path: 'bin' }, { path: program, bytes, mode: 0o755 }, { path: 'LICENSE', bytes: Buffer.from('MIT\n') }], 1);
   const file = `${name}-${cell}.tar.gz`;
   server.serve(`/${file}`, tar);

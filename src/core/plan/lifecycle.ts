@@ -334,7 +334,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     .map(plugin => ({ managementId: engineOwner.get(entry.managementId)!, plugin })));
   // Folder links these claims placed: removed with their record once no other claim holds it (C28, Apply).
   const links = releasing.flatMap(entry => facts.get(`${scope}\0${entry.managementId}`)?.links ?? []);
-  // Program steps (C30): a tool-command's saved reverse command and readback run here; the rest can't be undone, and say so.
+  // Program steps (C30): a tool-command's saved restore command (filled with its prior value) and readback run here; the rest can't be undone, and say so.
   const commands = releasing.flatMap(entry => (facts.get(`${scope}\0${entry.managementId}`)?.programs ?? [])
     .map(program => ({ managementId: engineOwner.get(entry.managementId)!, program })));
   const program = plugins.length || commands.length ? await prepareProgramRemoval(plugins, scope, located.anchor, options, commands) : undefined;
@@ -461,20 +461,20 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'plugin-removal', description: 'Removes a native plugin', inputs: {}, materials: [],
       targets: [scope], prerequisites: [], operations: ops, checks: [] } } });
   });
-  // A tool-command's reverse runs the acquired program it was installed with, from home, before the AI setup folder goes.
+  // A tool-command's restore runs the acquired program it was installed with, from home, before the AI setup folder goes.
   const home = projectRoot(homedir());
   const offset = plugins.length;
   commands.forEach(({ managementId, program }, at) => {
     const index = offset + at;
     if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); return; }
     const selectionId = `c${index}`;
-    operations.set(operationKey(selectionId, 'reverse'), { step: index, managementId, command: true });
-    // Its own engine management id: running the reverse must not rewrite the AI setup's claim before its release.
-    selections.push({ id: selectionId, managementId: `aih-reverse-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
-      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-reverse', description: 'Reverses a tool command', inputs: {}, materials: [],
-      targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'reverse', purpose: `Runs \`${program.undo.argv.join(' ')}\``, kind: 'process.run',
+    operations.set(operationKey(selectionId, 'restore'), { step: index, managementId, command: true });
+    // Its own engine management id: running the restore must not rewrite the AI setup's claim before its release.
+    selections.push({ id: selectionId, managementId: `aih-restore-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
+      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-restore', description: 'Restores the value a tool command changed', inputs: {}, materials: [],
+      targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'restore', purpose: `Runs \`${program.undo.argv.join(' ')}\``, kind: 'process.run',
         scope: 'user', executable: { name: join(home, ...program.executable.split('/')) }, args: program.undo.argv.map(literal => ({ literal })),
-        cwd: { root: 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0], effects: ['The tool\'s own reverse command; Core can\'t show its effects'],
+        cwd: { root: 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0], effects: ['The tool\'s own command, given the value read before install; Core can\'t show its effects'],
         requires: [], checks: [] }] } } });
   });
   const steps: ReviewStep[] = [];
@@ -515,7 +515,7 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
   }
   for (const [at, { managementId, program }] of commands.entries()) {
     const index = offset + at;
-    const pinned = pinnedReverse(engine, index, operations);
+    const pinned = pinnedRestore(engine, index, operations);
     const reversible = !!(program.undo && program.executable && pinned);
     if (reversible) programs.set(index, { executable: pinned!.resolved, argv: [pinned!.resolved.launchPath, ...program.undo!.readback.argv],
       expect: program.undo!.readback.expected, cwd: home, readback: true });
@@ -535,8 +535,8 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
   }
   return { steps, engine: engine?.prepared, engineDigest: engine?.review?.reviewDigest ?? '', operations, programs, unremovable };
 }
-/** The reverse command's executable as the removal's engine pinned it. */
-function pinnedReverse(engine: Awaited<ReturnType<typeof prepareEngine>> | undefined, index: number, operations: Map<string, StepRef>):
+/** The restore command's executable as the removal's engine pinned it. */
+function pinnedRestore(engine: Awaited<ReturnType<typeof prepareEngine>> | undefined, index: number, operations: Map<string, StepRef>):
     { resolved: NonNullable<ReturnType<typeof resolveProgram>> } | undefined {
   const operation = engine?.review?.operations.find(entry => operations.get(entry.id)?.step === index && operations.get(entry.id)?.command);
   if (!operation || typeof operation.details.executable !== 'string') return undefined;

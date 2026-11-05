@@ -367,3 +367,61 @@ test('a cancelled command is effectsUncertain, leaves the install interrupted, a
   assert.equal(finished.completion, 'complete', JSON.stringify(finished));
   assert.equal((await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id).installState, 'complete');
 });
+
+for (const [label, value] of [['a NUL', 'a\u0000b'], ['an ANSI escape', '\u001b[31mred\u001b[0m']]) test(`a prior value holding ${label} is unreadable: the step fails before the command runs`, async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: value });
+  const setup = toolSetup(server, { name: `graph-c${label.length}` });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason], ['failed', 'prior-unreadable']);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+  // The receipt stays readable: nothing holding the control character was recorded.
+  assert.ok(conforms(await list({ target: { project }, scope: 'user' })).entries.some(entry => entry.managementId === setup.id));
+});
+
+test('on Windows a prior value a command shim could not pass back fails the step before the command runs', { skip: process.platform !== 'win32' }, async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '50%' });
+  const setup = toolSetup(server, { name: 'graph-k', shim: true });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason, byStep(run, 2).effectsUncertain ?? false], ['failed', 'prior-unrestorable', false]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: '50%' });
+});
+
+test('an empty prior value is restored as empty', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '' });
+  const setup = toolSetup(server, { name: 'graph-l' });
+  assert.equal((await apply(...await approved(programRequest(project, { setups: [setup] })))).completion, 'complete');
+  const entry = (await list({ target: { project }, scope: 'user' })).entries.find(item => item.managementId === setup.id);
+  assert.deepEqual(entry.programs[0].undo, { argv: ['config', 'set', 'auto_index', ''], readback: { argv: ['config', 'get', 'auto_index'], expected: '' } });
+  const removal = await (await setupRemoval(project, setup))();
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: '' });
+});
+
+test('a prior value holding a secret bound anywhere in the plan is withheld, and reinstalling never reads it again', async () => {
+  const project = fresh();
+  const secret = 'tok-graph-m-1234567890';
+  // The secret is bound to graph-m's commands only; graph-n's prior value holds it.
+  seedToolSettings(state, { index_n: secret });
+  const holder = toolSetup(server, { name: 'graph-m', token: true });
+  const other = toolSetup(server, { name: 'graph-n', settings: [['index_n', 'false']] });
+  const controls = { privateInputs: { [holder.id]: { TOOL_TOKEN: secret } } };
+  const request = programRequest(project, { setups: [holder, other] });
+  assert.equal((await apply(...await approved(request, controls))).completion, 'complete');
+  assert.ok(!treeHas(join(home, '.aih', 'core'), secret), 'no receipt or history holds the secret');
+  const program = () => (/** @type {any} */ (list({ target: { project }, scope: 'user' }))).then(listed => listed.entries.find(item => item.managementId === other.id).programs[0]);
+  assert.deepEqual([(await program()).undo, (await program()).prior], [null, 'withheld']);
+  // Reinstalling keeps the withheld record: the readback is not run again before the command.
+  seedToolSettings(state, { index_n: 'plain' });
+  const again = await prepare(request, controls);
+  assert.equal(again.review.steps.find(step => step.managementId === other.id && step.op === 'tool-command').program.prior, undefined);
+  assert.equal(conforms(await apply(again.handle, approve(again.review), controls)).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.filter(call => call.argv[2] === 'index_n').map(call => call.argv[1]), ['set', 'get']);
+  assert.deepEqual([(await program()).undo, (await program()).prior], [null, 'withheld']);
+});

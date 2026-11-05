@@ -7,7 +7,7 @@ import type { AcquireFacts } from './acquire/types.js';
 import type { PrivateInputBinding } from './inputs.js';
 
 export interface StepRef { step: number | string; managementId: string; /** A plugin step's command or removal. */ program?: true;
-  /** A program step's command (tool-command, upstream installer or setup, or a reverse command at removal). */ command?: true }
+  /** A program step's command (tool-command, upstream installer or setup, or a restore command at removal). */ command?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
 export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string;
   /** A tool-command readback (D57): the output must show `expect`, whatever presence is wanted. */
