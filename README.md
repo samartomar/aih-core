@@ -648,6 +648,10 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   shows such a step once. A member stays until its last claim is released; removal of the others reports `keep-shared`.
 - **`list`** returns one entry per management id and scope, with `clis`, every claim as `{ cli, project }` (`cli: null`
   when the steps recorded no `clis`), and per member the `clis` holding it and, for links, `kind: 'link'` and `linkType`.
+  `installState` is `complete` or `interrupted`. An install a run reached its end on without finishing (a step of it
+  failed, or was `not-attempted` because of a failure it depends on) stays `interrupted`, as the next Prepare finishes
+  it, and carries `lastRun: { runId, outcome: 'failed' | 'not-attempted', reason? }`; an install a run stopped in the
+  middle of (a crash, a cancel, a stale review) has none.
 - **Removal** names the place: a user-scope removal releases the claims of the project in `target.project` (or of
   requests that named none). With `clis`, only those CLIs' claims go; a management id with no claim for those CLIs is
   `absent`. A claim whose steps recorded no `clis` can't be split: removal by CLI is refused
@@ -877,14 +881,23 @@ qualification documents the plan's acquire steps name in `qualifications`.
   --no-build-isolation`, with pip configuration, user site and index variables neutralised. The build frontend is the
   pinned pip when the dependencies list one, otherwise the pip of that build environment; pip need not be pinned. The
   build's `HOME`, `USERPROFILE` (and `APPDATA` on Windows) and temporary folders are inside `build/`, and the host's
-  `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `SETUPTOOLS_*` and `DISTUTILS_*` never reach it. The
+  `CC`, `CXX`, `LDSHARED`, `LDCXXSHARED`, `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `SETUPTOOLS_*` and `DISTUTILS_*`
+  never reach it. When the build record's `tools` name a C compiler (`gcc`, `clang` or `cc`), the build uses it rather
+  than the interpreter's recorded default (python-build-standalone's is `clang`): `CC` is that tool as found on PATH,
+  `CXX` the same family's driver (`g++`, `clang++`, `c++`) when listed or found beside it, and on Linux `LDSHARED` is
+  `<CC> -shared`. The variables Core set are recorded with the built wheel as `built.env`. The
   network is not blocked: the build is offline only through pip's flags, so a build backend that downloads on its own
   is not stopped. The built wheel must be the
   closure entry's name and version; it is recorded as built from pinned source (`byteQualified: false`, with the source
   and dependency sha256s and its own), never as the qualified bytes. Host tools are prerequisites: a missing one is
   `build-failed`; the observed version and executable sha256 are recorded next to the qualification's, without being
   compared. A build failure on the installed interpreter switches to the fallback, which tries qualified bytes and then
-  builds again. `build/` is removed once the install finishes.
+  builds again. `build/` is removed once the install finishes. Each failed build is reported in the run step's
+  `buildFailures` (and an `onProgress` `build-failed` event): the closure wheel's name and version, the phase
+  (`obtain-source`, `build-deps`, `build`, `install`), the interpreter branch, the reason and the last 40 lines of its
+  output, with the plan's secret values and every host variable named like a secret (`TOKEN`, `SECRET`, `PASSWORD`,
+  `API_KEY`, ...) reading `[REDACTED]`. The log is kept only there: a failed acquisition's folder, `build/` with it,
+  is removed.
 - **Native archives** (`.tar.gz`, `.zip`): Apply extracts exactly the qualified members, each byte-checked, with their
   executable bit.
 - **Bounds:** one artifact is at most `artifact-bytes`, expands to at most `artifact-expanded-bytes` and
@@ -894,7 +907,9 @@ qualification documents the plan's acquire steps name in `qualifications`.
   `not-attempted`, unrelated items continue, and the run is `incomplete`. The run step's `interpreter`, the receipt and
   `list`'s `aiSetup` record which branch ran and why the fallback did; `aiSetup.downloads` records, per file, its origin:
   `supplied`, `downloaded` with the URL, or `built`. `onProgress` on the Apply call receives each
-  acquisition's `start`, `bytes`, `fallback` and `finish` events.
+  acquisition's `start`, `bytes`, `fallback`, `build-failed` and `finish` events. A failed acquisition also removes the
+  empty parent folders it made (such as `.aihq/ai-setup/<name>/<version>/`), so later steps' reviewed paths are as they
+  were and unrelated items still run.
 - **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
   acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
   redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's

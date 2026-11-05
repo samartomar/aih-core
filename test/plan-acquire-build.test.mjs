@@ -207,6 +207,10 @@ test('a first acquisition whose build fails on both branches leaves no folders b
     assert.equal(existsSync(join(fresh, '.aihq', 'ai-setup', 't-graph')), false, 'the failed acquisition leaves no empty parent folders');
     assert.ok(existsSync(join(fresh, ...native.folder.split('/'), 'memory-mcp')));
     assert.ok(existsSync(join(fresh, ...plain.folder.split('/'), 'env')));
+    const listed = conforms(await list({ target: { project: target }, scope: 'user' })).entries;
+    const row = id => listed.find(entry => entry.managementId === id);
+    assert.deepEqual([row(failing.id).installState, row(failing.id).lastRun], ['interrupted', { runId: run.runId, outcome: 'failed', reason: 'build-failed' }]);
+    for (const id of [native.id, plain.id]) assert.deepEqual([row(id).installState, row(id).lastRun], ['complete', undefined]);
   } finally { Object.assign(process.env, saved); }
 });
 

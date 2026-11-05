@@ -37,6 +37,8 @@
           "items": { "type": "object", "additionalProperties": false, "required": ["cli", "project"],
             "properties": { "cli": { "type": ["string", "null"] }, "project": { "type": ["string", "null"] } } } },
         "installState": { "enum": ["complete", "interrupted"] },
+        "lastRun": { "type": "object", "additionalProperties": false, "required": ["runId", "outcome"], "description": "An interrupted install that a run reached its end on without finishing: that run and its outcome for this entry (failed with the step reason, or not-attempted)",
+          "properties": { "runId": { "type": "string" }, "outcome": { "enum": ["failed", "not-attempted"] }, "reason": { "type": "string" } } },
         "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
           "properties": { "branch": { "enum": ["installed", "fallback", null] },
             "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],

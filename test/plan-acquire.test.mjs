@@ -31,6 +31,7 @@ after(async () => {
   rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
 });
 const approve = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
+const conforms = value => { assert.equal(validateFormat(value).status, 'ok', JSON.stringify(validateFormat(value))); return value; };
 let counter = 0;
 const project = () => { const path = join(scratch, `project-${counter++}`); mkdirSync(path); return path; };
 const installedPython = facts => { rmSync(bin, { recursive: true, force: true }); return fakePython(base, bin, facts); };
@@ -135,7 +136,19 @@ test('acquired bytes that differ fail that AI setup and its dependants; an unrel
   assert.equal(readFileSync(join(target, '.claude/skills/unrelated/SKILL.md'), 'utf8'), 'Unrelated.\n');
   assert.equal(existsSync(join(target, '.claude/skills/uses-tool/SKILL.md')), false);
   assert.equal(existsSync(join(home, ...native.folder.split('/'))), false, 'a failed acquisition leaves no folder');
+  // `list` keeps the unfinished installs interrupted (contract 12) and says what the run that left them did.
+  const listed = conforms(await list({ target: { project: target }, scope: 'both' }));
+  const entry = id => listed.entries.find(row => row.managementId === id);
+  assert.deepEqual([entry(native.id).installState, entry(native.id).lastRun], ['interrupted', { runId: run.runId, outcome: 'failed', reason: 'artifact-mismatch' }]);
+  assert.deepEqual([entry('local-my-skills.skill.uses-tool').installState, entry('local-my-skills.skill.uses-tool').lastRun],
+    ['interrupted', { runId: run.runId, outcome: 'not-attempted' }]);
+  assert.deepEqual([entry('local-my-skills.skill.unrelated').installState, entry('local-my-skills.skill.unrelated').lastRun], ['complete', undefined]);
   server.serve(`/${native.step.distribution.file}`, native.archive);
+  // Approving the next Prepare finishes the install; nothing of the earlier run is listed any more.
+  const again = await prepare(request);
+  assert.equal((await apply(again.handle, approve(again.review))).completion, 'complete');
+  const finished = conforms(await list({ target: { project: target }, scope: 'both' }));
+  for (const row of finished.entries) assert.deepEqual([row.installState, row.lastRun], ['complete', undefined], row.managementId);
 });
 
 /** The setup's MCP entry (Catalog `rootPaths`): `.mcp.json` starts the acquired executable by its path under the user root. */

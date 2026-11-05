@@ -23,7 +23,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
 import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, restoreMemberBytes, tomlEntryPaths, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts, sameSharedStep, type SharedStepFacts } from './internal/custody-items.js';
+import { attemptItem, checkMember, completeItem, noteItemRun, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts, sameSharedStep, type SharedStepFacts } from './internal/custody-items.js';
 import { displacedFacts, displacedText, restoredText, spliceMember, type DisplacedValue, type SecretSlot } from './internal/displaced.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
@@ -2014,6 +2014,28 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       if (!okay && !allowPartial) stop = true;
     }
     publishMetadata();
+    // The run reached its end: an install it left unfinished records this run and its outcome for the item (still
+    // interrupted, as the next Prepare finishes it): `failed` with the first failed step's reason, else `not-attempted`.
+    for (const root of mutatingRoots) {
+      const tracked = metadataState.ownership.get(root)!;
+      const next: Ownership = { ...tracked.value, members: { ...tracked.value.members } };
+      let noted = false;
+      const byItem = new Map<string, { failed?: string }>();
+      state.steps.forEach((step, index) => {
+        if (step.root !== root || !step.item || step.lifecycle || outcomes.get(step.review.id) === true) return;
+        const operation = result.operations[index]!;
+        const seen = byItem.get(step.item.id) ?? {};
+        // A step that ran and is not okay failed: in its application, or in its check.
+        if (operation.application !== 'not-attempted' && seen.failed === undefined)
+          seen.failed = operation.application === 'failed' ? operation.reason ?? 'failed' : operation.verification.reason;
+        byItem.set(step.item.id, seen);
+      });
+      for (const [id, seen] of byItem) if (noteItemRun(next, id, { runId, outcome: seen.failed === undefined ? 'not-attempted' : 'failed',
+        ...(seen.failed === undefined ? {} : { reason: seen.failed.slice(0, 128) }) })) noted = true;
+      if (!noted) continue;
+      if (receiptDigest(root) !== tracked.digest) throw stale('ownership');
+      persist(root, next);
+    }
     // Wait until all file effects finish so removing a parent cannot invalidate
     // another reviewed step's path pins. Interrupted work keeps conservative evidence.
     for (const root of mutatingRoots) {

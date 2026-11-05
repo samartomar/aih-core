@@ -344,6 +344,11 @@ export interface InventoryEntry {
   /** The content kind and framework recorded at install, which Enterprise fulfilment counts; `null` when the plan gave none. */
   kind?: string | null; framework?: string | null;
   installState: 'complete' | 'interrupted'; members: InventoryMember[];
+  /**
+   * An `interrupted` install that a run reached its end on without finishing: that run (`runId`) and its outcome for the
+   * entry, `failed` (with the failed step's reason) or `not-attempted`. Absent when the install is complete or a run stopped early.
+   */
+  lastRun?: { runId: string; outcome: 'failed' | 'not-attempted'; reason?: string };
   /** Every claim that holds this management id here: its CLI (`null` when its steps recorded none) and project (C28). */
   claims?: { cli: string | null; project: string | null }[];
   /** Native plugin installs with the undo facts the receipt keeps for them. */

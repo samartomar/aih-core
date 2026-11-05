@@ -116,6 +116,7 @@ export const sameSharedStep = (a: SharedStepFacts, b: SharedStepFacts): boolean 
   a.path === b.path && a.sourceId === b.sourceId && a.sourcePath === b.sourcePath && a.sha256 === b.sha256;
 /** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
 export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
+export interface ItemRunOutcome { runId: string; outcome: 'failed' | 'not-attempted'; reason?: string }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
   /** Protected restoration data: the person's value found at an owned pointer before Core wrote it. */
@@ -125,6 +126,12 @@ export interface CustodyItem extends ItemFacts {
    * operations succeed. An interrupted item stays even before any member is written.
    */
   installState?: 'interrupted';
+  /**
+   * An interrupted install that a run reached its end on without finishing: that run and its outcome for the item
+   * (`failed` when one of its steps failed, with that step's reason; `not-attempted` when its steps were never run). A run
+   * that stops early, or the next Apply for the item, leaves none.
+   */
+  lastRun?: ItemRunOutcome;
   /**
    * Members of a file effect Apply is attempting: written ahead of the commit and cleared with the custody published
    * after it. Only a crash between the two leaves an entry; `resolvePending` then reads the target to settle it.
@@ -433,8 +440,11 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const claimedBy = claimIndex(value);
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
     if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
-        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan', 'claim']) ||
+        ['preExisting', 'installState', 'lastRun', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan', 'claim']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
+    if (item.lastRun !== undefined && !(item.installState === 'interrupted' && exact(item.lastRun, ['runId', 'outcome'], ['reason']) &&
+        text(item.lastRun.runId, 64) && ['failed', 'not-attempted'].includes(item.lastRun.outcome as string) &&
+        (item.lastRun.reason === undefined ? true : item.lastRun.outcome === 'failed' && text(item.lastRun.reason, 128)))) return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
         !item.pending.every(entry => exact(entry, ['key', 'descriptor', 'owner'], ['identity', 'redactedPath', 'preExisting']) && text(entry.key, 8192) &&
@@ -545,11 +555,18 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
 export function completeItem(value: Custody, id: string): boolean {
   const item = value.items?.[id];
   if (!item?.installState) return false;
-  const { installState: _done, pending: _pending, ...rest } = item;
+  const { installState: _done, pending: _pending, lastRun: _run, ...rest } = item;
   const items = { ...value.items, [id]: rest };
   if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.plan && !rest.claim && !rest.preExisting && !rest.redactedPaths)
     delete items[id];
   value.items = items;
+  return true;
+}
+/** A run reached its end with this install unfinished: record the run and its outcome for the item (still interrupted). */
+export function noteItemRun(value: Custody, id: string, outcome: ItemRunOutcome): boolean {
+  const item = value.items?.[id];
+  if (item?.installState !== 'interrupted') return false;
+  value.items = { ...value.items, [id]: { ...item, lastRun: outcome } };
   return true;
 }
 /** Record the members a file effect is about to change, before it commits. */

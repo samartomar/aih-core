@@ -27,7 +27,7 @@ import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from
 import { enterpriseContext } from '../enterprise/plan.js';
 import { admitRemovals, obligations } from '../enterprise/admission.js';
 import { denialReason, organizationReview, placeClaims, projected } from '../enterprise/host.js';
-import type { PlanItemFacts } from '../internal/custody-items.js';
+import type { ItemRunOutcome, PlanItemFacts } from '../internal/custody-items.js';
 import type { PluginFacts, ProgramFacts } from './types.js';
 import { join } from 'node:path';
 import { managementIdOf, sameProject } from './claims.js';
@@ -62,6 +62,13 @@ function planFacts(roots: string[]): Map<string, PlanItemFacts> {
   for (const root of new Set(roots)) for (const item of Object.values(readOwnership(root).value.items ?? {}))
     if (item.plan) facts.set(`${item.scope}\0${item.managementId}`, item.plan);
   return facts;
+}
+/** What the last run that reached its end did to each install it left unfinished, by scope and engine id. */
+function lastRuns(roots: string[]): Map<string, ItemRunOutcome> {
+  const found = new Map<string, ItemRunOutcome>();
+  for (const root of new Set(roots)) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+    if (item.lastRun) found.set(`${item.scope}\0${item.managementId}`, item.lastRun);
+  return found;
 }
 /** Claims kept under a claim key without plan facts (user-scope changes made for a project): their management id and project. */
 function keyedClaims(roots: string[]): Map<string, { managementId: string; project: string | null }> {
@@ -117,6 +124,7 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   if (listed.status === 'invalid') return { status: 'invalid', problems: listed.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const facts = planFacts([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])]);
   const keyed = keyedClaims(scope !== 'project' ? [home] : []);
+  const runs = lastRuns([...(scope !== 'user' && located.project ? [located.project] : []), ...(scope !== 'project' ? [home] : [])]);
   const identities = changeIdentities([...(scope !== 'user' && located.project ? [{ root: located.project, scope: 'project' as const }] : []),
     ...(scope !== 'project' ? [{ root: home, scope: 'user' as const }] : [])]);
   // One entry per management id and scope, over every claim that holds it: each CLI and project (C28, C38).
@@ -144,6 +152,9 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
     }
     const current = entry;
     if (row.installState === 'interrupted') current.installState = 'interrupted';
+    // An unfinished install says what the run that left it did; a failure outranks a step never attempted.
+    const lastRun = row.installState === 'interrupted' ? runs.get(`${row.scope}\0${row.managementId}`) : undefined;
+    if (lastRun && (!current.lastRun || current.lastRun.outcome === 'not-attempted' && lastRun.outcome === 'failed')) current.lastRun = { ...lastRun };
     // An unattributed claim is held for every CLI its plan was made for (contract 5).
     const claimClis = plan ? plan.cli !== undefined && plan.cli !== null ? [plan.cli] : plan.clis : [];
     current.clis = [...new Set([...current.clis, ...claimClis])].sort();
