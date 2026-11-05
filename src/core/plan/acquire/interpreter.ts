@@ -57,7 +57,7 @@ export interface PythonResult { ok: boolean; output: unknown; reason: string }
 
 /** Runs the helper with one interpreter; output is bounded, and a deadline or the caller's signal stops it. */
 /** Host variables a source build never receives. */
-const BUILD_DROPPED = /^(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i;
+const BUILD_DROPPED = /^(CC|CXX|LDSHARED|LDCXXSHARED|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i;
 export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string>; build?: boolean }): Promise<PythonResult> {
   const resolved = resolveExecutable(executable);
   if (!resolved) return { ok: false, output: null, reason: 'interpreter-unavailable' };

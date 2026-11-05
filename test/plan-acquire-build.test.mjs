@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare } from '../dist/core/index.js';
@@ -208,4 +208,34 @@ test('a first acquisition whose build fails on both branches leaves no folders b
     assert.ok(existsSync(join(fresh, ...native.folder.split('/'), 'memory-mcp')));
     assert.ok(existsSync(join(fresh, ...plain.folder.split('/'), 'env')));
   } finally { Object.assign(process.env, saved); }
+});
+
+test('a C compiler named in the build record is the one the build uses: CC, CXX beside it and LDSHARED on Linux, recorded with the built wheel', async () => {
+  installedPython({ version: '3.13.1' });
+  // Fixture compilers on PATH: copies of this Node executable named like a compiler (they only answer `--version`).
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  for (const name of ['gcc', 'g++']) copyFileSync(process.execPath, join(bin, `${name}${exe}`));
+  const record = join(scratch, 'build-compiler.json');
+  const saved = { CC: process.env.CC, AIH_FAKE_BUILD_RECORD: process.env.AIH_FAKE_BUILD_RECORD };
+  Object.assign(process.env, { CC: 'host-clang', AIH_FAKE_BUILD_RECORD: record });
+  try {
+    const target = project();
+    const setup = buildSetup('b-compiler', { build: { tools: [{ name: 'gcc', version: 'gcc (fixture) 13.3.0', sha256: 'c'.repeat(64) },
+      { name: 'ld', version: 'GNU ld (fixture) 2.42', sha256: 'd'.repeat(64) }] } });
+    // `ld` is only recorded: it stands for a tool present on the qualifying host, here the fixture Node copy.
+    copyFileSync(process.execPath, join(bin, `ld${exe}`));
+    const prepared = await prepare(setupRequest(target, [setup]));
+    const run = await apply(prepared.handle, approve(prepared.review));
+    assert.equal(run.completion, 'complete', JSON.stringify(run));
+    const seen = Object.fromEntries(Object.entries(JSON.parse(readFileSync(record, 'utf8'))).map(([key, value]) => [key.toUpperCase(), value]));
+    const gcc = join(bin, `gcc${exe}`), gxx = join(bin, `g++${exe}`);
+    const expected = { CC: gcc, CXX: gxx, ...(process.platform === 'linux' ? { LDSHARED: `${gcc} -shared` } : {}) };
+    assert.deepEqual(Object.fromEntries(Object.entries(seen).filter(([key]) => ['CC', 'CXX', 'LDSHARED'].includes(key))), expected);
+    const built = conforms(await list({ target: { project: target }, scope: 'user' })).entries.find(row => row.managementId === setup.id)
+      .aiSetup.downloads.find(entry => entry.origin === 'built').built;
+    assert.deepEqual(built.env, expected);
+    assert.deepEqual(built.tools.map(tool => tool.name), ['gcc', 'ld']);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
 });

@@ -73,6 +73,29 @@ async function observeTool(name: string, signal?: AbortSignal): Promise<ToolReco
   return { version, sha256: digest };
 }
 
+/** C compilers a build record can name, each with the C++ driver of its family. */
+const COMPILERS: Readonly<Record<string, string>> = { gcc: 'g++', clang: 'clang++', cc: 'c++' };
+/**
+ * The compiler a build uses (C78): when the build record names a C compiler, `CC` is that tool as found on PATH (the host's
+ * own `CC` never reaches a build, and an interpreter's recorded default, such as python-build-standalone's `clang`, is not
+ * used). `CXX` is the record's C++ driver of the same family when listed, else that driver beside the compiler when
+ * present. On Linux `LDSHARED` links extensions with the same compiler. Nothing is set when no C compiler is named.
+ */
+export function compilerEnvironment(tools: readonly string[]): Record<string, string> {
+  const name = tools.find(tool => Object.hasOwn(COMPILERS, tool));
+  if (!name) return {};
+  const cc = resolveExecutable(name);
+  if (!cc) return {};
+  const env: Record<string, string> = { CC: cc.launchPath };
+  const driver = COMPILERS[name]!;
+  const listed = tools.includes(driver) ? resolveExecutable(driver) : undefined;
+  const beside = join(dirname(cc.launchPath), process.platform === 'win32' ? `${driver}.exe` : driver);
+  const cxx = listed?.launchPath ?? (existsSync(beside) ? resolveExecutable(beside)?.launchPath : undefined);
+  if (cxx) env.CXX = cxx;
+  if (process.platform === 'linux') env.LDSHARED = `${cc.launchPath} -shared`;
+  return env;
+}
+
 export function acquisition(spec: AcquireSpec, home: string, installed: InstalledInterpreter | null,
     progress: (event: Json) => void, sources: Sources = new Map()): Acquisition {
   const folder = join(home, ...spec.into.split('/'));
@@ -128,8 +151,9 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       dependencies.push(path);
     }
     // The build's home, user data and temporary files are its own folder: no host configuration or cache is read (C78).
+    const compiler = compilerEnvironment(recipe.tools.map(tool => tool.name));
     const env: Record<string, string> = { TMPDIR: temp, TEMP: temp, TMP: temp, HOME: temp, USERPROFILE: temp,
-      ...(process.platform === 'win32' ? { APPDATA: temp } : {}) };
+      ...(process.platform === 'win32' ? { APPDATA: temp } : {}), ...compiler };
     const environment = join(work, 'env');
     step(await runHelper(python, ['venv', environment], options(signal, env)));
     const buildPython = environmentPython(environment);
@@ -143,7 +167,8 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     if (!name || normal(name) !== normal(wheel.name) || version !== wheel.version) throw new BuildFailure('build-failed');
     const path = join(out, file);
     return { path, record: { role: 'closure', file: wheel.file, sha256: wheel.sha256, origin: 'built', built: { file, sha256: sha256(readFileSync(path)),
-      byteQualified: false, source: recipe.source.sha256, dependencies: recipe.dependencies.map(dependency => dependency.sha256), tools } } };
+      byteQualified: false, source: recipe.source.sha256, dependencies: recipe.dependencies.map(dependency => dependency.sha256), tools,
+      ...(compiler.CC ? { env: compiler as { CC: string; CXX?: string; LDSHARED?: string } } : {}) } } };
   }
 
   /** Makes a dedicated environment from one interpreter, installs the wheels offline and reads the tool back. */

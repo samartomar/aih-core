@@ -40,7 +40,7 @@ if (/^python/i.test(basename(process.execPath))) {
     if (facts.failBuild || !fs.existsSync(args[0])) { process.stderr.write('fixture: build failed\n'); process.exit(1); }
     // The environment a build ran with, for tests that check what reaches it (`AIH_FAKE_BUILD_RECORD` names the file).
     if (process.env.AIH_FAKE_BUILD_RECORD) fs.writeFileSync(process.env.AIH_FAKE_BUILD_RECORD, JSON.stringify(Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i.test(key)))));
+      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i.test(key)))));
     const [, name, version] = /^(.+)-([^-]+)\.tar\.gz$/.exec(basename(args[0]));
     const file = `${name}-${version}-py3-none-any.whl`;
     fs.mkdirSync(args[1], { recursive: true });

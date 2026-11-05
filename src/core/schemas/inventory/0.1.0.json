@@ -52,7 +52,9 @@
                     "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "qualified", "observed"],
                       "properties": { "name": { "type": "string" },
                         "qualified": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-                        "observed": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } } } } },
+                        "observed": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } },
+                    "env": { "type": "object", "additionalProperties": false, "required": ["CC"], "description": "The compiler variables Core set for this build when its record names a C compiler: CC (and CXX, and LDSHARED on Linux) as found on PATH",
+                      "properties": { "CC": { "type": "string" }, "CXX": { "type": "string" }, "LDSHARED": { "type": "string" } } } } } },
               "allOf": [
                 { "if": { "properties": { "origin": { "const": "downloaded" } } }, "then": { "required": ["url"], "properties": { "url": { "type": "string" }, "built": false } } },
                 { "if": { "properties": { "origin": { "const": "supplied" } } }, "then": { "properties": { "url": false, "built": false } } },

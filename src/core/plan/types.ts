@@ -155,7 +155,9 @@ export interface ReviewDownload {
 export interface AcquiredFile {
   role: DownloadRole; file: string; sha256: string; origin: 'supplied' | 'downloaded' | 'built'; url?: string;
   built?: { file: string; sha256: string; byteQualified: false; source: string; dependencies: string[];
-    tools: { name: string; qualified: { version: string; sha256: string }; observed: { version: string; sha256: string } }[] };
+    tools: { name: string; qualified: { version: string; sha256: string }; observed: { version: string; sha256: string } }[];
+    /** The compiler variables Core set for the build when its record names a C compiler (C78). */
+    env?: { CC: string; CXX?: string; LDSHARED?: string } };
 }
 /** The reviewed command of a program step (contract 8.1, 12, C30). Secret values read `[REDACTED]`. */
 export interface ReviewProgram {

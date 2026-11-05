@@ -295,7 +295,8 @@ function validDownloadRecord(value: unknown): boolean {
   if (value.origin === 'downloaded') return text(value.url, 4096) && (value.url as string).startsWith('https://') && value.built === undefined;
   if (value.origin !== 'built' || value.url !== undefined || value.role !== 'closure') return false;
   const built = value.built;
-  return exact(built, ['file', 'sha256', 'byteQualified', 'source', 'dependencies', 'tools']) && text(built.file, 256) && hex(built.sha256) &&
+  return exact(built, ['file', 'sha256', 'byteQualified', 'source', 'dependencies', 'tools'], ['env']) &&
+    (built.env === undefined || exact(built.env, ['CC'], ['CXX', 'LDSHARED']) && [built.env.CC, built.env.CXX, built.env.LDSHARED].every(item => item === undefined || text(item, 4096))) && text(built.file, 256) && hex(built.sha256) &&
     built.byteQualified === false && hex(built.source) && Array.isArray(built.dependencies) && built.dependencies.length <= 4096 &&
     built.dependencies.every(hex) && Array.isArray(built.tools) && built.tools.length <= 64 && built.tools.every(validToolRecord);
 }
