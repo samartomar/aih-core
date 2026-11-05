@@ -1218,6 +1218,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
       const claims = owner.claims ?? [];
       const obsolete = (claim: Claim) => {
         const selection = policy.selections.find(selection => claimId(selection) === claimId(claim, root));
+        // A plan install's review shows only its steps: a member its claim already holds and this plan leaves out stays,
+        // never released unseen. Only an update (whose review lists dropped members) releases it (C39).
+        if (selection && extension?.plans?.has(selection.id) && !update) return false;
         return !!selection && !unavailableSelections.has(selection.id) && !steps.some(step => step.managementId === claim.managementId && step.review.scope === claim.scope && step.root === root && Object.hasOwn(step.custody ?? {}, key) && !step.inherited?.includes(key));
       };
       const removed = claims.filter(claim => candidates.has(claimId(claim, root)) && !retained.has(claimId(claim, root)) || obsolete(claim));

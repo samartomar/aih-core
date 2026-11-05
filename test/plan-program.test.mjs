@@ -304,6 +304,37 @@ test('an upstream installer runs its exact pinned argv, is managed: false, and r
   assert.equal((await list({ target: { project }, scope: 'user' })).entries.length, 0);
 });
 
+test('an upstream installer for an AI setup Core already acquired leaves the managed acquisition and its claim as they are', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-switch', settings: [] });
+  const managed = programRequest(project, { setups: [setup] });
+  managed.plan.plan = [setup.acquire];
+  const installed = await prepare(managed);
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const marker = join(home, ...setup.folder.split('/'), '.aih-acquired');
+  assert.ok(existsSync(marker));
+  const before = (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  assert.ok(before, 'the managed acquisition is listed');
+
+  // The person then chooses the setup's own installer for the same AI setup, from the same project.
+  const installer = installerStep('graph-switch');
+  const prepared = await prepare(programRequest(project, { installers: [installer] }));
+  assert.equal(installer.id, setup.id);
+  const shown = prepared.review?.steps ?? [];
+  const run = prepared.handle ? conforms(await apply(prepared.handle, approve(prepared.review))) : undefined;
+  // Whatever Core does, it never drops the acquisition's claim without the review showing it.
+  const dropped = (run?.members ?? []).filter(member => member.intent === 'remove');
+  assert.deepEqual(dropped, [], `a member was removed that the review did not show: ${JSON.stringify({ shown, run })}`);
+  assert.ok(existsSync(marker), 'the managed acquisition stays');
+  const after = (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  assert.ok(after?.members?.some(member => member.path?.endsWith('.aih-acquired')), JSON.stringify(after));
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: setup.id }] });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'removing it removes the acquired folder');
+});
+
 test('an installer this host cannot run is refused before any effect', async () => {
   const project = fresh();
   const installer = installerStep('missing-tool');
