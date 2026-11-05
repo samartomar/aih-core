@@ -7,10 +7,10 @@
 // (recorded as built, never as byte-qualified). The folder is created by this acquisition and marked while it is
 // incomplete, so an interrupted or failed attempt is removed, never adopted; build and temporary folders live inside it.
 import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
-import { resolveExecutable } from '../../internal/approved-process.js';
+import { dirname, join, relative } from 'node:path';
+import { resolveExecutable, resolveProgram } from '../../internal/approved-process.js';
 import { directoryIdentity, type CreatedDirectories } from '../../internal/created-directories.js';
 import { readArchive } from './archive.js';
 import { AcquireError } from './download.js';
@@ -20,7 +20,7 @@ import { obtain, sourceKey, type Sources } from './sources.js';
 import { ACQUIRING, MANIFEST, type AcquireFacts, type AcquireSpec, type ClosureWheel, type Download, type DownloadRecord, type DownloadRole,
   type InstalledInterpreter } from './types.js';
 import type { Json } from '../../types.js';
-import type { BuildFailureRecord, BuildPhase } from '../types.js';
+import type { BuildFailureRecord, BuildPhase, PlacedExecutable } from '../types.js';
 export type { BuildFailureRecord } from '../types.js';
 
 export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json;
@@ -269,12 +269,60 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       }
       return 'wheel-install-failed';
     }
+    // The readback goes through the program the step names: placed there, launchable by Core's own rules and the same
+    // program as the environment's console script, which must be the tool's (C46, so a missing one is a real failure).
+    if (spec.executable && !placeExecutable(environment)) return 'readback-failed';
     const name = spec.artifact.file.split('-')[0]!;
-    const read = await runHelper(envPython, ['readback', name], options(signal));
+    const read = await runHelper(envPython, ['readback', name, ...(spec.executable?.script ? [spec.executable.script] : [])], options(signal));
     if (read.reason === 'cancelled') return 'cancelled';
     if (!(read.ok && (read.output as { version?: unknown } | null)?.version === spec.version)) return 'readback-failed';
     for (const record of built) records.set(sourceKey('closure', record), record);
     return 'ok';
+  }
+
+  let placed: PlacedExecutable | undefined;
+  const named = (path: string): string => join(folder, ...path.split('/'));
+  /**
+   * Puts the step's named executable where it names it, pointing at the environment's console script, and checks it can be
+   * started from there and is that script: a symlink (POSIX; Core's launcher script where links can't be made), a hard
+   * link (a Windows `.exe`: a copy of a console-script launcher is not the same program), or Core's launcher (a Windows
+   * `.cmd`). Returns false when the environment has no such script or the named path is not it.
+   */
+  function placeExecutable(environment: string): boolean {
+    const { path, script } = spec.executable!;
+    placed = undefined;
+    const windows = process.platform === 'win32';
+    const entry = join(environment, windows ? 'Scripts' : 'bin', windows ? `${script}.exe` : script!);
+    if (!existsSync(entry)) return false;
+    const target = named(path);
+    let how: PlacedExecutable['placed']; let launcher: Buffer | undefined;
+    if (path.split('/')[0] === 'env') how = 'environment';
+    else {
+      rmSync(target, { force: true });
+      mkdirSync(dirname(target), { recursive: true });
+      const link = relative(dirname(target), entry);
+      if (windows && /\.cmd$/i.test(target)) {
+        launcher = Buffer.from(`@"%~dp0${link}" %*\r\n`);
+        writeFileSync(target, launcher, { flag: 'wx', mode: 0o755 }); how = 'launcher';
+      } else if (windows) {
+        try { linkSync(entry, target); } catch { throw new AcquireError('executable-unplaced'); }
+        how = 'hardlink';
+      } else {
+        try { symlinkSync(link, target); how = 'symlink'; }
+        catch {
+          launcher = Buffer.from(`#!/bin/sh\nexec '${entry.replaceAll("'", "'\\''")}' "$@"\n`);
+          writeFileSync(target, launcher, { flag: 'wx', mode: 0o755 }); how = 'launcher';
+        }
+      }
+    }
+    const program = resolveProgram(target);
+    if (!program) return false;
+    const same = launcher ? readFileSync(target).equals(launcher) : how === 'hardlink' ?
+      ((a, b) => a.dev === b.dev && a.ino === b.ino)(statSync(target, { bigint: true }), statSync(entry, { bigint: true })) :
+      realpathSync.native(target) === realpathSync.native(entry);
+    if (!same) return false;
+    placed = { path: `${spec.into}/${path}`, placed: how };
+    return true;
   }
 
   async function python(signal?: AbortSignal): Promise<AcquireFacts> {
@@ -296,7 +344,8 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       if (wheel?.build) qualified.set(wheel, path); else wheels.push(path!);
     }
     const environment = join(folder, 'env');
-    const done = (facts: AcquireFacts): AcquireFacts => { rmSync(join(folder, 'build'), { recursive: true, force: true, maxRetries: 3 }); return facts; };
+    const done = (facts: AcquireFacts): AcquireFacts => { rmSync(join(folder, 'build'), { recursive: true, force: true, maxRetries: 3 });
+      return placed ? { ...facts, executable: placed } : facts; };
     let reason: string;
     if (installed === null) reason = 'none-found';
     else {
@@ -336,7 +385,14 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       writeFileSync(target, entry.data!, { flag: 'wx', mode: member.executable ? 0o755 : 0o644 });
       if (member.executable && process.platform !== 'win32') chmodSync(target, 0o755);
     }
-    return { branch: null, interpreter: null, fallback: false, fallbackReason: null };
+    // The named program is the qualified member, extracted where the step names it and launchable from there.
+    if (spec.executable) {
+      const member = spec.members.find(entry => entry.path === spec.executable!.path);
+      const program = resolveProgram(named(spec.executable.path));
+      if (!member || !program || program.sha256 !== member.sha256) throw new AcquireError('readback-failed');
+      placed = { path: `${spec.into}/${spec.executable.path}`, placed: 'member' };
+    }
+    return { branch: null, interpreter: null, fallback: false, fallbackReason: null, ...(placed ? { executable: placed } : {}) };
   }
 
   return {

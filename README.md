@@ -874,6 +874,18 @@ qualification documents the plan's acquire steps name in `qualifications`.
   makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
   and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
   `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
+- **The named executable.** The program an acquire step names (`executable`, home-relative, inside its folder; the path
+  an MCP entry starts) is where Core puts it. A native archive's is one of its qualified executable members. A Python
+  tool's is a console script of its environment: Catalog names `bin/<name>` (Windows `Scripts/<name>.exe`), and Core
+  links that path to the environment's `env/bin/<name>` with a relative symlink (Core's own `#!/bin/sh` launcher where a
+  link can't be made) or, on Windows, a hard link to `env\Scripts\<name>.exe` (pip's launcher; a `.cmd` path gets Core's
+  own `.cmd` launcher, and a Windows path without `.exe` or `.cmd` is invalid at Prepare). The readback goes through that
+  path: it must be launchable by Core's rules, be the environment's script (same file or Core's launcher bytes), and the
+  script must be one of the tool distribution's console scripts before the version is read; otherwise the readback
+  fails (`readback-failed`, which switches to the fallback like any readback failure). Core does not run the tool's own
+  code for the readback, since the plan names no version command. The receipt and `list` record it as
+  `aiSetup.executable { path, placed: member | environment | symlink | hardlink | launcher }`; it is inside the folder,
+  so removal takes it with the folder.
 - **Source builds.** A closure wheel with a recorded `build` (pinned `source`, exact `dependencies` wheels, observed host
   `tools`) uses its qualified bytes when obtainable and installable on the interpreter in use. Otherwise Core obtains the
   source and every dependency wheel exactly, makes an isolated build environment from that interpreter under the

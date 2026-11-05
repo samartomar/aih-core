@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
@@ -313,4 +313,79 @@ test('removing the last AI setup leaves no empty folder Core made: .aihq/ai-setu
       assert.equal(existsSync(join(fresh, '.aihq')), prior, prior ? 'a folder the person made stays' : 'the empty .aihq Core made goes');
     }
   } finally { Object.assign(process.env, saved); }
+});
+
+test('a Python tool\'s named executable is placed where the step names it, read back through it, and removed with the folder', async () => {
+  installedPython({ version: '3.13.1' });
+  const target = project();
+  const python = pythonSetup(server, { name: 'p-named', fallbackBytes });
+  assert.equal(python.step.executable, `${python.folder}/${process.platform === 'win32' ? 'Scripts/p-named.exe' : 'bin/p-named'}`);
+  const prepared = await prepare(setupRequest(target, [python]));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  const folder = join(home, ...python.folder.split('/'));
+  const named = join(home, ...python.step.executable.split('/'));
+  const entry = join(folder, 'env', ...(process.platform === 'win32' ? ['Scripts', 'p-named.exe'] : ['bin', 'p-named']));
+  assert.ok(existsSync(named), 'the step\'s executable exists at the path it names');
+  if (process.platform === 'win32') {
+    // On Windows a hard link to the environment's console-script launcher: the same file.
+    assert.equal(statSync(named, { bigint: true }).ino, statSync(entry, { bigint: true }).ino);
+  } else {
+    assert.ok(lstatSync(named).isSymbolicLink(), 'on POSIX a symlink to the environment\'s console script');
+    assert.equal(realpathSync(named), realpathSync(entry));
+  }
+  const listed = conforms(await list({ target: { project: target }, scope: 'user' }));
+  assert.deepEqual(listed.entries.find(row => row.managementId === python.id).aiSetup.executable,
+    { path: python.step.executable, placed: process.platform === 'win32' ? 'hardlink' : 'symlink' });
+
+  const removal = await prepareRemoval({ target: { project: target }, scope: 'user', removals: [{ managementId: python.id }] });
+  assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(existsSync(named), false, 'the placed executable goes with the folder');
+  assert.equal(existsSync(folder), false);
+});
+
+test('a named executable the environment does not provide fails the readback on both branches, and the step', async () => {
+  installedPython({ version: '3.13.1' });
+  // The tool wheel provides `other-tool`, but the step names `p-missing`: the readback through the named path fails.
+  const python = pythonSetup(server, { name: 'p-missing', fallbackBytes, scripts: ['other-tool'] });
+  const prepared = await prepare(setupRequest(project(), [python]));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  const step = run.steps.find(row => row.managementId === python.id);
+  assert.deepEqual([run.completion, step.application, step.reason], ['incomplete', 'failed', 'readback-failed']);
+  assert.equal(existsSync(join(home, ...python.folder.split('/'))), false);
+});
+
+test('an acquire step whose executable is outside its folder, or a native member that is not executable, is invalid', async () => {
+  noPython();
+  const target = project();
+  const python = pythonSetup(server, { name: 'p-shape', fallbackBytes });
+  const outside = structuredClone(python.step); outside.executable = '.aihq/ai-setup/other/1.0/x/bin/tool';
+  const invalid = await prepare(setupRequest(target, [{ ...python, step: outside }]));
+  assert.equal(invalid.status, 'invalid', JSON.stringify(invalid));
+  assert.deepEqual(invalid.problems.map(problem => problem.path), ['/plan/plan/0/executable']);
+  const native = nativeSetup(server, { name: 'n-shape' });
+  const license = { ...structuredClone(native.step), executable: `${native.folder}/LICENSE` };
+  const notExecutable = await prepare(setupRequest(target, [{ ...native, step: license }]));
+  assert.deepEqual(notExecutable.problems?.map(problem => problem.path), ['/plan/plan/0/executable'], JSON.stringify(notExecutable));
+  assert.equal(existsSync(join(home, ...native.folder.split('/'))), false);
+});
+
+test('on Windows a `.cmd` executable is Core\'s launcher for the console script, and a name without .exe or .cmd is invalid', { skip: process.platform !== 'win32' }, async () => {
+  installedPython({ version: '3.13.1' });
+  const target = project();
+  const python = pythonSetup(server, { name: 'p-cmd', fallbackBytes, executable: 'Scripts/p-cmd.cmd' });
+  const prepared = await prepare(setupRequest(target, [python]));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const named = join(home, ...python.step.executable.split('/'));
+  assert.equal(readFileSync(named, 'utf8'), '@"%~dp0..\\env\\Scripts\\p-cmd.exe" %*\r\n');
+  const entry = (await list({ target: { project: target }, scope: 'user' })).entries.find(row => row.managementId === python.id);
+  assert.deepEqual(entry.aiSetup.executable, { path: python.step.executable, placed: 'launcher' });
+
+  const bare = pythonSetup(server, { name: 'p-bare', fallbackBytes, executable: 'bin/p-bare' });
+  const invalid = await prepare(setupRequest(project(), [bare]));
+  assert.equal(invalid.status, 'invalid', JSON.stringify(invalid));
+  assert.match(invalid.problems[0].message, /Scripts\/<name>\.exe/);
 });

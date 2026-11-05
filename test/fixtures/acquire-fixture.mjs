@@ -93,18 +93,22 @@ export function fallbackArchive(base, facts) {
     { path: python, bytes: readFileSync(base), mode: 0o755 },
     { path: `${python}.fake.json`, bytes: Buffer.from(JSON.stringify(facts)), mode: 0o644 }], 1);
 }
-/** A wheel file's bytes (the fake interpreter never opens it). */
-export const wheelBytes = (name, version) => Buffer.from(`fixture wheel ${name} ${version}\n`);
+/** A wheel file's bytes; the fake interpreter's install reads only its `console_scripts=` line (the scripts it provides). */
+export const wheelBytes = (name, version, scripts = []) =>
+  Buffer.from(`fixture wheel ${name} ${version}\n${scripts.length ? `console_scripts=${scripts.join(',')}\n` : ''}`);
+/** Where Catalog names a Python tool's program inside its folder: `bin/<name>`, on Windows `Scripts/<name>.exe`. */
+export const pythonProgram = name => process.platform === 'win32' ? `Scripts/${name}.exe` : `bin/${name}`;
 
 /**
  * A Python AI setup in the Catalog shapes: its content item (with `mcpItem` when given), its qualification and the
- * acquire step. `server` serves the wheel, the closure and the fallback interpreter archive.
+ * acquire step. `server` serves the wheel, the closure and the fallback interpreter archive. The tool wheel provides the
+ * console `scripts`; the step names `executable` inside the folder (Catalog's naming by default; `null` names none).
  */
 export function pythonSetup(server, { name = 'review-graph', version = '2.3.9', range = '>=3.10', closure = [['networkx', '3.4.2']],
     fallbackVersion = '3.14.5', fallbackBytes, fallbackFile = `cpython-${fallbackVersion}-install_only.tar.gz`, cell = hostCell(),
-    id = `crg.ai-setup.${name}` } = {}) {
+    id = `crg.ai-setup.${name}`, scripts = [name], executable = pythonProgram(name) } = {}) {
   const wheelFile = `${name.replaceAll('-', '_')}-${version}-py3-none-any.whl`;
-  const wheel = wheelBytes(name.replaceAll('-', '_'), version);
+  const wheel = wheelBytes(name.replaceAll('-', '_'), version, scripts);
   server.serve(`/${wheelFile}`, wheel);
   const wheels = closure.map(([dist, at]) => {
     const file = `${dist}-${at}-py3-none-any.whl`; const bytes = wheelBytes(dist, at); server.serve(`/${file}`, bytes);
@@ -119,9 +123,10 @@ export function pythonSetup(server, { name = 'review-graph', version = '2.3.9', 
   const step = { op: 'acquire', aiSetup: id, version, cell,
     distribution: { kind: 'pypi-wheel', file: wheelFile, url: server.url(`/${wheelFile}`), sha256: sha256(wheel), bytes: wheel.length },
     qualification: `sha256:${documentSha(qualification)}`, scanned: false, into: `.aihq/ai-setup/${name}/${version}/${cell}/`,
+    ...(executable === null ? {} : { executable: `.aihq/ai-setup/${name}/${version}/${cell}/${executable}` }),
     closure: wheels, interpreter: { prefer: 'installed', range, fallback: { ...interpreter, url: server.url(`/${encodeURIComponent(fallbackFile)}`) } } };
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version, runtime: { python: range, closure: 'uv-lock' } } };
-  return { id, step, qualification, item, folder: `.aihq/ai-setup/${name}/${version}/${cell}`,
+  return { id, step, qualification, item, folder: `.aihq/ai-setup/${name}/${version}/${cell}`, program: executable,
     files: { [wheelFile]: wheel, ...Object.fromEntries(wheels.map(entry => [entry.file, wheelBytes(entry.name, entry.version)])), [fallbackFile]: fallbackBytes } };
 }
 

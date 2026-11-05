@@ -65,7 +65,9 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
 
 test('a closure wheel is built for real from its pinned sdist with a supplied pinned backend, offline, and recorded as built', { skip: python ? false : 'no host Python 3.9+ with venv and pip' }, async () => {
   const backend = pureWheel('tinyback', '1.0', { 'tinyback/__init__.py': BACKEND });
-  const tool = pureWheel('realtool', '1.0.0', { 'realtool.py': 'VERSION = "1.0.0"\n' });
+  // The tool provides a console script, as a real AI setup's wheel does; the step names it where Catalog does.
+  const tool = pureWheel('realtool', '1.0.0', { 'realtool.py': 'VERSION = "1.0.0"\ndef main():\n    print("realtool " + VERSION)\n',
+    'realtool-1.0.0.dist-info/entry_points.txt': '[console_scripts]\nrealtool = realtool:main\n' });
   const sdist = { file: 'tinytool-0.1.0.tar.gz', bytes: tarGz([{ path: 'tinytool-0.1.0' },
     { path: 'tinytool-0.1.0/pyproject.toml', bytes: Buffer.from('[build-system]\nrequires = ["tinyback==1.0"]\nbuild-backend = "tinyback"\n') },
     { path: 'tinytool-0.1.0/PKG-INFO', bytes: Buffer.from('Metadata-Version: 2.1\nName: tinytool\nVersion: 0.1.0\n') },
@@ -83,7 +85,7 @@ test('a closure wheel is built for real from its pinned sdist with a supplied pi
     observed: { artifact: { bytes: tool.bytes.length, file: tool.file, sha256: sha256(tool.bytes) }, closure, interpreter },
     result: { status: 'qualified', run: sha256('fixture run'), date: '2026-11-05' } };
   const step = { op: 'acquire', aiSetup: id, version: '1.0.0', cell, root: 'user', into: `.aihq/ai-setup/realtool/1.0.0/${cell}/`,
-    distribution: { kind: 'pypi-wheel', file: tool.file, sha256: sha256(tool.bytes), bytes: tool.bytes.length }, executable: 'realtool',
+    distribution: { kind: 'pypi-wheel', file: tool.file, sha256: sha256(tool.bytes), bytes: tool.bytes.length }, executable: `.aihq/ai-setup/realtool/1.0.0/${cell}/${process.platform === 'win32' ? 'Scripts/realtool.exe' : 'bin/realtool'}`,
     qualification: documentSha(qualification), closure: structuredClone(closure), interpreter: { prefer: 'installed', range: '>=3.9', fallback: structuredClone(interpreter) },
     scanned: false };
   const item = { id, kind: 'ai-setup', name: 'realtool', files: [], aiSetup: { version: '1.0.0', runtime: { python: '>=3.9' } } };
@@ -111,6 +113,9 @@ test('a closure wheel is built for real from its pinned sdist with a supplied pi
   { encoding: 'utf8', windowsHide: true }).trim());
   assert.deepEqual(installed, { tool: '1.0.0', built: '0.1.0', flag: true, backend: [] }, 'the backend stays in the build environment');
   assert.equal(existsSync(join(folder, 'build')), false, 'the build environment is removed');
+  // The named executable runs from where the step names it (a symlink on POSIX, a hard link to pip's launcher on Windows).
+  const named = join(home, ...step.executable.split('/'));
+  assert.equal(execFileSync(named, [], { encoding: 'utf8', windowsHide: true }).trim(), 'realtool 1.0.0');
 
   const entry = (await list({ target: { project: target }, scope: 'user' })).entries.find(row => row.managementId === id);
   assert.equal(validateFormat(await list({ target: { project: target }, scope: 'user' })).status, 'ok');
@@ -122,4 +127,5 @@ test('a closure wheel is built for real from its pinned sdist with a supplied pi
   assert.deepEqual(entry.aiSetup.downloads.find(record => record.role === 'build-source'), { role: 'build-source', file: sdist.file, sha256: sha256(sdist.bytes),
     origin: 'downloaded', url: server.url(`/sources/${sdist.file}`) });
   assert.ok(!readFileSync(join(folder, '.aih-acquired'), 'utf8').includes('tinytool'), 'the marker names only the qualified artifact');
+  assert.deepEqual(entry.aiSetup.executable, { path: step.executable, placed: process.platform === 'win32' ? 'hardlink' : 'symlink' });
 });

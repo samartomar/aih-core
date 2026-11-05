@@ -35,6 +35,11 @@ export interface AcquireSpec {
   closure: ClosureWheel[];
   /** A Python tool's interpreter choice: an installed one inside `range` first, then the qualified `fallback`. */
   interpreter: { range: string; fallback: Download & { version: string } } | null;
+  /**
+   * The program the step names (`executable`), relative to the folder; `null` when the step names none. A Python tool's
+   * is the environment's console script `script`, placed at `path` when that is outside `env/`.
+   */
+  executable: { path: string; script: string | null } | null;
 }
 /** The interpreter Prepare found (C46): in range, never byte-qualified. */
 export interface InstalledInterpreter { path: string; version: string }
@@ -46,6 +51,8 @@ export interface AcquireFacts {
   fallbackReason: string | null;
   /** Where each file the install used came from (C78). */
   downloads?: DownloadRecord[];
+  /** Where the step's named executable is and how Core put it there. */
+  executable?: import('../types.js').PlacedExecutable;
 }
 /** The real failures that switch an installed interpreter to the reviewed fallback (D105); `build-failed` only with a build. */
 export const FALLBACK_REASONS = ['none-found', 'outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed'] as const;

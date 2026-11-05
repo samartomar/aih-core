@@ -49,7 +49,11 @@ elif command == 'build':
     print(json.dumps({'wheels': sorted(os.listdir(out))}))
 elif command == 'readback':
     import importlib.metadata
-    print(json.dumps({'version': importlib.metadata.version(sys.argv[2])}))
+    dist = importlib.metadata.distribution(sys.argv[2])
+    # With a script name: it must be one of that distribution's console (or GUI) scripts.
+    if len(sys.argv) > 3 and sys.argv[3] not in {ep.name for ep in dist.entry_points if ep.group in ('console_scripts', 'gui_scripts')}:
+        sys.exit(1)
+    print(json.dumps({'version': dist.version}))
 else:
     sys.exit(2)
 `;

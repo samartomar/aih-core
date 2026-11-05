@@ -97,6 +97,7 @@
           },
           "fallback": false,
           "fallbackReason": null,
+          "executable": { "path": ".aihq/ai-setup/example-tool/2.3.9/linux-x64/bin/example-tool", "placed": "symlink" },
           "downloads": [
             {
               "role": "artifact",

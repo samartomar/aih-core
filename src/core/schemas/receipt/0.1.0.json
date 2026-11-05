@@ -146,7 +146,10 @@
                 "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
                   "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
                 "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] },
-                "downloads": { "type": "array", "items": { "$ref": "#/$defs/acquiredFile" } } } }
+                "downloads": { "type": "array", "items": { "$ref": "#/$defs/acquiredFile" } },
+                "executable": { "type": "object", "additionalProperties": false, "required": ["path", "placed"],
+                  "description": "The acquire step's named executable (home-relative) and how Core put it there: the native member, the environment's own entry point, or that entry point linked there (symlink, hardlink) or started by Core's launcher script",
+                  "properties": { "path": { "type": "string" }, "placed": { "enum": ["member", "environment", "symlink", "hardlink", "launcher"] } } } } }
           }
         }
       }

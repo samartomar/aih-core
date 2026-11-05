@@ -3,7 +3,8 @@
 // not named like Python it does nothing. It answers Core's fixed helper commands (`probe`, `venv`, `install`, `readback`)
 // the way the real helper would, driven by a `<executable>.fake.json` sidecar: `{ version, failWheels?, failInstall?, badReadback?,
 // incompatible?, failBuild? }`. `compatible` calls a wheel installable unless its file name starts with an `incompatible`
-// prefix; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
+// prefix; `install` makes each wheel's `console_scripts=` line into scripts in the environment and `readback <dist>
+// <script>` checks the script is that distribution's; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
 // after the sdist (`<name>-<version>.tar.gz`), unless `failBuild` (then a 60-line log on stderr, echoing `AIH_FIXTURE_TOKEN`).
 // It proves Core's branch logic only; it is not a real interpreter, pip or wheel install.
 'use strict';
@@ -30,9 +31,20 @@ if (/^python/i.test(basename(process.execPath))) {
     const refused = args.find(wheel => (facts.failWheels ?? []).some(name => basename(wheel).startsWith(name)));
     if (refused) { process.stderr.write(`Processing ./wheels/other\nERROR: ${basename(refused)} is not a supported wheel on this platform.\n`); process.exit(1); }
     if (facts.failInstall) { process.stderr.write('ERROR: Could not install packages due to an OSError: [Errno 28] No space left on device\n'); process.exit(1); }
-    const site = {};
-    for (const wheel of args) { if (!fs.existsSync(wheel)) process.exit(1); const [name, version] = basename(wheel).split('-'); site[name] = version; }
+    const site = {}; const scripts = {};
+    for (const wheel of args) {
+      if (!fs.existsSync(wheel)) process.exit(1);
+      const [name, version] = basename(wheel).split('-'); site[name] = version;
+      // The console scripts the wheel provides, made in the environment's scripts folder as pip would.
+      const listed = /^console_scripts=(.*)$/m.exec(fs.readFileSync(wheel, 'utf8'))?.[1];
+      for (const script of listed ? listed.split(',') : []) {
+        fs.writeFileSync(join(dirname(process.execPath), windows ? `${script}.exe` : script),
+          windows ? `fixture launcher ${script}\n` : `#!/bin/sh\necho ${script} ${version}\n`, { mode: 0o755 });
+        scripts[script] = name;
+      }
+    }
     fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-site.json'), JSON.stringify(site));
+    fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-scripts.json'), JSON.stringify(scripts));
     out({ ok: true });
   } else if (command === 'compatible') {
     out({ compatible: args.map(wheel => !(facts.incompatible ?? []).some(prefix => basename(wheel).startsWith(prefix))) });
@@ -57,6 +69,8 @@ if (/^python/i.test(basename(process.execPath))) {
   } else if (command === 'readback') {
     const site = JSON.parse(fs.readFileSync(join(dirname(dirname(process.execPath)), 'fake-site.json'), 'utf8'));
     if (!site[args[0]]) process.exit(1);
+    // With a script name: it must be one of that distribution's console scripts (pip's entry points).
+    if (args[1] !== undefined && JSON.parse(fs.readFileSync(join(dirname(dirname(process.execPath)), 'fake-scripts.json'), 'utf8'))[args[1]] !== args[0]) process.exit(1);
     out({ version: facts.badReadback ? '0.0.0' : site[args[0]] });
   } else process.exit(2);
   process.exit(0);

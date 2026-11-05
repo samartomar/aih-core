@@ -143,6 +143,13 @@ export interface ReviewStep {
 export type DownloadSource = { kind: 'supplied'; folder: string } | { kind: 'url'; url: string } |
   { kind: 'index'; index: 'pypi'; name: string; version: string } | { kind: 'index'; index: 'python-build-standalone'; release: string } |
   { kind: 'none' };
+/**
+ * Where an AI setup's named `executable` (the acquire step's, home-relative) is and how Core put it there: `member` (a
+ * native archive's extracted member), `environment` (the step names the environment's own entry point), or the entry
+ * point linked there: `symlink` (POSIX), `hardlink` (Windows `.exe`), or Core's own `launcher` script (a POSIX host
+ * that can't make the link, or a Windows `.cmd`).
+ */
+export interface PlacedExecutable { path: string; placed: 'member' | 'environment' | 'symlink' | 'hardlink' | 'launcher' }
 export type DownloadRole = 'artifact' | 'closure' | 'interpreter' | 'build-source' | 'build-dependency';
 export interface ReviewDownload {
   role: DownloadRole; file: string; sha256: string; source: DownloadSource;
@@ -358,7 +365,7 @@ export interface InventoryEntry {
   programs?: ProgramFacts[];
   /** An AI setup: the interpreter its install used and whether the fallback ran (C46). */
   aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null;
-    downloads?: AcquiredFile[] };
+    downloads?: AcquiredFile[]; executable?: PlacedExecutable };
   /** A local-plugin install (C68): the items it contains (`null` when the plan named none) and its files. */
   localPlugin?: { contains: string[] | null; files: string[] };
   /** A switch-off of one plugin item (C45, C69): removing this entry turns the item back on. */
