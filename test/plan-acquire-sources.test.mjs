@@ -6,11 +6,11 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare } from '../dist/core/index.js';
-import { validateFormat } from '../dist/core/contracts.js';
+import { schemas, validateFormat } from '../dist/core/contracts.js';
 import { indexBases } from '../dist/core/plan/acquire/sources.js';
 import { artifactServer, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, nativeSetup, pypiIndex, pythonSetup, setupRequest,
   suppliedFolder, withoutUrls } from './fixtures/acquire-fixture.mjs';
@@ -131,4 +131,27 @@ test('an index answer whose file has other bytes fails closed; an index with no 
   const again = await prepare(setupRequest(project(), [missing]));
   const failed = await apply(again.handle, approve(again.review));
   assert.deepEqual([byId(failed, missing.id).application, byId(failed, missing.id).reason], ['failed', 'artifact-unavailable']);
+});
+
+test('the receipt records each acquired file origin in the published receipt format; inconsistent records are invalid', async () => {
+  const id = 'urn:aihq:core:receipt:0.1.0';
+  const example = schemas[id].fixtures.valid;
+  conforms(example);
+  const aiSetup = Object.values(example.items).find(item => item.plan?.aiSetup).plan.aiSetup;
+  assert.deepEqual(aiSetup.downloads.map(entry => entry.origin), ['supplied', 'downloaded', 'downloaded', 'supplied', 'built']);
+  assert.notEqual(validateFormat(schemas[id].fixtures.invalid).status, 'ok');
+  const variant = change => { const copy = structuredClone(example); change(Object.values(copy.items).find(item => item.plan?.aiSetup).plan.aiSetup.downloads); return validateFormat(copy).status; };
+  assert.equal(variant(downloads => { downloads[0].url = 'https://example.invalid/x.whl'; }), 'invalid', 'a supplied file has no URL');
+  assert.equal(variant(downloads => { delete downloads[1].url; }), 'invalid', 'a download names its URL');
+  assert.equal(variant(downloads => { downloads[4].built.byteQualified = true; }), 'invalid', 'a built wheel is never byte-qualified');
+  assert.equal(variant(downloads => { downloads[4].role = 'artifact'; }), 'invalid', 'only a closure wheel is built');
+  assert.equal(variant(downloads => { downloads[2].origin = 'guessed'; }), 'invalid');
+
+  // Every receipt Core stored in this file's runs is in that format.
+  const ownership = join(home, '.aih', 'core', 'ownership');
+  const stored = readdirSync(ownership, { recursive: true }).filter(name => String(name).endsWith('.json'));
+  const receipts = stored.map(name => JSON.parse(readFileSync(join(ownership, String(name)), 'utf8'))).filter(document => document.schema === id);
+  const withDownloads = receipts.filter(document => Object.values(document.items ?? {}).some(item => item.plan?.aiSetup?.downloads?.length));
+  assert.ok(withDownloads.length > 0, 'a stored receipt records acquired files');
+  for (const document of receipts) conforms(document);
 });
