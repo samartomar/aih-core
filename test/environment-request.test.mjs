@@ -287,3 +287,16 @@ test('a repair without a required input names that input and the values it takes
   assert.match(problem.message, /`originId`/);
   assert.match(problem.message, /npm-registry/);
 });
+
+test('a several-target repair blocked by its targets names each target that blocked it', async () => {
+  const { home, file } = setup();
+  if (process.platform === 'win32') mkdirSync(join(home, 'AppData', 'Roaming'), { recursive: true });
+  // Fixture executables answer nothing a real Python or Git would, so neither target's effective trust is established.
+  await withTool(process.platform === 'win32' ? 'python' : 'python3', withTool('git', async () => {
+    const blocked = await prepare({ ...pipRepair(file), targets: ['pip', 'git'], network: 'declared' }, { logging: 'off' });
+    assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+    const problems = blocked.review.environment.unavailable;
+    for (const target of ["pip", "git"])
+      assert.ok(problems.some(problem => problem.code === 'PREREQUISITE_UNAVAILABLE' && problem.message.includes(`\`${target}\``)), JSON.stringify(problems));
+  }))();
+});

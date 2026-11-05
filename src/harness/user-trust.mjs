@@ -31,11 +31,15 @@ function effectiveRepairGate(variant, executablePaths) {
   try { results = child.status === 0 && !child.error ? JSON.parse(child.stdout) : undefined; } catch {}
   if (!Array.isArray(results) || results.length !== requests.length) return invalid('effective-trust-unavailable',
     'Effective trust could not be established within its process bound.', 'PREREQUISITE_UNAVAILABLE');
-  if (results.some(result => result.decision === 'no-repair')) return { status: 'blocked', diagnostics: [{
-    code: 'REPAIR_NOT_NEEDED', reason: results.every(result => result.decision === 'no-repair') ? 'effective-trust' : 'select-only-needed-targets',
-    message: 'A selected process already trusts its endpoint. Exclude it before preparing a scoped CA fallback.' }] };
-  const unresolved = results.find(result => result.decision !== 'bundle-fallback');
-  if (unresolved) return invalid(unresolved.reason, 'Resolve the selected process trust/backend before preparing a CA fallback.', 'PREREQUISITE_UNAVAILABLE');
+  // Each target that stops the repair is named, so a several-target review says which one to resolve or leave out.
+  const named = (decision, text) => requests.flatMap((request, index) => results[index].decision === decision ||
+    decision === undefined && results[index].decision !== 'bundle-fallback' && results[index].decision !== 'no-repair' ?
+    [{ target: request.target, reason: results[index].reason, message: `\`${request.target}\`: ${text}` }] : []);
+  const trusted = named('no-repair', 'this process already trusts its endpoint. Leave it out before preparing a scoped CA fallback.');
+  if (trusted.length) return { status: 'blocked', diagnostics: trusted.map(row => ({
+    code: 'REPAIR_NOT_NEEDED', reason: trusted.length === requests.length ? 'effective-trust' : 'select-only-needed-targets', message: row.message })) };
+  const unresolved = named(undefined, 'resolve this process\'s trust or TLS backend before preparing a CA fallback.');
+  if (unresolved.length) return { status: 'blocked', diagnostics: unresolved.map(row => ({ code: 'PREREQUISITE_UNAVAILABLE', reason: row.reason, message: row.message })) };
 }
 
 // Process observations are separate from native admission. No store, account or configuration writes.
