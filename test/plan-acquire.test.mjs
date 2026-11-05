@@ -69,6 +69,12 @@ test('a missing or disagreeing qualification refuses Prepare before any effect',
   const nameless = structuredClone(native.step); delete nameless.distribution.url; delete nameless.distribution.file;
   const invalid = await prepare(setupRequest(target, [{ ...native, step: nameless }]));
   assert.equal(invalid.status, 'invalid', JSON.stringify(invalid));
+  // A Python tool always names its fallback interpreter (Catalog never plans `fallback: null`): a malformed plan.
+  const fallbackless = structuredClone(python.step); fallbackless.interpreter.fallback = null;
+  const malformed = await prepare(setupRequest(target, [{ ...python, step: fallbackless }]));
+  assert.equal(malformed.status, 'invalid', JSON.stringify(malformed));
+  assert.deepEqual(malformed.problems.map(problem => problem.path), ['/plan/plan/0/interpreter/fallback']);
+  assert.equal(existsSync(join(home, '.aihq')), false, 'nothing is written');
 });
 
 test('a native archive installs its qualified members, lists, and is removed with its folder', async () => {
