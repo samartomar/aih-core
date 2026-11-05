@@ -320,7 +320,8 @@ export async function inspectUserToolTrust(request, controls = {}) {
   if (result.reason) return fail(result.reason);
   const certificateFailure = target === 'git' || target === 'cargo' ?
     /SSL certificate problem: (?:unable to get local issuer certificate|self-signed certificate|certificate verify failed)/i.test(result.stderr ?? '') :
-    target === 'pip' && /CERTIFICATE_VERIFY_FAILED/.test(result.stderr ?? '');
+    // pip 26.1 `index versions` reports the certificate failure on stdout ("Could not fetch URL ..."), not stderr.
+    target === 'pip' && /CERTIFICATE_VERIFY_FAILED/.test(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   const tls = ['python', 'conda'].includes(target) ? json(result)?.tls : result.code === 0 ? 'passed' : certificateFailure ? 'certificate-chain' : 'unconfirmed';
   if (tls === 'passed') return { decision: 'no-repair', reason: 'effective-trust', observation };
   if(target==='conda' && tls==='certificate-chain' && observation.sslVerify===true) {

@@ -88,6 +88,13 @@ test('pip trust and repair checks use the same selected Python environment', {sk
     assert.equal(recipe.inputs.pipExecutable,undefined);
     assert.deepEqual(recipe.checks.find(item=>item.id==='pip-installed').args.map(item=>item.literal),['-m','pip','--version']);
     assert.ok(recipe.checks.find(item=>item.id==='pip-behavior').args.some(item=>item.input==='pythonExecutable'));
+    // pip 26.1 `index versions` reports the certificate failure on stdout; stderr only says no distribution was found.
+    fixture(root,source.replace("console.error('CERTIFICATE_VERIFY_FAILED');",
+      "console.log(\"Could not fetch URL https://pypi.org/simple/pip/: There was a problem confirming the ssl certificate: (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1032)'))) - skipping\");console.error('ERROR: No matching distribution found for pip');"));
+    const stdout=await runtime.inspectUserToolTrust(request);
+    assert.deepEqual([stdout.decision,stdout.reason],['bundle-fallback','certificate-chain']);
+    fixture(root,source.replace("console.error('CERTIFICATE_VERIFY_FAILED');","console.error('ERROR: No matching distribution found for pip');"));
+    assert.equal((await runtime.inspectUserToolTrust(request)).reason,'connection-unconfirmed');
     fixture(root,source.replace("console.error('CERTIFICATE_VERIFY_FAILED');process.exit(1);",'process.exit(0);'));
     assert.equal((await runtime.inspectUserToolTrust(request)).decision,'no-repair');
     process.env.PIP_CERT=join(root,'override.pem');
