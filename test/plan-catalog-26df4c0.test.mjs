@@ -1,5 +1,5 @@
 // Real Catalog plans through Core (samartomar/aih-core#163): plans, content, profiles and render bytes recorded from the
-// @aihq/catalog package built at samartomar/aih-catalog 767cd4e (test/fixtures/catalog-767cd4e), prepared and applied
+// @aihq/catalog package built at samartomar/aih-catalog 26df4c0 (test/fixtures/catalog-26df4c0), prepared and applied
 // through the built public entries in a disposable home and project, then removed. This is real producer output for that
 // unreleased candidate; it shows Core carries out its shapes, not that any client loads the result. The AI clients on PATH
 // are fakes (test/fixtures/fake-client.mjs and two version-printing scripts); no real client runs.
@@ -12,9 +12,9 @@ import { delimiter, dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
-import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-767cd4e/replay.mjs';
+import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-26df4c0/replay.mjs';
 
-const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-767cd4e-'));
+const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-26df4c0-'));
 const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_CLIENT_STATE', 'FAKE_CLIENT_MODE'];
 const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 const bin = join(scratch, 'bin'), clients = join(scratch, 'clients');
@@ -109,6 +109,16 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   assert.equal(run.completion, 'complete', JSON.stringify(run).slice(0, 3000));
   const roots = { user: home, project: target };
   placed(request.plan, recorded.byo.files, roots);
+  if (scope === 'project') {
+    // Catalog 26df4c0's Cursor and OpenCode profiles declare their own environment reference for MCP env: their files
+    // hold the reference, never the secret; a client with none (Claude Code) holds the value and the review warns.
+    const cursor = JSON.parse(readFileSync(join(target, '.cursor', 'mcp.json'), 'utf8'));
+    assert.equal(cursor.mcpServers['exa-web-search'].env.EXA_API_KEY, '${env:EXA_API_KEY}');
+    const opencode = JSON.parse(readFileSync(join(target, 'opencode.json'), 'utf8'));
+    assert.equal(opencode.mcp['exa-web-search'].environment.EXA_API_KEY, '{env:EXA_API_KEY}');
+    const claude = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'));
+    assert.equal(claude.mcpServers['exa-web-search'].env.EXA_API_KEY, BYO_SECRET);
+  }
   await removeAll(target, scope);
   gone(request.plan, roots);
   assert.equal(existsSync(join(home, '.config', 'opencode')), true, 'removal keeps the folder the CLI made for itself');
@@ -200,7 +210,7 @@ test('a real plugin-route recipe plan installs Superpowers on Claude Code from i
   const target = project();
   const request = recipeRequest('superpowers', target);
   const commit = request.plan.plan.find(step => step.op === 'plugin').commit;
-  // Catalog 767cd4e: Claude's marketplace is one the plan writes (pinned by commit), named `aihq-<framework>`.
+  // Catalog 26df4c0: Claude's marketplace is one the plan writes (pinned by commit), named `aihq-<framework>`.
   assert.deepEqual(request.plan.plan.filter(step => step.op === 'plugin').map(step => [step.cli, step.marketplace, step.marketplaceName, step.pin]),
     [['claude-code', { root: 'user', path: '.aihq/marketplaces/claude-code/superpowers' }, 'aihq-superpowers', undefined],
       ['codex', 'https://github.com/obra/superpowers', 'superpowers-dev', undefined]]);
@@ -255,7 +265,7 @@ test('a rule placeholder is filled where the plan binds it: in its own file and 
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), { catalog })).completion, 'complete');
   assert.equal(readFileSync(join(target, '.claude', 'rules', 'team.md'), 'utf8'), '# Team\n\nAsk platform before changing the style.\n');
-  // Catalog 767cd4e binds the placeholder on Codex's `AGENTS.md` rule-block merge too.
+  // Catalog 26df4c0 binds the placeholder on Codex's `AGENTS.md` rule-block merge too.
   const sharedTarget = project();
   const shared = rulesRequest('shared', sharedTarget);
   const block = shared.plan.plan.find(step => step.op === 'merge');
@@ -289,7 +299,7 @@ test('a plugin step whose pin Catalog marks unverified says so in the review: Co
 
 test('a settings command with no qualification (a recipe\'s replacement settings) is lowered and its review says no qualification ran it', async () => {
   // Core-side change of the real linux-x64 plan, as in the test above, with each command's qualification dropped: the
-  // shape Catalog 767cd4e plans for a recipe's own settings.
+  // shape Catalog 26df4c0 plans for a recipe's own settings.
   const request = cbmRequest(project(), 'linux-x64');
   request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(({ qualification, ...step }) => process.platform === 'win32' ?
     { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
@@ -367,7 +377,7 @@ test('Catalog\'s real tool-trio plan for linux-x64: refused on another cell; its
 
 test('an AI setup settings file Catalog places under .aihq/ai-setup/<name>/settings/ installs and removes like any write', async () => {
   // Core-side FIXTURE: Catalog's data names no settings file yet, so the real cbm content gains one AI-setup file and
-  // the plan one write step of the shape Catalog 767cd4e plans for it (`from.item` the AI setup, the user root).
+  // the plan one write step of the shape Catalog 26df4c0 plans for it (`from.item` the AI setup, the user root).
   const target = project();
   const request = cbmRequest(target, 'linux-x64');
   const text = '{ "watcher": false }\n';
