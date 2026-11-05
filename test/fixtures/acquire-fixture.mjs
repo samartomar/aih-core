@@ -7,7 +7,8 @@ import https from 'node:https';
 import { copyFileSync, linkSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { crc32, gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { CONTENT, PLAN_REQUEST, sha256 } from './plan-fixture.mjs';
 
 export const QUALIFICATION = 'urn:aihq:catalog:qualification:0.1.0';
@@ -200,4 +201,64 @@ export function pypiIndex(server, index, setup, served = {}, omit = [], extra = 
     byRelease.set(key, answer);
   }
   for (const [key, answer] of byRelease) server.serve(key, Buffer.from(JSON.stringify(answer)));
+}
+
+/**
+ * Adds one closure wheel with a recorded source `build` (Catalog's qualification shape) to a Python setup, in both the
+ * step and its qualification (re-signed). The qualified wheel `<name>-<version>-cp399-cp399-fixture_platform.whl` is served
+ * only when `served`; the sdist and dependency wheels are served under `/build/`. Build `dependencies` are `[[name, version]]`
+ * and carry no URL; the source records one. `tools` are `{ name, version, sha256 }`.
+ */
+export function withBuild(server, setup, { name = 'yamlish', version = '6.0.3', dependencies = [['backend', '1.0']], tools = [], served = false,
+    sourceBytes = Buffer.from(`fixture sdist ${name} ${version}\n`), wheelBytes: qualifiedBytes = Buffer.from(`fixture qualified wheel ${name} ${version}\n`) } = {}) {
+  const file = `${name}-${version}-cp399-cp399-fixture_platform.whl`;
+  if (served) server.serve(`/${file}`, qualifiedBytes);
+  const sourceFile = `${name}-${version}.tar.gz`;
+  server.serve(`/build/${sourceFile}`, sourceBytes);
+  const deps = dependencies.map(([dist, at]) => {
+    const depFile = `${dist}-${at}-py3-none-any.whl`; const bytes = wheelBytes(dist, at);
+    server.serve(`/build/${depFile}`, bytes); setup.files[depFile] = bytes;
+    return { file: depFile, name: dist, sha256: sha256(bytes), version: at };
+  });
+  setup.files[sourceFile] = sourceBytes; setup.files[file] = qualifiedBytes;
+  const build = { dependencies: deps, interpreter: structuredClone(setup.qualification.observed.interpreter), isolated: true,
+    source: { bytes: sourceBytes.length, file: sourceFile, sha256: sha256(sourceBytes), url: server.url(`/build/${sourceFile}`) }, tools };
+  const entry = { build, file, name, sha256: sha256(qualifiedBytes), version };
+  const qualification = structuredClone(setup.qualification);
+  qualification.observed.closure.push(entry);
+  const step = structuredClone(setup.step);
+  step.closure.push({ ...structuredClone(entry), ...(served ? { url: server.url(`/${file}`) } : {}) });
+  step.qualification = `sha256:${documentSha(qualification)}`;
+  return { ...setup, step, qualification, build: { file, sourceFile, dependencies: deps } };
+}
+
+/** A stored (uncompressed) `.zip` of `{ path: bytes }`. */
+export function zipStored(files) {
+  const locals = []; const centrals = []; let offset = 0;
+  for (const [path, data] of Object.entries(files)) {
+    const name = Buffer.from(path); const crc = crc32(data);
+    const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE((0o100644 << 16) >>> 0, 38); central.writeUInt32LE(offset, 42);
+    locals.push(local, name, data); centrals.push(central, name); offset += 30 + name.length + data.length;
+  }
+  const directory = Buffer.concat(centrals); const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(Object.keys(files).length, 8); end.writeUInt16LE(Object.keys(files).length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+/**
+ * A real, installable pure-Python wheel `<name>-<version>-py3-none-any.whl` of `{ path: text }` modules, with METADATA,
+ * WHEEL and a RECORD of sha256 digests. A Core-side fixture package: it is no published project.
+ */
+export function pureWheel(name, version, modules) {
+  const dist = `${name}-${version}.dist-info`;
+  const files = Object.fromEntries(Object.entries(modules).map(([path, text]) => [path, Buffer.from(text)]));
+  files[`${dist}/METADATA`] = Buffer.from(`Metadata-Version: 2.1\nName: ${name}\nVersion: ${version}\n`);
+  files[`${dist}/WHEEL`] = Buffer.from('Wheel-Version: 1.0\nGenerator: aih-core-fixture\nRoot-Is-Purelib: true\nTag: py3-none-any\n');
+  const digest = data => 'sha256=' + createHash('sha256').update(data).digest('base64url');
+  files[`${dist}/RECORD`] = Buffer.from(Object.entries(files).map(([path, data]) => `${path},${digest(data)},${data.length}\n`).join('') + `${dist}/RECORD,,\n`);
+  return { file: `${name}-${version}-py3-none-any.whl`, bytes: zipStored(files) };
 }
