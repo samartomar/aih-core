@@ -154,7 +154,10 @@ test('a plan-namespaced name reference is a warning; only a path reference is pl
   const reference = { kind: 'name', item: 'my-skills.skill.notes', file: 'skills/notes/SKILL.md', name: 'other:plan', clis: ['claude-code'] };
   const named = byoRequest('project', project());
   named.plan.references = [reference];
-  assert.equal((await prepare(named, byoControls())).status, 'ready');
+  const warned = await prepare(named, byoControls());
+  assert.equal(warned.status, 'ready');
+  assert.deepEqual(warned.review.warnings.filter(text => text.includes('other:plan')),
+    ['`skills/notes/SKILL.md` of `my-skills.skill.notes` names `other:plan`, which this plan does not install: it works only where that plugin is installed for claude-code.']);
   const pathed = byoRequest('project', project());
   pathed.plan.references = [{ kind: 'path', item: 'my-skills.skill.notes', file: 'skills/notes/SKILL.md', path: 'docs/missing.md', clis: ['claude-code'] }];
   assert.equal((await prepare(pathed, byoControls())).code, 'plan-unresolved');

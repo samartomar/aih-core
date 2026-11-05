@@ -579,7 +579,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const { plan: _steps, ...reports } = request.plan;
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: update ? 'update' : 'plan', scope: request.scope, target: { project },
     plan: reports, origin: proven.origin, originNote: proven.note, steps, conflicts,
-    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...heldWarnings, ...(compared?.warnings ?? [])],
+    ignoredFiles: checked.ignoredFiles, failureRule: FAILURE_RULE, warnings: [...secretWarnings(checked.steps), ...nameReferenceWarnings(request.plan.references as unknown[]), ...heldWarnings, ...(compared?.warnings ?? [])],
     ...(compared ? { versions: compared.versions as unknown as Json[] } : {}), ...(admission ? { organization: admission.review } : {}),
     ...(scanned ? { scans: scanned.scans, notScanned: notScanned(request.plan.plan) } : {}) };
   if (scanned) body.warnings.push(...scanned.remember(heldScanKeys(home)));
@@ -763,6 +763,19 @@ const named = (ids: string[]): string => ids.map(id => `\`${id}\``).join(', ');
 function secretWarnings(steps: CheckedStep[]): string[] {
   const files = [...new Set(steps.flatMap(step => step.lowered.bound?.secretFiles ?? []))].sort(codeUnitCompare);
   return files.map(file => `\`${file}\`: this file will hold a secret, written as its value because the client's profile declares no environment reference there.`);
+}
+
+/**
+ * Catalog's plugin-namespaced `name` references (a file naming `<plugin>:<item>`): never a stop, one warning each, since
+ * the name resolves only where that plugin is installed.
+ */
+function nameReferenceWarnings(references: unknown[]): string[] {
+  return references.flatMap(reference => {
+    const { kind, item, file, name, clis } = (reference ?? {}) as { kind?: unknown; item?: unknown; file?: unknown; name?: unknown; clis?: unknown };
+    if (kind !== 'name' || typeof item !== 'string' || typeof file !== 'string' || typeof name !== 'string') return [];
+    const served = Array.isArray(clis) && clis.length && clis.every(cli => typeof cli === 'string') ? ` for ${clis.join(', ')}` : '';
+    return ['`' + file + '` of `' + item + '` names `' + name + '`, which this plan does not install: it works only where that plugin is installed' + served + '.'];
+  });
 }
 
 /** The planned entry as the review shows it: slots that hold a secret value read `[REDACTED]`. */
