@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { artifactServer, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, nativeSetup, pythonSetup, setupRequest } from './acquire-fixture.mjs';
+import { artifactServer, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, nativeSetup, pypiIndex, pythonSetup, setupRequest, suppliedFolder,
+  withoutUrls } from './acquire-fixture.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const approve = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
@@ -17,8 +18,13 @@ if (process.argv[2] === 'child') {
   const { apply, list, prepare, prepareRemoval } = await import('@aihq/core');
   const { validateFormat } = await import('@aihq/core/contracts');
   const conforms = value => { assert.equal(validateFormat(value).status, 'ok', JSON.stringify(validateFormat(value))); return value; };
-  const [, , , mode, file, project] = process.argv;
+  const [, , , mode, file, project, indexBase] = process.argv;
   let out;
+  if (indexBase) {
+    // Core's internal index-base seam (not a public entry), pointed at the fixture server: the same module the package loads.
+    const { indexBases } = await import('./node_modules/@aihq/core/dist/core/plan/acquire/sources.js');
+    indexBases.pypi = `${indexBase}/pypi-index`; indexBases.pythonBuildStandalone = `${indexBase}/pbs`;
+  }
   if (mode === 'install') {
     const prepared = await prepare(JSON.parse(readFileSync(file, 'utf8')));
     if (prepared.status !== 'ready') { console.log(JSON.stringify({ prepared })); process.exit(0); }
@@ -100,6 +106,28 @@ try {
       ['complete', 'fallback', 'wheel-install-failed'], JSON.stringify(out));
     const entry = out.list.entries.find(row => row.managementId === fallsBack.id);
     assert.deepEqual([entry.aiSetup.branch, entry.aiSetup.fallback, entry.aiSetup.interpreter.version], ['fallback', true, '3.14.5']);
+  });
+  await check('cli-installs-from-supplied-artifacts', async () => {
+    const supplied = withoutUrls(nativeSetup(server, { name: 'packed-supplied' }));
+    const folder = suppliedFolder(mkdtempSync(join(root, 'artifacts-')), { [supplied.step.distribution.file]: supplied.archive });
+    const file = write('supplied', setupRequest(project, [supplied]));
+    const reviewed = await aih(['install', file, '--artifacts', folder, '--json'], environment(bins.ok, false));
+    assert.deepEqual(reviewed.result.review.steps[0].acquire.downloads[0].source, { kind: 'supplied', folder }, JSON.stringify(reviewed.result));
+    const { code, result } = await aih(['install', file, '--artifacts', folder, '--apply', '--yes', '--json'], environment(bins.ok, false));
+    assert.deepEqual([code, result.completion], [0, 'complete'], JSON.stringify(result));
+    assert.equal(readFileSync(join(process.env.HOME, ...supplied.folder.split('/'), 'LICENSE'), 'utf8'), 'MIT\n');
+    const missing = await aih(['install', write('unsupplied', setupRequest(project, [withoutUrls(nativeSetup(server, { name: 'packed-unsupplied' }))])), '--apply', '--yes', '--json'],
+      environment(bins.ok, false));
+    assert.deepEqual([missing.result.completion, missing.result.steps[0].reason], ['incomplete', 'artifact-unavailable'], JSON.stringify(missing.result));
+  });
+  await check('index-resolution-without-urls', async () => {
+    const indexed = withoutUrls(pythonSetup(server, { name: 'packed-indexed', fallbackBytes, fallbackFile: 'cpython-3.14.5+20261026-fixture-install_only.tar.gz' }));
+    pypiIndex(server, `${server.base}/pypi-index`, indexed);
+    server.serve(`/pbs/20261026/${encodeURIComponent(indexed.step.interpreter.fallback.file)}`, fallbackBytes);
+    const out = await child(['install', write('indexed', setupRequest(project, [indexed])), project, server.base], environment(bins.broken, true));
+    assert.deepEqual([out.run.completion, out.run.steps[0].interpreter.branch], ['complete', 'fallback'], JSON.stringify(out));
+    const entry = out.list.entries.find(row => row.managementId === indexed.id);
+    assert.ok(entry.aiSetup.downloads.every(record => record.origin === 'downloaded' && record.url.startsWith(server.base)), JSON.stringify(entry.aiSetup));
   });
   await check('removal-removes-ai-setup-folder', async () => {
     const folder = join(process.env.HOME, ...fallsBack.folder.split('/'));

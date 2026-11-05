@@ -78,7 +78,7 @@ unchanged underneath this view.
 ## Commands
 
 ```
-aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--apply [--yes] [--allow-partial]] [--json]
+aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--artifacts <dir>] [--apply [--yes] [--allow-partial]] [--json]
 aih change <change-request.json> [--project <path>] [--material-root <id>=<folder>]... [--apply [--yes] [--allow-partial]] [--json]
 aih list [--project <path>] [--scope project|user|both] [--json]
 aih remove <managementId>... --scope project|user [--project <path>] [--item <item-id>] [--origin chosen] [--cli <id>]... [--apply [--yes] [--allow-partial]] [--json]
@@ -835,16 +835,34 @@ qualification documents the plan's acquire steps name in `qualifications`.
   when none matches) and checks that the step agrees with it: AI setup, version and cell, `qualified` status, the
   artifact's sha256 (and file and byte count where both name them), a native archive's members, a Python tool's wheel
   closure and its fallback interpreter (`qualification-mismatch`). A step for another platform cell is `cell-mismatch`.
-  Core downloads only from an https `url`; a distribution with only a `file` is `invalid`. `npm` and `git`
-  distributions are refused `step-unknown` for now. Prepare probes each download host with this machine's Node trust:
-  a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`, never an Apply failure.
+  `npm` and `git` distributions are refused `step-unknown` for now. The plan and qualifications are never changed.
+- **Where bytes come from.** Prepare fixes one source per download (artifact, closure wheel, fallback interpreter, build
+  source, build dependency) and the review step's `acquire.downloads` shows it with the sha256; approval covers it.
+  The first that applies: a file of that exact name in the caller's `controls.artifacts` folder (CLI `--artifacts <dir>`;
+  an absolute path to an existing folder, only read, Core copies what it uses); the https `url` the step records; or
+  resolution by exact identity at Apply: wheels and sdists through PyPI's JSON API (`/pypi/<name>/<version>/json`, the
+  `urls[]` entry whose `filename` and `digests.sha256` are the planned ones), a fallback interpreter through its
+  python-build-standalone release download (tag = the `+YYYYMMDD` part of its file name). Every byte is checked against
+  the qualified sha256 (and byte count when recorded): a mismatch is `artifact-mismatch` and never falls through to
+  another source; nothing obtainable is `artifact-unavailable`. Prepare probes each remote source's host with this
+  machine's Node trust: a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`.
 - **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
   `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
   qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,
-  `wheel-install-failed`, `readback-failed`); approval covers both. Apply downloads the byte-checked closure and wheel,
+  `wheel-install-failed`, `readback-failed`, and `build-failed` when the closure records a build); approval covers both. Apply downloads the byte-checked closure and wheel,
   makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
   and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
   `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
+- **Source builds.** A closure wheel with a recorded `build` (pinned `source`, exact `dependencies` wheels, observed host
+  `tools`) uses its qualified bytes when obtainable and installable on the interpreter in use. Otherwise Core obtains the
+  source and every dependency wheel exactly, makes an isolated build environment from that interpreter under the
+  folder's `build/`, installs only those wheels offline and builds with `pip wheel --no-index --no-deps
+  --no-build-isolation`, with pip configuration, user site and index variables neutralised. The built wheel must be the
+  closure entry's name and version; it is recorded as built from pinned source (`byteQualified: false`, with the source
+  and dependency sha256s and its own), never as the qualified bytes. Host tools are prerequisites: a missing one is
+  `build-failed`; the observed version and executable sha256 are recorded next to the qualification's, without being
+  compared. A build failure on the installed interpreter switches to the fallback, which tries qualified bytes and then
+  builds again. `build/` is removed once the install finishes.
 - **Native archives** (`.tar.gz`, `.zip`): Apply extracts exactly the qualified members, each byte-checked, with their
   executable bit.
 - **Bounds:** one artifact is at most `artifact-bytes`, expands to at most `artifact-expanded-bytes` and
@@ -852,7 +870,8 @@ qualification documents the plan's acquire steps name in `qualifications`.
 - **Outcomes.** Downloaded bytes that differ from the qualification fail that step (`reason: artifact-mismatch`); the
   rest of its item and every item that depends on it (Catalog `dependencies`, or the AI setup's `mcpItem`) are
   `not-attempted`, unrelated items continue, and the run is `incomplete`. The run step's `interpreter`, the receipt and
-  `list`'s `aiSetup` record which branch ran and why the fallback did. `onProgress` on the Apply call receives each
+  `list`'s `aiSetup` record which branch ran and why the fallback did; `aiSetup.downloads` records, per file, its origin:
+  `supplied`, `downloaded` with the URL, or `built`. `onProgress` on the Apply call receives each
   acquisition's `start`, `bytes`, `fallback` and `finish` events.
 - **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
   acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and

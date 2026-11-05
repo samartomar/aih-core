@@ -33,7 +33,8 @@ test('a packed consumer acquires AI setups installed-interpreter-first, falls ba
     const receipt = JSON.parse(run(['plan-acquire-consumer.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
     assert.deepEqual(receipt.checks, ['untrusted-tls-refused-at-prepare', 'cli-installs-native-archive-with-repaired-trust',
-      'installed-interpreter-first', 'forced-failure-uses-reviewed-fallback', 'removal-removes-ai-setup-folder']);
+      'installed-interpreter-first', 'forced-failure-uses-reviewed-fallback', 'cli-installs-from-supplied-artifacts', 'index-resolution-without-urls',
+      'removal-removes-ai-setup-folder']);
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });
