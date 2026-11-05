@@ -132,6 +132,37 @@ test('acquired bytes that differ fail that AI setup and its dependants; an unrel
   server.serve(`/${native.step.distribution.file}`, native.archive);
 });
 
+/** The setup's MCP entry (Catalog `rootPaths`): `.mcp.json` starts the acquired executable by its path under the user root. */
+function withMcp(request, native) {
+  const id = native.id.replace('.ai-setup.', '.mcp.');
+  const executable = `${native.folder}/memory-mcp`;
+  request.contents[0].items.find(item => item.id === native.id).aiSetup.mcpItem = id;
+  request.contents[0].items.push({ id, kind: 'mcp', name: 'memory', description: 'memory', files: [] });
+  request.plan.plan.push({ op: 'merge', root: 'project', file: '.mcp.json', format: 'json', key: '/mcpServers/memory', entry: { command: executable },
+    item: id, clis: ['claude-code'], rootPaths: [{ pointer: '/command', root: 'user', path: executable }] });
+  return { request, id, step: request.plan.plan.length - 1 };
+}
+
+test('an MCP entry naming an acquired executable needs its acquire step; when that step is skipped the entry is not written', async () => {
+  noPython();
+  const target = project();
+  const native = nativeSetup(server, { name: 'n-mcp' });
+  const planned = withMcp(setupRequest(target, [native]), native);
+  const prepared = await prepare(planned.request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.equal(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers.memory.command, join(home, ...native.folder.split('/'), 'memory-mcp'));
+
+  // Skipping the acquisition leaves its MCP entry out too: it would start a program that is not there.
+  const other = project();
+  const skipped = withMcp(setupRequest(other, [nativeSetup(server, { name: 'n-mcp-skip' })]), nativeSetup(server, { name: 'n-mcp-skip' }));
+  const partial = await prepare({ ...skipped.request, resolutions: [{ managementId: 'cbm.ai-setup.n-mcp-skip', step: 0, choice: 'skip', observedSha256: null }] });
+  assert.equal(partial.status, 'partial', JSON.stringify(partial));
+  assert.deepEqual(partial.review.steps.map(step => [step.step, step.effect]), [[0, 'skipped'], [skipped.step, 'skipped']]);
+  assert.equal((await apply(partial.handle, { ...approve(partial.review), allowPartial: true })).completion, 'complete');
+  assert.equal(existsSync(join(other, '.mcp.json')), false);
+});
+
 test('a Python tool uses the installed interpreter in range first; the review shows both branches and the receipt says which ran', async () => {
   const installed = installedPython({ version: '3.13.1' });
   const target = project();

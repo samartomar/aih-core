@@ -13,6 +13,11 @@ import { checkValues, declarations, unboundInput } from './inputs.js';
 import type { Json } from '../types.js';
 import type { Invalid, PlanControls, PlanRequest, Problem, Refusal, UnsupportedVersion } from './types.js';
 import { PLAN_REQUEST } from './types.js';
+import { MANIFEST } from './acquire/types.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { projectRoot } from '../internal/host-files.js';
 import type { Lowered, SourceFacts, StepContext } from './steps/types.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -35,6 +40,40 @@ export interface CheckedPlan {
   inventories: ({ path: string; mode: '100644' | '100755'; bytes: Uint8Array }[] | null)[];
   /** The supplied source bytes by source id and path, for matching a source tree (contract 13); never authority. */
   sourceBytes: Map<string, Uint8Array>;
+}
+
+/**
+ * Catalog `rootPaths` (8.1): each path a merge entry names under the user root must be inside the folder an `acquire`
+ * step of this plan places, or inside an AI setup folder Core already acquired there (its marker file present). An entry
+ * for a skipped acquisition is skipped with it, never written to start a program that is not there; any other is a
+ * plan problem naming the step.
+ */
+function rootPathProblems(document: PlanRequest, steps: CheckedStep[]): Problem[] {
+  const under = (path: string, folder: string) => path.startsWith(folder.replace(/\/+$/, '') + '/');
+  const acquired = steps.flatMap(step => step.lowered.acquire ? [{ into: step.lowered.acquire.into, skipped: step.skipped }] : []);
+  let home: string | null = null;
+  try { home = projectRoot(homedir()); } catch { home = null; }
+  const pattern = /^(\.aihq\/ai-setup\/[^/]+\/[^/]+\/[^/]+)\//;
+  const coreAcquired = (path: string): boolean => {
+    const folder = pattern.exec(path)?.[1];
+    if (!folder || home === null) return false;
+    const marker = join(home, ...folder.split('/'), MANIFEST);
+    try { return existsSync(marker) && readFileSync(marker, 'utf8').startsWith('Managed by AIH Core: '); } catch { return false; }
+  };
+  const problems: Problem[] = [];
+  for (const step of steps) {
+    if (step.lowered.kind !== 'merge') continue;
+    const rootPaths = (document.plan.plan[step.index] as { rootPaths?: { path: string }[] }).rootPaths ?? [];
+    for (const [at, rootPath] of rootPaths.entries()) {
+      const placing = acquired.filter(entry => under(rootPath.path, entry.into));
+      if (placing.some(entry => !entry.skipped)) continue;
+      if (placing.length) { step.skipped = true; continue; }
+      if (coreAcquired(rootPath.path)) continue;
+      problems.push({ path: `/plan/plan/${step.index}/rootPaths/${at}`, reason: 'root-path-unplaced',
+        message: `Step ${step.index} names \`~/${rootPath.path}\`, which no acquire step of this plan places and no AI setup Core acquired holds; replan for a qualified AI setup.` });
+    }
+  }
+  return problems;
 }
 
 /** Admits a plan request; `files[].bytes` are copied, never kept by reference. */
@@ -186,6 +225,7 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     if (captured > limitValue('captured-bytes')) return limit('captured-bytes', 'The plan names more source bytes than one Apply may capture.');
     steps.push({ index, op: step.op, lowered: outcome.lowered, skipped: skips.has(index) });
   }
+  stepProblems.push(...rootPathProblems(document, steps));
   if (stepProblems.length) return invalid(stepProblems);
   // Every declared input of a planned item lands at a place some step marks; otherwise it is never guessed (C63).
   const bound = new Set(steps.flatMap(step => (step.lowered.bound?.review ?? []).map(row => `${row.item}\0${row.input}`)));

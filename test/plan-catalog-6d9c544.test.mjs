@@ -97,9 +97,24 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   gone(request.plan, roots);
 });
 
-test('an MCP entry naming an acquired executable gets its absolute path under the user root (Catalog rootPaths)', async () => {
+test('an MCP entry naming an executable no acquire step places and Core never acquired is a plan problem (cbm on windows-x64)', async () => {
+  // Catalog 6d9c544 on windows-x64: the AI setup is `not-qualified` (no acquire step), yet its MCP merges are planned.
+  const request = cbmRequest(project());
+  const rooted = request.plan.plan.flatMap((step, index) => step.rootPaths ? [index] : []);
+  assert.ok(rooted.length > 0);
+  const refused = await prepare(request, { catalog });
+  assert.equal(refused.status, 'invalid', JSON.stringify(refused).slice(0, 2000));
+  assert.deepEqual(refused.problems.map(problem => [problem.path, problem.reason]), rooted.map(index => [`/plan/plan/${index}/rootPaths/0`, 'root-path-unplaced']));
+  assert.match(refused.problems[0].message, new RegExp(`^Step ${rooted[0]} `));
+});
+
+test('an MCP entry naming an executable in a folder Core acquired gets its absolute path under the user root (Catalog rootPaths)', async () => {
   const target = project();
   const request = cbmRequest(target);
+  // A FIXTURE stand-in for an earlier install's acquired folder: Core's marker file in the folder the entry names.
+  const folder = join(home, ...request.plan.plan.find(step => step.rootPaths).rootPaths[0].path.split('/').slice(0, -1));
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, '.aih-acquired'), 'Managed by AIH Core: cbm.ai-setup.codebase-memory-mcp 0.12.1 windows-x64\n');
   const prepared = await prepare(request, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 3000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
@@ -109,6 +124,7 @@ test('an MCP entry naming an acquired executable gets its absolute path under th
   assert.equal(written.mcpServers['codebase-memory-mcp'].command, join(home, ...rootPath.path.split('/')));
   const toml = readFileSync(join(target, '.codex', 'config.toml'), 'utf8');
   assert.ok(toml.includes(JSON.stringify(join(home, ...rootPath.path.split('/')))), toml);
+  rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
 test('a plan-namespaced name reference is a warning; only a path reference is plan-unresolved', async () => {
