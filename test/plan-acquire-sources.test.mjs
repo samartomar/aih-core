@@ -9,6 +9,7 @@ import tls from 'node:tls';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { apply, list, prepare } from '../dist/core/index.js';
 import { schemas, validateFormat } from '../dist/core/contracts.js';
 import { indexBases } from '../dist/core/plan/acquire/sources.js';
@@ -35,6 +36,7 @@ after(async () => {
   for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
 });
+const sha256Hex = text => createHash('sha256').update(text, 'utf8').digest('hex');
 const approve = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
 const conforms = value => { assert.equal(validateFormat(value).status, 'ok', JSON.stringify(validateFormat(value))); return value; };
 let counter = 0;
@@ -154,4 +156,41 @@ test('the receipt records each acquired file origin in the published receipt for
   const withDownloads = receipts.filter(document => Object.values(document.items ?? {}).some(item => item.plan?.aiSetup?.downloads?.length));
   assert.ok(withDownloads.length > 0, 'a stored receipt records acquired files');
   for (const document of receipts) conforms(document);
+});
+
+test('a Catalog recipe plan whose qualification records no URLs keeps recipe origin proven and is never changed', async () => {
+  installedPython({ version: '3.13.1' });
+  const target = project();
+  const python = withoutUrls(pythonSetup(server, { name: 's-recipe', fallbackBytes }));
+  const supplied = suppliedFolder(folder(), python.files);
+  const recipe = { schema: 'urn:aihq:catalog:recipe:0.1.0', id: 'tools-base', kind: 'combination', framework: 'crg', members: [{ item: python.id, preTicked: true }],
+    options: [], data: { repository: 'samartomar/aih-catalog', commit: 'd'.repeat(40) } };
+  const recipeJson = JSON.stringify(recipe);
+  const source = { repository: 'https://github.com/example/tools-recipe', commit: 'e'.repeat(40) };
+  // A Core-side planRecipe FIXTURE: it plans the acquire step from the supplied qualification the way Catalog's planner
+  // records it (closure and fallback interpreter copied from `observed`, so with no URLs).
+  const planRecipe = (document, contents, _profiles, _choices, options) => {
+    const qualification = options.qualifications[0];
+    const step = structuredClone(python.step);
+    step.closure = structuredClone(qualification.observed.closure);
+    step.interpreter = { ...step.interpreter, fallback: structuredClone(qualification.observed.interpreter) };
+    return { status: 'ok', data: document.data, recipe: { id: document.id, sha256: sha256Hex(recipeJson), ...options.source }, plan: [step],
+      missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] };
+  };
+  const request = setupRequest(target, [python]);
+  request.plan = planRecipe(recipe, request.contents, request.profiles, {}, { scope: 'project', source, qualifications: request.qualifications });
+  request.recipeProof = { pluginJson: JSON.stringify({ name: recipe.id, version: '1.0.0', description: 'Fixture recipe' }), recipeJson, choices: {}, options: {} };
+  assert.equal(request.plan.plan[0].closure.some(wheel => 'url' in wheel), false);
+  const planned = JSON.stringify(request.plan); const qualified = JSON.stringify(request.qualifications);
+  const controls = { artifacts: supplied, catalog: { version: '0.0.0-core-fixture', planRecipe } };
+  const prepared = await prepare(request, controls);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.deepEqual(prepared.review.origin.recipe, { id: 'tools-base', sha256: sha256Hex(recipeJson), ...source });
+  const run = await apply(prepared.handle, approve(prepared.review), controls);
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.equal(JSON.stringify(request.plan), planned, 'the plan is never changed');
+  assert.equal(JSON.stringify(request.qualifications), qualified, 'the qualification is never changed');
+  const entry = await entryOf(target, python.id);
+  assert.equal(entry.origin.recipe.id, 'tools-base');
+  assert.ok(entry.aiSetup.downloads.every(record => record.origin === 'supplied'), JSON.stringify(entry.aiSetup.downloads));
 });
