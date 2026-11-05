@@ -69,7 +69,8 @@ export async function renderWrite(step: PlanStep & Record<string, Json>, context
     if (!object(from) || typeof from.sourcePath !== 'string' || from.sha256 !== undefined && (typeof from.sha256 !== 'string' || !SHA.test(from.sha256)))
       return problem(index, 'from', 'from', 'A rendered write names `from` as an item file or a source notice.');
     const item = typeof from.item === 'string' ? from.item : owners.length === 1 ? owners[0]! : undefined;
-    facts = item !== undefined ? context.itemFile(item, from.sourcePath) : typeof from.sourceId === 'string' ?
+    facts = item !== undefined ? context.itemFile(item, from.sourcePath, { ...(typeof from.sourceId === 'string' ? { sourceId: from.sourceId } : {}),
+      ...(typeof from.sha256 === 'string' ? { sha256: from.sha256 } : {}) }) : typeof from.sourceId === 'string' ?
       context.sourceFile(from.sourceId, from.sourcePath, typeof step.bundle === 'string' ? step.bundle : undefined) : undefined;
     if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
     if (typeof from.sourceId === 'string' && from.sourceId !== facts.sourceId || typeof from.sha256 === 'string' && from.sha256 !== facts.sha256)

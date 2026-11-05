@@ -152,7 +152,7 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     return refused('plan-unresolved', 'The plan has a clash or path reference only replanning can fix.',
       { fixes: ['names', 'overrides', 'bundle'] });
 
-  const itemFiles = new Map<string, SourceFacts>(); const notices = new Map<string, SourceFacts>();
+  const itemFiles = new Map<string, { item: string; facts: SourceFacts }>(); const notices = new Map<string, SourceFacts>();
   const itemInputs = new Map<string, { isSecret: boolean }>();
   const pluginFiles = new Map<string, SourceFacts>(); const bundleFiles = new Map<string, SourceFacts>();
   for (const content of document.contents as unknown as { sources: { id: string; notices?: { sourcePath: string; sha256: string }[] }[];
@@ -162,10 +162,11 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
     for (const item of content.items) for (const [name, spec] of Object.entries(item.requirements?.inputs ?? {}))
       itemInputs.set(key(item.id, name), { isSecret: !!spec && typeof spec === 'object' && spec.isSecret === true });
     // An item's own files and its editions' (the upstream's own version for one client, Catalog content `editions`).
+    // Each is kept by item, edition ('' for the item's own) and source path; a step's `from` facts pick among them.
     for (const item of content.items as { id: string; files: SourceFacts[]; editions?: Record<string, { files?: SourceFacts[] }> }[])
-      for (const file of [...item.files, ...Object.values(item.editions ?? {}).flatMap(edition => edition?.files ?? [])])
-        if (!itemFiles.has(key(item.id, file.sourcePath)))
-          itemFiles.set(key(item.id, file.sourcePath), { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable });
+      for (const [edition, list] of [['', item.files] as const, ...Object.entries(item.editions ?? {}).map(([name, entry]) => [name, entry?.files ?? []] as const)])
+        for (const file of list) if (!itemFiles.has(key(item.id, key(edition, file.sourcePath))))
+          itemFiles.set(key(item.id, key(edition, file.sourcePath)), { item: item.id, facts: { sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, executable: file.executable } });
     // Runtime bundles' root files, shared by the items that read them (Catalog content `bundles`).
     for (const bundle of ((content as { bundles?: unknown }).bundles ?? []) as { id?: unknown; sourceId?: unknown; files?: unknown }[])
       if (bundle && typeof bundle.id === 'string' && typeof bundle.sourceId === 'string' && Array.isArray(bundle.files))
@@ -201,7 +202,10 @@ export async function checkPlanRequest(input: unknown, controls: PlanControls): 
       `Step ${index} is a \`${step.op}\` step, which this Core does not know.`, { step: index, op: step.op });
     const context: StepContext = {
       request: document, controls, index,
-      itemFile: (item, sourcePath) => itemFiles.get(key(item, sourcePath)),
+      itemFile: (item, sourcePath, want) => {
+        const found = [...itemFiles.values()].filter(entry => entry.item === item && entry.facts.sourcePath === sourcePath).map(entry => entry.facts);
+        return found.find(facts => (want?.sourceId === undefined || facts.sourceId === want.sourceId) && (want?.sha256 === undefined || facts.sha256 === want.sha256)) ?? found[0];
+      },
       sourceFile: (sourceId, sourcePath, bundle) => bundle === undefined ? notices.get(key(sourceId, sourcePath)) :
         bundleFiles.get(key(bundle, key(sourceId, sourcePath))),
       qualification: sha => qualifications.get(sha),

@@ -271,3 +271,19 @@ test('the 0.1.0 documents conform to their published schemas', async () => {
   assert.equal(validateFormat(removal.review).status, 'ok');
   assert.equal(validateFormat(await apply(removal.handle, approve(removal.review))).status, 'ok');
 });
+
+test('an edition file is found by its own source facts, even where the item has a file at the same source path', async () => {
+  const target = project();
+  const request = ownRequest(target, { notes: { 'SKILL.md': 'The item file.\n' } }, ['kiro']);
+  const item = request.contents[0].items[0];
+  const [own] = item.files;
+  const bytes = Buffer.from('The Kiro edition.\n');
+  request.contents[0].sources.push({ id: 'local-kiro', kind: 'local', notices: [] });
+  item.editions = { kiro: { files: [{ ...own, sourceId: 'local-kiro', sha256: sha256(bytes), bytes: bytes.length }] } };
+  request.files.push({ sourceId: 'local-kiro', sourcePath: own.sourcePath, sha256: sha256(bytes), bytes });
+  request.plan.plan[0].from = { item: item.id, sourceId: 'local-kiro', sourcePath: own.sourcePath, sha256: sha256(bytes) };
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.equal(readFileSync(join(target, request.plan.plan[0].path), 'utf8'), 'The Kiro edition.\n');
+});

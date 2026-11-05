@@ -23,6 +23,10 @@ function filled(step: PlanStep & Record<string, Json>, context: StepContext, pat
   return { bytes: Buffer.from(done.text, 'utf8'), bound: done.bound };
 }
 
+/** The source id and sha256 a `from` names, when it names them. */
+const sourceFacts = (from: { [key: string]: Json }): { sourceId?: string; sha256?: string } =>
+  ({ ...(typeof from.sourceId === 'string' ? { sourceId: from.sourceId } : {}), ...(typeof from.sha256 === 'string' ? { sha256: from.sha256 } : {}) });
+
 export const write: StepHandler = {
   op: 'write',
   async prepare(step, context) {
@@ -58,7 +62,7 @@ export const write: StepHandler = {
     if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' ||
         typeof from.item !== 'string' && typeof from.sourceId !== 'string' || step.bundle !== undefined && typeof step.bundle !== 'string')
       return problem(index, 'from', 'from', 'A write step names `from` as an item file, or by `sourceId` a source notice or bundle file.');
-    const facts = typeof from.item === 'string' ? context.itemFile(from.item, from.sourcePath) :
+    const facts = typeof from.item === 'string' ? context.itemFile(from.item, from.sourcePath, sourceFacts(from)) :
       context.sourceFile(from.sourceId as string, from.sourcePath, step.bundle as string | undefined);
     if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
     if (from.sourceId !== undefined && from.sourceId !== facts.sourceId || from.sha256 !== undefined && from.sha256 !== facts.sha256)

@@ -87,7 +87,8 @@ async function blockText(step: PlanStep & Record<string, Json>, context: StepCon
     const item = from && typeof from === 'object' && !Array.isArray(from) && typeof from.item === 'string' ? from.item : owners.length === 1 ? owners[0] : undefined;
     if (!from || typeof from !== 'object' || Array.isArray(from) || typeof from.sourcePath !== 'string' || item === undefined)
       return problem(index, 'from', 'from', 'A Markdown merge names `from` as the file of the item whose block it is.');
-    const facts = context.itemFile(item, from.sourcePath);
+    const facts = context.itemFile(item, from.sourcePath, { ...(typeof from.sourceId === 'string' ? { sourceId: from.sourceId } : {}),
+      ...(typeof from.sha256 === 'string' ? { sha256: from.sha256 } : {}) });
     if (!facts) return refusal('source-missing', `Step ${index} names \`${from.sourcePath}\`, which no supplied content document lists.`, index);
     if (from.sourceId !== undefined && from.sourceId !== facts.sourceId || from.sha256 !== undefined && from.sha256 !== facts.sha256)
       return refusal('source-mismatch', `Step ${index}'s source facts for \`${from.sourcePath}\` differ from the content document's.`, index);

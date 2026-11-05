@@ -12,8 +12,11 @@ export interface StepContext {
   request: PlanRequest;
   controls: PlanControls;
   index: number;
-  /** A content item's file, or a file of one of its `editions`, by item id and source path. */
-  itemFile(item: string, sourcePath: string): SourceFacts | undefined;
+  /**
+   * A content item's file, or a file of one of its `editions`, by item id and source path; where several share that path,
+   * the one with the step's `from` source id and sha256.
+   */
+  itemFile(item: string, sourcePath: string, want?: { sourceId?: string; sha256?: string }): SourceFacts | undefined;
   /**
    * A file the plan copies that belongs to no one item, by source id and source path: a source notice, or, with
    * `bundle`, a file of that runtime bundle (Catalog content `bundles[].files`).
