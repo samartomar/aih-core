@@ -182,6 +182,73 @@ test('an MCP entry naming an acquired executable needs its acquire step; when th
   assert.equal(existsSync(join(other, '.mcp.json')), false);
 });
 
+test('a failed AI setup holds back only its own MCP entries: the other tools\' entries in the same config files are written (C60)', async () => {
+  noPython();
+  const target = project();
+  // The trio's shape: three acquires, then every tool's Codex TOML entry, then every tool's Claude Code JSON entry, so
+  // the failing tool's entry comes first in both shared files.
+  const setups = ['q-graph', 'q-memory', 'q-serena'].map((name, index) => nativeSetup(server, { name,
+    id: `${['crg', 'cbm', 'serena'][index]}.ai-setup.${name}`, members: { [name]: `#!/bin/sh\necho ${name}\n`, LICENSE: 'MIT\n' } }));
+  const request = setupRequest(target, setups);
+  request.profiles.push({ schema: 'urn:aihq:catalog:tool-profile:0.1.0', id: 'codex', version: 1, checkedWith: 'fixture' });
+  const mcpOf = setup => setup.id.replace('.ai-setup.', '.mcp.');
+  for (const setup of setups) {
+    request.contents[0].items.find(item => item.id === setup.id).aiSetup.mcpItem = mcpOf(setup);
+    request.contents[0].items.push({ id: mcpOf(setup), kind: 'mcp', name: setup.item.name, description: setup.item.name, files: [] });
+  }
+  const executable = setup => `${setup.folder}/${setup.item.name}`;
+  for (const setup of setups) request.plan.plan.push({ op: 'merge', root: 'project', file: '.codex/config.toml', format: 'toml',
+    key: `mcp_servers.${setup.item.name}`, entry: { command: executable(setup), args: ['--stdio'] }, item: mcpOf(setup), clis: ['codex'],
+    rootPaths: [{ pointer: '/command', root: 'user', path: executable(setup) }] });
+  for (const setup of setups) request.plan.plan.push({ op: 'merge', root: 'project', file: '.mcp.json', format: 'json',
+    key: `/mcpServers/${setup.item.name}`, entry: { type: 'stdio', command: executable(setup), args: ['--stdio'] }, item: mcpOf(setup), clis: ['claude-code'],
+    rootPaths: [{ pointer: '/command', root: 'user', path: executable(setup) }] });
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const [failing, ...others] = setups;
+  server.serve(`/${failing.step.distribution.file}`, Buffer.concat([failing.archive.subarray(0, -1), Buffer.from([failing.archive.at(-1) ^ 1])]));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete', JSON.stringify(run));
+  const steps = id => run.steps.filter(step => step.managementId === id).map(step => step.application);
+  assert.deepEqual(steps(failing.id), ['failed']);
+  assert.deepEqual(steps(mcpOf(failing)), ['not-attempted', 'not-attempted']);
+  for (const setup of others) {
+    assert.deepEqual(steps(setup.id), ['applied'], setup.id);
+    assert.deepEqual(steps(mcpOf(setup)), ['applied', 'applied'], JSON.stringify(run));
+  }
+  const toml = readFileSync(join(target, '.codex', 'config.toml'), 'utf8');
+  const json = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'));
+  assert.deepEqual(Object.keys(json.mcpServers), others.map(setup => setup.item.name));
+  for (const setup of others) {
+    assert.match(toml, new RegExp(`\\[mcp_servers\\.${setup.item.name}\\]`));
+    assert.equal(json.mcpServers[setup.item.name].command, join(home, ...executable(setup).split('/')));
+  }
+  assert.doesNotMatch(toml, /q-graph/);
+  const listed = conforms(await list({ target: { project: target }, scope: 'both' }));
+  const entry = id => listed.entries.find(row => row.managementId === id);
+  for (const setup of others) assert.equal(entry(mcpOf(setup)).installState, 'complete', mcpOf(setup));
+  assert.equal(entry(mcpOf(failing)).installState, 'interrupted');
+
+  // Fixed, the next Prepare finishes the failed tool: its entries join the others in both files.
+  server.serve(`/${failing.step.distribution.file}`, failing.archive);
+  const again = await prepare(request);
+  assert.equal(again.status, 'ready', JSON.stringify(again));
+  assert.equal(conforms(await apply(again.handle, approve(again.review))).completion, 'complete');
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers).sort(), setups.map(setup => setup.item.name).sort());
+  assert.match(readFileSync(join(target, '.codex', 'config.toml'), 'utf8'), /\[mcp_servers\.q-graph\]/);
+
+  // Removing everything takes every entry and acquired folder away (the emptied config files stay, as retained).
+  for (const scope of ['project', 'user']) {
+    const removal = await prepareRemoval({ target: { project: target }, scope,
+      removals: setups.map(setup => ({ managementId: scope === 'user' ? setup.id : mcpOf(setup) })) });
+    assert.equal(removal.status, 'ok', JSON.stringify(removal));
+    assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  }
+  assert.deepEqual(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers, {});
+  assert.doesNotMatch(readFileSync(join(target, '.codex', 'config.toml'), 'utf8'), /mcp_servers/);
+  for (const setup of setups) assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, setup.id);
+});
+
 test('a Python tool uses the installed interpreter in range first; the review shows both branches and the receipt says which ran', async () => {
   const installed = installedPython({ version: '3.13.1' });
   const target = project();

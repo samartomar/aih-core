@@ -980,7 +980,9 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
   path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`
   (Catalog `dependencies`, or the MCP item that starts the AI setup's executable); unrelated items continue and the run
-  is `incomplete`. So a failed download stops its MCP entry and tool-command, while a failed tool-command leaves the
+  is `incomplete`. An entry belongs to its item even in a file other items' entries share: when an earlier item's entry
+  there is not written, Core writes the later items' entries on the file as it then is, only if each comes out exactly as
+  reviewed. So a failed download stops its MCP entry and tool-command, while a failed tool-command leaves the
   MCP entry that already ran `applied`: Core never reorders steps to avoid that, and never rolls it back. A command that started and then failed, was cancelled or
   was interrupted is `effectsUncertain`; the next Prepare shows it again (`previous: interrupted`) for a fresh approval,
   and Core never re-runs or rolls it back by itself. Without a readback an applied command is `unverified`

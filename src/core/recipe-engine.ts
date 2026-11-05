@@ -87,6 +87,13 @@ interface PreparedStep {
    * before running it, and its claim once all the selection's steps succeed, so the receipt keeps its undo facts.
    */
   programClaim?: boolean;
+  /** The earlier step on the same file this step requires only because its bytes build on that step's output. */
+  overlayPrior?: string;
+  /**
+   * A plan merge: the same reviewed member built on other bytes of its file (when an earlier entry there is not written),
+   * with its custody; undefined when the member would not come out exactly as reviewed.
+   */
+  rebase?: (base: Buffer | null) => { after: Buffer; custody: Record<string, Owner | null> } | undefined;
 }
 interface PreparedState {
   trustParticipant?: TrustEngineParticipant;
@@ -146,6 +153,7 @@ const PREPARED_10 = 'urn:aihq:core:prepared-work:1.0.0' as const;
 const PREPARED_11 = 'urn:aihq:core:prepared-work:1.1.0' as const;
 const RESULT_10 = 'urn:aihq:core:run-result:1.0.0' as const;
 const RESULT_11 = 'urn:aihq:core:run-result:1.1.0' as const;
+const sameBytes = (a: Buffer | null, b: Buffer | null): boolean => a === null ? b === null : b !== null && a.equals(b);
 const samePath = (a: string, b: string): boolean => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 /** Whether `owner` holds a TOML entry in the table with key `table` (see `tomlTableOf`) of `path`. */
 const inTomlTable = (owner: Owner, path: string, table: string): boolean => owner.descriptor?.kind === 'entry' && owner.descriptor.format === 'toml' &&
@@ -595,6 +603,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
         let ownerKey: string | undefined; let preparedProcess: PreparedProcess | undefined; let programClaim = false;
         let details: ReviewOperation['details'] = {}; let effect: ReviewOperation['effects'] = 'already-satisfied';
         let createdContainer = false;
+        // The earlier step of this run on the same file whose output this step's bytes build on, when that is the only
+        // reason this step requires it; and, for a plan merge, how to build the same reviewed member on other bytes.
+        let overlayPrior: string | undefined; let rebase: PreparedStep['rebase'];
+        let renderOn: ((base: Buffer | null, tables: Map<string, TomlTableCustody>) => Buffer | null) | undefined;
+        let custodyFor: ((bytes: Buffer, tables: Map<string, TomlTableCustody> | undefined) => Record<string, Owner | null>) | undefined;
         let editConflict: string | undefined; let conflictReason: string | undefined; let createdTables: Map<string, TomlTableCustody> | undefined; const tomlHeirs: string[] = [];
         // Custody keys that only record an inherited line break; the operation does not author them.
         let inherited: string[] | undefined;
@@ -616,7 +629,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           root = target.root; path = target.path; pins = pathPins(target.absolute); ownerKey = path;
           const key = `${root}:${process.platform === 'win32' ? path.toLowerCase() : path}`; overlayKey = key;
           const overlay = overlays.get(key);
-          if (overlay) requires.push(overlay.priorId);
+          if (overlay) { if (!requires.includes(overlay.priorId)) overlayPrior = overlay.priorId; requires.push(overlay.priorId); }
           guardTrustMember(root, path, trustParticipant?.allows(root, path) ?? false, trustParticipant?.macosSession === true);
           const tx = transaction(root); const live = tx.inspect(path);
           if (live.state === 'unreadable') throw new Error('target-unreadable');
@@ -712,6 +725,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
               return { path: entry.path, action: entry.action,
                 value: sensitive ? '[REDACTED]' : canonicalJson(redactJson(entry.value, privateValues)) };
             }), ...(op.approval ? { approval: { tool: op.approval.tool } } : {}) };
+            if (entries.every(entry => entry.action === 'set')) renderOn = (base, tables) => renderConfigEntries(op.format, base, entries, tables);
             try {
               const created = new Map<string, TomlTableCustody>();
               after = renderConfigEntries(op.format, before, entries, created);
@@ -743,8 +757,10 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             if (op.action === 'set' && op.content) facts.delivered.push({ path, bytes: Buffer.from(resolveString(op.content, bound)), block: true });
             details = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker,
               blockAction: op.action, ...(op.content ? { content: redactExact(resolveString(op.content, bound), privateValues) } : {}) };
-            try { after = renderTextBlock(before, { blockId: op.blockId, startMarker: op.startMarker,
-              endMarker: op.endMarker, action: op.action, ...(op.content ? { content: resolveString(op.content, bound) } : {}) }); }
+            const block = { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker, action: op.action,
+              ...(op.content ? { content: resolveString(op.content, bound) } : {}) };
+            if (op.action === 'set') renderOn = base => renderTextBlock(base, block);
+            try { after = renderTextBlock(before, block); }
             catch (error) { if (!(error instanceof RecipeEditError)) throw error; editConflict = error.reason; after = before; }
           } else after = null;
           if (after && after.byteLength > 16 * 1024 * 1024) throw new Error('file-limit');
@@ -768,9 +784,9 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             });
             managed = managed || matches.every(Boolean);
             ownerState = managed ? 'managed' : 'unowned';
-            custody = Object.fromEntries(descriptors.map(member => {
-              const key = memberKey(member); const bytes = memberBytes(member, after!); const prior = projected.members[key];
-              const tomlTable = createdTables && member.kind === 'entry' ? createdTableCustody(member, createdTables, prior, projected.members) : undefined;
+            custodyFor = (written, tables) => Object.fromEntries(descriptors.map(member => {
+              const key = memberKey(member); const bytes = memberBytes(member, written); const prior = projected.members[key];
+              const tomlTable = tables && member.kind === 'entry' ? createdTableCustody(member, tables, prior, projected.members) : undefined;
               const fileCreated = selection.item !== undefined &&
                 (initialBefore === null || Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.createdFile === true));
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
@@ -782,6 +798,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
                 claims: [...(prior?.claims ?? []).filter(item => item.managementId !== claim.managementId || item.scope !== claim.scope),
                   { ...claim, sets: [...new Set([...(prior?.claims?.find(item => item.managementId === claim.managementId && item.scope === claim.scope)?.sets ?? []).filter(id => !policy.managedSelections?.some(set => set.id === id && set.scope === claim.scope)), ...claim.sets])] }] }];
             }));
+            custody = custodyFor(after!, createdTables);
             if (tomlHeirs.length) {
               // Only owners this step leaves in place inherit; one it deletes (null custody) stays deleted.
               const authoredKeys = new Set(Object.keys(custody));
@@ -1023,6 +1040,29 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             ...(op.kind === 'file.write' && op.content ? { content: 'input' in op.content && recipe.inputs[op.content.input]?.sensitive ?
               '[REDACTED]' : redactExact(resolveString(op.content, bound), privateValues) } : {}),
             mode, ...(resolution ? { reason: `explicit-${resolution}` } : {}), ...(editConflict ? { reason: editConflict } : {}) };
+          // C60: a plan merge into a file other items' merges also write belongs to its item alone. When an earlier entry
+          // in that file is not written (its item failed), Apply builds this step's member on the file as it then is; it
+          // proceeds only when the member's bytes are exactly the reviewed ones.
+          if (planned && overlayPrior && renderOn && custodyFor && custody && after && ['create-file', 'replace-file'].includes(effect) &&
+              !resolution && !editConflict && !preExisting && !original && !holders.length && !tomlHeirs.length && rescuedLines === null &&
+              !custodyOnly && Object.values(custody).every(owner => owner !== null)) {
+            const reviewed = { after, custody, render: renderOn, custodyOf: custodyFor, members: descriptors, toml: createdTables !== undefined };
+            rebase = base => {
+              try {
+                const tables = new Map<string, TomlTableCustody>();
+                const written = reviewed.render(base, tables);
+                if (!written || written.byteLength > 16 * 1024 * 1024) return undefined;
+                for (const member of reviewed.members) {
+                  const mine = memberBytes(member, written), shown = memberBytes(member, reviewed.after);
+                  if (mine === null || shown === null || !mine.equals(shown)) return undefined;
+                }
+                const fresh = reviewed.custodyOf(written, reviewed.toml ? tables : undefined);
+                const next: Record<string, Owner | null> = {};
+                for (const memberId of Object.keys(reviewed.custody)) { const owner = fresh[memberId]; if (!owner) return undefined; next[memberId] = owner; }
+                return { after: written, custody: next };
+              } catch (error) { if (error instanceof RecipeEditError) return undefined; throw error; }
+            };
+          }
           if (!['conflict', 'unavailable'].includes(effect)) overlays.set(key, { initial: overlay?.initial ?? initialBefore!, after: after!, priorId: id,
             ...(op.kind === 'file.write' && ['create-file', 'replace-file'].includes(effect) ? { mode: mode! } : overlay?.mode !== undefined ? { mode: overlay.mode } : {}) });
         }
@@ -1065,6 +1105,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             authored: { selectionId: selection.id, operationId: op.id, overlayKey, choices },
             ...(stepMembers ? { members: stepMembers } : {}), ...(preExisting ? { preExisting } : {}), ...(redactedPaths ? { redactedPaths } : {}),
             ...(original ? { original } : {}), ...(programClaim ? { programClaim: true } : {}),
+            ...(overlayPrior ? { overlayPrior } : {}), ...(rebase ? { rebase } : {}),
             // Every authored step carries its selection's item, so Apply can record the install as pending before its first effect.
             item: selectionItem(selection, project!, privateValues, extension) });
           extension?.observe?.({ selectionId: selection.id, operationId: op.id, effect, ...(conflictReason ? { reason: conflictReason } : {}),
@@ -1849,11 +1890,29 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
     };
     publishMetadata();
+    // Per reviewed file (overlay key): the bytes this run's steps left there, or `uncertain` after a failed write.
+    const fileBytes = new Map<string, Buffer | null | 'uncertain'>();
+    const rebasedFiles = new Set<string>();
     for (let index = 0; index < state.steps.length; index++) {
       const step = state.steps[index]!; const operation = result.operations[index]!;
       await yieldToHost();
       if (controls.signal?.aborted) throw new Error('cancelled');
-      if (stop || step.review.requires.some(id => outcomes.get(id) !== true)) {
+      let unmet = step.review.requires.filter(id => outcomes.get(id) !== true);
+      const fileKey = step.path ? step.authored?.overlayKey : undefined;
+      if (!stop && fileKey !== undefined) {
+        const known = fileBytes.get(fileKey);
+        const base = known === undefined ? step.initialBefore ?? null : known;
+        const fileAsReviewed = known !== 'uncertain' && sameBytes(base as Buffer | null, step.before ?? null);
+        if (step.rebase && known !== 'uncertain' && unmet.every(id => id === step.overlayPrior)) {
+          // Only the earlier entry in this file stands in the way: build this step's member on the file as it now is.
+          if (fileAsReviewed) unmet = [];
+          else {
+            const rebuilt = step.rebase(base as Buffer | null);
+            if (rebuilt) { step.before = base as Buffer | null; step.after = rebuilt.after; step.custody = rebuilt.custody; unmet = []; rebasedFiles.add(fileKey); }
+          }
+        } else if (!fileAsReviewed && rebasedFiles.has(fileKey) && !unmet.length) unmet = [fileKey];
+      }
+      if (stop || unmet.length) {
         operation.reason = 'dependency-not-satisfied'; outcomes.set(step.review.id, false);
         for (const check of result.checks.filter(item => item.operationId === step.review.id)) check.reason = 'dependency-not-satisfied';
         continue;
@@ -2027,6 +2086,10 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       }
       if (operation.application === 'failed') for (const check of result.checks.filter(item => item.operationId === step.review.id && item.status === 'skipped'))
         check.reason = 'application-failed';
+      if (fileKey !== undefined) {
+        if (operation.application === 'applied') fileBytes.set(fileKey, step.after ?? null);
+        else if (operation.application === 'failed' && operation.effectsUncertain) fileBytes.set(fileKey, 'uncertain');
+      }
       const okay = (operation.application === 'applied' || operation.application === 'already-satisfied') &&
         ['unverified', 'passed'].includes(operation.verification.status);
       outcomes.set(step.review.id, okay);
