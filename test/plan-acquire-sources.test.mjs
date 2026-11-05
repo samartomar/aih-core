@@ -26,7 +26,7 @@ before(async () => {
   Object.assign(process.env, fakeEnvironment(bin));
   server = await artifactServer();
   tls.setDefaultCACertificates([...tls.getCACertificates('default'), server.caPem]);
-  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
+  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pypiFiles = server.base; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
   base = fakeInterpreterBase(join(scratch, 'base'));
   fallbackBytes = fallbackArchive(base, { version: '3.14.5' });
 });
@@ -118,6 +118,19 @@ test('wheels resolve through the PyPI JSON API and the fallback interpreter thro
   assert.deepEqual([wheel.origin, wheel.url], ['downloaded', server.url('/files/networkx-3.4.2-py3-none-any.whl')]);
   const fallback = recorded.find(entry => entry.role === 'interpreter');
   assert.deepEqual([fallback.origin, fallback.url], ['downloaded', server.url(`/pbs/20261026/${encodeURIComponent(python.step.interpreter.fallback.file)}`)]);
+});
+
+test('a PyPI index source is refused at Prepare when the host its files come from is not trusted (tls-untrusted)', async () => {
+  installedPython({ version: '3.13.1' });
+  const files = await artifactServer();
+  indexBases.pypiFiles = files.base;
+  try {
+    const python = withoutUrls(pythonSetup(server, { name: 's-files-tls', fallbackBytes }));
+    pypiIndex(server, `${server.base}/pypi-index`, python);
+    const refused = await prepare(setupRequest(project(), [python]));
+    assert.deepEqual([refused.status, refused.code, refused.step, refused.repair], ['refused', 'tls-untrusted', 0, 'node-npm-ca'], JSON.stringify(refused));
+    assert.ok(refused.reason.includes(files.base), refused.reason);
+  } finally { indexBases.pypiFiles = server.base; await files.close(); }
 });
 
 test('an index answer whose file has other bytes fails closed; an index with no such file is artifact-unavailable', async () => {

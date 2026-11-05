@@ -861,8 +861,8 @@ qualification documents the plan's acquire steps name in `qualifications`.
   `urls[]` entry whose `filename` and `digests.sha256` are the planned ones), a fallback interpreter through its
   python-build-standalone release download (tag = the `+YYYYMMDD` part of its file name). Every byte is checked against
   the qualified sha256 (and byte count when recorded): a mismatch is `artifact-mismatch` and never falls through to
-  another source; nothing obtainable is `artifact-unavailable`. Prepare probes each remote source's host with this
-  machine's Node trust: a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`.
+  another source; nothing obtainable is `artifact-unavailable`. Prepare probes each remote source's host (for a PyPI
+  source, both `pypi.org` and `files.pythonhosted.org`) with this machine's Node trust: a certificate it doesn't trust is `refused` `tls-untrusted` with `repair: "node-npm-ca"`.
 - **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
   `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
   qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,

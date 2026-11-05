@@ -25,7 +25,7 @@ before(async () => {
   Object.assign(process.env, fakeEnvironment(bin));
   server = await artifactServer();
   tls.setDefaultCACertificates([...tls.getCACertificates('default'), server.caPem]);
-  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
+  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pypiFiles = server.base; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
   base = fakeInterpreterBase(join(scratch, 'base'));
   fallbackBytes = fallbackArchive(base, { version: '3.14.5' });
 });

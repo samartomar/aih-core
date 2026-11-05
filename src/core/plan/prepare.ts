@@ -42,7 +42,7 @@ import { acquisition } from './acquire/effect.js';
 import { probe } from './acquire/download.js';
 import { discoverInterpreter } from './acquire/interpreter.js';
 import { FALLBACK_REASONS, type AcquireFacts, type InstalledInterpreter } from './acquire/types.js';
-import { planSources, probeUrl, type ReviewDownload, type Sources } from './acquire/sources.js';
+import { planSources, probeUrls, type ReviewDownload, type Sources } from './acquire/sources.js';
 import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { Lowered, LoweredMerge } from './steps/types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
@@ -144,7 +144,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     const planned = planSources(spec, controls.artifacts ?? null);
     sourced.set(step.index, planned);
     const remote = planned.review.flatMap(entry => [entry, ...(entry.build ? [entry.build.source, ...entry.build.dependencies] : [])])
-      .map(entry => probeUrl(entry, entry.source)).filter((url): url is string => url !== null);
+      .flatMap(entry => probeUrls(entry, entry.source));
     for (const url of remote) {
       const origin = new URL(url).origin;
       if (!probed.has(origin)) probed.set(origin, await probe(url, controls.signal));

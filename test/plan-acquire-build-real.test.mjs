@@ -36,7 +36,7 @@ before(async () => {
   process.env.PIP_INDEX_URL = 'https://127.0.0.1:1/simple'; process.env.PIP_FIND_LINKS = 'https://127.0.0.1:1/links';
   server = await artifactServer();
   tls.setDefaultCACertificates([...tls.getCACertificates('default'), server.caPem]);
-  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
+  indexBases.pypi = `${server.base}/pypi-index`; indexBases.pypiFiles = server.base; indexBases.pythonBuildStandalone = `${server.base}/pbs`;
 });
 after(async () => {
   Object.assign(indexBases, defaults);

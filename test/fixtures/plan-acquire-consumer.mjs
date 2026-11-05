@@ -23,7 +23,7 @@ if (process.argv[2] === 'child') {
   if (indexBase) {
     // Core's internal index-base seam (not a public entry), pointed at the fixture server: the same module the package loads.
     const { indexBases } = await import('./node_modules/@aihq/core/dist/core/plan/acquire/sources.js');
-    indexBases.pypi = `${indexBase}/pypi-index`; indexBases.pythonBuildStandalone = `${indexBase}/pbs`;
+    indexBases.pypi = `${indexBase}/pypi-index`; indexBases.pypiFiles = indexBase; indexBases.pythonBuildStandalone = `${indexBase}/pbs`;
   }
   if (mode === 'install') {
     const prepared = await prepare(JSON.parse(readFileSync(file, 'utf8')));

@@ -21,6 +21,8 @@ import type { AcquireSpec, Download, DownloadRole, Source } from './types.js';
  */
 export const indexBases = {
   pypi: 'https://pypi.org',
+  /** Where PyPI serves the files its JSON API lists. */
+  pypiFiles: 'https://files.pythonhosted.org',
   pythonBuildStandalone: 'https://github.com/astral-sh/python-build-standalone/releases/download'
 };
 const PBS = /^cpython-[0-9][0-9.]*\+([0-9]{8})-[A-Za-z0-9._+-]+\.tar\.(gz|zst)$/;
@@ -54,11 +56,11 @@ const pypiRelease = (source: Extract<Source, { index: 'pypi' }>): string =>
 const pbsDownload = (source: Extract<Source, { index: 'python-build-standalone' }>, file: string): string =>
   `${indexBases.pythonBuildStandalone}/${encodeURIComponent(source.release)}/${encodeURIComponent(file)}`;
 
-/** Where Prepare's trust probe (C36) looks for this source, or `null` when it reads nothing remote. */
-export function probeUrl(item: { file: string }, source: Source): string | null {
-  if (source.kind === 'url') return source.url;
-  if (source.kind !== 'index') return null;
-  return source.index === 'pypi' ? pypiRelease(source) : pbsDownload(source, item.file);
+/** Where Prepare's trust probe (C36) looks for this source: none when it reads nothing remote; for PyPI, the index and its file host. */
+export function probeUrls(item: { file: string }, source: Source): string[] {
+  if (source.kind === 'url') return [source.url];
+  if (source.kind !== 'index') return [];
+  return source.index === 'pypi' ? [pypiRelease(source), `${indexBases.pypiFiles}/`] : [pbsDownload(source, item.file)];
 }
 
 export interface Obtained { bytes: Buffer; origin: 'supplied' | 'downloaded'; url?: string }
