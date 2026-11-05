@@ -81,6 +81,8 @@ async function removeAll(target, scope) {
 
 for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} plan for nine clients installs, every file as Catalog planned, and removes`, async () => {
   const target = project();
+  // The fake `opencode` makes `~/.config/opencode` when the review asks its version: that folder is the CLI's, never Core's.
+  rmSync(join(home, '.config'), { recursive: true, force: true });
   const request = byoRequest(scope, target);
   const prepared = await prepare(request, byoControls());
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 3000));
@@ -95,6 +97,7 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   placed(request.plan, recorded.byo.files, roots);
   await removeAll(target, scope);
   gone(request.plan, roots);
+  assert.equal(existsSync(join(home, '.config', 'opencode')), true, 'removal keeps the folder the CLI made for itself');
 });
 
 test('an MCP entry naming an executable no acquire step places and Core never acquired is a plan problem (cbm on windows-x64)', async () => {

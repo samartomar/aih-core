@@ -229,6 +229,12 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     planned: new Set([...groups.values()].map(group => group.managementId)),
     signers: allowedSigners(signerRecords.signers as never, enterprise?.state.bound.organization).map(signer =>
       ({ ...signer, identity: signer.identity ?? signer.subject }) as never) }) : undefined;
+  // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop. The installed CLIs'
+  // version commands run before Core reads the targets (link places included): a CLI may create its own folders when it
+  // starts, and the review must bind the disk as it is after that, or Apply would find the targets changed and a link
+  // would record the CLI's folder as one Core created.
+  const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
+  const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
   // last can remove them; a copy holds the files the plan writes into the linked folder.
   const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
@@ -409,11 +415,6 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     return [key, index + (sub === undefined ? 0 : sub === 'run' ? 0.5 : (Number(sub) + 1) / 1_000_000)];
   }));
   const observed = new Map<string, ObservedStep>();
-  // D110: a CLI older than its served profile's `checkedWith` is a warning in the review, never a stop. The installed CLIs'
-  // version commands run before the engine reads the targets: a CLI may create its own folders when it starts, and the
-  // review must bind the disk as it is after that, or Apply would find the targets changed.
-  const served = (request.profiles as unknown as { id?: unknown }[]).map(item => item?.id).filter((id): id is string => typeof id === 'string' && knownCli(id));
-  const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   // An update releases the replaced claims the new plan no longer makes, and keeps every member you edited (C39, C58).
   const removals = (selected?.removals ?? []).map(removal => ({ managementId: removal.key, scope: removal.scope }));
   const lifecycleOwners = new Map<string, string[]>();
